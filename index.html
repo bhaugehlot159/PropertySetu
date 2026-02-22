@@ -4,106 +4,7 @@
     <meta charset="UTF-8">
     <title>PropertySetu | Udaipur Property</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-        }
-
-        header {
-            background-color: #0a2540;
-            color: white;
-            padding: 15px;
-            text-align: center;
-        }
-
-        nav {
-            background: #133b63;
-            padding: 10px;
-            text-align: center;
-        }
-
-        nav a {
-            color: white;
-            text-decoration: none;
-            margin: 0 15px;
-        }
-
-        .hero {
-            height: 80vh;
-            background: url('https://images.unsplash.com/photo-1609947017136-9daf32a5eb16') center/cover;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            text-align: center;
-            background-blend-mode: darken;
-            background-color: rgba(0,0,0,0.5);
-        }
-
-        .hero h1 {
-            font-size: 40px;
-        }
-
-        .section {
-            padding: 40px;
-            text-align: center;
-        }
-<section class="section">
-    <h2>Featured Properties in Udaipur</h2>
-
-    <div class="property-card">
-        <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c" alt="House">
-        <h3>Luxury Villa – Lake View</h3>
-        <p>Location: Fateh Sagar, Udaipur</p>
-        <p>Price: ₹1.2 Cr</p>
-        <span class="tag buy">Buy</span>
-    </div>
-
-<section class="section">
-    <h2>Filter Properties</h2>
-
-    <select id="filterSelect">
-        <option value="all">All</option>
-        <option value="buy">Buy</option>
-        <option value="rent">Rent</option>
-    </select>
-</section>
-    <div class="property-card">
-        <img src="https://images.unsplash.com/photo-1560185127-6ed189bf02f4" alt="Flat">
-        <h3>2BHK Modern Flat</h3>
-        <p>Location: Hiran Magri</p>
-        <p>Rent: ₹18,000/month</p>
-        <span class="tag rent">Rent</span>
-    </div>
-
-    <div class="property-card">
-        <img src="https://images.unsplash.com/photo-1501183638710-841dd1904471" alt="Plot">
-        <h3>Residential Plot</h3>
-        <p>Location: Badgaon</p>
-        <p>Price: ₹35 Lakh</p>
-        <span class="tag buy">Buy</span>
-    </div>
-
-</section>
-
-        .card {
-            background: #f2f2f2;
-            padding: 20px;
-            margin: 10px;
-            display: inline-block;
-            width: 200px;
-            border-radius: 8px;
-        }
-
-        footer {
-            background: #0a2540;
-            color: white;
-            text-align: center;
-            padding: 15px;
-        }
-    </style>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
@@ -115,36 +16,51 @@
     <a href="#">Home</a>
     <a href="#">Buy</a>
     <a href="#">Rent</a>
-    <a href="#">List Property</a>
+    <a href="list-property.html">List Property</a>
     <a href="#">Contact</a>
 </nav>
 
 <section class="hero">
     <div>
-        <h1>Find Trusted Property in Udaipur</h1>
-        <p>Buy • Sell • Rent • Property Care</p>
+        <h1>PropertySetu – Udaipur’s Trusted Real Estate Platform</h1>
+        <p>Buy • Sell • Rent • Invest Smartly</p>
+        <a href="list-property.html"><button>List Your Property Now</button></a>
     </div>
 </section>
+
 <section class="section">
     <input type="text" id="searchInput" placeholder="Search by Location or Property Title..." style="width: 80%; padding: 10px; margin-bottom: 20px;">
 </section>
 
-<section class="hero">
-    <div>
-        <h1>PropertySetu – Udaipur’s Trusted Real Estate Platform</h1>
-        <p>Buy • Sell • Rent • Invest Smartly</p>
-        <br>
-        <a href="list-property.html">
-            <button>List Your Property Now</button>
-        </a>
-    </div>
+<section class="section">
+    <h2>Filter Properties</h2>
+    <select id="filterSelect">
+        <option value="all">All</option>
+        <option value="buy">Buy</option>
+        <option value="rent">Rent</option>
+    </select>
 </section>
-<script src="js/preview.js"></script>
-<script src="js/calculator.js"></script>
-<script src="js/ai-generator.js"></script>
-<script src="js/filter.js"></script>
-<script src="js/search.js"></script>
-</body>
+
+<section class="section">
+    <h2>Featured Properties in Udaipur</h2>
+
+    <div class="property-card">
+        <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c" alt="House">
+        <h3>Luxury Villa – Lake View</h3>
+        <p>Location: Fateh Sagar</p>
+        <p>Price: ₹1.2 Cr</p>
+        <span class="tag buy">Buy</span>
+    </div>
+
+    <div class="property-card">
+        <img src="https://images.unsplash.com/photo-1560185127-6ed189bf02f4" alt="Flat">
+        <h3>2BHK Modern Flat</h3>
+        <p>Location: Hiran Magri</p>
+        <p>Rent: ₹18,000/month</p>
+        <span class="tag rent">Rent</span>
+    </div>
+
+</section>
 
 <footer>
     <p>© 2026 PropertySetu | Made in Udaipur</p>
@@ -157,5 +73,11 @@
     </p>
     <p>Contact: +91-XXXXXXXXXX | Email: info@propertysetu.in</p>
 </footer>
+
+<script src="js/preview.js"></script>
+<script src="js/calculator.js"></script>
+<script src="js/ai-generator.js"></script>
+<script src="js/filter.js"></script>
+<script src="js/search.js"></script>
 </body>
 </html>
