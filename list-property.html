@@ -22,16 +22,9 @@
 
 <section class="section">
     <h2>List Your Property</h2>
-
     <form>
-        <p>
-            <input type="text" placeholder="Owner Name" required>
-        </p>
-
-        <p>
-            <input type="text" placeholder="Property Title" required>
-        </p>
-
+        <p><input type="text" placeholder="Owner Name" required></p>
+        <p><input type="text" placeholder="Property Title" required></p>
         <p>
             <select required>
                 <option value="">Select Property Type</option>
@@ -41,59 +34,26 @@
                 <option>Commercial</option>
             </select>
         </p>
-
-        <p>
-            <input type="number" placeholder="Price (₹)" required>
-        </p>
-
-        <p>
-            <input type="text" placeholder="Area (sq ft)" required>
-        </p>
-        <p>
-    <input type="number" id="length" placeholder="Length (ft)">
-</p>
-
-<p>
-    <input type="number" id="width" placeholder="Width (ft)">
-</p>
-
-<p>
-    <input type="text" id="totalArea" placeholder="Total Area (Auto Calculated)" readonly>
-</p>
-
-<p>
-    <input type="text" placeholder="Location (Udaipur Area Name)">
-</p>
-
-<p>
-    <input type="file" id="videoUpload" accept="video/*">
-</p>
-
-<div id="videoPreview"></div>
-
-        <p>
-           <button type="button" onclick="generateDescription()">Generate AI Description</button>
-     </p>
-
-        <p>
-            <input type="file" multiple>
-        </p>
-
-        <p>
-            <button type="submit">Submit Property</button>
-        </p>
+        <p><input type="number" placeholder="Price (₹)" required></p>
+        <p><input type="number" id="length" placeholder="Length (ft)"></p>
+        <p><input type="number" id="width" placeholder="Width (ft)"></p>
+        <p><input type="text" id="totalArea" placeholder="Total Area (Auto Calculated)" readonly></p>
+        <p><input type="text" placeholder="Location (Udaipur Area Name)"></p>
+        <p><input type="file" multiple></p>
+        <p><input type="file" id="videoUpload" accept="video/*"></p>
+        <div id="videoPreview"></div>
+        <p><textarea id="description" placeholder="Property Description"></textarea></p>
+        <p><button type="button" onclick="generateDescription()">Generate AI Description</button></p>
+        <p><button type="submit">Submit Property</button></p>
     </form>
-
 </section>
 
 <footer>
-    © 2026 PropertySetu
+    <p>© 2026 PropertySetu | Made in Udaipur</p>
 </footer>
-    
+
 <script src="js/preview.js"></script>
-<script src="js/calculator.js"></
-script>
-<script src="js/ai-generator.js"></
-script>
+<script src="js/calculator.js"></script>
+<script src="js/ai-generator.js"></script>
 </body>
 </html>
