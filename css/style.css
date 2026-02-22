@@ -1,3 +1,17 @@
+form input,
+form select,
+form textarea {
+    width: 60%;
+    padding: 10px;
+}
+
+button {
+    padding: 10px 20px;
+    background: #0a2540;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
 body {
     margin: 0;
     font-family: Arial, sans-serif;
