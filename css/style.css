@@ -82,3 +82,67 @@ footer {
     text-align: center;
     padding: 15px;
 }
+/* Property Cards Section */
+
+.property-card {
+    background: white;
+    width: 280px;
+    display: inline-block;
+    margin: 15px;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    transition: 0.3s;
+    position: relative;
+    vertical-align: top; /* inline-block cards line me achhe se show ho */
+}
+
+.property-card:hover {
+    transform: translateY(-5px);
+}
+
+.property-card img {
+    width: 100%;
+    height: 180px; /* uniform image size */
+    object-fit: cover;
+    border-radius: 8px;
+}
+
+.property-card h3 {
+    margin-top: 10px;
+    font-size: 18px;
+    color: #0a2540;
+}
+
+.property-card p {
+    font-size: 14px;
+    margin: 5px 0;
+    color: #333;
+}
+
+.tag {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.buy {
+    background: green;
+}
+
+.rent {
+    background: orange;
+}
+
+/* Responsive Grid for Mobile */
+@media (max-width: 768px) {
+    .property-card {
+        width: 90%;
+        margin: 10px auto;
+    }
+}
