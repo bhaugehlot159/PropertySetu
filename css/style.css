@@ -146,3 +146,57 @@ footer {
         margin: 10px auto;
     }
 }
+/* Mobile Responsive Adjustments */
+
+@media (max-width: 1024px) {
+    nav a {
+        margin: 0 10px;
+    }
+
+    .hero h1 {
+        font-size: 36px;
+    }
+
+    .hero p {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 768px) {
+    .property-card {
+        width: 90%;
+        margin: 10px auto;
+        display: block;
+    }
+
+    .hero h1 {
+        font-size: 28px;
+    }
+
+    .hero p {
+        font-size: 14px;
+    }
+
+    nav {
+        font-size: 14px;
+    }
+}
+
+/* Footer Styling */
+footer {
+    background: #0a2540;
+    color: white;
+    text-align: center;
+    padding: 25px 10px;
+    font-size: 14px;
+}
+
+footer a {
+    color: #ffd700;
+    text-decoration: none;
+    margin: 0 10px;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}
