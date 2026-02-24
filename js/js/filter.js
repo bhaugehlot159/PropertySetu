@@ -1,10 +1,20 @@
-const filterSelect = document.getElementById("filterSelect");
-const propertyCards = document.querySelectorAll(".property-card");
-filterSelect.addEventListener("change", function() {
-    const value = this.value;
-    propertyCards.forEach(card => {
-        if(value === "all") card.style.display = "inline-block";
-        else if(card.querySelector(".tag").classList.contains(value)) card.style.display = "inline-block";
-        else card.style.display = "none";
+document.getElementById("filterSelect").addEventListener("change", function() {
+
+    let selected = this.value;
+    let cards = document.querySelectorAll(".property-card");
+
+    cards.forEach(function(card) {
+
+        if (selected === "all") {
+            card.style.display = "block";
+        } 
+        else if (card.getAttribute("data-type") === selected) {
+            card.style.display = "block";
+        } 
+        else {
+            card.style.display = "none";
+        }
+
     });
+
 });
