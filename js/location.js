@@ -293,8 +293,8 @@ input.addEventListener("keyup", function() {
         return;
     }
 
-    let filtered = locations.filter(loc => 
-        loc.toLowerCase().includes(value)
+   let filtered = uniqueLocations.filter
+(loc =>         loc.toLowerCase().includes(value)
     );
 
     filtered.forEach(loc => {
