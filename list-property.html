@@ -1,59 +1,81 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>List Property | PropertySetu</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="css/style.css">
-</head>
-<body>
+<h2>List Your Property</h2>
 
-<header>
-    <h2>PropertySetu</h2>
-</header>
+<form>
 
-<nav>
-    <a href="index.html">Home</a>
-    <a href="#">Buy</a>
-    <a href="#">Rent</a>
-    <a href="list-property.html">List Property</a>
-    <a href="#">Contact</a>
-</nav>
+<h3>🏠 Basic Info</h3>
 
-<section class="section">
-    <h2>List Your Property</h2>
-    <form>
-        <p><input type="text" placeholder="Owner Name" required></p>
-        <p><input type="text" placeholder="Property Title" required></p>
-        <p>
-            <select required>
-                <option value="">Select Property Type</option>
-                <option>House</option>
-                <option>Flat</option>
-                <option>Plot</option>
-                <option>Commercial</option>
-            </select>
-        </p>
-        <p><input type="number" placeholder="Price (₹)" required></p>
-        <p><input type="number" id="length" placeholder="Length (ft)"></p>
-        <p><input type="number" id="width" placeholder="Width (ft)"></p>
-        <p><input type="text" id="totalArea" placeholder="Total Area (Auto Calculated)" readonly></p>
-        <p><input type="text" placeholder="Location (Udaipur Area Name)"></p>
-        <p><input type="file" multiple></p>
-        <p><input type="file" id="videoUpload" accept="video/*"></p>
-        <div id="videoPreview"></div>
-        <p><textarea id="description" placeholder="Property Description"></textarea></p>
-        <p><button type="button" onclick="generateDescription()">Generate AI Description</button></p>
-        <p><button type="submit">Submit Property</button></p>
-    </form>
-</section>
+<p>
+<select required>
+<option value="">Property Type</option>
+<option>House</option>
+<option>Flat</option>
+<option>Villa</option>
+<option>Plot</option>
+<option>Agricultural Land</option>
+<option>Commercial</option>
+</select>
+</p>
 
-<footer>
-    <p>© 2026 PropertySetu | Made in Udaipur</p>
-</footer>
+<p>
+<select required>
+<option value="">Sale / Rent</option>
+<option>Sale</option>
+<option>Rent</option>
+</select>
+</p>
 
-<script src="js/preview.js"></script>
-<script src="js/calculator.js"></script>
-<script src="js/ai-generator.js"></script>
-</body>
-</html>
+<p><input type="number" placeholder="Price (₹)" required></p>
+<p>
+<select>
+<option>Negotiable?</option>
+<option>Yes</option>
+<option>No</option>
+</select>
+</p>
+
+<h3>📏 Size Details</h3>
+
+<p><input type="number" placeholder="Plot Size (sq ft)"></p>
+<p><input type="number" placeholder="Built-up Area"></p>
+<p><input type="number" placeholder="Carpet Area"></p>
+<p><input type="number" placeholder="Total Floors"></p>
+
+<p>
+<select>
+<option>Facing</option>
+<option>North</option>
+<option>South</option>
+<option>East</option>
+<option>West</option>
+</select>
+</p>
+
+<p>
+<select>
+<option>Furnished Status</option>
+<option>Furnished</option>
+<option>Semi Furnished</option>
+<option>Unfurnished</option>
+</select>
+</p>
+
+<h3>🛁 Extra Features</h3>
+
+<p><input type="number" placeholder="Bedrooms"></p>
+<p><input type="number" placeholder="Bathrooms"></p>
+<p><input type="number" placeholder="Parking"></p>
+<p><input type="text" placeholder="Nearby Landmark"></p>
+
+<h3>📸 Media Upload</h3>
+
+<p><input type="file" multiple required></p>
+<p><input type="file" accept="video/*"></p>
+<p><input type="file" placeholder="Upload Floor Plan"></p>
+
+<h3>📝 Description</h3>
+
+<p><textarea rows="5" placeholder="Property Description"></textarea></p>
+
+<p><button type="submit">Submit Property</button></p>
+
+</form>
