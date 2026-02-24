@@ -32,13 +32,17 @@
     <input type="text" id="searchInput" placeholder="Search by Location or Property Title..." style="width: 80%; padding: 10px; margin-bottom: 20px;">
 </section>
 
-<section class="section">
-    <h2>Filter Properties</h2>
-    <select id="filterSelect">
-        <option value="all">All</option>
-        <option value="buy">Buy</option>
-        <option value="rent">Rent</option>
-    </select>
+<div style="position:relative; width:80%; margin:auto;">
+
+<input type="text" id="locationSearch" 
+placeholder="Search Location in Udaipur..."
+style="width:100%; padding:10px;">
+
+<div id="locationList" 
+style="position:absolute; background:#fff; width:100%; max-height:200px; overflow-y:auto; border:1px solid #ccc; display:none; z-index:1000;">
+</div>
+
+</div>
 </section>
 
 <section class="section">
