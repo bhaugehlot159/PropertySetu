@@ -32,18 +32,21 @@ input.addEventListener("keyup", function() {
     );
 
     filtered.forEach(loc => {
-        let div = document.createElement("div");
-        div.textContent = loc;
-        div.style.padding = "8px";
-        div.style.cursor = "pointer";
 
-        div.onclick = function() {
-            input.value = loc;
-            list.style.display = "none";
-        };
+    let div = document.createElement("div");
+    div.style.padding = "8px";
+    div.style.cursor = "pointer";
 
-        list.appendChild(div);
-    });
+    // Highlight matching text
+    let regex = new RegExp("(" + value + ")", "gi");
+    div.innerHTML = loc.replace(regex, "<b style='color:blue;'>$1</b>");
 
+    div.onclick = function() {
+        input.value = loc;
+        list.style.display = "none";
+    };
+
+    list.appendChild(div);
+});
     list.style.display = filtered.length ? "block" : "none";
 });
