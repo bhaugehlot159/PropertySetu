@@ -1,3 +1,5 @@
+import paymentRoutes from "./routes/paymentRoutes.js";
+
 import adminRoutes from "./routes/adminRoutes.js";
 
 import reviewRoutes from "./routes/reviewRoutes.js";
@@ -34,6 +36,7 @@ app.use("/api/properties", propertyRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/payment", paymentRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
