@@ -80,6 +80,10 @@ function filterByPrice() {
 
 }
 function applyFilters() {
+document.getElementById("searchInput").addEventListener("input", applyFilters);
+document.getElementById("locationFilter").addEventListener("change", applyFilters);
+document.getElementById("minPrice").addEventListener("input", applyFilters);
+document.getElementById("maxPrice").addEventListener("input", applyFilters);
 
     const searchValue = document.getElementById("searchInput").value.toLowerCase();
     const locationValue = document.getElementById("locationFilter").value.toLowerCase();
