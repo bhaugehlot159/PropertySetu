@@ -1,3 +1,5 @@
+import reviewRoutes from "./routes/reviewRoutes.js";
+
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 
 import express from "express";
