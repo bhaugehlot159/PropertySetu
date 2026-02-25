@@ -1,3 +1,5 @@
+import featureRoutes from "./routes/featureRoutes.js";
+
 import notificationRoutes from "./routes/notificationRoutes.js";
 
 import chatRoutes from "./routes/chatRoutes.js";
@@ -43,6 +45,7 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/feature", featureRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
