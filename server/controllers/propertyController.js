@@ -1,6 +1,9 @@
 import Property from "../models/Property.js";
 
+
+// ============================
 // ADD PROPERTY (Seller Only)
+// ============================
 export const addProperty = async (req, res) => {
     try {
 
@@ -10,28 +13,54 @@ export const addProperty = async (req, res) => {
 
         const property = await Property.create({
             ...req.body,
-            owner: req.user.id
+            owner: req.user.id,
+            isApproved: false,      // Admin approve karega
+            isFeatured: false
         });
 
-        res.status(201).json({ message: "Property Added Successfully", property });
+        res.status(201).json({
+            message: "Property Added Successfully. Waiting for admin approval.",
+            property
+        });
 
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
 
-// GET ALL PROPERTIES
+
+
+// ============================
+// GET ALL APPROVED PROPERTIES
+// ============================
 export const getProperties = async (req, res) => {
     try {
-        const properties = await Property.find().populate("owner", "name");
+
+        const properties = await Property.find({
+            isApproved: true,
+            $or: [
+                { isFeatured: false },
+                { isFeatured: true, featuredUntil: { $gte: new Date() } }
+            ]
+        })
+        .sort({ isFeatured: -1, createdAt: -1 })
+        .populate("owner", "name email");
+
         res.json(properties);
+
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
+
+
+
+// ============================
 // UPDATE PROPERTY (Owner Only)
+// ============================
 export const updateProperty = async (req, res) => {
     try {
+
         const property = await Property.findById(req.params.id);
 
         if (!property) {
@@ -55,9 +84,14 @@ export const updateProperty = async (req, res) => {
     }
 };
 
+
+
+// ============================
 // DELETE PROPERTY (Owner Only)
+// ============================
 export const deleteProperty = async (req, res) => {
     try {
+
         const property = await Property.findById(req.params.id);
 
         if (!property) {
