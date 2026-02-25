@@ -229,3 +229,17 @@ footer a:hover {
 footer { background: #0a2540; color: white; text-align: center; padding: 25px 10px; font-size: 14px; }
 footer a { color: #ffd700; text-decoration: none; margin: 0 10px; }
 footer a:hover { text-decoration: underline; }
+.whatsapp-btn {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 8px 12px;
+    background-color: #25D366;
+    color: white;
+    text-decoration: none;
+    border-radius: 5px;
+    font-weight: bold;
+}
+
+.whatsapp-btn:hover {
+    background-color: #1ebe5d;
+}
