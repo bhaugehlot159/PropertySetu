@@ -28,3 +28,5 @@ app.listen(PORT, () => {
 import authRoutes from "./routes/authRoutes.js";
 
 app.use("/api/auth", authRoutes);
+
+import propertyRoutes from "./routes/propertyRoutes.js";
