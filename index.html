@@ -87,22 +87,33 @@ style="position:absolute; background:#fff; width:100%; max-height:200px; overflo
 <script src="js/preview.js"></script>
 <script src="js/calculator.js"></script>
 <script src="js/ai-generator.js"></script>
+<script src="js/filter.js"></script>
+<script src="js/search.js"></script>
+<script src="js/location.js"></script>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
 
+    console.log("JS Loaded Successfully");
+
     const searchInput = document.getElementById("searchInput");
     const cards = document.querySelectorAll(".property-card");
 
-    searchInput.addEventListener("keyup", function () {
+    if (!searchInput) {
+        console.log("Search input not found");
+        return;
+    }
 
-        let query = searchInput.value.toLowerCase();
+    searchInput.addEventListener("input", function () {
+
+        let query = searchInput.value.toLowerCase().trim();
 
         cards.forEach(function(card) {
 
-            let cardText = card.textContent.toLowerCase();
+            let title = card.querySelector("h3")?.innerText.toLowerCase() || "";
+            let location = card.dataset.location?.toLowerCase() || "";
 
-            if (cardText.indexOf(query) > -1) {
+            if (title.includes(query) || location.includes(query)) {
                 card.style.display = "block";
             } else {
                 card.style.display = "none";
