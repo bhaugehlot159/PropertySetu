@@ -3,167 +3,189 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu - India’s Trusted Property & Care Platform</title>
+<title>PropertySetu</title>
 
 <style>
-body{
-    margin:0;
-    font-family: Arial, sans-serif;
-    background:#f4f6f9;
-}
-
-header{
-    background:#0d1b2a;
-    color:white;
-    padding:15px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-}
-
-header h2{
-    margin:0;
-}
-
-nav a{
-    color:white;
-    margin-left:15px;
-    text-decoration:none;
-}
-
-.hero{
-    background:#1b263b;
-    color:white;
-    padding:40px 20px;
-    text-align:center;
-}
-
-.search-box{
-    background:white;
-    padding:20px;
-    border-radius:8px;
-    max-width:900px;
-    margin:20px auto;
-    display:flex;
-    flex-wrap:wrap;
-    gap:10px;
-    justify-content:center;
-}
-
-.search-box input, .search-box select{
-    padding:10px;
-    width:180px;
-}
-
-.section{
-    padding:40px 20px;
-}
-
-.card-grid{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
-    gap:20px;
-}
-
-.card{
-    background:white;
-    padding:20px;
-    border-radius:8px;
-    box-shadow:0 2px 5px rgba(0,0,0,0.1);
-}
-
-button{
-    padding:8px 15px;
-    background:#0d1b2a;
-    color:white;
-    border:none;
-    cursor:pointer;
-}
+body{margin:0;font-family:Arial;background:#f4f6f9}
+header{background:#0d1b2a;color:white;padding:15px;display:flex;justify-content:space-between}
+button{padding:8px 12px;background:#0d1b2a;color:white;border:none;cursor:pointer}
+input,select,textarea{padding:8px;margin:5px 0;width:100%}
+.container{padding:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:15px}
+.card{background:white;padding:15px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
+.hidden{display:none}
+.badge{background:green;color:white;padding:3px 6px;font-size:12px;border-radius:4px}
 </style>
-
 </head>
+
 <body>
 
 <header>
 <h2>PropertySetu</h2>
-<nav>
-<a href="#buy">Buy</a>
-<a href="#rent">Rent</a>
-<a href="#care">Property Care</a>
-<a href="#login">Login</a>
-</nav>
+<div id="navArea"></div>
 </header>
 
-<!-- HERO SECTION -->
+<div class="container">
 
-<section class="hero">
-<h1>India’s Trusted Property & Care Platform</h1>
+<!-- AUTH SECTION -->
 
-<div class="search-box">
-<select>
-<option>Buy</option>
-<option>Rent</option>
-<option>Plot</option>
-<option>Commercial</option>
+<div id="authSection">
+<h3>Login</h3>
+<input id="loginEmail" placeholder="Email">
+<input id="loginPassword" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+
+<h3>Register</h3>
+<input id="regName" placeholder="Name">
+<input id="regEmail" placeholder="Email">
+<input id="regPhone" placeholder="Phone">
+<input id="regPassword" type="password" placeholder="Password">
+<select id="regRole">
+<option value="buyer">Buyer</option>
+<option value="seller">Seller</option>
 </select>
+<button onclick="register()">Register</button>
+</div>
 
-<select>
-<option>Udaipur</option>
-<option>Jaipur</option>
-<option>Jodhpur</option>
-<option>Ahmedabad</option>
-<option>Delhi</option>
-<option>Mumbai</option>
+<!-- DASHBOARD -->
+
+<div id="dashboard" class="hidden">
+<h3>Seller Dashboard</h3>
+
+<input id="title" placeholder="Property Title">
+<input id="location" placeholder="Location">
+<input id="price" placeholder="Price">
+<select id="type">
+<option value="buy">Buy</option>
+<option value="rent">Rent</option>
 </select>
-
-<input type="text" placeholder="Search Location / Area">
-<input type="number" placeholder="Budget">
-<button>Search</button>
-</div>
-</section>
-
-<!-- BUY SECTION -->
-
-<section class="section" id="buy">
-<h2>🏡 Buy Property</h2>
-
-<div class="card-grid">
-<div class="card">House</div>
-<div class="card">Flat</div>
-<div class="card">Villa</div>
-<div class="card">Plot</div>
-<div class="card">Agricultural Land</div>
-<div class="card">Commercial Property</div>
+<textarea id="description" placeholder="Description"></textarea>
+<input type="file" id="imageUpload">
+<label><input type="checkbox" id="featured"> Featured</label>
+<button onclick="addProperty()">Add Property</button>
 </div>
 
-</section>
+<hr>
 
-<!-- RENT SECTION -->
+<h2>All Properties</h2>
+<div id="propertyList" class="grid"></div>
 
-<section class="section" id="rent">
-<h2>🏢 Rent Property</h2>
-
-<div class="card-grid">
-<div class="card">House for Rent</div>
-<div class="card">Shop for Rent</div>
-<div class="card">Office Space</div>
-<div class="card">PG</div>
 </div>
 
-</section>
+<script>
 
-<!-- PROPERTY CARE SECTION -->
+const API = "http://localhost:5000/api";
 
-<section class="section" id="care">
-<h2>🛠 Property Care Services</h2>
+let token = localStorage.getItem("token");
+let currentUser = null;
 
-<div class="card-grid">
-<div class="card">Monthly House Check</div>
-<div class="card">Cleaning Service</div>
-<div class="card">Garden / Vadi Maintenance</div>
-<div class="card">Security Visit</div>
-<div class="card">Bill Payment Handling</div>
-<div class="card">Tenant Management</div>
-</div>
+if(token){
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    currentUser = payload;
+    showDashboard();
+}
 
-</section>
+function showDashboard(){
+    document.getElementById("authSection").classList.add("hidden");
+    document.getElementById("navArea").innerHTML =
+        `<button onclick="logout()">Logout</button>`;
+    if(currentUser.role === "seller"){
+        document.getElementById("dashboard").classList.remove("hidden");
+    }
+}
+
+function logout(){
+    localStorage.removeItem("token");
+    location.reload();
+}
+
+async function register(){
+    const res = await fetch(API+"/auth/register",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            name:regName.value,
+            email:regEmail.value,
+            phone:regPhone.value,
+            password:regPassword.value,
+            role:regRole.value
+        })
+    });
+    const data = await res.json();
+    alert(data.message);
+}
+
+async function login(){
+    const res = await fetch(API+"/auth/login",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            email:loginEmail.value,
+            password:loginPassword.value
+        })
+    });
+    const data = await res.json();
+    if(data.token){
+        localStorage.setItem("token",data.token);
+        location.reload();
+    }else{
+        alert(data.message);
+    }
+}
+
+async function addProperty(){
+    const file = imageUpload.files[0];
+    const reader = new FileReader();
+
+    reader.onloadend = async function(){
+        const imageBase64 = reader.result;
+
+        const res = await fetch(API+"/properties",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json",
+                "Authorization":"Bearer "+token
+            },
+            body:JSON.stringify({
+                title:title.value,
+                location:location.value,
+                price:price.value,
+                type:type.value,
+                description:description.value,
+                image:imageBase64,
+                featured:featured.checked
+            })
+        });
+
+        const data = await res.json();
+        alert(data.message);
+        loadProperties();
+    };
+
+    if(file) reader.readAsDataURL(file);
+}
+
+async function loadProperties(){
+    const res = await fetch(API+"/properties");
+    const data = await res.json();
+
+    propertyList.innerHTML="";
+
+    data.forEach(p=>{
+        propertyList.innerHTML += `
+        <div class="card">
+            <img src="${p.image}" width="100%">
+            <h3>${p.title} ${p.featured ? '<span class="badge">Featured</span>' : ''}</h3>
+            <p>${p.location}</p>
+            <p>₹ ${p.price}</p>
+            <p>${p.description}</p>
+        </div>`;
+    });
+}
+
+loadProperties();
+
+</script>
+
+</body>
+</html>
