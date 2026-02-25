@@ -30,6 +30,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/subscription", subscriptionRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
