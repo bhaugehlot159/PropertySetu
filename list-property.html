@@ -1,81 +1,54 @@
-<h2>List Your Property</h2>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Add Property</title>
+</head>
+<body>
 
-<form>
+<h2>Add Property</h2>
 
-<h3>🏠 Basic Info</h3>
+<form id="propertyForm">
 
-<p>
-<select required>
-<option value="">Property Type</option>
-<option>House</option>
-<option>Flat</option>
-<option>Villa</option>
-<option>Plot</option>
-<option>Agricultural Land</option>
-<option>Commercial</option>
-</select>
-</p>
+<input type="text" id="title" placeholder="Property Title" required><br><br>
+<input type="text" id="location" placeholder="Location" required><br><br>
+<input type="number" id="price" placeholder="Price" required><br><br>
 
-<p>
-<select required>
-<option value="">Sale / Rent</option>
-<option>Sale</option>
-<option>Rent</option>
-</select>
-</p>
+<select id="type" required>
+<option value="buy">Sale</option>
+<option value="rent">Rent</option>
+</select><br><br>
 
-<p><input type="number" placeholder="Price (₹)" required></p>
-<p>
-<select>
-<option>Negotiable?</option>
-<option>Yes</option>
-<option>No</option>
-</select>
-</p>
+<input type="text" id="image" placeholder="Image URL" required><br><br>
 
-<h3>📏 Size Details</h3>
-
-<p><input type="number" placeholder="Plot Size (sq ft)"></p>
-<p><input type="number" placeholder="Built-up Area"></p>
-<p><input type="number" placeholder="Carpet Area"></p>
-<p><input type="number" placeholder="Total Floors"></p>
-
-<p>
-<select>
-<option>Facing</option>
-<option>North</option>
-<option>South</option>
-<option>East</option>
-<option>West</option>
-</select>
-</p>
-
-<p>
-<select>
-<option>Furnished Status</option>
-<option>Furnished</option>
-<option>Semi Furnished</option>
-<option>Unfurnished</option>
-</select>
-</p>
-
-<h3>🛁 Extra Features</h3>
-
-<p><input type="number" placeholder="Bedrooms"></p>
-<p><input type="number" placeholder="Bathrooms"></p>
-<p><input type="number" placeholder="Parking"></p>
-<p><input type="text" placeholder="Nearby Landmark"></p>
-
-<h3>📸 Media Upload</h3>
-
-<p><input type="file" multiple required></p>
-<p><input type="file" accept="video/*"></p>
-<p><input type="file" placeholder="Upload Floor Plan"></p>
-
-<h3>📝 Description</h3>
-
-<p><textarea rows="5" placeholder="Property Description"></textarea></p>
-
-<p><button type="submit">Submit Property</button></p>
+<button type="submit">Add Property</button>
 
 </form>
+
+<script>
+
+document.getElementById("propertyForm").addEventListener("submit", function(e){
+
+    e.preventDefault();
+
+    const property = {
+        title: document.getElementById("title").value,
+        location: document.getElementById("location").value,
+        price: document.getElementById("price").value,
+        type: document.getElementById("type").value,
+        image: document.getElementById("image").value
+    };
+
+    let properties = JSON.parse(localStorage.getItem("properties")) || [];
+    properties.push(property);
+    localStorage.setItem("properties", JSON.stringify(properties));
+
+    alert("Property Added Successfully");
+
+    document.getElementById("propertyForm").reset();
+
+});
+
+</script>
+
+</body>
+</html>
