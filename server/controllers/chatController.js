@@ -4,6 +4,14 @@ import Property from "../models/Property.js";
 // Send Message
 export const sendMessage = async (req, res) => {
     try {
+import Notification from "../models/Notification.js";
+
+await Notification.create({
+    user: property.owner,
+    title: "New Message",
+    message: "You received a new message on your property",
+    type: "message"
+});
 
         const { propertyId, message } = req.body;
 
