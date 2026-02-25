@@ -15,3 +15,12 @@ const propertySchema = new mongoose.Schema({
 }, { timestamps: true });
 
 export default mongoose.model("Property", propertySchema);
+
+isApproved: {
+    type: Boolean,
+    default: false
+},
+approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+},
