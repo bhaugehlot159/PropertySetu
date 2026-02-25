@@ -24,3 +24,10 @@ approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"
 },
+isFeatured: {
+    type: Boolean,
+    default: false
+},
+featuredUntil: {
+    type: Date
+},
