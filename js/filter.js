@@ -1,12 +1,12 @@
-function filterProperties() {
+document.getElementById("filterSelect").addEventListener("change", filterProperties);
+document.getElementById("locationSearch").addEventListener("input", filterProperties);
 
+function filterProperties() {
     let selectedType = document.getElementById("filterSelect").value;
     let selectedLocation = document.getElementById("locationSearch").value.toLowerCase();
-
     let cards = document.querySelectorAll(".property-card");
 
     cards.forEach(function(card) {
-
         let cardType = card.getAttribute("data-type");
         let cardLocation = card.getAttribute("data-location").toLowerCase();
 
@@ -18,10 +18,5 @@ function filterProperties() {
         } else {
             card.style.display = "none";
         }
-
     });
-
 }
-
-document.getElementById("filterSelect").addEventListener("change", filterProperties);
-document.getElementById("locationSearch").addEventListener("keyup", filterProperties);
