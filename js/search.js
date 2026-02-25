@@ -79,3 +79,42 @@ function filterByPrice() {
     });
 
 }
+function applyFilters() {
+
+    const searchValue = document.getElementById("searchInput").value.toLowerCase();
+    const locationValue = document.getElementById("locationFilter").value.toLowerCase();
+    const min = parseInt(document.getElementById("minPrice").value) || 0;
+    const max = parseInt(document.getElementById("maxPrice").value) || Infinity;
+
+    const cards = document.querySelectorAll(".property-card");
+    const noResult = document.getElementById("noResult");
+
+    let visibleCount = 0;
+
+    cards.forEach(function(card) {
+
+        const title = card.querySelector("h3").innerText.toLowerCase();
+        const location = card.dataset.location.toLowerCase();
+        const price = parseInt(card.dataset.price);
+        const type = card.dataset.type;
+
+        const matchSearch = title.includes(searchValue) || location.includes(searchValue);
+        const matchLocation = (locationValue === "all") || (location === locationValue);
+        const matchPrice = price >= min && price <= max;
+
+        if (matchSearch && matchLocation && matchPrice) {
+            card.style.display = "block";
+            visibleCount++;
+        } else {
+            card.style.display = "none";
+        }
+
+    });
+
+    if (visibleCount === 0) {
+        noResult.style.display = "block";
+    } else {
+        noResult.style.display = "none";
+    }
+
+}
