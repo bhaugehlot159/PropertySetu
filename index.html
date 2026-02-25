@@ -3,137 +3,167 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu</title>
-<link rel="stylesheet" href="css/style.css">
+<title>PropertySetu - India’s Trusted Property & Care Platform</title>
+
+<style>
+body{
+    margin:0;
+    font-family: Arial, sans-serif;
+    background:#f4f6f9;
+}
+
+header{
+    background:#0d1b2a;
+    color:white;
+    padding:15px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+header h2{
+    margin:0;
+}
+
+nav a{
+    color:white;
+    margin-left:15px;
+    text-decoration:none;
+}
+
+.hero{
+    background:#1b263b;
+    color:white;
+    padding:40px 20px;
+    text-align:center;
+}
+
+.search-box{
+    background:white;
+    padding:20px;
+    border-radius:8px;
+    max-width:900px;
+    margin:20px auto;
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    justify-content:center;
+}
+
+.search-box input, .search-box select{
+    padding:10px;
+    width:180px;
+}
+
+.section{
+    padding:40px 20px;
+}
+
+.card-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+    gap:20px;
+}
+
+.card{
+    background:white;
+    padding:20px;
+    border-radius:8px;
+    box-shadow:0 2px 5px rgba(0,0,0,0.1);
+}
+
+button{
+    padding:8px 15px;
+    background:#0d1b2a;
+    color:white;
+    border:none;
+    cursor:pointer;
+}
+</style>
+
 </head>
 <body>
 
 <header>
 <h2>PropertySetu</h2>
+<nav>
+<a href="#buy">Buy</a>
+<a href="#rent">Rent</a>
+<a href="#care">Property Care</a>
+<a href="#login">Login</a>
+</nav>
 </header>
 
-<section class="section">
+<!-- HERO SECTION -->
 
-<input type="text" id="searchInput" placeholder="Search Property...">
+<section class="hero">
+<h1>India’s Trusted Property & Care Platform</h1>
 
-<select id="locationFilter">
-<option value="all">All Locations</option>
-<option value="Hiran Magri Sector 1">Hiran Magri Sector 1</option>
-<option value="Ambamata">Ambamata</option>
-<option value="Pratap Nagar">Pratap Nagar</option>
+<div class="search-box">
+<select>
+<option>Buy</option>
+<option>Rent</option>
+<option>Plot</option>
+<option>Commercial</option>
 </select>
 
-<input type="number" id="minPrice" placeholder="Min Price">
-<input type="number" id="maxPrice" placeholder="Max Price">
+<select>
+<option>Udaipur</option>
+<option>Jaipur</option>
+<option>Jodhpur</option>
+<option>Ahmedabad</option>
+<option>Delhi</option>
+<option>Mumbai</option>
+</select>
 
-<p id="noResult" style="display:none;color:red;font-weight:bold;">
-No Property Found
-</p>
+<input type="text" placeholder="Search Location / Area">
+<input type="number" placeholder="Budget">
+<button>Search</button>
+</div>
+</section>
+
+<!-- BUY SECTION -->
+
+<section class="section" id="buy">
+<h2>🏡 Buy Property</h2>
+
+<div class="card-grid">
+<div class="card">House</div>
+<div class="card">Flat</div>
+<div class="card">Villa</div>
+<div class="card">Plot</div>
+<div class="card">Agricultural Land</div>
+<div class="card">Commercial Property</div>
+</div>
 
 </section>
 
-<section class="section" id="propertyContainer">
+<!-- RENT SECTION -->
 
-<h2>Featured Properties</h2>
+<section class="section" id="rent">
+<h2>🏢 Rent Property</h2>
+
+<div class="card-grid">
+<div class="card">House for Rent</div>
+<div class="card">Shop for Rent</div>
+<div class="card">Office Space</div>
+<div class="card">PG</div>
+</div>
 
 </section>
 
-<script>
+<!-- PROPERTY CARE SECTION -->
 
-// LOAD SAVED PROPERTIES
+<section class="section" id="care">
+<h2>🛠 Property Care Services</h2>
 
-document.addEventListener("DOMContentLoaded", function () {
+<div class="card-grid">
+<div class="card">Monthly House Check</div>
+<div class="card">Cleaning Service</div>
+<div class="card">Garden / Vadi Maintenance</div>
+<div class="card">Security Visit</div>
+<div class="card">Bill Payment Handling</div>
+<div class="card">Tenant Management</div>
+</div>
 
-    let properties = JSON.parse(localStorage.getItem("properties")) || [];
-    const container = document.getElementById("propertyContainer");
-
-    properties.forEach(function(property) {
-
-        const card = document.createElement("div");
-        card.className = "property-card";
-        card.setAttribute("data-type", property.type);
-        card.setAttribute("data-location", property.location);
-        card.setAttribute("data-price", property.price);
-
-        card.innerHTML = `
-            <img src="${property.image}" width="200">
-            <h3>${property.title}</h3>
-            <p>Location: ${property.location}</p>
-            <p>Price: ₹${property.price}</p>
-            <button class="fav-btn" onclick="toggleFavorite(this)">❤️ Save</button>
-            <a href="https://wa.me/919876543210?text=I am interested in ${property.title}" target="_blank">WhatsApp</a>
-        `;
-
-        container.appendChild(card);
-
-    });
-
-});
-
-// MASTER FILTER
-
-function applyFilters() {
-
-    const searchValue = document.getElementById("searchInput").value.toLowerCase();
-    const locationValue = document.getElementById("locationFilter").value.toLowerCase();
-    const min = parseInt(document.getElementById("minPrice").value) || 0;
-    const max = parseInt(document.getElementById("maxPrice").value) || Infinity;
-
-    const cards = document.querySelectorAll(".property-card");
-    const noResult = document.getElementById("noResult");
-
-    let visibleCount = 0;
-
-    cards.forEach(function(card) {
-
-        const title = card.querySelector("h3").innerText.toLowerCase();
-        const location = card.dataset.location.toLowerCase();
-        const price = parseInt(card.dataset.price);
-
-        const matchSearch = title.includes(searchValue);
-        const matchLocation = (locationValue === "all") || (location === locationValue);
-        const matchPrice = price >= min && price <= max;
-
-        if (matchSearch && matchLocation && matchPrice) {
-            card.style.display = "block";
-            visibleCount++;
-        } else {
-            card.style.display = "none";
-        }
-
-    });
-
-    noResult.style.display = visibleCount === 0 ? "block" : "none";
-}
-
-// EVENTS
-
-document.getElementById("searchInput").addEventListener("input", applyFilters);
-document.getElementById("locationFilter").addEventListener("change", applyFilters);
-document.getElementById("minPrice").addEventListener("input", applyFilters);
-document.getElementById("maxPrice").addEventListener("input", applyFilters);
-
-// FAVORITE SYSTEM
-
-function toggleFavorite(button) {
-
-    const card = button.closest(".property-card");
-    const title = card.querySelector("h3").innerText;
-
-    let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
-
-    if (favorites.includes(title)) {
-        favorites = favorites.filter(item => item !== title);
-        button.innerText = "❤️ Save";
-    } else {
-        favorites.push(title);
-        button.innerText = "✅ Saved";
-    }
-
-    localStorage.setItem("favorites", JSON.stringify(favorites));
-}
-
-</script>
-
-</body>
-</html>
+</section>
