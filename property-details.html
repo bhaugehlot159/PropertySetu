@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Property Details</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header>
+<h2>Property Details</h2>
+</header>
+
+<section class="section" style="text-align:center;">
+
+<h2 id="propertyTitle"></h2>
+<p id="propertyLocation"></p>
+<p id="propertyPrice"></p>
+
+<img id="propertyImage" style="width:60%; max-width:500px; border-radius:10px;">
+
+<br><br>
+
+<a id="whatsappLink" target="_blank">
+<button style="padding:10px 20px; background:#25D366; color:white; border:none; border-radius:5px;">
+Contact on WhatsApp
+</button>
+</a>
+
+</section>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+
+document.getElementById("propertyTitle").innerText = params.get("title");
+document.getElementById("propertyLocation").innerText = "Location: " + params.get("location");
+document.getElementById("propertyPrice").innerText = "Price: ₹" + params.get("price");
+document.getElementById("propertyImage").src = params.get("image");
+
+document.getElementById("whatsappLink").href =
+"https://wa.me/91XXXXXXXXXX?text=I am interested in " + params.get("title");
+</script>
+
+</body>
+</html>
