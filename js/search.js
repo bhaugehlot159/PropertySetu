@@ -141,3 +141,20 @@ function toggleFavorite(button) {
 
     localStorage.setItem("favorites", JSON.stringify(favorites));
 }
+document.addEventListener("DOMContentLoaded", function () {
+
+    let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
+
+    document.querySelectorAll(".property-card").forEach(function(card) {
+
+        const title = card.querySelector("h3").innerText;
+        const button = card.querySelector(".fav-btn");
+
+        if (favorites.includes(title)) {
+            button.classList.add("saved");
+            button.innerText = "✅ Saved";
+        }
+
+    });
+
+});
