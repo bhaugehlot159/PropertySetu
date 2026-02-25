@@ -1,13 +1,34 @@
+// ===============================
+// COMPLETE PROPERTY FILTER SYSTEM
+// ===============================
+
+// Get elements
 const searchInput = document.getElementById("searchInput");
+const typeFilter = document.getElementById("typeFilter");
+const locationFilter = document.getElementById("locationFilter");
+const minPriceInput = document.getElementById("minPrice");
+const maxPriceInput = document.getElementById("maxPrice");
 
-searchInput.addEventListener("input", function () {
+// Add event listeners
+searchInput.addEventListener("input", filterProperties);
+typeFilter.addEventListener("change", filterProperties);
+locationFilter.addEventListener("change", filterProperties);
+minPriceInput.addEventListener("input", filterProperties);
+maxPriceInput.addEventListener("input", filterProperties);
 
-    const query = this.value.trim().toLowerCase();
+function filterProperties() {
+
+    const query = searchInput.value.trim().toLowerCase();
+    const selectedType = typeFilter.value.toLowerCase();
+    const selectedLocation = locationFilter.value.toLowerCase();
+    const minPrice = parseInt(minPriceInput.value) || 0;
+    const maxPrice = parseInt(maxPriceInput.value) || Infinity;
+
     const propertyCards = document.querySelectorAll(".property-card");
 
-    propertyCards.forEach(function (card) {
+    propertyCards.forEach(function(card) {
 
-        // Safe fetch data
+        // Get card data safely
         const title = card.querySelector("h3") 
             ? card.querySelector("h3").innerText.toLowerCase() 
             : "";
@@ -20,27 +41,32 @@ searchInput.addEventListener("input", function () {
             ? card.getAttribute("data-type").toLowerCase() 
             : "";
 
+        const price = card.getAttribute("data-price") 
+            ? parseInt(card.getAttribute("data-price")) 
+            : 0;
+
         const allParagraphs = card.querySelectorAll("p");
         let extraText = "";
 
-        allParagraphs.forEach(function (p) {
+        allParagraphs.forEach(function(p) {
             extraText += p.innerText.toLowerCase() + " ";
         });
 
-        // Combine everything
-        const fullData = title + " " + location + " " + type + " " + extraText;
+        const fullText = title + " " + location + " " + type + " " + extraText;
 
-        // If search empty → show all
-        if (query === "") {
+        // Conditions
+        const searchMatch = (query === "" || fullText.includes(query));
+        const typeMatch = (selectedType === "all" || selectedType === type);
+        const locationMatch = (selectedLocation === "all" || location === selectedLocation);
+        const priceMatch = (price >= minPrice && price <= maxPrice);
+
+        // Final display
+        if (searchMatch && typeMatch && locationMatch && priceMatch) {
             card.style.display = "block";
-        } 
-        else if (fullData.includes(query)) {
-            card.style.display = "block";
-        } 
-        else {
+        } else {
             card.style.display = "none";
         }
 
     });
 
-});
+}
