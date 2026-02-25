@@ -14,7 +14,7 @@ export const addProperty = async (req, res) => {
         const property = await Property.create({
             ...req.body,
             owner: req.user.id,
-            isApproved: false,      // Admin approve karega
+            isApproved: false,
             isFeatured: false
         });
 
@@ -105,6 +105,70 @@ export const deleteProperty = async (req, res) => {
         await property.deleteOne();
 
         res.json({ message: "Property Deleted Successfully" });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+
+// ============================
+// ADMIN APPROVE PROPERTY
+// ============================
+export const approveProperty = async (req, res) => {
+    try {
+
+        if (req.user.role !== "admin") {
+            return res.status(403).json({ message: "Only admin can approve property" });
+        }
+
+        const property = await Property.findByIdAndUpdate(
+            req.params.id,
+            {
+                isApproved: true,
+                approvedBy: req.user.id
+            },
+            { new: true }
+        );
+
+        res.json({
+            message: "Property Approved Successfully",
+            property
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+
+// ============================
+// ADMIN FEATURE PROPERTY
+// ============================
+export const featureProperty = async (req, res) => {
+    try {
+
+        if (req.user.role !== "admin") {
+            return res.status(403).json({ message: "Only admin can feature property" });
+        }
+
+        const days = req.body.days || 7;
+
+        const property = await Property.findByIdAndUpdate(
+            req.params.id,
+            {
+                isFeatured: true,
+                featuredUntil: new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+            },
+            { new: true }
+        );
+
+        res.json({
+            message: "Property Featured Successfully",
+            property
+        });
 
     } catch (error) {
         res.status(500).json({ message: error.message });
