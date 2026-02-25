@@ -41,3 +41,21 @@ function filterProperty(type) {
     });
 
 }
+document.getElementById("locationFilter").addEventListener("change", function () {
+
+    const selectedLocation = this.value.toLowerCase();
+    const cards = document.querySelectorAll(".property-card");
+
+    cards.forEach(function(card) {
+
+        const cardLocation = card.dataset.location.toLowerCase();
+
+        if (selectedLocation === "all" || cardLocation === selectedLocation) {
+            card.style.display = "block";
+        } else {
+            card.style.display = "none";
+        }
+
+    });
+
+});
