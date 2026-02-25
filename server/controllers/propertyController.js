@@ -29,3 +29,50 @@ export const getProperties = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+// UPDATE PROPERTY (Owner Only)
+export const updateProperty = async (req, res) => {
+    try {
+        const property = await Property.findById(req.params.id);
+
+        if (!property) {
+            return res.status(404).json({ message: "Property not found" });
+        }
+
+        if (property.owner.toString() !== req.user.id) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        const updated = await Property.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true }
+        );
+
+        res.json({ message: "Property Updated", updated });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// DELETE PROPERTY (Owner Only)
+export const deleteProperty = async (req, res) => {
+    try {
+        const property = await Property.findById(req.params.id);
+
+        if (!property) {
+            return res.status(404).json({ message: "Property not found" });
+        }
+
+        if (property.owner.toString() !== req.user.id) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        await property.deleteOne();
+
+        res.json({ message: "Property Deleted Successfully" });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
