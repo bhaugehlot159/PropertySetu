@@ -32,7 +32,14 @@ export const createOrder = async (req, res) => {
 // Verify Payment
 export const verifyPayment = async (req, res) => {
     try {
+import Notification from "../models/Notification.js";
 
+await Notification.create({
+    user: req.user.id,
+    title: "Payment Successful",
+    message: "Your subscription has been activated",
+    type: "payment"
+});
         const {
             razorpay_order_id,
             razorpay_payment_id,
