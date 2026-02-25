@@ -17,12 +17,39 @@ const propertySchema = new mongoose.Schema({
         required: true 
     },
 
-    type: { 
-        type: String, 
-        enum: ["buy", "rent"], 
-        required: true 
-    },
+    listingType: {
+    type: String,
+    enum: [
+        "buy",
+        "sell",
+        "rent",
+        "lease",
+        "mortgage",        // girvi
+        "service"          // property care / maintenance
+    ],
+    required: true
+},
 
+category: {
+    type: String,
+    enum: [
+        "house",
+        "villa",
+        "apartment",
+        "plot",
+        "land",
+        "farmhouse",
+        "commercial",
+        "shop",
+        "office",
+        "warehouse",
+        "pg",
+        "hostel",
+        "agriculture",
+        "other"
+    ],
+    required: true
+},
     description: { 
         type: String 
     },
