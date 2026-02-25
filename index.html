@@ -90,5 +90,36 @@ style="position:absolute; background:#fff; width:100%; max-height:200px; overflo
 <script src="js/filter.js"></script>
 <script src="js/search.js"></script>
 <script src="js/location.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const searchInput = document.getElementById("searchInput");
+
+    if (!searchInput) {
+        alert("Search input not found");
+        return;
+    }
+
+    searchInput.addEventListener("input", function () {
+
+        const query = this.value.toLowerCase();
+        const cards = document.querySelectorAll(".property-card");
+
+        cards.forEach(function(card) {
+
+            const text = card.innerText.toLowerCase();
+
+            if (query === "" || text.includes(query)) {
+                card.style.display = "block";
+            } else {
+                card.style.display = "none";
+            }
+
+        });
+
+    });
+
+});
+</script>
 </body>
 </html>
