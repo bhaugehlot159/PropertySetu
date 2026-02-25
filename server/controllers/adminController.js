@@ -11,6 +11,14 @@ export const getPendingProperties = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+import Notification from "../models/Notification.js";
+
+await Notification.create({
+    user: property.owner,
+    title: "Property Approved",
+    message: "Your property has been approved and is now live",
+    type: "approval"
+});
 
 // Approve Property
 export const approveProperty = async (req, res) => {
