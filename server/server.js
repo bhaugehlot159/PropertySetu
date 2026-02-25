@@ -1,3 +1,5 @@
+import adminRoutes from "./routes/adminRoutes.js";
+
 import reviewRoutes from "./routes/reviewRoutes.js";
 
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
@@ -10,6 +12,7 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes.js";
 import propertyRoutes from "./routes/propertyRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
+app.use("/api/admin", adminRoutes);
 
 dotenv.config();
 
