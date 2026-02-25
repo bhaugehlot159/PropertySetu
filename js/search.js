@@ -59,3 +59,23 @@ document.getElementById("locationFilter").addEventListener("change", function ()
     });
 
 });
+function filterByPrice() {
+
+    const min = parseInt(document.getElementById("minPrice").value) || 0;
+    const max = parseInt(document.getElementById("maxPrice").value) || Infinity;
+
+    const cards = document.querySelectorAll(".property-card");
+
+    cards.forEach(function(card) {
+
+        const price = parseInt(card.dataset.price);
+
+        if (price >= min && price <= max) {
+            card.style.display = "block";
+        } else {
+            card.style.display = "none";
+        }
+
+    });
+
+}
