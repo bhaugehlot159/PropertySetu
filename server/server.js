@@ -1,3 +1,5 @@
+import chatRoutes from "./routes/chatRoutes.js";
+
 import paymentRoutes from "./routes/paymentRoutes.js";
 
 import adminRoutes from "./routes/adminRoutes.js";
@@ -37,6 +39,7 @@ app.use("/api/search", searchRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/chat", chatRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
