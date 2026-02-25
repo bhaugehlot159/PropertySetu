@@ -122,3 +122,22 @@ document.getElementById("maxPrice").addEventListener("input", applyFilters);
     }
 
 }
+function toggleFavorite(button) {
+
+    const card = button.closest(".property-card");
+    const title = card.querySelector("h3").innerText;
+
+    let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
+
+    if (favorites.includes(title)) {
+        favorites = favorites.filter(item => item !== title);
+        button.classList.remove("saved");
+        button.innerText = "❤️ Save";
+    } else {
+        favorites.push(title);
+        button.classList.add("saved");
+        button.innerText = "✅ Saved";
+    }
+
+    localStorage.setItem("favorites", JSON.stringify(favorites));
+}
