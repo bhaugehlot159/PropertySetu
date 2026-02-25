@@ -1,3 +1,5 @@
+import subscriptionRoutes from "./routes/subscriptionRoutes.js";
+
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -25,6 +27,7 @@ mongoose.connect(process.env.MONGO_URI)
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/subscription", subscriptionRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
