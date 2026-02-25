@@ -22,3 +22,22 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
 });
+function filterProperty(type) {
+
+    const cards = document.querySelectorAll(".property-card");
+
+    cards.forEach(function(card) {
+
+        if (type === "all") {
+            card.style.display = "block";
+        } 
+        else if (card.dataset.type === type) {
+            card.style.display = "block";
+        } 
+        else {
+            card.style.display = "none";
+        }
+
+    });
+
+}
