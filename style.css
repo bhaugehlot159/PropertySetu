@@ -199,3 +199,16 @@ footer {
 .whatsapp-btn:hover {
     background-color: #1ebe5d;
 }
+.fav-btn {
+    margin-top:10px;
+    padding:6px 10px;
+    border:none;
+    border-radius:5px;
+    cursor:pointer;
+    background:#ff4757;
+    color:white;
+}
+
+.fav-btn.saved {
+    background:#2ed573;
+}
