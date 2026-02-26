@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PropertySetu – Seller Dashboard</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f6f9; }
+header { background:#0b3d91; color:white; padding:15px; text-align:center; font-size:24px; }
+.container { max-width: 1000px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+h2 { color:#0b3d91; }
+input, select, textarea { width:100%; padding:10px; margin:8px 0; border-radius:4px; border:1px solid #ccc; }
+button { background:#0b3d91; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer; }
+button:hover { background:#092f6d; }
+.property-card { border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:6px; background:#fdfdfd; }
+.featured-badge { background:gold; color:black; padding:2px 6px; font-weight:bold; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+
+<header>PropertySetu Seller Dashboard</header>
+
+<div class="container">
+<h2>Add New Property</h2>
+<form id="addPropertyForm">
+    <label>Property Title</label>
+    <input type="text" id="title" placeholder="Property Title" required>
+
+    <label>Category</label>
+    <select id="category" required>
+        <option value="">Select Category</option>
+        <option>Buy</option>
+        <option>Sell</option>
+        <option>Rent</option>
+        <option>Lease</option>
+        <option>Girvi (Mortgage)</option>
+        <option>Vadi / Plot</option>
+        <option>Farm House</option>
+        <option>Property Care</option>
+        <option>Home Maintenance</option>
+        <option>Home Watch</option>
+        <option>Commercial</option>
+        <option>PG / Hostel</option>
+        <option>Warehouse</option>
+        <option>Agriculture Land</option>
+    </select>
+
+    <label>Location</label>
+    <input type="text" id="location" placeholder="Enter Location" required>
+
+    <label>Price (₹)</label>
+    <input type="number" id="price" placeholder="Enter Price" required>
+
+    <label>Description</label>
+    <textarea id="description" rows="4" placeholder="Property Description"></textarea>
+
+    <label>Upload Photos (Min 5)</label>
+    <input type="file" id="photos" multiple accept="image/*">
+
+    <label>Upload Video (Optional)</label>
+    <input type="file" id="video" accept="video/*">
+
+    <label>Featured Listing?</label>
+    <select id="featured">
+        <option value="no">No</option>
+        <option value="yes">Yes</option>
+    </select>
+
+    <button type="submit">Add Property</button>
+</form>
+</div>
+
+<div class="container">
+<h2>Your Properties</h2>
+<div id="propertyList">
+    <!-- Existing properties will show here -->
+</div>
+</div>
+
+<script>
+// Demo front-end logic
+const form = document.getElementById('addPropertyForm');
+const propertyList = document.getElementById('propertyList');
+
+form.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const property = {
+        title: document.getElementById('title').value,
+        category: document.getElementById('category').value,
+        location: document.getElementById('location').value,
+        price: document.getElementById('price').value,
+        description: document.getElementById('description').value,
+        featured: document.getElementById('featured').value === 'yes' ? true : false,
+        photos: document.getElementById('photos').files.length,
+        video: document.getElementById('video').files.length
+    };
+
+    const card = document.createElement('div');
+    card.className = 'property-card';
+    card.innerHTML = `
+        <h3>${property.title} ${property.featured ? '<span class="featured-badge">FEATURED</span>' : ''}</h3>
+        <p><b>Category:</b> ${property.category}</p>
+        <p><b>Location:</b> ${property.location}</p>
+        <p><b>Price:</b> ₹${property.price}</p>
+        <p><b>Description:</b> ${property.description}</p>
+        <p><b>Photos Uploaded:</b> ${property.photos}</p>
+        <p><b>Video Uploaded:</b> ${property.video > 0 ? 'Yes' : 'No'}</p>
+    `;
+
+    propertyList.prepend(card);
+    form.reset();
+});
+</script>
+
+</body>
+</html>
