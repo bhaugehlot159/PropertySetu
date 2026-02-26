@@ -3,88 +3,91 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu | Udaipur Property Platform</title>
+<title>PropertySetu – Udaipur Properties</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-<!-- ================= Header ================= -->
-<header>
-  <div class="logo">PropertySetu</div>
-  <nav>
-    <a href="#">Home</a>
-    <a href="#">Buy</a>
-    <a href="#">Sell</a>
-    <a href="#">Rent</a>
-    <a href="#">Care</a>
-    <a href="list-property.html">List Property</a>
-    <a href="#">Contact</a>
-  </nav>
-</header>
-
-<!-- ================= Hero Section ================= -->
+<!-- Hero Section -->
 <section class="hero">
-  <div class="hero-content">
-    <h1>India’s Trusted Property & Care Platform</h1>
-    <p>Buy, Sell, Rent, Lease, Mortgage, Care & More – All in Udaipur</p>
-
-    <!-- Search Bar -->
-    <div class="search-bar">
-      <input type="text" id="searchInput" placeholder="Search Property Title or Location...">
-      <select id="categoryFilter">
-        <option value="all">All Categories</option>
-        <option value="buy">Buy</option>
-        <option value="sell">Sell</option>
-        <option value="rent">Rent</option>
-        <option value="lease">Lease</option>
-        <option value="mortgage">Girvi / Mortgage</option>
-        <option value="plot">Vadi / Plot</option>
-        <option value="farmhouse">Farm House</option>
-        <option value="care">Property Care</option>
-        <option value="maintenance">Home Maintenance</option>
-        <option value="homewatch">Home Watch</option>
-        <option value="commercial">Commercial</option>
-        <option value="pg">PG / Hostel</option>
-        <option value="warehouse">Warehouse</option>
-        <option value="agriculture">Agriculture Land</option>
-      </select>
-      <button id="searchBtn">Search</button>
+    <div class="hero-content">
+        <h1>India's Trusted Property & Care Platform</h1>
+        <p>Buy, Sell, Rent, Lease, Farmhouse, PG & More in Udaipur</p>
+        <div class="search-bar">
+            <input type="text" id="locationSearch" placeholder="Search Location..." />
+            <select id="categorySelect">
+                <option value="buy">Buy</option>
+                <option value="sell">Sell</option>
+                <option value="rent">Rent</option>
+                <option value="lease">Lease</option>
+                <option value="girvi">Girvi / Mortgage</option>
+                <option value="vadi">Vadi / Plot</option>
+                <option value="farmhouse">Farm House</option>
+                <option value="propertycare">Property Care</option>
+                <option value="pg">PG / Hostel</option>
+                <option value="commercial">Commercial</option>
+                <option value="warehouse">Warehouse</option>
+                <option value="agriculture">Agriculture Land</option>
+            </select>
+            <button>Search 🔍</button>
+        </div>
     </div>
-
-  </div>
+    <canvas id="heroCanvas"></canvas>
 </section>
 
-<!-- ================= Main Categories ================= -->
+<!-- Categories Section -->
 <section class="categories">
-  <h2>Explore Categories</h2>
-  <div class="category-cards">
-    <div class="category-card">Buy</div>
-    <div class="category-card">Sell</div>
-    <div class="category-card">Rent</div>
-    <div class="category-card">Lease</div>
-    <div class="category-card">Girvi / Mortgage</div>
-    <div class="category-card">Vadi / Plot</div>
-    <div class="category-card">Farm House</div>
-    <div class="category-card">Property Care</div>
-    <div class="category-card">Home Maintenance</div>
-    <div class="category-card">Home Watch</div>
-    <div class="category-card">Commercial</div>
-    <div class="category-card">PG / Hostel</div>
-    <div class="category-card">Warehouse</div>
-    <div class="category-card">Agriculture Land</div>
-  </div>
+    <h2>Property Categories</h2>
+    <div class="category-grid">
+        <div class="category-card">Buy</div>
+        <div class="category-card">Sell</div>
+        <div class="category-card">Rent</div>
+        <div class="category-card">Lease</div>
+        <div class="category-card">Girvi / Mortgage</div>
+        <div class="category-card">Vadi / Plot</div>
+        <div class="category-card">Farm House</div>
+        <div class="category-card">Property Care</div>
+        <div class="category-card">PG / Hostel</div>
+        <div class="category-card">Commercial</div>
+        <div class="category-card">Warehouse</div>
+        <div class="category-card">Agriculture Land</div>
+    </div>
 </section>
 
-<!-- ================= Featured Properties Container ================= -->
-<section class="featured-properties">
-  <h2>Featured Properties in Udaipur</h2>
-  <div id="propertyContainer" class="property-container">
-    <!-- JS will populate property cards here -->
-  </div>
+<!-- Featured Properties -->
+<section class="featured">
+    <h2>Featured Properties in Udaipur</h2>
+    <div class="featured-slider">
+        <div class="property-card">
+            <img src="assets/images/placeholder.jpg" alt="Luxury Villa">
+            <h3>Luxury Villa Hiran Magri</h3>
+            <span class="featured-badge">Featured</span>
+        </div>
+        <div class="property-card">
+            <img src="assets/images/placeholder.jpg" alt="Farmhouse Ambamata">
+            <h3>Farmhouse Ambamata</h3>
+            <span class="featured-badge">Featured</span>
+        </div>
+        <div class="property-card">
+            <img src="assets/images/placeholder.jpg" alt="PG Sukher">
+            <h3>PG Sukher</h3>
+        </div>
+    </div>
 </section>
 
-<script src="js/location.js"></script>
-<script src="js/main.js"></script>
+<!-- Property Care Section -->
+<section class="property-care">
+    <h2>Property Care & Maintenance</h2>
+    <div class="care-grid">
+        <div class="care-card">Monthly House Check</div>
+        <div class="care-card">Cleaning Service</div>
+        <div class="care-card">Garden / Vadi Maintenance</div>
+        <div class="care-card">Security Visit</div>
+        <div class="care-card">Bill Payment</div>
+        <div class="care-card">Tenant Coordination</div>
+    </div>
+</section>
 
+<script src="js/script.js"></script>
 </body>
 </html>
