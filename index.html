@@ -1,191 +1,374 @@
+<!-- =========================
+FILE: index.html
+FOCUS: UDAIPUR ONLY
+PART 1 / HEADER + HERO (3D)
+========================= -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu</title>
+<title>PropertySetu Udaipur</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
 
 <style>
-body{margin:0;font-family:Arial;background:#f4f6f9}
-header{background:#0d1b2a;color:white;padding:15px;display:flex;justify-content:space-between}
-button{padding:8px 12px;background:#0d1b2a;color:white;border:none;cursor:pointer}
-input,select,textarea{padding:8px;margin:5px 0;width:100%}
-.container{padding:20px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:15px}
-.card{background:white;padding:15px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-.hidden{display:none}
-.badge{background:green;color:white;padding:3px 6px;font-size:12px;border-radius:4px}
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Poppins',sans-serif}
+body{background:#0f172a;color:#fff;overflow-x:hidden}
+a{text-decoration:none;color:inherit}
+section{padding:80px 8%}
+
+/* ===== HEADER ===== */
+header{
+position:fixed;
+top:0;left:0;width:100%;
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:20px 8%;
+background:rgba(0,0,0,0.6);
+backdrop-filter:blur(10px);
+z-index:1000;
+}
+.logo{font-size:24px;font-weight:700;color:#38bdf8}
+nav a{margin-left:25px;font-weight:500;transition:.3s}
+nav a:hover{color:#38bdf8}
+
+/* ===== HERO 3D ===== */
+.hero{
+height:100vh;
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding-top:100px;
+perspective:1200px;
+}
+.hero-text{max-width:50%}
+.hero-text h1{font-size:48px;line-height:1.2}
+.hero-text p{margin:20px 0;color:#cbd5e1}
+.search-box{
+margin-top:20px;
+display:flex;
+gap:10px;
+}
+.search-box input{
+padding:12px 15px;
+border-radius:30px;
+border:none;
+outline:none;
+width:250px;
+}
+.search-box button{
+padding:12px 25px;
+border:none;
+border-radius:30px;
+background:linear-gradient(45deg,#38bdf8,#6366f1);
+color:#fff;
+cursor:pointer;
+transition:.3s;
+}
+.search-box button:hover{transform:scale(1.1)}
+
+/* ===== 3D CUBE ===== */
+.cube{
+width:280px;height:280px;
+position:relative;
+transform-style:preserve-3d;
+animation:rotate 18s infinite linear;
+}
+.cube div{
+position:absolute;
+width:100%;height:100%;
+background:linear-gradient(45deg,#38bdf8,#6366f1);
+opacity:.85;
+border:2px solid #fff;
+}
+.cube div:nth-child(1){transform:rotateY(0deg) translateZ(140px)}
+.cube div:nth-child(2){transform:rotateY(90deg) translateZ(140px)}
+.cube div:nth-child(3){transform:rotateY(180deg) translateZ(140px)}
+.cube div:nth-child(4){transform:rotateY(-90deg) translateZ(140px)}
+.cube div:nth-child(5){transform:rotateX(90deg) translateZ(140px)}
+.cube div:nth-child(6){transform:rotateX(-90deg) translateZ(140px)}
+
+@keyframes rotate{
+0%{transform:rotateX(0) rotateY(0)}
+100%{transform:rotateX(360deg) rotateY(360deg)}
+}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:900px){
+.hero{flex-direction:column;text-align:center}
+.hero-text{max-width:100%}
+.cube{margin-top:40px}
+}
 </style>
 </head>
 
 <body>
 
 <header>
-<h2>PropertySetu</h2>
-<div id="navArea"></div>
+<div class="logo">PropertySetu Udaipur</div>
+<nav>
+<a href="#">Buy</a>
+<a href="#">Rent</a>
+<a href="#">Auction</a>
+<a href="#">Care</a>
+<a href="#">Login</a>
+</nav>
 </header>
 
-<div class="container">
+<section class="hero">
 
-<!-- AUTH SECTION -->
+<!-- =========================
+FILE: index.html
+FOCUS: UDAIPUR ONLY
+PART 2 / ALL CATEGORIES SECTION
+Add below Hero section
+========================= -->
 
-<div id="authSection">
-<h3>Login</h3>
-<input id="loginEmail" placeholder="Email">
-<input id="loginPassword" type="password" placeholder="Password">
-<button onclick="login()">Login</button>
+<style>
+/* ===== CATEGORY SECTION ===== */
+.categories{
+padding:60px 8%;
+background:#111827;
+}
+.categories h2{
+text-align:center;
+font-size:34px;
+margin-bottom:40px;
+color:#38bdf8;
+}
+.category-grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+gap:25px;
+}
+.category-card{
+background:#1e293b;
+padding:25px;
+border-radius:18px;
+text-align:center;
+transition:.4s;
+transform-style:preserve-3d;
+cursor:pointer;
+}
+.category-card:hover{
+transform:rotateY(10deg) rotateX(10deg) scale(1.05);
+box-shadow:0 0 20px #38bdf8;
+}
+.category-card h3{
+margin-bottom:10px;
+color:#38bdf8;
+font-size:18px;
+}
+.category-card p{
+color:#94a3b8;
+font-size:14px;
+}
+</style>
 
-<h3>Register</h3>
-<input id="regName" placeholder="Name">
-<input id="regEmail" placeholder="Email">
-<input id="regPhone" placeholder="Phone">
-<input id="regPassword" type="password" placeholder="Password">
-<select id="regRole">
-<option value="buyer">Buyer</option>
-<option value="seller">Seller</option>
-</select>
-<button onclick="register()">Register</button>
+<section class="categories">
+<h2>Udaipur Property Categories</h2>
+
+<div class="category-grid">
+
+<div class="category-card">
+<h3>Buy Property</h3>
+<p>Purchase verified properties in Udaipur.</p>
 </div>
 
-<!-- DASHBOARD -->
-
-<div id="dashboard" class="hidden">
-<h3>Seller Dashboard</h3>
-
-<input id="title" placeholder="Property Title">
-<input id="location" placeholder="Location">
-<input id="price" placeholder="Price">
-<select id="type">
-<option value="buy">Buy</option>
-<option value="rent">Rent</option>
-</select>
-<textarea id="description" placeholder="Description"></textarea>
-<input type="file" id="imageUpload">
-<label><input type="checkbox" id="featured"> Featured</label>
-<button onclick="addProperty()">Add Property</button>
+<div class="category-card">
+<h3>Sell Property</h3>
+<p>List & sell your property easily.</p>
 </div>
 
-<hr>
-
-<h2>All Properties</h2>
-<div id="propertyList" class="grid"></div>
-
+<div class="category-card">
+<h3>Rent</h3>
+<p>Find rental homes & apartments.</p>
 </div>
 
-<script>
+<div class="category-card">
+<h3>Lease</h3>
+<p>Long term commercial & land lease.</p>
+</div>
 
-const API = "http://localhost:5000/api";
+<div class="category-card">
+<h3>Girvi (Mortgage)</h3>
+<p>Secure mortgage & property loan support.</p>
+</div>
 
-let token = localStorage.getItem("token");
-let currentUser = null;
+<div class="category-card">
+<h3>Vadi / Plot</h3>
+<p>Residential & investment plots.</p>
+</div>
 
-if(token){
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    currentUser = payload;
-    showDashboard();
+<div class="category-card">
+<h3>Farm House</h3>
+<p>Luxury & agricultural farm houses.</p>
+</div>
+
+<div class="category-card">
+<h3>Property Care</h3>
+<p>Complete property management services.</p>
+</div>
+
+<div class="category-card">
+<h3>Home Maintenance</h3>
+<p>Repair, cleaning & upkeep services.</p>
+</div>
+
+<div class="category-card">
+<h3>Home Watch</h3>
+<p>Security monitoring for vacant homes.</p>
+</div>
+
+<div class="category-card">
+<h3>Commercial</h3>
+<p>Office, shop & business properties.</p>
+</div>
+
+<div class="category-card">
+<h3>PG / Hostel</h3>
+<p>Student & working professional stays.</p>
+</div>
+
+<div class="category-card">
+<h3>Warehouse</h3>
+<p>Storage & industrial warehouse space.</p>
+</div>
+
+<div class="category-card">
+<h3>Agriculture Land</h3>
+<p>Farming & rural investment land.</p>
+</div>
+
+</div>
+</section>
+<div class="hero-text">
+<h1>Udaipur Real Estate Platform</h1>
+<p>Buy, Sell, Rent & Auction Properties in Udaipur — Smart & Secure.</p>
+<div class="search-box">
+<input type="text" placeholder="Search in Udaipur...">
+<button>Search</button>
+</div>
+</div>
+
+<div class="cube">
+<div></div><div></div><div></div>
+<div></div><div></div><div></div>
+</div>
+</section>
+
+<!-- =========================
+FILE: index.html
+FOCUS: UDAIPUR ONLY
+PART 3 / FEATURED + FOOTER
+Add below Categories Section
+========================= -->
+
+<style>
+/* ===== FEATURED SECTION ===== */
+.featured{
+padding:70px 8%;
+background:#0f172a;
+}
+.featured h2{
+text-align:center;
+font-size:34px;
+margin-bottom:40px;
+color:#38bdf8;
+}
+.featured-grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+gap:30px;
+}
+.property-card{
+background:#1e293b;
+border-radius:20px;
+overflow:hidden;
+transition:.4s;
+transform-style:preserve-3d;
+cursor:pointer;
+}
+.property-card:hover{
+transform:rotateY(8deg) rotateX(8deg) scale(1.05);
+box-shadow:0 0 25px #38bdf8;
+}
+.property-img{
+height:180px;
+background:linear-gradient(45deg,#38bdf8,#6366f1);
+display:flex;
+align-items:center;
+justify-content:center;
+font-weight:600;
+font-size:18px;
+}
+.property-content{
+padding:20px;
+}
+.property-content h3{
+margin-bottom:10px;
+color:#38bdf8;
+}
+.property-content p{
+color:#94a3b8;
+font-size:14px;
+margin-bottom:8px;
+}
+.price{
+font-weight:600;
+color:#fff;
 }
 
-function showDashboard(){
-    document.getElementById("authSection").classList.add("hidden");
-    document.getElementById("navArea").innerHTML =
-        `<button onclick="logout()">Logout</button>`;
-    if(currentUser.role === "seller"){
-        document.getElementById("dashboard").classList.remove("hidden");
-    }
+/* ===== FOOTER ===== */
+footer{
+background:#020617;
+text-align:center;
+padding:40px 8%;
+color:#94a3b8;
+margin-top:40px;
 }
+</style>
 
-function logout(){
-    localStorage.removeItem("token");
-    location.reload();
-}
+<section class="featured">
+<h2>Featured Properties in Udaipur</h2>
 
-async function register(){
-    const res = await fetch(API+"/auth/register",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-            name:regName.value,
-            email:regEmail.value,
-            phone:regPhone.value,
-            password:regPassword.value,
-            role:regRole.value
-        })
-    });
-    const data = await res.json();
-    alert(data.message);
-}
+<div class="featured-grid">
 
-async function login(){
-    const res = await fetch(API+"/auth/login",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-            email:loginEmail.value,
-            password:loginPassword.value
-        })
-    });
-    const data = await res.json();
-    if(data.token){
-        localStorage.setItem("token",data.token);
-        location.reload();
-    }else{
-        alert(data.message);
-    }
-}
+<div class="property-card">
+<div class="property-img">Luxury Villa - Fatehsagar</div>
+<div class="property-content">
+<h3>4BHK Premium Villa</h3>
+<p>Lake view, Fully furnished</p>
+<p class="price">₹2.5 Cr</p>
+</div>
+</div>
 
-async function addProperty(){
-    const file = imageUpload.files[0];
-    const reader = new FileReader();
+<div class="property-card">
+<div class="property-img">Commercial Shop - Surajpole</div>
+<div class="property-content">
+<h3>Main Market Shop</h3>
+<p>High footfall business area</p>
+<p class="price">₹45 Lakh</p>
+</div>
+</div>
 
-    reader.onloadend = async function(){
-        const imageBase64 = reader.result;
+<div class="property-card">
+<div class="property-img">Farm Land - Gogunda</div>
+<div class="property-content">
+<h3>Agriculture Land</h3>
+<p>Water connection available</p>
+<p class="price">₹18 Lakh</p>
+</div>
+</div>
 
-        const res = await fetch(API+"/properties",{
-            method:"POST",
-            headers:{
-                "Content-Type":"application/json",
-                "Authorization":"Bearer "+token
-            },
-            body:JSON.stringify({
-                title:title.value,
-                location:location.value,
-                price:price.value,
-                type:type.value,
-                description:description.value,
-                image:imageBase64,
-                featured:featured.checked
-            })
-        });
+</div>
+</section>
 
-        const data = await res.json();
-        alert(data.message);
-        loadProperties();
-    };
-
-    if(file) reader.readAsDataURL(file);
-}
-
-async function loadProperties(){
-    const res = await fetch(API+"/properties");
-    const data = await res.json();
-
-    propertyList.innerHTML="";
-
-    data.forEach(p=>{
-        propertyList.innerHTML += `
-        <div class="card">
-            <img src="${p.image}" width="100%">
-            <h3>${p.title} ${p.featured ? '<span class="badge">Featured</span>' : ''}</h3>
-            <p>${p.location}</p>
-            <p>₹ ${p.price}</p>
-            <p>${p.description}</p>
-        </div>`;
-    });
-}
-
-loadProperties();
-
-</script>
+<footer>
+© 2026 PropertySetu Udaipur | Smart Real Estate Platform | All Rights Reserved
+</footer>
 
 </body>
 </html>
