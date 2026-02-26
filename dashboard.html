@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PropertySetu – Dashboard</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f6f9; }
+header { background:#0b3d91; color:white; padding:15px; text-align:center; font-size:24px; }
+.container { max-width: 900px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+h2 { color:#0b3d91; margin-bottom:15px; }
+button { background:#0b3d91; color:white; padding:8px 12px; border:none; border-radius:4px; cursor:pointer; margin-bottom:10px; }
+button:hover { background:#092f6d; }
+.property-card { border:1px solid #ccc; padding:12px; margin:10px 0; border-radius:6px; background:#fdfdfd; }
+</style>
+</head>
+<body>
+
+<header>PropertySetu – User Dashboard</header>
+
+<div class="container">
+<h2>Your Properties</h2>
+<button onclick="window.location.href='add-property.html'">Add New Property</button>
+<div id="userProperties">
+    <!-- User properties will appear here -->
+</div>
+</div>
+
+<script src="../js/dashboard.js"></script>
+</body>
+</html>
