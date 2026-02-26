@@ -4,94 +4,59 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PropertySetu – Add Property</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="../css/style.css">
 <style>
 body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f6f9; }
 header { background:#0b3d91; color:white; padding:15px; text-align:center; font-size:24px; }
-.container { max-width:700px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
-h2 { color:#0b3d91; margin-top:0; }
-input, select, textarea { width:100%; padding:8px; margin:6px 0; border-radius:4px; border:1px solid #ccc; }
-button { background:#0b3d91; color:white; padding:10px; border:none; border-radius:4px; cursor:pointer; margin-top:10px; }
-button:hover { background:#092f6d; }
-.preview { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
-.preview img, .preview video { width:120px; height:80px; object-fit:cover; border-radius:4px; border:1px solid #ccc; }
+.container { max-width: 800px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+h2 { color:#0b3d91; margin-bottom:15px; }
+form input, form select, form textarea { width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #ccc; }
+form button { background:#0b3d91; color:white; padding:10px 15px; border:none; border-radius:4px; cursor:pointer; }
+form button:hover { background:#092f6d; }
+img.preview { width:100px; height:80px; object-fit:cover; margin-right:5px; margin-bottom:5px; border-radius:4px; border:1px solid #ccc; }
+video.preview { width:200px; height:150px; margin-bottom:5px; border-radius:4px; border:1px solid #ccc; }
 </style>
 </head>
 <body>
 
-<header>Add Property</header>
+<header>PropertySetu – Add Property</header>
 
 <div class="container">
-<form id="propertyForm">
+<h2>Add New Property</h2>
+<form id="addPropertyForm">
+    <input type="text" id="title" placeholder="Property Title" required>
+    <select id="category" required>
+        <option value="">Select Category</option>
+        <option value="Buy">Buy</option>
+        <option value="Sell">Sell</option>
+        <option value="Rent">Rent</option>
+        <option value="Lease">Lease</option>
+        <option value="Girvi">Girvi / Mortgage</option>
+        <option value="Vadi / Plot">Vadi / Plot</option>
+        <option value="Farm House">Farm House</option>
+        <option value="Property Care">Property Care</option>
+        <option value="Home Maintenance">Home Maintenance</option>
+        <option value="Home Watch">Home Watch</option>
+        <option value="Commercial">Commercial</option>
+        <option value="PG / Hostel">PG / Hostel</option>
+        <option value="Warehouse">Warehouse</option>
+        <option value="Agriculture Land">Agriculture Land</option>
+    </select>
+    <input type="number" id="price" placeholder="Price in INR" required>
+    <textarea id="description" placeholder="Property Description" rows="4"></textarea>
 
-<h2>Property Details</h2>
-<input type="text" id="title" placeholder="Property Title" required>
-<textarea id="description" placeholder="Description"></textarea>
+    <label>Upload Photos (max 5)</label>
+    <input type="file" id="photos" accept="image/*" multiple required>
+    <div id="photoPreview"></div>
 
-<select id="category" required>
-    <option value="">Select Category</option>
-    <option value="buy">Buy</option>
-    <option value="sell">Sell</option>
-    <option value="rent">Rent</option>
-    <option value="lease">Lease</option>
-    <option value="girvi">Girvi / Mortgage</option>
-    <option value="vadi">Vadi / Plot</option>
-    <option value="farmhouse">Farm House</option>
-    <option value="commercial">Commercial</option>
-    <option value="warehouse">Warehouse</option>
-    <option value="pg">PG / Hostel</option>
-    <option value="propertycare">Property Care Service</option>
-    <option value="homemaintenance">Home Maintenance</option>
-    <option value="homewatch">Home Watch</option>
-    <option value="agriculture">Agriculture Land</option>
-</select>
+    <label>Upload Video (Optional)</label>
+    <input type="file" id="video" accept="video/*">
+    <div id="videoPreview"></div>
 
-<input type="text" id="location" placeholder="Location (Udaipur)" required>
-<input type="number" id="price" placeholder="Price in ₹" required>
-<input type="text" id="size" placeholder="Size (sq ft / acres)">
-<input type="file" id="images" accept="image/*" multiple required>
-<input type="file" id="video" accept="video/*">
-
-<div class="preview" id="preview"></div>
-
-<button type="submit">Add Property</button>
+    <button type="submit">Submit Property</button>
 </form>
 </div>
 
-<script>
-// Preview Images & Video
-const imagesInput = document.getElementById('images');
-const videoInput = document.getElementById('video');
-const previewDiv = document.getElementById('preview');
-
-imagesInput.addEventListener('change', function() {
-    previewDiv.innerHTML = '';
-    Array.from(imagesInput.files).forEach(file => {
-        const img = document.createElement('img');
-        img.src = URL.createObjectURL(file);
-        previewDiv.appendChild(img);
-    });
-});
-
-videoInput.addEventListener('change', function() {
-    const file = videoInput.files[0];
-    if(file){
-        const vid = document.createElement('video');
-        vid.src = URL.createObjectURL(file);
-        vid.controls = true;
-        previewDiv.appendChild(vid);
-    }
-});
-
-// Form submit demo
-const propertyForm = document.getElementById('propertyForm');
-propertyForm.addEventListener('submit', function(e){
-    e.preventDefault();
-    alert("Property Added! (Demo front-end only)");
-    propertyForm.reset();
-    previewDiv.innerHTML = '';
-});
-</script>
-
+<script src="../js/addProperty.js"></script>
 </body>
 </html>
