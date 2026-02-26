@@ -1,187 +1,90 @@
-<!-- =========================
-PART 1 – INDEX.HTML (FRONT-END PROTOTYPE)
-Covers Hero, Search, All Categories, Multi-City, 3D Cards
-Assets: CSS + JS separate folders
-========================= -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu | Udaipur Real Estate & Property Care</title>
+<title>PropertySetu | Udaipur Property Platform</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-<!-- =========================
-HEADER
-========================= -->
+<!-- ================= Header ================= -->
 <header>
-<div class="header-container">
-<h1>PropertySetu</h1>
-<nav>
-<a href="index.html">Home</a>
-<a href="buy.html">Buy</a>
-<a href="sell.html">Sell</a>
-<a href="rent.html">Rent</a>
-<a href="lease.html">Lease</a>
-<a href="property-care.html">Property Care</a>
-<a href="pg.html">PG / Hostel</a>
-<a href="#">Contact</a>
-</nav>
-</div>
+  <div class="logo">PropertySetu</div>
+  <nav>
+    <a href="#">Home</a>
+    <a href="#">Buy</a>
+    <a href="#">Sell</a>
+    <a href="#">Rent</a>
+    <a href="#">Care</a>
+    <a href="list-property.html">List Property</a>
+    <a href="#">Contact</a>
+  </nav>
 </header>
 
-<!-- =========================
-HERO SECTION + SEARCH
-========================= -->
+<!-- ================= Hero Section ================= -->
 <section class="hero">
-<div class="hero-content">
-<h2>India’s Trusted Property & Care Platform</h2>
-<p>Buy, Sell, Rent, Lease & Property Care in Udaipur</p>
+  <div class="hero-content">
+    <h1>India’s Trusted Property & Care Platform</h1>
+    <p>Buy, Sell, Rent, Lease, Mortgage, Care & More – All in Udaipur</p>
 
-<div class="search-bar">
-<select id="categorySelect">
-<option value="all">All Categories</option>
-<option value="buy">Buy</option>
-<option value="sell">Sell</option>
-<option value="rent">Rent</option>
-<option value="lease">Lease / Girvi</option>
-<option value="plot">Plot / Vadi</option>
-<option value="farmhouse">Farmhouse</option>
-<option value="commercial">Commercial</option>
-<option value="pg">PG / Hostel</option>
-<option value="warehouse">Warehouse</option>
-<option value="property-care">Property Care</option>
-<option value="maintenance">Home Maintenance / Watch</option>
-</select>
+    <!-- Search Bar -->
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search Property Title or Location...">
+      <select id="categoryFilter">
+        <option value="all">All Categories</option>
+        <option value="buy">Buy</option>
+        <option value="sell">Sell</option>
+        <option value="rent">Rent</option>
+        <option value="lease">Lease</option>
+        <option value="mortgage">Girvi / Mortgage</option>
+        <option value="plot">Vadi / Plot</option>
+        <option value="farmhouse">Farm House</option>
+        <option value="care">Property Care</option>
+        <option value="maintenance">Home Maintenance</option>
+        <option value="homewatch">Home Watch</option>
+        <option value="commercial">Commercial</option>
+        <option value="pg">PG / Hostel</option>
+        <option value="warehouse">Warehouse</option>
+        <option value="agriculture">Agriculture Land</option>
+      </select>
+      <button id="searchBtn">Search</button>
+    </div>
 
-<input type="text" id="locationInput" placeholder="Enter location in Udaipur">
-<button id="searchBtn">Search</button>
-</div>
-</div>
+  </div>
 </section>
 
-<!-- =========================
-CATEGORIES SECTION (3D CARDS)
-========================= -->
-<section class="section categories">
-<h2>All Property & Service Categories</h2>
-<div class="category-grid">
-
-<div class="category-card">
-<img src="images/icons/buy.png" alt="Buy">
-<h4>Buy Property</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/sell.png" alt="Sell">
-<h4>Sell Property</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/rent.png" alt="Rent">
-<h4>Rent Property</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/lease.png" alt="Lease">
-<h4>Lease / Girvi</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/plot.png" alt="Plot">
-<h4>Plot / Vadi</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/farmhouse.png" alt="Farmhouse">
-<h4>Farmhouse</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/commercial.png" alt="Commercial">
-<h4>Commercial Property</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/pg.png" alt="PG / Hostel">
-<h4>PG / Hostel</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/warehouse.png" alt="Warehouse">
-<h4>Warehouse</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/property-care.png" alt="Property Care">
-<h4>Property Care</h4>
-</div>
-
-<div class="category-card">
-<img src="images/icons/maintenance.png" alt="Home Maintenance">
-<h4>Home Maintenance</h4>
-</div>
-
-</div>
+<!-- ================= Main Categories ================= -->
+<section class="categories">
+  <h2>Explore Categories</h2>
+  <div class="category-cards">
+    <div class="category-card">Buy</div>
+    <div class="category-card">Sell</div>
+    <div class="category-card">Rent</div>
+    <div class="category-card">Lease</div>
+    <div class="category-card">Girvi / Mortgage</div>
+    <div class="category-card">Vadi / Plot</div>
+    <div class="category-card">Farm House</div>
+    <div class="category-card">Property Care</div>
+    <div class="category-card">Home Maintenance</div>
+    <div class="category-card">Home Watch</div>
+    <div class="category-card">Commercial</div>
+    <div class="category-card">PG / Hostel</div>
+    <div class="category-card">Warehouse</div>
+    <div class="category-card">Agriculture Land</div>
+  </div>
 </section>
 
-<!-- =========================
-FEATURED PROPERTIES / DYNAMIC SECTION (Udaipur)
-========================= -->
-<section class="section" id="featuredProperties">
-<h2>Featured Properties in Udaipur</h2>
-<div class="property-grid">
-<!-- JS will dynamically populate property cards here -->
-</div>
+<!-- ================= Featured Properties Container ================= -->
+<section class="featured-properties">
+  <h2>Featured Properties in Udaipur</h2>
+  <div id="propertyContainer" class="property-container">
+    <!-- JS will populate property cards here -->
+  </div>
 </section>
 
-<!-- =========================
-MULTI-CITY / SEO READY
-========================= -->
-<section class="section cities">
-<h2>Explore Cities</h2>
-<div class="city-grid">
-
-<div class="city-card active">
-<img src="images/cities/udaipur.jpg" alt="Udaipur">
-<h4>Udaipur</h4>
-<p>Active City</p>
-</div>
-
-<div class="city-card disabled">
-<img src="images/cities/jaipur.jpg" alt="Jaipur">
-<h4>Jaipur</h4>
-<p>Coming Soon</p>
-</div>
-
-<div class="city-card disabled">
-<img src="images/cities/jodhpur.jpg" alt="Jodhpur">
-<h4>Jodhpur</h4>
-<p>Coming Soon</p>
-</div>
-
-</div>
-</section>
-
-<!-- =========================
-FOOTER
-========================= -->
-<footer>
-<p>© 2026 PropertySetu | Made in Udaipur</p>
-<p>
-<a href="index.html">Home</a> |
-<a href="buy.html">Buy</a> |
-<a href="sell.html">Sell</a> |
-<a href="rent.html">Rent</a> |
-<a href="property-care.html">Property Care</a> |
-<a href="#">Contact</a>
-</p>
-<p>Contact: +91-XXXXXXXXXX | Email: info@propertysetu.in</p>
-</footer>
-
+<script src="js/location.js"></script>
 <script src="js/main.js"></script>
+
 </body>
 </html>
