@@ -23,20 +23,21 @@ button:hover { background:#092f6d; }
 
 <div class="container">
 <h2>Pending Property Approvals</h2>
-<div id="pendingProperties">
-    <!-- Pending properties will appear here -->
-</div>
+<div id="pendingProperties"></div>
 </div>
 
 <div class="container">
-<h2>Featured Approval / Hidden Bidding</h2>
-<div id="featuredBids">
-    <!-- Featured & Bidding control -->
+<h2>Featured Listings & Hidden Bidding</h2>
+<div id="featuredBids"></div>
 </div>
+
+<div class="container">
+<h2>Seller Bids Overview</h2>
+<div id="sellerBids"></div>
 </div>
 
 <script>
-// Dummy demo data
+// === Dummy Data ===
 let pendingPropertiesData = [
     {id:1, title:"Luxury Villa Hiran Magri", owner:"Seller1", category:"Buy", featured:false},
     {id:2, title:"Farmhouse Ambamata", owner:"Seller2", category:"Farm House", featured:true},
@@ -48,7 +49,12 @@ let biddingData = [
     {propertyId:2, bidder:"Buyer3", amount:1500000}
 ];
 
-// Pending Property Approval
+let sellerBids = [
+    {propertyId:1, seller:"Seller2", bidAmount:2400000, status:"Pending"},
+    {propertyId:2, seller:"Seller3", bidAmount:1600000, status:"Pending"}
+];
+
+// === Pending Property Approval ===
 const pendingDiv = document.getElementById('pendingProperties');
 pendingPropertiesData.forEach(prop => {
     const card = document.createElement('div');
@@ -72,7 +78,7 @@ function rejectProperty(id, btn){
     btn.parentElement.remove();
 }
 
-// Featured Listing + Hidden Bidding
+// === Featured Listings & Hidden Bidding ===
 const featuredDiv = document.getElementById('featuredBids');
 biddingData.forEach(bid => {
     const card = document.createElement('div');
@@ -88,6 +94,30 @@ biddingData.forEach(bid => {
 
 function revealBid(propId, bidder, amount){
     alert(`Property ${propId} - Bidder: ${bidder} - Amount: ₹${amount}`);
+}
+
+// === Seller Bids Overview ===
+const sellerDiv = document.getElementById('sellerBids');
+sellerBids.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'bid-card';
+    card.innerHTML = `
+        <p><b>Property ID:</b> ${s.propertyId}</p>
+        <p><b>Seller:</b> ${s.seller}</p>
+        <p><b>Bid Amount:</b> Hidden 🔒</p>
+        <button onclick="acceptSellerBid(${s.propertyId}, '${s.seller}', ${s.bidAmount}, this)">Accept Bid</button>
+        <button onclick="rejectSellerBid(${s.propertyId}, '${s.seller}', ${s.bidAmount}, this)">Reject Bid</button>
+    `;
+    sellerDiv.appendChild(card);
+});
+
+function acceptSellerBid(propId, seller, amount, btn){
+    alert(`Accepted Seller Bid: Property ${propId}, Seller ${seller}, Amount ₹${amount}`);
+    btn.parentElement.remove();
+}
+function rejectSellerBid(propId, seller, amount, btn){
+    alert(`Rejected Seller Bid: Property ${propId}, Seller ${seller}, Amount ₹${amount}`);
+    btn.parentElement.remove();
 }
 </script>
 
