@@ -30,3 +30,17 @@ function deleteProperty(id, btn){
         btn.parentElement.remove();
     }
 }
+// Update property rendering to show badges
+userPropertiesData.forEach(prop => {
+    const card = document.createElement('div');
+    card.className = 'property-card';
+    card.innerHTML = `
+        <h3>${prop.title} ${prop.status==="Approved"?'<span class="badge">Verified</span>':''}</h3>
+        <p><b>Category:</b> ${prop.category}</p>
+        <p><b>Status:</b> ${prop.status}</p>
+        ${prop.featured?'<span class="badge">Featured</span>':''}
+        <button onclick="editProperty(${prop.id})">Edit ✏️</button>
+        <button onclick="deleteProperty(${prop.id}, this)">Delete 🗑️</button>
+    `;
+    userPropertiesDiv.appendChild(card);
+});
