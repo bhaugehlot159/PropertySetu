@@ -17,6 +17,10 @@ body {
 }
 .container { width: min(1140px, 92%); margin: 0 auto; }
 
+.hidden { display: none !important; }
+
+
+
 .topbar {
   position: sticky;
   top: 0;
@@ -35,6 +39,19 @@ body {
 nav { display: flex; flex-wrap: wrap; gap: 14px; }
 nav a { color: #deebff; text-decoration: none; font-size: 0.92rem; }
 nav a:hover { color: #fff; }
+.auth-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.ghost-btn,
+.warn-btn,
+.primary-btn {
+  border-radius: 8px;
+  border: 1px solid #ffffff5e;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.ghost-btn { background: #ffffff12; color: #fff; }
+.warn-btn { background: #ff4d4f; color: #fff; border-color: #ff4d4f; }
+.primary-btn { background: var(--primary); color: #fff; border: 0; }
 
 .hero {
   min-height: 72vh;
@@ -126,7 +143,30 @@ footer { background: #0a244f; color: #d7e6ff; padding: 32px 0; }
 .footer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 footer h3 { color: #fff; margin-top: 0; }
 
+.auth-dialog {
+  border: 0;
+  border-radius: 12px;
+  width: min(420px, 92%);
+}
+.auth-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+.auth-form input {
+  width: 100%;
+  margin-top: 4px;
+  border: 1px solid #d3ddf0;
+  border-radius: 8px;
+  padding: 10px;
+}
+.auth-row { display: flex; gap: 8px; justify-content: flex-end; }
+
 @media (max-width: 900px) {
+  .topbar-inner { flex-direction: column; align-items: flex-start; }
+
+@media (max-width: 900px) {
+
   .search-controls { grid-template-columns: 1fr; }
   .grid.three,
   .grid.four,
