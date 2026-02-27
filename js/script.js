@@ -112,6 +112,9 @@ if (citySelect && slugPreview) {
     slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
   });
 }
+ codex/add-auto-suggestion-feature-for-udaipur-codes
+animate();
+
 
 if (input) {
   input.addEventListener('input', () => {
@@ -291,4 +294,3 @@ if (searchButton) {
   });
 }
 main
- main
