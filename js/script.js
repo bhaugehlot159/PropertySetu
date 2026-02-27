@@ -56,9 +56,13 @@
   const searchButton = document.getElementById('searchButton');
 
   if (locationSuggestions) {
+
     locationSuggestions.innerHTML = locations
       .map((loc) => `<option value="${String(loc).replace(/"/g, '&quot;')}"></option>`)
       .join('');
+
+    locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
+
   }
 
   citySelect?.addEventListener('change', () => {
@@ -186,4 +190,19 @@
   });
 
   syncAuthUi();
+  });
+
+  tabButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      tabButtons.forEach((tab) => tab.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  searchButton?.addEventListener('click', () => {
+    const mode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
+    const city = citySelect?.value || 'udaipur';
+    const location = locationSearch?.value.trim() || 'all-areas';
+    window.location.hash = `search/${city}/${mode}/${location.toLowerCase().replace(/\s+/g, '-')}`;
+  });
 })();

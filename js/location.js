@@ -14,7 +14,9 @@ window.PROPERTYSETU_LOCATIONS = [
   'Hiran Magri Sector 13',
   'Hiran Magri Sector 14',
   'Pratap Nagar',
+
   'Pratap Nagar Extension',
+
   'Sukher',
   'Sukher Industrial Area',
   'Bhuwana',
@@ -32,10 +34,14 @@ window.PROPERTYSETU_LOCATIONS = [
   'Airport Road',
   'Balicha',
   'Umarda',
+
+  'Gogunda',
+
   'Madhuban',
   'University Road',
   'Rani Road',
   'Pichola',
+
   'Goverdhan Vilas',
   'Ayad',
   'Ahar',
@@ -166,4 +172,7 @@ window.PROPERTYSETU_LOCATIONS = [
   'Sisarma Road',
   'Nela Road',
   'Dabok-Airport Belt'
+
+  'Goverdhan Vilas'
+
 ];
