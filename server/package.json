@@ -14,16 +14,10 @@
     "dotenv": "^16.4.0",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.0.3"
+    "mongoose": "^8.0.3",
+    "razorpay": "^2.9.4"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
   }
-}
-{
-  "name": "Bhavesh",
-  "email": "test@test.com",
-  "phone": "9876543210",
-  "password": "123456",
-  "role": "seller"
 }
