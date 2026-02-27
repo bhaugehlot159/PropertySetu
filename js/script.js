@@ -24,16 +24,3 @@ function animate(){
     requestAnimationFrame(animate);
 }
 animate();
-
-// Location Search
-const locations = [
-"Hiran Magri Sector 1","Hiran Magri Sector 2","Hiran Magri Sector 3","Hiran Magri Sector 4","Hiran Magri Sector 5",
-"Pratap Nagar","Ambamata","Sukher","Bhuwana","Bedla","Fatehpura"
-];
-const uniqueLocations = [...new Set(locations)];
-const input = document.getElementById("locationSearch");
-input.addEventListener("keyup", function() {
-    let value = this.value.toLowerCase();
-    let filtered = uniqueLocations.filter(loc => loc.toLowerCase().includes(value));
-    console.log("Matching locations:", filtered);
-});
