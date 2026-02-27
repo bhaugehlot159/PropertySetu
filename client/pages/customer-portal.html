@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Customer Portal</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <style>
+    .portal-wrap { padding: 36px 0; }
+    .stat-grid { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:12px; }
+    .mini { background:#fff; border:1px solid #dce7ff; border-radius:10px; padding:12px; }
+    .mini h3 { margin:0; color:#123f88; font-size:1.2rem; }
+    .portal-actions { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
+    .btn { background:#0b2f6b; color:#fff; border:none; border-radius:8px; padding:9px 12px; cursor:pointer; }
+    .bid-box { margin-top:16px; }
+    input { padding:8px; border:1px solid #ccd9f5; border-radius:8px; }
+    @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 560px) { .stat-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">PropertySetu</div>
+      <nav>
+        <a href="../../index.html">Home</a>
+        <a href="../../add-property.html">Add Property</a>
+        <a href="admin-portal.html">Admin Portal</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="portal-wrap">
+    <div class="container">
+      <h2>Customer Portal</h2>
+      <div class="stat-grid">
+        <div class="mini"><p>Wishlist</p><h3 id="wishCount">0</h3></div>
+        <div class="mini"><p>Scheduled Visits</p><h3 id="visitCount">0</h3></div>
+        <div class="mini"><p>Compared Properties</p><h3 id="compareCount">0</h3></div>
+        <div class="mini"><p>Placed Bids</p><h3 id="bidCount">0</h3></div>
+      </div>
+
+      <div class="portal-actions">
+        <button class="btn" id="saveDemo">Save demo property to wishlist</button>
+        <button class="btn" id="bookVisit">Book demo visit</button>
+        <button class="btn" id="clearPortal">Clear portal data</button>
+      </div>
+
+      <section class="card bid-box">
+        <h3>Sealed Bid (Hidden from public)</h3>
+        <p>Bid amount sirf admin dekh sakta hai. Public/other buyers ko hidden rahega.</p>
+        <input id="bidProperty" placeholder="Property ID e.g. P-145" />
+        <input id="bidAmount" type="number" placeholder="Your Bid Amount" />
+        <button class="btn" id="placeBid">Place Sealed Bid</button>
+      </section>
+
+      <section class="section" style="padding:16px 0 0;">
+        <div class="card">
+          <h3>Recent Activity</h3>
+          <ul id="activityLog"></ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/customer-portal.js"></script>
+</body>
+</html>
