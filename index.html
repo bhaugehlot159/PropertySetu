@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu – Udaipur Properties</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Buy, Rent, Care & Verified Property Services</title>
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
+codex/make-entire-website-runnable-with-auto-suggestions
 
 <!-- Hero Section -->
 <section class="hero">
@@ -14,7 +15,10 @@
         <h1>India's Trusted Property & Care Platform</h1>
         <p>Buy, Sell, Rent, Lease, Farmhouse, PG & More in Udaipur</p>
         <div class="search-bar">
-            <input type="text" id="locationSearch" placeholder="Search Location..." />
+            <div class="location-search-wrapper">
+                <input type="text" id="locationSearch" placeholder="Search Location..." autocomplete="off" />
+                <div id="locationSuggestions" class="suggestions-box" role="listbox" aria-label="Location suggestions"></div>
+            </div>
             <select id="categorySelect">
                 <option value="buy">Buy</option>
                 <option value="sell">Sell</option>
@@ -31,63 +35,273 @@
             </select>
             <button>Search 🔍</button>
         </div>
+
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">PropertySetu</div>
+      <nav>
+        <a href="#buy-sell">Buy/Sell</a>
+        <a href="#rent">Rent</a>
+        <a href="#care">Property Care</a>
+        <a href="#dashboards">Dashboards</a>
+ codex/develop-complete-propertysetu-website-structure-nbroka
+        <a href="client/pages/customer-portal.html">Customer Portal</a>
+        <a href="client/pages/admin-portal.html">Admin Portal</a>
+ main
+        <a href="#roadmap">Roadmap</a>
+      </nav>
+ main
     </div>
+  </header>
+
+  <section class="hero" id="home">
     <canvas id="heroCanvas"></canvas>
-</section>
+    <div class="container hero-content">
+      <p class="eyebrow">Udaipur Live • Multi-city Ready</p>
+      <h1>India's Trusted Property & Care Platform</h1>
+      <p class="subline">Buy • Sell • Rent • Lease • Girvi • Farmhouse • Commercial • Property Care</p>
 
-<!-- Categories Section -->
-<section class="categories">
-    <h2>Property Categories</h2>
-    <div class="category-grid">
-        <div class="category-card">Buy</div>
-        <div class="category-card">Sell</div>
-        <div class="category-card">Rent</div>
-        <div class="category-card">Lease</div>
-        <div class="category-card">Girvi / Mortgage</div>
-        <div class="category-card">Vadi / Plot</div>
-        <div class="category-card">Farm House</div>
-        <div class="category-card">Property Care</div>
-        <div class="category-card">PG / Hostel</div>
-        <div class="category-card">Commercial</div>
-        <div class="category-card">Warehouse</div>
-        <div class="category-card">Agriculture Land</div>
-    </div>
-</section>
-
-<!-- Featured Properties -->
-<section class="featured">
-    <h2>Featured Properties in Udaipur</h2>
-    <div class="featured-slider">
-        <div class="property-card">
-            <img src="assets/images/placeholder.jpg" alt="Luxury Villa">
-            <h3>Luxury Villa Hiran Magri</h3>
-            <span class="featured-badge">Featured</span>
+      <div class="search-panel">
+        <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
+          <button class="tab-btn active" data-mode="buy">Buy</button>
+          <button class="tab-btn" data-mode="rent">Rent</button>
+          <button class="tab-btn" data-mode="plot">Plot</button>
+          <button class="tab-btn" data-mode="commercial">Commercial</button>
         </div>
-        <div class="property-card">
-            <img src="assets/images/placeholder.jpg" alt="Farmhouse Ambamata">
-            <h3>Farmhouse Ambamata</h3>
-            <span class="featured-badge">Featured</span>
+        <div class="search-controls">
+          <select id="citySelect" aria-label="city select">
+            <option value="udaipur">Udaipur (Default)</option>
+            <option value="jaipur">Jaipur</option>
+            <option value="jodhpur">Jodhpur</option>
+            <option value="ahmedabad">Ahmedabad</option>
+            <option value="delhi">Delhi</option>
+            <option value="mumbai">Mumbai</option>
+          </select>
+codex/develop-complete-propertysetu-website-structure-nbroka
+          <input id="locationSearch" type="text" list="locationSuggestions" placeholder="Search locality e.g. Hiran Magri" />
+          <datalist id="locationSuggestions"></datalist>
+          <button id="searchButton">Search 🔎</button>
         </div>
-        <div class="property-card">
-            <img src="assets/images/placeholder.jpg" alt="PG Sukher">
-            <h3>PG Sukher</h3>
+        <ul id="suggestionList" class="suggestion-list"></ul>
+      </div>
+      <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
+      <div class="slug-preview" id="portalHint">Customer/Admin portals active.</div>
+          <input id="locationSearch" type="text" placeholder="Search locality e.g. Hiran Magri" />
+          <button id="searchButton">Search 🔎</button>
         </div>
+      </div>
+      <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
+  main
+      <p><a href="add-property.html" style="display:inline-block;margin-top:10px;background:#ffbd00;color:#0f1c2f;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:700;">Add Property with Upload Form</a></p>
     </div>
-</section>
+  </section>
 
-<!-- Property Care Section -->
-<section class="property-care">
-    <h2>Property Care & Maintenance</h2>
-    <div class="care-grid">
-        <div class="care-card">Monthly House Check</div>
-        <div class="care-card">Cleaning Service</div>
-        <div class="care-card">Garden / Vadi Maintenance</div>
-        <div class="care-card">Security Visit</div>
-        <div class="care-card">Bill Payment</div>
-        <div class="care-card">Tenant Coordination</div>
+  <main>
+    <section class="section" id="buy-sell">
+      <div class="container">
+        <h2>Main Categories</h2>
+        <div class="grid four">
+          <article class="card"><h3>Buy Property</h3><p>House, Flat, Villa, Plot, Agricultural Land, Commercial Property.</p></article>
+          <article class="card"><h3>Sell Property</h3><p>Owner listing, price controls, analytics and featured boost plans.</p></article>
+          <article class="card" id="rent"><h3>Rent Property</h3><p>House for rent, Shop, Office Space, PG / Hostel, Flat sharing options.</p></article>
+          <article class="card"><h3>Lease / Girvi</h3><p>Lease and mortgage-ready listing categories with legal assistance support.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section muted" id="care">
+      <div class="container">
+        <h2>Property Care Services (Unique Value)</h2>
+        <div class="grid three">
+          <article class="card"><h3>Monthly House Check</h3><p>Lock, leakage, meter and condition inspection updates.</p></article>
+          <article class="card"><h3>Cleaning Service</h3><p>Routine deep cleaning and move-in/move-out packages.</p></article>
+          <article class="card"><h3>Garden / Vadi Maintenance</h3><p>Landscape and seasonal maintenance support.</p></article>
+          <article class="card"><h3>Security Visit</h3><p>On-ground security verification visits and incident reporting.</p></article>
+          <article class="card"><h3>Bill Payment Handling</h3><p>Electricity/water bill management with digital proof.</p></article>
+          <article class="card"><h3>Tenant Management</h3><p>Tenant coordination, follow-ups and owner updates.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="trust">
+      <div class="container">
+        <h2>Trust & Verification Model</h2>
+        <div class="grid three">
+          <article class="card"><h3>100% Verified Listing System</h3><p>Aadhaar/PAN, address checks, and private document upload before badge approval.</p></article>
+          <article class="card"><h3>Verified by PropertySetu Badge</h3><p>Only admin-approved properties get trust badge visibility to buyers.</p></article>
+          <article class="card"><h3>Safety Layer</h3><p>OTP login, in-app chat, no public phone number, spam protection and report listing.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section muted" id="listing-stack">
+      <div class="container">
+        <h2>Complete Listing & Media System</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>Upload Requirements</h3>
+            <ul>
+              <li>Minimum 5 photos</li>
+              <li>30–60 sec video upload</li>
+              <li>360° virtual tour option</li>
+              <li>Floor plan upload</li>
+              <li>Private document upload</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Property Data Structure</h3>
+            <ul>
+              <li>Type, Sale/Rent, Price, Negotiable</li>
+              <li>Plot size, built-up area, carpet area, floors, facing</li>
+              <li>Furnishing and room details</li>
+              <li>Parking, borewell, garden, road width</li>
+              <li>Nearby landmarks and society insights</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="ai-features">
+      <div class="container">
+        <h2>AI & Future-Ready Features</h2>
+        <div class="grid three">
+          <article class="card"><h3>AI Pricing Suggestion</h3><p>Area-wise average price recommendation.</p></article>
+          <article class="card"><h3>AI Recommendations</h3><p>Suggest similar properties based on user behavior.</p></article>
+          <article class="card"><h3>AI Market Trend</h3><p>6-month locality price trend graph.</p></article>
+          <article class="card"><h3>AI Description Generator</h3><p>Seller inputs facts; system generates professional copy.</p></article>
+          <article class="card"><h3>AI Fraud Detection</h3><p>Duplicate image check, suspicious pricing and fake listing alerts.</p></article>
+          <article class="card"><h3>Video Visit Module</h3><p>30-sec video, virtual tour and live video visit booking.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section muted" id="dashboards">
+      <div class="container">
+        <h2>User Panel System</h2>
+        <div class="grid three">
+codex/develop-complete-propertysetu-website-structure-nbroka
+          <article class="card"><h3>Buyer Dashboard</h3><p>Save properties, compare listings, schedule visits and review history.</p><p><a href="client/pages/customer-portal.html">Open Customer Portal →</a></p></article>
+          <article class="card"><h3>Seller Dashboard</h3><p>Add properties, upload photos/video, manage price/status and performance analytics.</p><p><a href="add-property.html">Open Seller Add Property →</a></p></article>
+          <article class="card"><h3>Admin Dashboard</h3><p>Verification approvals, report handling, city management, commission and pricing controls.</p><p><a href="client/pages/admin-portal.html">Open Admin Portal →</a></p></article>
+          <article class="card"><h3>Buyer Dashboard</h3><p>Save properties, compare listings, schedule visits and review history.</p></article>
+          <article class="card"><h3>Seller Dashboard</h3><p>Add properties, upload photos/video, manage price/status and performance analytics.</p></article>
+          <article class="card"><h3>Admin Dashboard</h3><p>Verification approvals, report handling, city management, commission and pricing controls.</p></article>
+ main
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="advanced">
+      <div class="container">
+        <h2>Advanced Product Features</h2>
+        <div class="grid four small">
+          <article class="card"><h3>Visit Booking</h3></article>
+          <article class="card"><h3>In-app Chat + WhatsApp</h3></article>
+          <article class="card"><h3>Wishlist + Compare</h3></article>
+          <article class="card"><h3>EMI Calculator</h3></article>
+          <article class="card"><h3>Map Integration</h3></article>
+          <article class="card"><h3>Featured Paid Boost</h3></article>
+          <article class="card"><h3>Digital Rent Agreement</h3></article>
+          <article class="card"><h3>Online Token Payment</h3></article>
+          <article class="card"><h3>Legal Documentation Help</h3></article>
+          <article class="card"><h3>Trusted Agent Program</h3></article>
+          <article class="card"><h3>Society/Area Insight Pages</h3></article>
+          <article class="card"><h3>Insurance Tie-up (Future)</h3></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section muted" id="sealed-bid">
+      <div class="container">
+        <h2>Sealed Bid System (Hidden Bidding)</h2>
+        <div class="timeline">
+          <div><strong>Step 1:</strong> Buyer/Seller place private bids on property.</div>
+          <div><strong>Step 2:</strong> Bids hidden from owner and other users.</div>
+          <div><strong>Step 3:</strong> Only admin can view all bids.</div>
+          <div><strong>Step 4:</strong> Admin can accept highest, reject all, or reveal winner.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="revenue">
+      <div class="container">
+        <h2>Revenue Model</h2>
+        <div class="grid three">
+          <article class="card"><h3>Featured Listing</h3><p>₹499–₹1999, with 7-day and 30-day boosts.</p></article>
+          <article class="card"><h3>Subscription Plans</h3><p>Basic, Pro, Premium for owner, agent and care services.</p></article>
+          <article class="card"><h3>Service Monetization</h3><p>Documentation, commission, care packages and agent memberships.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section muted" id="legal">
+      <div class="container">
+        <h2>Legal & Compliance Pages</h2>
+        <div class="pill-row">
+          <span>Terms & Conditions</span>
+          <span>Privacy Policy</span>
+          <span>Refund Policy</span>
+          <span>Disclaimer</span>
+          <span>Service Agreement (Property Care)</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="roadmap">
+      <div class="container">
+        <h2>Professional Build Roadmap</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>Production Stack</h3>
+            <p>Frontend: React/Next.js • Backend: Node + Express • Database: MongoDB • Storage: Cloudinary/S3 • Payments: Razorpay • Hosting: Vercel + Render.</p>
+          </article>
+          <article class="card">
+            <h3>Execution Steps</h3>
+            <ol>
+              <li>Backend setup + database connection</li>
+              <li>Auth + OTP + role access</li>
+              <li>Property CRUD + uploads + verification</li>
+              <li>Payments + subscriptions + featured model</li>
+              <li>Chat, booking, reviews, dashboards</li>
+              <li>AI module rollout in phase 2</li>
+            </ol>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-grid">
+      <div>
+        <h3>PropertySetu</h3>
+        <p>Office: Udaipur, Rajasthan</p>
+        <p>WhatsApp Chat Support Enabled</p>
+      </div>
+      <div>
+        <h3>City URLs</h3>
+        <p>propertysetu.in/udaipur</p>
+        <p>propertysetu.in/jaipur</p>
+      </div>
+      <div>
+        <h3>Trust Signals</h3>
+        <p>Verified Listings</p>
+        <p>Owner Verification</p>
+        <p>Customer Reviews</p>
+      </div>
     </div>
-</section>
+  </footer>
 
+codex/develop-complete-propertysetu-website-structure-nbroka
+  <script src="js/location.js"></script>
+
+ codex/add-auto-suggestion-feature-for-udaipur-codes
 <script src="js/script.js"></script>
+<script src="js/location.js"></script>
+
+ main
+  <script src="js/script.js"></script>
+ main
 </body>
 </html>
