@@ -1,39 +1,37 @@
 # PropertySetu
 
-## Project setup
+## Quick Start (Fully Running)
 
-### Backend (Node.js + Express)
-1. Go to backend folder:
-   ```bash
-   cd server
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Create `.env` file in `server/` with:
-   ```env
-   PORT=5000
-   MONGO_URI=mongodb://127.0.0.1:27017/propertysetu
-   JWT_SECRET=your_jwt_secret
-   RAZORPAY_KEY_ID=your_razorpay_key
-   RAZORPAY_KEY_SECRET=your_razorpay_secret
-   ```
-4. Start server:
-   ```bash
-   npm run dev
-   ```
-
-Health check:
-- `GET http://localhost:5000/` → `{"message":"PropertySetu API Running"}`
-
-### Frontend (Static HTML/CSS/JS)
-Serve project root with any static server, for example:
+### 1) Run website + API
 ```bash
-npx serve .
+cd server
+npm install
+npm start
 ```
-Then open the shown URL in browser.
 
+Open:
+- Frontend: `http://localhost:5000/index.html`
+- API health: `http://localhost:5000/api`
+- Health check: `http://localhost:5000/api/health`
+
+### 2) Sealed Bid Demo API
+Submit bid:
+```bash
+curl -X POST http://localhost:5000/api/sealed-bids \
+  -H "content-type: application/json" \
+  -d '{"propertyId":"villa-bhuwana","propertyTitle":"4BHK Premium Villa • Bhuwana","amount":21000000,"bidderName":"Demo Buyer"}'
+```
+
+Reveal winners (admin):
+```bash
+curl "http://localhost:5000/api/sealed-bids/reveal?adminKey=propertysetu-admin"
+```
+
+> Change admin key with `.env` in `server/`:
+```env
+PORT=5000
+ADMIN_KEY=your-secure-admin-key
+```
 
 ## Codex PR workflow note
 If Codex shows this message:
