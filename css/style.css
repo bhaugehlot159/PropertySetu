@@ -13,6 +13,7 @@ body {
   font-family: Inter, Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
+  line-height: 1.5;
 }
 .container { width: min(1140px, 92%); margin: 0 auto; }
 
@@ -254,7 +255,6 @@ footer h3 { color: #fff; margin-top: 0; }
   color: #133a78;
   font-weight: 600;
 }
-.listing-card p { padding-bottom: 18px; }
 
 .ai-box {
   margin: 20px 0;
@@ -269,6 +269,7 @@ footer h3 { color: #fff; margin-top: 0; }
   margin-bottom: 8px;
   font-weight: 700;
 }
+.listing-card p { padding-bottom: 18px; }
 
 .ai-box textarea {
   width: 100%;
@@ -276,6 +277,26 @@ footer h3 { color: #fff; margin-top: 0; }
   border-radius: 10px;
   padding: 10px;
   margin-bottom: 10px;
+}
+
+.ai-output {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px dashed #b6ccf6;
+  padding: 10px;
+  color: #23426f;
+}
+
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #e8f1ff;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 .auth-modal.show { display: flex; }
 .auth-modal-card {
@@ -298,29 +319,34 @@ footer h3 { color: #fff; margin-top: 0; }
 }
 .auth-modal .outline-btn { color: #0b2f6b; border-color: #9ab9f7; }
 
-.ai-output {
-  background: #fff;
-  border-radius: 10px;
-  border: 1px dashed #b6ccf6;
-  padding: 10px;
-  color: #23426f;
-}
-
-.session-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  color: #e8f1ff;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
 @media (max-width: 1080px) {
   .session-badge {
     width: 100%;
     justify-content: center;
   }
+}
+
+.feature-status {
+  margin-top: 16px;
+  border-radius: 10px;
+  border: 1px solid #cfe0ff;
+  background: #ffffff;
+  padding: 12px;
+  color: #12396f;
+  font-weight: 600;
+}
+
+.auth-error {
+  min-height: 18px;
+  color: #c62828;
+  font-size: 0.88rem;
+  margin: 2px 0 10px;
+}
+
+.auth-modal-card input {
+  display: block;
+}
+
+.auth-modal-card .solid-btn {
+  color: #091125;
 }

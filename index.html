@@ -16,6 +16,7 @@
           <a href="#care">Property Care</a>
           <a href="#demo-listings">Demo Listings</a>
           <a href="#smart-features">Smart Features</a>
+          <a href="#customer-hub">Customer Hub</a>
           <a href="#legal">Legal</a>
         </nav>
         <div class="auth-actions">
@@ -182,6 +183,34 @@
         </div>
       </section>
 
+
+      <section class="section muted" id="customer-hub">
+        <div class="container">
+          <h2>👤 Customer Login ke baad Full Feature Access</h2>
+          <p class="section-intro">Login hone ke baad customer ko yeh sab modules unlock hote hain (demo-ready workflow).</p>
+          <div class="grid three">
+            <article class="card"><h3>Wishlist + Compare</h3><p>Save properties, compare up to 3 listings, and track shortlisted options.</p></article>
+            <article class="card"><h3>Schedule Visit + Video Visit</h3><p>Book normal visit, request 30-second video tour, and receive confirmation updates.</p></article>
+            <article class="card"><h3>In-App Chat + Privacy</h3><p>Masked communication flow with spam protection and no public number exposure.</p></article>
+            <article class="card"><h3>AI Pricing + AI Description</h3><p>Area-average pricing hint, auto listing summary, and suspicious pricing alerts.</p></article>
+            <article class="card"><h3>Photo/Video/Docs Upload</h3><p>Min 5 photos, short video, floor plan and private document support ready in forms.</p></article>
+            <article class="card"><h3>Trust & Verification</h3><p>Owner verification, listing badge, report listing, and admin moderation controls.</p></article>
+          </div>
+          <div id="customerFeatureStatus" class="feature-status">Please login as customer to unlock this panel.</div>
+        </div>
+      </section>
+
+      <section class="section" id="business-model">
+        <div class="container">
+          <h2>💰 Revenue + Professional Service Stack</h2>
+          <div class="grid four">
+            <article class="card"><h3>Featured Listing</h3><p>7 days ₹299 • 30 days ₹999 • Premium visibility.</p></article>
+            <article class="card"><h3>Property Care Subscription</h3><p>Basic / Pro / Premium maintenance plans.</p></article>
+            <article class="card"><h3>Documentation Services</h3><p>Sale deed draft, rent agreement template, stamp duty guidance.</p></article>
+            <article class="card"><h3>Agent Membership</h3><p>Verified local agents, ratings and transparent commission model.</p></article>
+          </div>
+        </div>
+      </section>
       <section class="section muted" id="legal">
         <div class="container">
           <h2>Important Legal Pages</h2>
@@ -199,11 +228,15 @@
     <div id="authModal" class="auth-modal" aria-hidden="true">
       <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
         <h3 id="authModalTitle">Login</h3>
-        <p id="authModalHint">Enter a display name to continue.</p>
+        <p id="authModalHint">Secure login required.</p>
         <input id="authNameInput" type="text" placeholder="Full Name" />
+        <input id="authEmailInput" type="email" placeholder="Email Address" />
+        <input id="authPasswordInput" type="password" placeholder="Password (min 6 chars)" />
+        <input id="authOtpInput" type="text" placeholder="Demo OTP (123456)" />
+        <p id="authErrorMessage" class="auth-error" aria-live="polite"></p>
         <div class="auth-modal-actions">
           <button id="authCancelButton" type="button" class="outline-btn">Cancel</button>
-          <button id="authSubmitButton" type="button" class="solid-btn">Continue</button>
+          <button id="authSubmitButton" type="button" class="solid-btn">Login / Register</button>
         </div>
       </div>
     </div>

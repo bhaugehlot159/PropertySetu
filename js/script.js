@@ -1,4 +1,6 @@
 (() => {
+  const API_BASE = `${window.location.origin}/api`;
+
   const canvas = document.getElementById('heroCanvas');
   if (canvas) {
     const ctx = canvas.getContext('2d');
@@ -93,6 +95,7 @@
         return aStarts - bStarts || a.localeCompare(b);
       })
       .slice(0, 25);
+
     suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
     suggestionList.querySelectorAll('li').forEach((item) => {
       item.addEventListener('click', () => {
@@ -119,19 +122,21 @@
   const customerAuthButton = document.getElementById('customerAuthButton');
   const adminAuthButton = document.getElementById('adminAuthButton');
   const sessionBadge = document.getElementById('sessionBadge');
+  const customerFeatureStatus = document.getElementById('customerFeatureStatus');
+
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
   const authNameInput = document.getElementById('authNameInput');
+  const authEmailInput = document.getElementById('authEmailInput');
+  const authPasswordInput = document.getElementById('authPasswordInput');
+  const authOtpInput = document.getElementById('authOtpInput');
+  const authErrorMessage = document.getElementById('authErrorMessage');
   const authCancelButton = document.getElementById('authCancelButton');
   const authSubmitButton = document.getElementById('authSubmitButton');
   let authMode = 'customer';
 
-  const getState = (role) => {
-    const raw = localStorage.getItem(`propertysetu-${role}-session`);
-    return raw ? readJsonStorage(`propertysetu-${role}-session`, null) : null;
-  };
-
+  const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
   const setState = (role, payload) => {
     if (!payload) {
       localStorage.removeItem(`propertysetu-${role}-session`);
@@ -144,40 +149,88 @@
     const customerState = getState('customer');
     const adminState = getState('admin');
 
-    if (customerAuthButton) {
-      customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
-    }
-    if (adminAuthButton) {
-      adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
-    }
+    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
+    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
+
     if (sessionBadge) {
-      if (adminState) {
-        sessionBadge.textContent = `Admin: ${adminState.name}`;
-      } else if (customerState) {
-        sessionBadge.textContent = `Customer: ${customerState.name}`;
-      } else {
-        sessionBadge.textContent = 'Guest Mode';
-      }
+      if (adminState) sessionBadge.textContent = `Admin: ${adminState.name}`;
+      else if (customerState) sessionBadge.textContent = `Customer: ${customerState.name}`;
+      else sessionBadge.textContent = 'Guest Mode';
+    }
+
+    if (customerFeatureStatus) {
+      customerFeatureStatus.textContent = customerState
+        ? `✅ Welcome ${customerState.name}. All customer features unlocked: Wishlist, Compare, Visit, Chat, Bid, AI tools, Legal docs.`
+        : 'Please login as customer to unlock this panel.';
     }
   };
 
   const openAuthModal = (role) => {
     authMode = role;
-    if (!authModal || !authModalTitle || !authModalHint || !authNameInput) return;
-    authModalTitle.textContent = role === 'admin' ? 'Admin Login' : 'Customer Login';
-    authModalHint.textContent = role === 'admin'
-      ? 'Enter admin display name to start admin session.'
-      : 'Enter customer display name to start customer session.';
-    authNameInput.value = '';
+    if (!authModal || !authModalTitle || !authModalHint) return;
+    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Login' : 'Customer Secure Login';
+    authModalHint.textContent = 'Enter full details. First attempt auto-registers if account not found. Demo OTP: 123456';
+    if (authErrorMessage) authErrorMessage.textContent = '';
+    if (authNameInput) authNameInput.value = '';
+    if (authEmailInput) authEmailInput.value = '';
+    if (authPasswordInput) authPasswordInput.value = '';
+    if (authOtpInput) authOtpInput.value = '123456';
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authNameInput.focus();
+    authNameInput?.focus();
   };
 
   const closeAuthModal = () => {
     if (!authModal) return;
     authModal.classList.remove('show');
     authModal.setAttribute('aria-hidden', 'true');
+  };
+
+  const apiRequest = async (path, payload, token) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: payload ? 'POST' : 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Request failed');
+    return data;
+  };
+
+  const doAuthFlow = async () => {
+    const name = authNameInput?.value.trim() || '';
+    const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const password = authPasswordInput?.value || '';
+    const otp = authOtpInput?.value.trim() || '';
+
+    if (!name || !email || password.length < 6 || !otp) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
+      return;
+    }
+    openAuthModal('customer');
+  });
+
+    const payload = { name, email, password, otp, role: authMode };
+
+    try {
+      const loginResponse = await apiRequest('/auth/login', payload);
+      setState(authMode, { ...loginResponse.user, token: loginResponse.token, loggedInAt: new Date().toISOString() });
+      closeAuthModal();
+      updateAuthButtons();
+      return;
+    } catch {
+      try {
+        const registerResponse = await apiRequest('/auth/register', payload);
+        setState(authMode, { ...registerResponse.user, token: registerResponse.token, loggedInAt: new Date().toISOString() });
+        closeAuthModal();
+        updateAuthButtons();
+      } catch (registerError) {
+        if (authErrorMessage) authErrorMessage.textContent = registerError.message;
+      }
+    }
   };
 
   customerAuthButton?.addEventListener('click', () => {
@@ -201,14 +254,7 @@
   });
 
   authCancelButton?.addEventListener('click', closeAuthModal);
-
-  authSubmitButton?.addEventListener('click', () => {
-    const displayName = authNameInput?.value.trim();
-    if (!displayName) return;
-    setState(authMode, { name: displayName, loggedInAt: new Date().toISOString() });
-    closeAuthModal();
-    updateAuthButtons();
-  });
+  authSubmitButton?.addEventListener('click', doAuthFlow);
 
   authModal?.addEventListener('click', (event) => {
     if (event.target === authModal) closeAuthModal();
@@ -270,10 +316,10 @@
     const title = card.dataset.title || 'Property';
 
     card.querySelectorAll('.action-btn').forEach((button) => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const action = button.dataset.action;
-
-        if (!ensureCustomerSession()) return;
+        const customer = ensureCustomerSession();
+        if (!customer) return;
 
         if (action === 'wishlist') {
           if (marketplaceState.wishlist.has(propertyId)) {
@@ -309,8 +355,15 @@
             notify('Please enter a valid positive bid amount.');
             return;
           }
-          marketplaceState.bids.push({ propertyId, title, amount, at: new Date().toISOString() });
-          notify(`Sealed bid submitted for ${title}. Only admin can reveal winner.`);
+
+          try {
+            await apiRequest('/sealed-bids', { propertyId, propertyTitle: title, amount }, customer.token);
+            marketplaceState.bids.push({ propertyId, title, amount, at: new Date().toISOString() });
+            notify(`Sealed bid submitted for ${title}. Only admin can reveal winner.`);
+          } catch (error) {
+            notify(error.message);
+            return;
+          }
         }
 
         updateMarketplaceStats();
@@ -333,30 +386,25 @@
     notify('Compare list cleared.');
   });
 
-  revealBidsButton?.addEventListener('click', () => {
-    const adminState = getState('admin');
-    if (!adminState) {
+  revealBidsButton?.addEventListener('click', async () => {
+    const admin = getState('admin');
+    if (!admin) {
       notify('Admin login required to reveal winning bid.');
       openAuthModal('admin');
       return;
     }
-    if (!marketplaceState.bids.length) {
-      notify('No bids available yet.');
-      return;
-    }
 
-    const winnersByProperty = {};
-    marketplaceState.bids.forEach((bid) => {
-      if (!winnersByProperty[bid.propertyId] || winnersByProperty[bid.propertyId].amount < bid.amount) {
-        winnersByProperty[bid.propertyId] = bid;
+    try {
+      const response = await apiRequest('/sealed-bids/reveal', null, admin.token);
+      if (!response.winners?.length) {
+        notify('No bids available yet.');
+        return;
       }
-    });
-
-    const summary = Object.values(winnersByProperty)
-      .map((entry) => `${entry.title}: ₹${entry.amount.toLocaleString('en-IN')}`)
-      .join(' | ');
-
-    notify(`Winning sealed bids revealed by ${adminState.name} → ${summary}`);
+      const summary = response.winners.map((entry) => `${entry.propertyTitle}: ₹${entry.amount.toLocaleString('en-IN')}`).join(' | ');
+      notify(`Winning sealed bids revealed by ${admin.name} → ${summary}`);
+    } catch (error) {
+      notify(error.message);
+    }
   });
 
   const aiPromptInput = document.getElementById('aiPromptInput');
@@ -368,6 +416,10 @@
     if (!promptText) {
       if (aiOutput) aiOutput.textContent = 'Please enter property details to generate description.';
       return;
+    }
+
+    if (aiOutput) {
+      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
 
     if (aiOutput) {
