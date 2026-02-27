@@ -1,209 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
-codex/develop-complete-propertysetu-website-structure-ajuciq
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PropertySetu | Udaipur Property Platform</title>
-  <link rel="stylesheet" href="css/style.css" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="container topbar-inner">
-      <div class="brand">🏡 PropertySetu</div>
-      <nav>
-        <a href="#buy-sell">Buy/Sell</a>
-        <a href="#rent">Rent</a>
-        <a href="#care">Property Care</a>
-        <a href="client/pages/customer-portal.html">Customer Portal</a>
-        <a href="client/pages/admin-portal.html">Admin Portal</a>
-        <a href="#legal">Legal</a>
-      </nav>
-      <button id="authBtn" class="auth-btn">Login</button>
-    </div>
-  </header>
-
-  <section class="hero" id="home">
-    <div class="hero-image-overlay"></div>
-    <canvas id="heroCanvas"></canvas>
-    <div class="container hero-content">
-      <p class="eyebrow">Udaipur Live • Multi-city Ready</p>
-      <h1>India's Trusted Property & Care Platform</h1>
-      <p class="subline">OLX se better trust model: verified listings + property care + sealed bid + admin moderation</p>
-
-      <div class="search-panel">
-        <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
-          <button class="tab-btn active" data-mode="buy">Buy</button>
-          <button class="tab-btn" data-mode="rent">Rent</button>
-          <button class="tab-btn" data-mode="plot">Plot</button>
-          <button class="tab-btn" data-mode="commercial">Commercial</button>
-        </div>
-        <div class="search-controls">
-          <select id="citySelect" aria-label="city select">
-            <option value="udaipur">Udaipur (Default)</option>
-            <option value="jaipur">Jaipur</option>
-            <option value="jodhpur">Jodhpur</option>
-            <option value="ahmedabad">Ahmedabad</option>
-            <option value="delhi">Delhi</option>
-            <option value="mumbai">Mumbai</option>
-          </select>
-          <input id="locationSearch" type="text" list="locationSuggestions" placeholder="Search locality e.g. Hiran Magri" />
-          <datalist id="locationSuggestions"></datalist>
-          <button id="searchButton">Search 🔎</button>
-        </div>
-        <ul id="suggestionList" class="suggestion-list"></ul>
-      </div>
-      <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
-      <div class="slug-preview" id="portalHint">Customer/Admin portals active.</div>
-      <p class="hero-actions">
-        <a href="add-property.html" class="hero-cta">Add Property with Upload Form</a>
-      </p>
-    </div>
-  </section>
-
-  <main>
-    <section class="section" id="featured-demo">
-      <div class="container">
-        <h2>Best Demo Properties (Udaipur)</h2>
-        <div class="grid three">
-          <article class="card property">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/City_Palace%2C_Udaipur.jpg/640px-City_Palace%2C_Udaipur.jpg" alt="Luxury villa udaipur" class="property-img" />
-            <h3>Luxury Villa • Hiran Magri</h3>
-            <p>₹1.25 Cr • Verified • 4BHK • Lake View</p>
-            <p><a href="client/pages/customer-portal.html">Bid / Schedule Visit →</a></p>
-          </article>
-          <article class="card property">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Fateh_Sagar_Lake%2C_Udaipur.jpg/640px-Fateh_Sagar_Lake%2C_Udaipur.jpg" alt="Farmhouse" class="property-img" />
-            <h3>Farmhouse • Badi Road</h3>
-            <p>₹78 Lakh • 3200 sq ft • Garden + Borewell</p>
-            <p><a href="client/pages/customer-portal.html">Bid / Save Property →</a></p>
-          </article>
-          <article class="card property">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Udaipur_city.jpg/640px-Udaipur_city.jpg" alt="Commercial space" class="property-img" />
-            <h3>Commercial Shop • Chetak Circle</h3>
-            <p>₹65,000 / month • High footfall zone</p>
-            <p><a href="client/pages/customer-portal.html">Contact / Book Tour →</a></p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="buy-sell">
-      <div class="container">
-        <h2>Main Categories</h2>
-        <div class="grid four">
-          <article class="card"><h3>Buy Property</h3><p>House, Flat, Villa, Plot, Agricultural Land, Commercial Property.</p></article>
-          <article class="card"><h3>Sell Property</h3><p>Owner listing, price controls, analytics and featured boost plans.</p></article>
-          <article class="card" id="rent"><h3>Rent Property</h3><p>House for rent, Shop, Office Space, PG / Hostel, Flat sharing options.</p></article>
-          <article class="card"><h3>Lease / Girvi</h3><p>Lease and mortgage-ready listing categories with legal assistance support.</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section muted" id="care">
-      <div class="container">
-        <h2>Property Care Services</h2>
-        <div class="grid three">
-          <article class="card"><h3>Monthly House Check</h3><p>Lock, leakage, meter and condition inspection updates.</p></article>
-          <article class="card"><h3>Cleaning Service</h3><p>Routine deep cleaning and move-in/move-out packages.</p></article>
-          <article class="card"><h3>Garden / Vadi Maintenance</h3><p>Landscape and seasonal maintenance support.</p></article>
-          <article class="card"><h3>Security Visit</h3><p>On-ground security verification visits and incident reporting.</p></article>
-          <article class="card"><h3>Bill Payment Handling</h3><p>Electricity/water bill management with digital proof.</p></article>
-          <article class="card"><h3>Tenant Management</h3><p>Tenant coordination, follow-ups and owner updates.</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="security">
-      <div class="container">
-        <h2>Security & AI Security Shield</h2>
-        <div class="grid three">
-          <article class="card"><h3>Account Security</h3><p>OTP login, session control, suspicious login alerts.</p></article>
-          <article class="card"><h3>AI Fraud Detection</h3><p>Duplicate image check, fake pricing detection, risky listing alerts.</p></article>
-          <article class="card"><h3>Private Bidding</h3><p>Customer bid hidden rahega; only admin can reveal/modify winning price.</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section muted" id="dashboards">
-      <div class="container">
-        <h2>User Panel System</h2>
-        <div class="grid three">
-          <article class="card"><h3>Buyer Dashboard</h3><p>Save properties, compare listings, schedule visits and bids.</p><p><a href="client/pages/customer-portal.html">Open Customer Portal →</a></p></article>
-          <article class="card"><h3>Seller Dashboard</h3><p>Add properties, upload photos/video, manage price/status and analytics.</p><p><a href="add-property.html">Open Seller Add Property →</a></p></article>
-          <article class="card"><h3>Admin Dashboard</h3><p>Verification approvals, hidden bids, report handling, commission control.</p><p><a href="client/pages/admin-portal.html">Open Admin Portal →</a></p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="legal">
-      <div class="container">
-        <h2>Legal & Policy Pages</h2>
-        <div class="pill-row">
-          <a href="legal/terms.html">Terms & Conditions</a>
-          <a href="legal/privacy.html">Privacy Policy</a>
-          <a href="legal/refund.html">Refund Policy</a>
-          <a href="legal/disclaimer.html">Disclaimer</a>
-          <a href="legal/service-agreement.html">Service Agreement</a>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <div class="container footer-grid">
-      <div>
-        <h3>PropertySetu</h3>
-        <p>Office: Udaipur, Rajasthan</p>
-        <p>WhatsApp Chat Support Enabled</p>
-      </div>
-      <div>
-        <h3>City URLs</h3>
-        <p>propertysetu.in/udaipur</p>
-        <p>propertysetu.in/jaipur</p>
-      </div>
-      <div>
-        <h3>Trust Signals</h3>
-        <p>Verified Listings</p>
-        <p>Owner Verification</p>
-        <p>Customer Reviews</p>
-      </div>
-    </div>
-  </footer>
-
-  <script src="js/location.js"></script>
-  <script src="js/script.js"></script>
-</body>
-=======
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PropertySetu | Smart Property Search & Care</title>
+    <title>PropertySetu | Buy, Rent & Property Care</title>
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="container topbar-inner">
-        <a class="brand" href="#home">PropertySetu</a>
+        <a class="brand" href="#home">🏡 PropertySetu</a>
         <nav>
-          <a href="#features">Features</a>
-          <a href="#categories">Categories</a>
-          <a href="#care">Care Services</a>
-          <a href="#demo-properties">Properties</a>
-          <a href="client/pages/customer-portal.html">Customer Portal</a>
-          <a href="client/pages/admin-portal.html">Admin Portal</a>
+          <a href="#buy">Buy</a>
+          <a href="#rent">Rent</a>
+          <a href="#care">Property Care</a>
+          <a href="add-property.html">Add Property</a>
+          <a href="client/pages/customer-portal.html">Customer</a>
+          <a href="client/pages/admin-portal.html">Admin</a>
+          <button id="customerAuthBtn" class="nav-btn" type="button">Customer Login</button>
+          <button id="adminAuthBtn" class="nav-btn" type="button">Admin Login</button>
+          <button id="logoutBtn" class="nav-btn" type="button">Logout</button>
         </nav>
       </div>
+      <div class="container auth-strip" id="authStrip">Not logged in</div>
     </header>
 
     <section class="hero" id="home">
       <canvas id="heroCanvas"></canvas>
       <div class="container hero-content">
-        <p class="eyebrow">Udaipur • Verified Listings • AI-Ready</p>
-        <h1>Find Better Homes Faster with PropertySetu</h1>
-        <p class="subline">
-          Buy, Rent, Lease, Commercial, Farmhouse, and Property Care services in one elegant platform.
-        </p>
+        <p class="eyebrow">Udaipur Live • Multi-City Ready</p>
+        <h1>India's Trusted Property & Care Platform</h1>
+        <p class="subline">Buy, Rent, Commercial, Plot, Farmhouse, and Property Care Services in one place.</p>
 
         <div class="search-panel">
           <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
@@ -212,85 +39,88 @@ codex/develop-complete-propertysetu-website-structure-ajuciq
             <button class="tab-btn" data-mode="plot">Plot</button>
             <button class="tab-btn" data-mode="commercial">Commercial</button>
           </div>
-
           <div class="search-controls">
             <select id="citySelect" aria-label="Select city">
               <option value="udaipur">Udaipur</option>
               <option value="jaipur">Jaipur</option>
               <option value="jodhpur">Jodhpur</option>
               <option value="ahmedabad">Ahmedabad</option>
+              <option value="delhi">Delhi</option>
+              <option value="mumbai">Mumbai</option>
             </select>
-            <input id="locationSearch" type="text" placeholder="Search locality e.g. Hiran Magri" />
-            <button id="searchButton">Search 🔎</button>
+            <input id="locationSearch" type="text" list="locationSuggestions" placeholder="Search locality e.g. Hiran Magri" />
+            <datalist id="locationSuggestions"></datalist>
+            <button id="searchButton" type="button">Search 🔎</button>
           </div>
-
           <ul id="suggestionList" class="suggestion-list"></ul>
         </div>
 
-        <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
-        <div class="slug-preview" id="portalHint">Customer/Admin portals are active.</div>
-        <div class="slug-preview" id="notificationStatus">Notification service: inactive</div>
+        <p id="slugPreview" class="slug-preview">SEO path preview: propertysetu.in/udaipur</p>
       </div>
     </section>
 
     <main>
-      <section class="section" id="features">
+      <section class="section" id="buy">
         <div class="container">
-          <h2>Why PropertySetu Looks & Works Better</h2>
+          <h2>🏡 Buy Property</h2>
           <div class="grid three">
-            <article class="card">
-              <h3>Modern Visual Design</h3>
-              <p>Glassmorphism hero, smoother spacing, and premium section cards for better first impression.</p>
-            </article>
-            <article class="card">
-              <h3>Smart Search Experience</h3>
-              <p>Tab-based mode, city-wise preview path, and location auto-suggestions with instant selection.</p>
-            </article>
-            <article class="card">
-              <h3>Conversion-Driven Content</h3>
-              <p>Clear CTAs, trust stats, highlighted services, and readable layouts that reduce user friction.</p>
-            </article>
+            <article class="card"><h3>House</h3><p>Ready-to-move and under-construction homes.</p></article>
+            <article class="card"><h3>Flat</h3><p>1BHK to luxury apartments in prime areas.</p></article>
+            <article class="card"><h3>Villa</h3><p>Premium independent villas and gated options.</p></article>
+            <article class="card"><h3>Plot</h3><p>Residential and investment-ready land parcels.</p></article>
+            <article class="card"><h3>Agricultural Land</h3><p>Farming and vadi use land listings.</p></article>
+            <article class="card"><h3>Commercial Property</h3><p>Shops, offices, showrooms, and mixed-use spaces.</p></article>
           </div>
         </div>
       </section>
 
-      <section class="section muted" id="categories">
+      <section class="section muted" id="rent">
         <div class="container">
-          <h2>Main Categories</h2>
+          <h2>🏢 Rent Property</h2>
           <div class="grid four">
-            <article class="card"><h3>Buy Property</h3><p>Houses, villas, flats, plots and land with verified ownership profiles.</p></article>
-            <article class="card"><h3>Rent Property</h3><p>Family homes, student spaces, PG and office rentals with faster scheduling.</p></article>
-            <article class="card"><h3>Sell Property</h3><p>Feature boost, listing analytics, and market-fit pricing guidance.</p></article>
-            <article class="card"><h3>Commercial</h3><p>Retail, warehouse, office and investment-ready commercial inventory.</p></article>
+            <article class="card"><h3>House for Rent</h3><p>Family and single occupancy homes.</p></article>
+            <article class="card"><h3>Shop for Rent</h3><p>Street-front and market-connected outlets.</p></article>
+            <article class="card"><h3>Office Space</h3><p>Small office suites to enterprise spaces.</p></article>
+            <article class="card"><h3>PG / Hostel</h3><p>Budget and premium PG with amenities.</p></article>
           </div>
         </div>
       </section>
 
       <section class="section" id="care">
         <div class="container">
-          <h2>Property Care Services</h2>
+          <h2>🛠 Property Care Services</h2>
           <div class="grid three">
-            <article class="card"><h3>Monthly Site Check</h3><p>Regular lock, leakage, and utility inspection updates with proof photos.</p></article>
-            <article class="card"><h3>Cleaning & Upkeep</h3><p>Move-in, move-out and periodic deep cleaning with service tracking.</p></article>
-            <article class="card"><h3>Security Visits</h3><p>On-ground checks and incident reports for outstation property owners.</p></article>
+            <article class="card"><h3>Monthly House Check</h3><p>Lock, leakage, utility and condition report.</p></article>
+            <article class="card"><h3>Cleaning Service</h3><p>Routine, deep, and pre-tenant cleaning.</p></article>
+            <article class="card"><h3>Garden / Vadi Maintenance</h3><p>Landscape and farm upkeep by local teams.</p></article>
+            <article class="card"><h3>Security Visit</h3><p>On-site checks with photo proof.</p></article>
+            <article class="card"><h3>Bill Payment Handling</h3><p>Electricity/water bill payment with receipts.</p></article>
+            <article class="card"><h3>Tenant Management</h3><p>Move-in coordination and tenant communication.</p></article>
           </div>
         </div>
       </section>
 
-      <section class="section muted" id="demo-properties">
+      <section class="section muted" id="plans">
         <div class="container">
-          <h2>Featured Demo Properties</h2>
-          <div id="demoPropertyGrid" class="grid three"></div>
+          <h2>Property Care Subscription Plans</h2>
+          <div class="grid three">
+            <article class="card"><h3>🥉 Basic Visit</h3><p>₹1500/month • 1 inspection • Status report</p></article>
+            <article class="card"><h3>🥈 Cleaning + Visit</h3><p>₹3000/month • Inspection + cleaning + bill follow-up</p></article>
+            <article class="card"><h3>🥇 Full Maintenance</h3><p>₹5000+/month • Complete care + tenant coordination</p></article>
+          </div>
         </div>
       </section>
 
-      <section class="section" id="notifications">
+      <section class="section" id="legal">
         <div class="container">
-          <h2>Live Updates</h2>
-          <article class="card">
-            <p>Latest listing, visit and verification notifications are shown below.</p>
-            <ul id="liveNotifications" class="timeline"></ul>
-          </article>
+          <h2>Important Legal Pages</h2>
+          <div class="pill-row">
+            <a href="legal/terms.html">Terms & Conditions</a>
+            <a href="legal/privacy.html">Privacy Policy</a>
+            <a href="legal/refund.html">Refund Policy</a>
+            <a href="legal/disclaimer.html">Disclaimer</a>
+            <a href="legal/service-agreement.html">Service Agreement</a>
+          </div>
         </div>
       </section>
     </main>
@@ -300,16 +130,15 @@ codex/develop-complete-propertysetu-website-structure-ajuciq
         <div>
           <h3>PropertySetu</h3>
           <p>Office: Udaipur, Rajasthan</p>
-          <p>WhatsApp support enabled</p>
         </div>
         <div>
-          <h3>Quick Links</h3>
-          <p><a href="add-property.html">Add Property</a></p>
-          <p><a href="subscription.html">Subscription Plans</a></p>
+          <h3>Future City URLs</h3>
+          <p>propertysetu.in/udaipur</p>
+          <p>propertysetu.in/jaipur</p>
         </div>
         <div>
           <h3>Trust Signals</h3>
-          <p>Verified Listings</p>
+          <p>Verified Listings Badge</p>
           <p>Owner Verification</p>
           <p>Customer Reviews</p>
         </div>
@@ -318,6 +147,5 @@ codex/develop-complete-propertysetu-website-structure-ajuciq
 
     <script src="js/location.js"></script>
     <script src="js/script.js"></script>
-    <script src="js/feature-upgrades.js"></script>
   </body>
 </html>
