@@ -23,6 +23,7 @@
           <button id="adminAuthButton" class="solid-btn" type="button">Admin Login</button>
         </div>
       </div>
+      <div class="container auth-strip" id="authStrip">Not logged in</div>
     </header>
 
     <section class="hero" id="home">
@@ -179,6 +180,25 @@
         </div>
       </div>
     </footer>
+
+    <dialog id="authDialog" class="auth-dialog">
+      <form method="dialog" id="authForm" class="auth-form">
+        <h3 id="authTitle">Login</h3>
+        <p id="authDescription">Secure local demo login for PropertySetu.</p>
+        <label>
+          Email
+          <input id="authEmail" type="email" required placeholder="name@example.com" />
+        </label>
+        <label>
+          Password
+          <input id="authPassword" type="password" required minlength="6" placeholder="Enter password" />
+        </label>
+        <div class="auth-row">
+          <button type="submit" class="primary-btn">Login</button>
+          <button type="button" id="authCancel" class="ghost-btn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="js/location.js"></script>
     <script src="js/script.js"></script>

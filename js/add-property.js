@@ -7,9 +7,6 @@ const statusArea = document.getElementById('statusArea');
 const payloadPreview = document.getElementById('payloadPreview');
 const saveDraftBtn = document.getElementById('saveDraft');
 const clearDraftBtn = document.getElementById('clearDraft');
-codex/develop-complete-propertysetu-website-structure-ajuciq
-
-const locationInput = document.getElementById('location');
 const locationSuggestions = document.getElementById('propertyLocationSuggestions');
 
 const draftKey = 'propertySetu:addPropertyDraft';
@@ -22,9 +19,7 @@ const listFileNames = (fileList) => Array.from(fileList || []).map((file) => fil
 
 const createPhotoPreview = () => {
   photoPreview.innerHTML = '';
-  const files = Array.from(photosInput.files || []);
-
-  files.forEach((file) => {
+  Array.from(photosInput.files || []).forEach((file) => {
     const img = document.createElement('img');
     img.src = URL.createObjectURL(file);
     img.alt = file.name;
@@ -43,7 +38,6 @@ const createVideoPreview = () => {
   videoPreview.appendChild(video);
 };
 
-codex/develop-complete-propertysetu-website-structure-ajuciq
 const getAiRiskSignals = (values) => {
   const riskyWords = ['urgent sale', 'cash only', 'advance first', 'no visit'];
   const raw = `${values.title} ${values.description}`.toLowerCase();
@@ -60,6 +54,20 @@ const getAiRiskSignals = (values) => {
       ...(lowMediaProof ? ['Not enough photos for verification'] : []),
     ],
   };
+};
+
+const getFormValues = () => {
+  const fields = [
+    'title', 'city', 'type', 'category', 'location', 'price', 'negotiable', 'description',
+    'plotSize', 'builtUpArea', 'carpetArea', 'floors', 'facing', 'furnished',
+    'bedrooms', 'bathrooms', 'parking', 'landmark',
+  ];
+
+  return fields.reduce((acc, id) => {
+    const element = document.getElementById(id);
+    acc[id] = element ? element.value.trim() : '';
+    return acc;
+  }, {});
 };
 
 const renderPayloadPreview = (values) => {
@@ -87,62 +95,6 @@ const renderPayloadPreview = (values) => {
   payloadPreview.textContent = JSON.stringify(payload, null, 2);
 };
 
-photosInput.addEventListener('change', () => {
-  const total = photosInput.files.length;
-
-  if (total > 15) {
-    showStatus('Max 15 photos allowed in demo form.', false);
-    photosInput.value = '';
-    createPhotoPreview();
-    return;
-  }
-
-  createPhotoPreview();
-  if (total < 5) {
-    showStatus('Please upload minimum 5 photos.', false);
-  } else {
-    showStatus(`Great! ${total} photos selected.`, true);
-  }
-});
-
-videoInput.addEventListener('change', createVideoPreview);
-
-const getFormValues = () => {
-  const fields = [
-    'title', 'city', 'type', 'category', 'location', 'price', 'negotiable', 'description',
-    'plotSize', 'builtUpArea', 'carpetArea', 'floors', 'facing', 'furnished',
-    'bedrooms', 'bathrooms', 'parking', 'landmark',
-  ];
-
-  const values = {};
-  fields.forEach((id) => {
-    const element = document.getElementById(id);
-    values[id] = element ? element.value.trim() : '';
-  });
-
-  return values;
-};
-
-codex/develop-complete-propertysetu-website-structure-ajuciq
-const renderPayloadPreview = (values) => {
-  const payload = {
-    ...values,
-    media: {
-      photos: listFileNames(photosInput.files),
-      video: listFileNames(videoInput.files)[0] || null,
-      floorPlan: listFileNames(document.getElementById('floorPlan').files)[0] || null,
-    },
-    privateDocs: {
-      propertyDocuments: listFileNames(document.getElementById('documents').files),
-      ownerIdProof: listFileNames(document.getElementById('ownerIdProof').files)[0] || null,
-      addressProof: listFileNames(document.getElementById('addressProof').files)[0] || null,
-    },
-    verificationStatus: 'Pending Admin Approval',
-  };
-
-  payloadPreview.textContent = JSON.stringify(payload, null, 2);
-};
-
 const saveDraft = () => {
   const values = getFormValues();
   localStorage.setItem(draftKey, JSON.stringify(values));
@@ -162,19 +114,33 @@ const loadDraft = () => {
     });
     renderPayloadPreview(values);
     showStatus('Saved draft restored. Re-upload files before submitting.', true);
-  } catch (error) {
+  } catch {
     showStatus('Draft data corrupted, please clear draft.', false);
   }
 };
 
-codex/develop-complete-propertysetu-website-structure-ajuciq
-
 const setupLocationAutocomplete = () => {
-  if (!locationInput || !locationSuggestions) return;
   const locations = window.PROPERTYSETU_LOCATIONS || [];
+  if (!locationSuggestions) return;
+
   locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
 };
 
+photosInput.addEventListener('change', () => {
+  const total = photosInput.files.length;
+
+  if (total > 15) {
+    showStatus('Max 15 photos allowed in demo form.', false);
+    photosInput.value = '';
+    createPhotoPreview();
+    return;
+  }
+
+  createPhotoPreview();
+  showStatus(total < 5 ? 'Please upload minimum 5 photos.' : `Great! ${total} photos selected.`, total >= 5);
+});
+
+videoInput.addEventListener('change', createVideoPreview);
 saveDraftBtn.addEventListener('click', saveDraft);
 
 clearDraftBtn.addEventListener('click', () => {
@@ -191,16 +157,10 @@ form.addEventListener('submit', (event) => {
 
   const values = getFormValues();
   const photoCount = photosInput.files.length;
-
   if (photoCount < 5) {
     showStatus('Submission failed: Minimum 5 photos required.', false);
     return;
   }
-
-codex/develop-complete-propertysetu-website-structure-ajuciq
-  renderPayloadPreview(values);
-  showStatus('Property submitted in demo mode. Backend API can now consume this payload structure.', true);
-});
 
   const aiSignals = getAiRiskSignals(values);
   renderPayloadPreview(values);
