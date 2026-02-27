@@ -91,7 +91,6 @@ if (canvas) {
     setCanvasSize();
     buildStars();
   });
-codex/develop-complete-propertysetu-website-structure-nbroka
 }
 
 const locations = window.PROPERTYSETU_LOCATIONS || [];
@@ -102,9 +101,7 @@ const suggestionList = document.getElementById('suggestionList');
 const locationSuggestions = document.getElementById('locationSuggestions');
 
 if (locationSuggestions) {
-  locationSuggestions.innerHTML = locations
-    .map((loc) => `<option value="${loc}"></option>`)
-    .join('');
+  locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
 }
 
 if (citySelect && slugPreview) {
@@ -126,7 +123,7 @@ if (input) {
       return;
     }
 
-    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 6);
+    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 8);
     suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
 
     suggestionList.querySelectorAll('li').forEach((li) => {
@@ -161,6 +158,7 @@ if (searchButton) {
     }
   });
 }
+ codex/add-features-to-enhance-website-attractiveness
  main
 }
 
