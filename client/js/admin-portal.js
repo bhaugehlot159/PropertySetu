@@ -20,6 +20,12 @@ document.getElementById('reportQueue').innerHTML = reports
   .map((item) => row(`${item.id} · ${item.label}`))
   .join('');
 
+if (JSON.parse(localStorage.getItem(bidKey) || '[]').length === 0) {
+  localStorage.setItem(
+    bidKey,
+    JSON.stringify([{ propertyId: 'P-145', amount: 4500000, bidder: 'buyer-22', publicVisible: false, modifiedByAdmin: null }]),
+  );
+}
 const ensureSeedBids = () => {
   const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
   if (current.length) return;
@@ -42,7 +48,9 @@ const ensureSeedBids = () => {
 const renderBids = () => {
   const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
   document.getElementById('bidQueue').innerHTML = current.length
-    ? current.map((item, idx) => `
+    ? current
+      .map(
+        (item, idx) => `
       <li>
         <span>${item.propertyId} · ₹${item.amount} (${item.bidder})</span>
         <span>
@@ -50,7 +58,9 @@ const renderBids = () => {
           <button onclick="modifyBid(${idx})">Modify</button>
           <button onclick="revealBid(${idx})">Reveal</button>
         </span>
-      </li>`).join('')
+      </li>`,
+      )
+      .join('')
     : '<li><span>No bids yet from customers.</span></li>';
 };
 

@@ -25,7 +25,6 @@ const render = (state) => {
   document.getElementById('visitCount').textContent = state.visits;
   document.getElementById('compareCount').textContent = state.compare;
   document.getElementById('bidCount').textContent = state.bids;
-  document.getElementById('verifiedCount').textContent = state.verifiedSearches;
   document.getElementById('activityLog').innerHTML = state.logs.map((item) => `<li>${item}</li>`).join('') || '<li>No activity yet.</li>';
 };
 
@@ -63,14 +62,7 @@ document.getElementById('placeBid').addEventListener('click', () => {
   }
 
   const allBids = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  allBids.push({
-    propertyId,
-    amount,
-    bidder: 'customer-demo',
-    publicVisible: false,
-    modifiedByAdmin: null,
-    createdAt: new Date().toISOString(),
-  });
+  allBids.push({ propertyId, amount, bidder: 'customer-demo', publicVisible: false, modifiedByAdmin: null, createdAt: new Date().toISOString() });
   localStorage.setItem(bidKey, JSON.stringify(allBids));
 
   state.bids += 1;
