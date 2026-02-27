@@ -7,6 +7,8 @@ const statusArea = document.getElementById('statusArea');
 const payloadPreview = document.getElementById('payloadPreview');
 const saveDraftBtn = document.getElementById('saveDraft');
 const clearDraftBtn = document.getElementById('clearDraft');
+codex/develop-complete-propertysetu-website-structure-ajuciq
+
 const locationInput = document.getElementById('location');
 const locationSuggestions = document.getElementById('propertyLocationSuggestions');
 
@@ -41,6 +43,7 @@ const createVideoPreview = () => {
   videoPreview.appendChild(video);
 };
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
 const getAiRiskSignals = (values) => {
   const riskyWords = ['urgent sale', 'cash only', 'advance first', 'no visit'];
   const raw = `${values.title} ${values.description}`.toLowerCase();
@@ -120,6 +123,26 @@ const getFormValues = () => {
   return values;
 };
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
+const renderPayloadPreview = (values) => {
+  const payload = {
+    ...values,
+    media: {
+      photos: listFileNames(photosInput.files),
+      video: listFileNames(videoInput.files)[0] || null,
+      floorPlan: listFileNames(document.getElementById('floorPlan').files)[0] || null,
+    },
+    privateDocs: {
+      propertyDocuments: listFileNames(document.getElementById('documents').files),
+      ownerIdProof: listFileNames(document.getElementById('ownerIdProof').files)[0] || null,
+      addressProof: listFileNames(document.getElementById('addressProof').files)[0] || null,
+    },
+    verificationStatus: 'Pending Admin Approval',
+  };
+
+  payloadPreview.textContent = JSON.stringify(payload, null, 2);
+};
+
 const saveDraft = () => {
   const values = getFormValues();
   localStorage.setItem(draftKey, JSON.stringify(values));
@@ -143,6 +166,8 @@ const loadDraft = () => {
     showStatus('Draft data corrupted, please clear draft.', false);
   }
 };
+
+codex/develop-complete-propertysetu-website-structure-ajuciq
 
 const setupLocationAutocomplete = () => {
   if (!locationInput || !locationSuggestions) return;
@@ -171,6 +196,11 @@ form.addEventListener('submit', (event) => {
     showStatus('Submission failed: Minimum 5 photos required.', false);
     return;
   }
+
+codex/develop-complete-propertysetu-website-structure-ajuciq
+  renderPayloadPreview(values);
+  showStatus('Property submitted in demo mode. Backend API can now consume this payload structure.', true);
+});
 
   const aiSignals = getAiRiskSignals(values);
   renderPayloadPreview(values);

@@ -11,7 +11,11 @@ if (canvas) {
 
   const buildStars = () => {
     stars.length = 0;
+codex/develop-complete-propertysetu-website-structure-ajuciq
+    for (let i = 0; i < 140; i += 1) {
+
     for (let index = 0; index < 140; index += 1) {
+
       stars.push({
         x: (Math.random() - 0.5) * canvas.width,
         y: (Math.random() - 0.5) * canvas.height,
@@ -49,6 +53,102 @@ if (canvas) {
     setCanvasSize();
     buildStars();
   });
+codex/develop-complete-propertysetu-website-structure-ajuciq
+}
+
+const fallbackLocations = [
+  'Hiran Magri Sector 1', 'Pratap Nagar', 'Sukher', 'Bhuwana', 'Bedla', 'Fatehpura', 'Shobhagpura', 'Chetak Circle',
+];
+const locations = (window.PROPERTYSETU_LOCATIONS && window.PROPERTYSETU_LOCATIONS.length)
+  ? window.PROPERTYSETU_LOCATIONS
+  : fallbackLocations;
+
+const input = document.getElementById('locationSearch');
+const citySelect = document.getElementById('citySelect');
+const slugPreview = document.getElementById('slugPreview');
+const suggestionList = document.getElementById('suggestionList');
+const locationSuggestions = document.getElementById('locationSuggestions');
+
+if (locationSuggestions) {
+  locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
+}
+
+if (citySelect && slugPreview) {
+  citySelect.addEventListener('change', () => {
+    slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
+  });
+}
+
+if (input) {
+  input.addEventListener('input', () => {
+    const value = input.value.toLowerCase().trim();
+    if (!suggestionList) return;
+    if (value.length < 2) {
+      suggestionList.innerHTML = '';
+      return;
+    }
+
+    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 6);
+    suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
+
+    suggestionList.querySelectorAll('li').forEach((li) => {
+      li.addEventListener('click', () => {
+        input.value = li.textContent;
+        suggestionList.innerHTML = '';
+      });
+    });
+  });
+}
+
+const tabButtons = document.querySelectorAll('.tab-btn');
+tabButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    tabButtons.forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+const searchButton = document.getElementById('searchButton');
+if (searchButton) {
+  searchButton.addEventListener('click', () => {
+    const selectedMode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
+    const city = citySelect?.value || 'udaipur';
+    const location = input?.value.trim() || 'all-areas';
+    const normalized = location.toLowerCase().replace(/\s+/g, '-');
+    window.location.hash = `search/${city}/${selectedMode}/${normalized}`;
+
+    const portalHint = document.getElementById('portalHint');
+    if (portalHint) {
+      portalHint.textContent = `Search ready for ${city.toUpperCase()} / ${selectedMode.toUpperCase()} / ${location}`;
+    }
+  });
+}
+
+const authBtn = document.getElementById('authBtn');
+if (authBtn) {
+  const setState = () => {
+    const token = localStorage.getItem('propertySetu:session');
+    authBtn.textContent = token ? 'Logout' : 'Login';
+  };
+
+  authBtn.addEventListener('click', () => {
+    const token = localStorage.getItem('propertySetu:session');
+    if (token) {
+      localStorage.removeItem('propertySetu:session');
+      localStorage.removeItem('propertySetu:userRole');
+      setState();
+      return;
+    }
+
+    const role = prompt('Login role (customer/seller/admin):', 'customer');
+    if (!role) return;
+    localStorage.setItem('propertySetu:session', `${Date.now()}`);
+    localStorage.setItem('propertySetu:userRole', role.toLowerCase());
+    setState();
+  });
+
+  setState();
+}
 }
 
 const locations = window.PROPERTYSETU_LOCATIONS || [];

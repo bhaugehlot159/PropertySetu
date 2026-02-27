@@ -12,6 +12,10 @@
     .mini h3 { margin:0; color:#123f88; font-size:1.2rem; }
     .portal-actions { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
     .btn { background:#0b2f6b; color:#fff; border:none; border-radius:8px; padding:9px 12px; cursor:pointer; }
+codex/develop-complete-propertysetu-website-structure-ajuciq
+    .bid-box { margin-top:16px; }
+    input { padding:8px; border:1px solid #ccd9f5; border-radius:8px; }
+
     @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
     @media (max-width: 560px) { .stat-grid { grid-template-columns: 1fr; } }
   </style>
@@ -23,6 +27,9 @@
       <nav>
         <a href="../../index.html">Home</a>
         <a href="../../add-property.html">Add Property</a>
+codex/develop-complete-propertysetu-website-structure-ajuciq
+        <a href="admin-portal.html">Admin Portal</a>
+
       </nav>
     </div>
   </header>
@@ -34,7 +41,11 @@
         <div class="mini"><p>Wishlist</p><h3 id="wishCount">0</h3></div>
         <div class="mini"><p>Scheduled Visits</p><h3 id="visitCount">0</h3></div>
         <div class="mini"><p>Compared Properties</p><h3 id="compareCount">0</h3></div>
+codex/develop-complete-propertysetu-website-structure-ajuciq
+        <div class="mini"><p>Placed Bids</p><h3 id="bidCount">0</h3></div>
+
         <div class="mini"><p>Verified Only Searches</p><h3 id="verifiedCount">0</h3></div>
+
       </div>
 
       <div class="portal-actions">
@@ -42,6 +53,15 @@
         <button class="btn" id="bookVisit">Book demo visit</button>
         <button class="btn" id="clearPortal">Clear portal data</button>
       </div>
+
+ codex/develop-complete-propertysetu-website-structure-ajuciq
+      <section class="card bid-box">
+        <h3>Sealed Bid (Hidden from public)</h3>
+        <p>Bid amount sirf admin dekh sakta hai. Public/other buyers ko hidden rahega.</p>
+        <input id="bidProperty" placeholder="Property ID e.g. P-145" />
+        <input id="bidAmount" type="number" placeholder="Your Bid Amount" />
+        <button class="btn" id="placeBid">Place Sealed Bid</button>
+      </section>
 
       <section class="section" style="padding:16px 0 0;">
         <div class="card">

@@ -15,31 +15,30 @@ import propertyRoutes from "./routes/propertyRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
- codex/set-up-and-run-all-code
-
 import reviewRoutes from "./routes/reviewRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import featureRoutes from "./routes/featureRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+codex/develop-complete-propertysetu-website-structure-ajuciq
  main
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+codex/develop-complete-propertysetu-website-structure-ajuciq
  codex/set-up-and-run-all-code
 
  codex/make-entire-website-runnable-with-auto-suggestions
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webRoot = path.join(__dirname, "..");
-
- main
-
 app.use(cors());
 app.use(express.json());
+
+codex/develop-complete-propertysetu-website-structure-ajuciq
 
  codex/set-up-and-run-all-code
 
@@ -68,9 +67,8 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.log(err));
- main
-
- main
+codex/develop-complete-propertysetu-website-structure-ajuciq
+ 
 app.use("/api/auth", authRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/feature", featureRoutes);
@@ -88,6 +86,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/feature", featureRoutes);
 app.use("/api/admin", adminRoutes);
+codex/develop-complete-propertysetu-website-structure-ajuciq
 
  codex/make-entire-website-runnable-with-auto-suggestions
 app.get("/api", (req, res) => {
@@ -102,7 +101,6 @@ app.get("*", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`PropertySetu server running on port ${PORT}`);
- main
 
 app.get("/", (req, res) => {
   res.json({ message: "PropertySetu API Running" });
@@ -110,7 +108,7 @@ app.get("/", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
- codex/set-up-and-run-all-code
+codex/develop-complete-propertysetu-website-structure-ajuciq
 
- main
+ codex/set-up-and-run-all-code
 });
