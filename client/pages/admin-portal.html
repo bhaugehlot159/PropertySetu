@@ -13,6 +13,13 @@
     .queue li { display: flex; justify-content: space-between; margin: 6px 0; gap: 8px; align-items: center; }
     .queue input { width: 110px; padding: 4px; border: 1px solid #ccd9f5; border-radius: 6px; }
     button { border: none; border-radius: 6px; padding: 5px 8px; cursor: pointer; background: #0b2f6b; color: #fff; }
+    .grid-admin { display:grid; gap:12px; grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .admin-card { background:#fff; border:1px solid #dce7ff; border-radius:10px; padding:14px; }
+    .admin-card h3 { margin:0 0 8px; color:#123f88; }
+    .queue { list-style:none; padding:0; margin:0; }
+    .queue li { display:flex; justify-content:space-between; margin:6px 0; gap:8px; align-items:center; }
+    .queue input { width:110px; padding:4px; border:1px solid #ccd9f5; border-radius:6px; }
+    button { border:none; border-radius:6px; padding:5px 8px; cursor:pointer; background:#0b2f6b; color:#fff; }
     @media (max-width: 900px) { .grid-admin { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -35,6 +42,18 @@
         <section class="admin-card"><h3>Verification Queue</h3><ul id="verificationQueue" class="queue"></ul></section>
         <section class="admin-card"><h3>Reports</h3><ul id="reportQueue" class="queue"></ul></section>
         <section class="admin-card"><h3>Hidden Bids (Admin Only)</h3><ul id="bidQueue" class="queue"></ul></section>
+        <section class="admin-card">
+          <h3>Verification Queue</h3>
+          <ul id="verificationQueue" class="queue"></ul>
+        </section>
+        <section class="admin-card">
+          <h3>Reports</h3>
+          <ul id="reportQueue" class="queue"></ul>
+        </section>
+        <section class="admin-card">
+          <h3>Hidden Bids (Admin Only)</h3>
+          <ul id="bidQueue" class="queue"></ul>
+        </section>
       </div>
     </div>
   </main>

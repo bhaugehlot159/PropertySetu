@@ -65,6 +65,20 @@ const getAiRiskSignals = (values) => {
   };
 };
 
+const getFormValues = () => {
+  const fields = [
+    'title', 'city', 'type', 'category', 'location', 'price', 'negotiable', 'description',
+    'plotSize', 'builtUpArea', 'carpetArea', 'floors', 'facing', 'furnished',
+    'bedrooms', 'bathrooms', 'parking', 'landmark',
+  ];
+
+  return fields.reduce((acc, id) => {
+    const element = document.getElementById(id);
+    acc[id] = element ? element.value.trim() : '';
+    return acc;
+  }, {});
+};
+
 const renderPayloadPreview = (values) => {
   const aiSignals = getAiRiskSignals(values);
   const payload = {
@@ -114,13 +128,15 @@ const loadDraft = () => {
 };
 
 const setupLocationAutocomplete = () => {
-  if (!locationInput || !locationSuggestions) return;
   const locations = window.PROPERTYSETU_LOCATIONS || [];
+  if (!locationSuggestions) return;
+
   locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
 };
 
 photosInput.addEventListener('change', () => {
   const total = photosInput.files.length;
+
   if (total > 15) {
     showStatus('Max 15 photos allowed in demo form.', false);
     photosInput.value = '';
@@ -147,11 +163,17 @@ clearDraftBtn.addEventListener('click', () => {
 form.addEventListener('submit', (event) => {
   event.preventDefault();
   if (photosInput.files.length < 5) {
+
+  const values = getFormValues();
+  const photoCount = photosInput.files.length;
+  if (photoCount < 5) {
     showStatus('Submission failed: Minimum 5 photos required.', false);
     return;
   }
 
   const aiSignals = renderPayloadPreview(getFormValues());
+  const aiSignals = getAiRiskSignals(values);
+  renderPayloadPreview(values);
   showStatus(`Property submitted in demo mode. AI fraud risk score: ${aiSignals.riskScore}/100.`, aiSignals.riskScore < 70);
 });
 

@@ -1,6 +1,14 @@
 const key = 'propertySetu:customerPortal';
 const bidKey = 'propertySetu:sealedBids';
-const defaultState = { wishlist: 0, visits: 0, compare: 0, bids: 0, logs: [] };
+
+const defaultState = {
+  wishlist: 0,
+  visits: 0,
+  compare: 0,
+  bids: 0,
+  verifiedSearches: 0,
+  logs: [],
+};
 
 const load = () => {
   try {
@@ -37,10 +45,21 @@ document.getElementById('bookVisit').addEventListener('click', () => {
   render(state);
 });
 
+document.getElementById('verifiedSearch').addEventListener('click', () => {
+  state.verifiedSearches += 1;
+  state.logs.unshift('Verified-only search executed in Udaipur.');
+  save(state);
+  render(state);
+});
+
 document.getElementById('placeBid').addEventListener('click', () => {
   const propertyId = document.getElementById('bidProperty').value.trim();
   const amount = Number(document.getElementById('bidAmount').value);
-  if (!propertyId || !amount) return alert('Property ID and amount required');
+
+  if (!propertyId || !amount) {
+    alert('Property ID and amount required');
+    return;
+  }
 
   const allBids = JSON.parse(localStorage.getItem(bidKey) || '[]');
   allBids.push({ propertyId, amount, bidder: 'customer-demo', publicVisible: false, modifiedByAdmin: null, createdAt: new Date().toISOString() });

@@ -26,6 +26,24 @@ if (JSON.parse(localStorage.getItem(bidKey) || '[]').length === 0) {
     JSON.stringify([{ propertyId: 'P-145', amount: 4500000, bidder: 'buyer-22', publicVisible: false, modifiedByAdmin: null }]),
   );
 }
+const ensureSeedBids = () => {
+  const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
+  if (current.length) return;
+
+  localStorage.setItem(
+    bidKey,
+    JSON.stringify([
+      {
+        propertyId: 'P-145',
+        amount: 4500000,
+        bidder: 'buyer-22',
+        publicVisible: false,
+        modifiedByAdmin: null,
+        createdAt: new Date().toISOString(),
+      },
+    ]),
+  );
+};
 
 const renderBids = () => {
   const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
@@ -50,6 +68,7 @@ window.modifyBid = (idx) => {
   const all = JSON.parse(localStorage.getItem(bidKey) || '[]');
   const nextVal = Number(document.getElementById(`m-${idx}`).value);
   if (!nextVal) return;
+
   all[idx].modifiedByAdmin = nextVal;
   all[idx].amount = nextVal;
   localStorage.setItem(bidKey, JSON.stringify(all));
@@ -64,4 +83,5 @@ window.revealBid = (idx) => {
   renderBids();
 };
 
+ensureSeedBids();
 renderBids();
