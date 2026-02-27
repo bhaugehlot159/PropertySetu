@@ -46,6 +46,50 @@
     });
   }
 
+  const AUTH_ROLE_KEY = 'propertysetuAuthRole';
+  const customerLoginBtn = document.getElementById('customerLoginBtn');
+  const adminLoginBtn = document.getElementById('adminLoginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const authStatus = document.getElementById('authStatus');
+
+  const setAuthRole = (role) => {
+    if (role) {
+      localStorage.setItem(AUTH_ROLE_KEY, role);
+    } else {
+      localStorage.removeItem(AUTH_ROLE_KEY);
+    }
+    refreshAuthView();
+  };
+
+  const refreshAuthView = () => {
+    const role = localStorage.getItem(AUTH_ROLE_KEY);
+    if (role === 'customer') {
+      if (authStatus) authStatus.textContent = 'Logged in: Customer';
+      if (customerLoginBtn) customerLoginBtn.hidden = true;
+      if (adminLoginBtn) adminLoginBtn.hidden = false;
+      if (logoutBtn) logoutBtn.hidden = false;
+      return;
+    }
+
+    if (role === 'admin') {
+      if (authStatus) authStatus.textContent = 'Logged in: Admin';
+      if (customerLoginBtn) customerLoginBtn.hidden = false;
+      if (adminLoginBtn) adminLoginBtn.hidden = true;
+      if (logoutBtn) logoutBtn.hidden = false;
+      return;
+    }
+
+    if (authStatus) authStatus.textContent = 'Guest Mode';
+    if (customerLoginBtn) customerLoginBtn.hidden = false;
+    if (adminLoginBtn) adminLoginBtn.hidden = false;
+    if (logoutBtn) logoutBtn.hidden = true;
+  };
+
+  customerLoginBtn?.addEventListener('click', () => setAuthRole('customer'));
+  adminLoginBtn?.addEventListener('click', () => setAuthRole('admin'));
+  logoutBtn?.addEventListener('click', () => setAuthRole(''));
+  refreshAuthView();
+
   const locations = window.PROPERTYSETU_LOCATIONS || [];
   const citySelect = document.getElementById('citySelect');
   const locationSearch = document.getElementById('locationSearch');
@@ -56,13 +100,7 @@
   const searchButton = document.getElementById('searchButton');
 
   if (locationSuggestions) {
-
-    locationSuggestions.innerHTML = locations
-      .map((loc) => `<option value="${String(loc).replace(/"/g, '&quot;')}"></option>`)
-      .join('');
-
     locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
-
   }
 
   citySelect?.addEventListener('change', () => {
@@ -85,111 +123,6 @@
         suggestionList.innerHTML = '';
       });
     });
-  });
-
-  tabButtons.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      tabButtons.forEach((tab) => tab.classList.remove('active'));
-      btn.classList.add('active');
-    });
-  });
-
-  searchButton?.addEventListener('click', () => {
-    const mode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
-    const city = citySelect?.value || 'udaipur';
-    const location = locationSearch?.value.trim() || 'all-areas';
-    window.location.hash = `search/${city}/${mode}/${location.toLowerCase().replace(/\s+/g, '-')}`;
-  });
-
-  const dialog = document.getElementById('authDialog');
-  const authForm = document.getElementById('authForm');
-  const authTitle = document.getElementById('authTitle');
-  const authDescription = document.getElementById('authDescription');
-  const authStatus = document.getElementById('authStatus');
-  const authCancel = document.getElementById('authCancel');
-  const authEmail = document.getElementById('authEmail');
-  const authPassword = document.getElementById('authPassword');
-
-  const customerAuthBtn = document.getElementById('customerAuthBtn');
-  const adminAuthBtn = document.getElementById('adminAuthBtn');
-  const customerLogoutBtn = document.getElementById('customerLogoutBtn');
-  const adminLogoutBtn = document.getElementById('adminLogoutBtn');
-
-  let activeRole = 'customer';
-
-  const state = {
-    customer: JSON.parse(localStorage.getItem('ps_customer_session') || 'null'),
-    admin: JSON.parse(localStorage.getItem('ps_admin_session') || 'null'),
-  };
-
-  const syncAuthUi = () => {
-    const customerLoggedIn = Boolean(state.customer?.email);
-    const adminLoggedIn = Boolean(state.admin?.email);
-
-    customerAuthBtn?.classList.toggle('hidden', customerLoggedIn);
-    customerLogoutBtn?.classList.toggle('hidden', !customerLoggedIn);
-    adminAuthBtn?.classList.toggle('hidden', adminLoggedIn);
-    adminLogoutBtn?.classList.toggle('hidden', !adminLoggedIn);
-
-    const customerLabel = customerLoggedIn ? `Customer: ${state.customer.email}` : 'Customer: Logged out';
-    const adminLabel = adminLoggedIn ? `Admin: ${state.admin.email}` : 'Admin: Logged out';
-    if (authStatus) authStatus.textContent = `Status: ${customerLabel} | ${adminLabel}`;
-  };
-
-  const openAuthDialog = (role) => {
-    if (!dialog || !authForm || !authTitle || !authDescription) return;
-    activeRole = role;
-    authForm.reset();
-    authTitle.textContent = role === 'admin' ? 'Admin Login' : 'Customer Login';
-    authDescription.textContent = role === 'admin'
-      ? 'Admin access demo session. Use any valid email/password.'
-      : 'Customer access demo session. Use any valid email/password.';
-    dialog.showModal();
-    authEmail?.focus();
-  };
-
-  customerAuthBtn?.addEventListener('click', () => openAuthDialog('customer'));
-  adminAuthBtn?.addEventListener('click', () => openAuthDialog('admin'));
-
-  authCancel?.addEventListener('click', () => dialog?.close());
-
-  authForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const email = authEmail?.value.trim();
-    const password = authPassword?.value.trim();
-    if (!email || !password) return;
-
-    const sessionData = {
-      email,
-      loginAt: new Date().toISOString(),
-      role: activeRole,
-    };
-
-    if (activeRole === 'admin') {
-      state.admin = sessionData;
-      localStorage.setItem('ps_admin_session', JSON.stringify(sessionData));
-    } else {
-      state.customer = sessionData;
-      localStorage.setItem('ps_customer_session', JSON.stringify(sessionData));
-    }
-
-    dialog?.close();
-    syncAuthUi();
-  });
-
-  customerLogoutBtn?.addEventListener('click', () => {
-    state.customer = null;
-    localStorage.removeItem('ps_customer_session');
-    syncAuthUi();
-  });
-
-  adminLogoutBtn?.addEventListener('click', () => {
-    state.admin = null;
-    localStorage.removeItem('ps_admin_session');
-    syncAuthUi();
-  });
-
-  syncAuthUi();
   });
 
   tabButtons.forEach((btn) => {
