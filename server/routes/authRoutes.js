@@ -7,5 +7,3 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 
 export default router;
-
-app.use("/api/properties", propertyRoutes);

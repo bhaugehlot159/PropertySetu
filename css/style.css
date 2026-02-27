@@ -35,6 +35,7 @@ body {
 nav { display: flex; flex-wrap: wrap; gap: 14px; }
 nav a { color: #deebff; text-decoration: none; font-size: 0.92rem; }
 nav a:hover { color: #fff; }
+.auth-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 nav .nav-btn {
   border: 1px solid rgba(255,255,255,0.45);
@@ -49,6 +50,9 @@ nav .nav-btn {
   font-size: 0.85rem;
   padding-bottom: 10px;
 }
+.ghost-btn { background: #ffffff12; color: #fff; }
+.warn-btn { background: #ff4d4f; color: #fff; border-color: #ff4d4f; }
+.primary-btn { background: var(--primary); color: #fff; border: 0; }
 
 .hero {
   min-height: 72vh;

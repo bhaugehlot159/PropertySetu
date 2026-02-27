@@ -21,6 +21,17 @@
           <button id="adminAuthBtn" class="nav-btn" type="button">Admin Login</button>
           <button id="logoutBtn" class="nav-btn" type="button">Logout</button>
         </nav>
+        <div class="auth-controls" aria-label="Authentication">
+          <button id="customerLoginBtn" class="auth-btn" type="button">Customer Login</button>
+          <button id="adminLoginBtn" class="auth-btn" type="button">Admin Login</button>
+          <button id="logoutBtn" class="auth-btn logout" type="button" hidden>Logout</button>
+          <span id="authStatus" class="auth-status" aria-live="polite">Guest Mode</span>
+        <div class="auth-actions">
+          <button class="ghost-btn" id="customerAuthBtn" type="button">Customer Login</button>
+          <button class="ghost-btn" id="adminAuthBtn" type="button">Admin Login</button>
+          <button class="warn-btn hidden" id="customerLogoutBtn" type="button">Customer Logout</button>
+          <button class="warn-btn hidden" id="adminLogoutBtn" type="button">Admin Logout</button>
+        </div>
       </div>
       <div class="container auth-strip" id="authStrip">Not logged in</div>
     </header>
@@ -144,6 +155,25 @@
         </div>
       </div>
     </footer>
+
+    <dialog id="authDialog" class="auth-dialog">
+      <form method="dialog" id="authForm" class="auth-form">
+        <h3 id="authTitle">Login</h3>
+        <p id="authDescription">Secure local demo login for PropertySetu.</p>
+        <label>
+          Email
+          <input id="authEmail" type="email" required placeholder="name@example.com" />
+        </label>
+        <label>
+          Password
+          <input id="authPassword" type="password" required minlength="6" placeholder="Enter password" />
+        </label>
+        <div class="auth-row">
+          <button type="submit" class="primary-btn">Login</button>
+          <button type="button" id="authCancel" class="ghost-btn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="js/location.js"></script>
     <script src="js/script.js"></script>
