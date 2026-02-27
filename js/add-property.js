@@ -7,6 +7,10 @@ const statusArea = document.getElementById('statusArea');
 const payloadPreview = document.getElementById('payloadPreview');
 const saveDraftBtn = document.getElementById('saveDraft');
 const clearDraftBtn = document.getElementById('clearDraft');
+codex/develop-complete-propertysetu-website-structure-ajuciq
+
+const locationInput = document.getElementById('location');
+const locationSuggestions = document.getElementById('propertyLocationSuggestions');
 
 const draftKey = 'propertySetu:addPropertyDraft';
 
@@ -37,6 +41,50 @@ const createVideoPreview = () => {
   video.src = URL.createObjectURL(file);
   video.controls = true;
   videoPreview.appendChild(video);
+};
+
+codex/develop-complete-propertysetu-website-structure-ajuciq
+const getAiRiskSignals = (values) => {
+  const riskyWords = ['urgent sale', 'cash only', 'advance first', 'no visit'];
+  const raw = `${values.title} ${values.description}`.toLowerCase();
+  const badWords = riskyWords.filter((word) => raw.includes(word));
+  const suspiciousPrice = Number(values.price) > 0 && Number(values.price) < 300000;
+  const lowMediaProof = photosInput.files.length < 5;
+  const riskScore = badWords.length * 30 + (suspiciousPrice ? 30 : 0) + (lowMediaProof ? 40 : 0);
+
+  return {
+    riskScore: Math.min(riskScore, 100),
+    reasons: [
+      ...badWords.map((word) => `Contains risky phrase: "${word}"`),
+      ...(suspiciousPrice ? ['Price looks abnormally low for Udaipur market'] : []),
+      ...(lowMediaProof ? ['Not enough photos for verification'] : []),
+    ],
+  };
+};
+
+const renderPayloadPreview = (values) => {
+  const aiSignals = getAiRiskSignals(values);
+  const payload = {
+    ...values,
+    media: {
+      photos: listFileNames(photosInput.files),
+      video: listFileNames(videoInput.files)[0] || null,
+      floorPlan: listFileNames(document.getElementById('floorPlan').files)[0] || null,
+    },
+    privateDocs: {
+      propertyDocuments: listFileNames(document.getElementById('documents').files),
+      ownerIdProof: listFileNames(document.getElementById('ownerIdProof').files)[0] || null,
+      addressProof: listFileNames(document.getElementById('addressProof').files)[0] || null,
+    },
+    aiReview: {
+      fraudRiskScore: aiSignals.riskScore,
+      riskReasons: aiSignals.reasons,
+      recommendation: aiSignals.riskScore > 60 ? 'Manual admin verification required' : 'Looks normal',
+    },
+    verificationStatus: 'Pending Admin Approval',
+  };
+
+  payloadPreview.textContent = JSON.stringify(payload, null, 2);
 };
 
 photosInput.addEventListener('change', () => {
@@ -75,6 +123,7 @@ const getFormValues = () => {
   return values;
 };
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
 const renderPayloadPreview = (values) => {
   const payload = {
     ...values,
@@ -118,6 +167,14 @@ const loadDraft = () => {
   }
 };
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
+
+const setupLocationAutocomplete = () => {
+  if (!locationInput || !locationSuggestions) return;
+  const locations = window.PROPERTYSETU_LOCATIONS || [];
+  locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
+};
+
 saveDraftBtn.addEventListener('click', saveDraft);
 
 clearDraftBtn.addEventListener('click', () => {
@@ -140,8 +197,25 @@ form.addEventListener('submit', (event) => {
     return;
   }
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
   renderPayloadPreview(values);
   showStatus('Property submitted in demo mode. Backend API can now consume this payload structure.', true);
 });
 
+  const aiSignals = getAiRiskSignals(values);
+  renderPayloadPreview(values);
+  showStatus(`Property submitted in demo mode. AI fraud risk score: ${aiSignals.riskScore}/100.`, aiSignals.riskScore < 70);
+
+  const notification = {
+    id: Date.now(),
+    message: `New property submitted: ${values.title || 'Untitled'} (${values.location || 'Udaipur'})`,
+    createdAt: new Date().toISOString(),
+    type: aiSignals.riskScore > 60 ? 'alert' : 'success',
+  };
+
+  const current = JSON.parse(localStorage.getItem('propertySetu:notifications') || '[]');
+  localStorage.setItem('propertySetu:notifications', JSON.stringify([notification, ...current].slice(0, 20)));
+});
+
+setupLocationAutocomplete();
 loadDraft();

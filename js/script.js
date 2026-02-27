@@ -11,7 +11,11 @@ if (canvas) {
 
   const buildStars = () => {
     stars.length = 0;
+codex/develop-complete-propertysetu-website-structure-ajuciq
     for (let i = 0; i < 140; i += 1) {
+
+    for (let index = 0; index < 140; index += 1) {
+
       stars.push({
         x: (Math.random() - 0.5) * canvas.width,
         y: (Math.random() - 0.5) * canvas.height,
@@ -49,6 +53,7 @@ if (canvas) {
     setCanvasSize();
     buildStars();
   });
+codex/develop-complete-propertysetu-website-structure-ajuciq
 }
 
 const fallbackLocations = [
@@ -143,4 +148,64 @@ if (authBtn) {
   });
 
   setState();
+}
+}
+
+const locations = window.PROPERTYSETU_LOCATIONS || [];
+const input = document.getElementById('locationSearch');
+const citySelect = document.getElementById('citySelect');
+const slugPreview = document.getElementById('slugPreview');
+const suggestionList = document.getElementById('suggestionList');
+const searchButton = document.getElementById('searchButton');
+const tabButtons = document.querySelectorAll('.tab-btn');
+
+if (citySelect && slugPreview) {
+  citySelect.addEventListener('change', () => {
+    slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
+  });
+}
+
+if (input) {
+  input.addEventListener('input', () => {
+    if (!suggestionList) return;
+
+    const value = input.value.toLowerCase().trim();
+    if (value.length < 2) {
+      suggestionList.innerHTML = '';
+      return;
+    }
+
+    const filtered = locations.filter((location) => location.toLowerCase().includes(value)).slice(0, 8);
+    suggestionList.innerHTML = filtered.map((location) => `<li>${location}</li>`).join('');
+
+    suggestionList.querySelectorAll('li').forEach((item) => {
+      item.addEventListener('click', () => {
+        input.value = item.textContent || '';
+        suggestionList.innerHTML = '';
+      });
+    });
+  });
+}
+
+tabButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    tabButtons.forEach((tab) => tab.classList.remove('active'));
+    button.classList.add('active');
+  });
+});
+
+if (searchButton) {
+  searchButton.addEventListener('click', () => {
+    const selectedMode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
+    const city = citySelect?.value || 'udaipur';
+    const location = input?.value.trim() || 'all-areas';
+    const normalizedLocation = location.toLowerCase().replace(/\s+/g, '-');
+
+    window.location.hash = `search/${city}/${selectedMode}/${normalizedLocation}`;
+
+    const portalHint = document.getElementById('portalHint');
+    if (portalHint) {
+      portalHint.textContent = `Search ready for ${city.toUpperCase()} / ${selectedMode.toUpperCase()} / ${location}`;
+    }
+  });
 }

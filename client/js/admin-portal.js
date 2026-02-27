@@ -1,3 +1,4 @@
+codex/develop-complete-propertysetu-website-structure-ajuciq
 const bidKey = 'propertySetu:sealedBids';
 
 const verification = [
@@ -10,6 +11,13 @@ const reports = [
   { id: 'R-31', label: 'Duplicate photo complaint P-109' },
 ];
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
+
+const bids = [
+  { property: 'P-145', amount: '₹45,00,000', bidder: 'Buyer-22' },
+  { property: 'P-109', amount: '₹1,10,00,000', bidder: 'Buyer-11' },
+];
+
 const row = (left, right = '<button>Resolve</button>') => `<li><span>${left}</span>${right}</li>`;
 
 document.getElementById('verificationQueue').innerHTML = verification
@@ -20,6 +28,7 @@ document.getElementById('reportQueue').innerHTML = reports
   .map((item) => row(`${item.id} · ${item.label}`))
   .join('');
 
+codex/develop-complete-propertysetu-website-structure-ajuciq
 const bids = JSON.parse(localStorage.getItem(bidKey) || '[]');
 
 const renderBids = () => {
@@ -62,3 +71,7 @@ if (bids.length === 0) {
 }
 
 renderBids();
+
+document.getElementById('bidQueue').innerHTML = bids
+  .map((item) => row(`${item.property} · Hidden Bid 🔒`, `<button title="${item.bidder} ${item.amount}">Reveal</button>`))
+  .join('');

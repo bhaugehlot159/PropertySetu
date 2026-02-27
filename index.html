@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+codex/develop-complete-propertysetu-website-structure-ajuciq
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -173,4 +174,150 @@
   <script src="js/location.js"></script>
   <script src="js/script.js"></script>
 </body>
+=======
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PropertySetu | Smart Property Search & Care</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="#home">PropertySetu</a>
+        <nav>
+          <a href="#features">Features</a>
+          <a href="#categories">Categories</a>
+          <a href="#care">Care Services</a>
+          <a href="#demo-properties">Properties</a>
+          <a href="client/pages/customer-portal.html">Customer Portal</a>
+          <a href="client/pages/admin-portal.html">Admin Portal</a>
+        </nav>
+      </div>
+    </header>
+
+    <section class="hero" id="home">
+      <canvas id="heroCanvas"></canvas>
+      <div class="container hero-content">
+        <p class="eyebrow">Udaipur • Verified Listings • AI-Ready</p>
+        <h1>Find Better Homes Faster with PropertySetu</h1>
+        <p class="subline">
+          Buy, Rent, Lease, Commercial, Farmhouse, and Property Care services in one elegant platform.
+        </p>
+
+        <div class="search-panel">
+          <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
+            <button class="tab-btn active" data-mode="buy">Buy</button>
+            <button class="tab-btn" data-mode="rent">Rent</button>
+            <button class="tab-btn" data-mode="plot">Plot</button>
+            <button class="tab-btn" data-mode="commercial">Commercial</button>
+          </div>
+
+          <div class="search-controls">
+            <select id="citySelect" aria-label="Select city">
+              <option value="udaipur">Udaipur</option>
+              <option value="jaipur">Jaipur</option>
+              <option value="jodhpur">Jodhpur</option>
+              <option value="ahmedabad">Ahmedabad</option>
+            </select>
+            <input id="locationSearch" type="text" placeholder="Search locality e.g. Hiran Magri" />
+            <button id="searchButton">Search 🔎</button>
+          </div>
+
+          <ul id="suggestionList" class="suggestion-list"></ul>
+        </div>
+
+        <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
+        <div class="slug-preview" id="portalHint">Customer/Admin portals are active.</div>
+        <div class="slug-preview" id="notificationStatus">Notification service: inactive</div>
+      </div>
+    </section>
+
+    <main>
+      <section class="section" id="features">
+        <div class="container">
+          <h2>Why PropertySetu Looks & Works Better</h2>
+          <div class="grid three">
+            <article class="card">
+              <h3>Modern Visual Design</h3>
+              <p>Glassmorphism hero, smoother spacing, and premium section cards for better first impression.</p>
+            </article>
+            <article class="card">
+              <h3>Smart Search Experience</h3>
+              <p>Tab-based mode, city-wise preview path, and location auto-suggestions with instant selection.</p>
+            </article>
+            <article class="card">
+              <h3>Conversion-Driven Content</h3>
+              <p>Clear CTAs, trust stats, highlighted services, and readable layouts that reduce user friction.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section muted" id="categories">
+        <div class="container">
+          <h2>Main Categories</h2>
+          <div class="grid four">
+            <article class="card"><h3>Buy Property</h3><p>Houses, villas, flats, plots and land with verified ownership profiles.</p></article>
+            <article class="card"><h3>Rent Property</h3><p>Family homes, student spaces, PG and office rentals with faster scheduling.</p></article>
+            <article class="card"><h3>Sell Property</h3><p>Feature boost, listing analytics, and market-fit pricing guidance.</p></article>
+            <article class="card"><h3>Commercial</h3><p>Retail, warehouse, office and investment-ready commercial inventory.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="care">
+        <div class="container">
+          <h2>Property Care Services</h2>
+          <div class="grid three">
+            <article class="card"><h3>Monthly Site Check</h3><p>Regular lock, leakage, and utility inspection updates with proof photos.</p></article>
+            <article class="card"><h3>Cleaning & Upkeep</h3><p>Move-in, move-out and periodic deep cleaning with service tracking.</p></article>
+            <article class="card"><h3>Security Visits</h3><p>On-ground checks and incident reports for outstation property owners.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section muted" id="demo-properties">
+        <div class="container">
+          <h2>Featured Demo Properties</h2>
+          <div id="demoPropertyGrid" class="grid three"></div>
+        </div>
+      </section>
+
+      <section class="section" id="notifications">
+        <div class="container">
+          <h2>Live Updates</h2>
+          <article class="card">
+            <p>Latest listing, visit and verification notifications are shown below.</p>
+            <ul id="liveNotifications" class="timeline"></ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container footer-grid">
+        <div>
+          <h3>PropertySetu</h3>
+          <p>Office: Udaipur, Rajasthan</p>
+          <p>WhatsApp support enabled</p>
+        </div>
+        <div>
+          <h3>Quick Links</h3>
+          <p><a href="add-property.html">Add Property</a></p>
+          <p><a href="subscription.html">Subscription Plans</a></p>
+        </div>
+        <div>
+          <h3>Trust Signals</h3>
+          <p>Verified Listings</p>
+          <p>Owner Verification</p>
+          <p>Customer Reviews</p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="js/location.js"></script>
+    <script src="js/script.js"></script>
+    <script src="js/feature-upgrades.js"></script>
+  </body>
 </html>
