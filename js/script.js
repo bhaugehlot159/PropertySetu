@@ -210,6 +210,8 @@
       if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
       return;
     }
+    openAuthModal('customer');
+  });
 
     const payload = { name, email, password, otp, role: authMode };
 
@@ -419,6 +421,11 @@
     if (aiOutput) {
       aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
+
+    if (aiOutput) {
+      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
+    }
+    openAuthModal('customer');
   });
 
   updateMarketplaceStats();

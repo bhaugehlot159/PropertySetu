@@ -25,6 +25,7 @@
           <span id="sessionBadge" class="session-badge">Guest Mode</span>
         </div>
       </div>
+      <div class="container auth-strip" id="authStrip">Not logged in</div>
     </header>
 
     <section class="hero" id="home">
@@ -36,14 +37,14 @@
 
         <div class="search-panel">
           <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
-            <button class="tab-btn active" data-mode="buy">Buy</button>
-            <button class="tab-btn" data-mode="rent">Rent</button>
-            <button class="tab-btn" data-mode="plot">Plot</button>
-            <button class="tab-btn" data-mode="commercial">Commercial</button>
+            <button class="tab-btn active" data-mode="buy" type="button">Buy</button>
+            <button class="tab-btn" data-mode="rent" type="button">Rent</button>
+            <button class="tab-btn" data-mode="plot" type="button">Plot</button>
+            <button class="tab-btn" data-mode="commercial" type="button">Commercial</button>
           </div>
           <div class="search-controls">
-            <select id="citySelect" aria-label="Select city">
-              <option value="udaipur">Udaipur</option>
+            <select id="citySelect" aria-label="City selector">
+              <option value="udaipur">Udaipur (Default)</option>
               <option value="jaipur">Jaipur</option>
               <option value="jodhpur">Jodhpur</option>
               <option value="ahmedabad">Ahmedabad</option>
@@ -242,6 +243,9 @@
 
     <footer>
       <div class="container footer-grid">
+        <div><h3>Trust</h3><p>Verified Listings Badge • Owner Verification • Reviews</p></div>
+        <div><h3>Support</h3><p>WhatsApp Chat • Office Address • Schedule Visit</p></div>
+        <div><h3>Theme</h3><p>Clean White + Dark Blue • Mobile Friendly</p></div>
         <div>
           <h3>PropertySetu</h3>
           <p>Office: Udaipur, Rajasthan</p>
@@ -259,6 +263,25 @@
         </div>
       </div>
     </footer>
+
+    <dialog id="authDialog" class="auth-dialog">
+      <form method="dialog" id="authForm" class="auth-form">
+        <h3 id="authTitle">Login</h3>
+        <p id="authDescription">Secure local demo login for PropertySetu.</p>
+        <label>
+          Email
+          <input id="authEmail" type="email" required placeholder="name@example.com" />
+        </label>
+        <label>
+          Password
+          <input id="authPassword" type="password" required minlength="6" placeholder="Enter password" />
+        </label>
+        <div class="auth-row">
+          <button type="submit" class="primary-btn">Login</button>
+          <button type="button" id="authCancel" class="ghost-btn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="js/location.js"></script>
     <script src="js/script.js"></script>
