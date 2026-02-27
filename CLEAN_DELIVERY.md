@@ -1,21 +1,35 @@
-# Clean Code Sync (No Conflict Markers)
+# Clean Conflict-Free Delivery (Hindi + Easy)
 
-If your PR shows conflicts or `<<<<<<< ======= >>>>>>>` markers, run:
+Agar PR page me `<<<<<<<`, `=======`, `>>>>>>>` marker issues aa rahe hain, to manually edit mat karo.
+
+## One Command (Recommended)
 
 ```bash
-bash scripts/sync_clean_code.sh <your-pr-branch> work
+bash scripts/fix_conflicts_safe.sh <your-pr-branch> work
 ```
 
 Example:
 
 ```bash
-bash scripts/sync_clean_code.sh codex/develop-complete-propertysetu-website-structure-ajuciq work
+bash scripts/fix_conflicts_safe.sh codex/develop-complete-propertysetu-website-structure-ajuciq work
 ```
 
-This script will:
-1. checkout your target branch
-2. sync all files from clean `work` branch
-3. verify no conflict markers remain
-4. commit and push automatically
+## Script kya karta hai?
+1. Target branch checkout karta hai.
+2. Half-merge state clean karta hai (`git merge --abort` if needed).
+3. PR me conflict wali important files ko `work` branch se restore karta hai.
+4. `<<<<<<< ======= >>>>>>>` markers scan karta hai.
+5. Commit + push karta hai.
 
-After it completes, refresh your PR on GitHub and click **Merge pull request**.
+## Agar push reject aaye
+
+```bash
+git pull --rebase origin <your-pr-branch>
+bash scripts/fix_conflicts_safe.sh <your-pr-branch> work
+```
+
+## Direct backup command (manual)
+
+```bash
+git checkout work -- add-property.html css/style.css index.html js/add-property.js js/location.js js/script.js server/server.js server/routes/propertyRoutes.js server/package.json client/pages/admin-portal.html client/pages/customer-portal.html client/js/admin-portal.js client/js/customer-portal.js legal/terms.html legal/privacy.html legal/refund.html legal/disclaimer.html legal/service-agreement.html
+```
