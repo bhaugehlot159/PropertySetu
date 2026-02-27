@@ -10,11 +10,8 @@
     .grid-admin { display:grid; gap:12px; grid-template-columns: repeat(3,minmax(0,1fr)); }
     .admin-card { background:#fff; border:1px solid #dce7ff; border-radius:10px; padding:14px; }
     .admin-card h3 { margin:0 0 8px; color:#123f88; }
-codex/develop-complete-propertysetu-website-structure-ajuciq
     .queue li { display:flex; justify-content:space-between; margin:6px 0; gap:8px; align-items:center; }
     .queue input { width:110px; padding:4px; border:1px solid #ccd9f5; border-radius:6px; }
-    .queue li { display:flex; justify-content:space-between; margin:6px 0; }
-
     button { border:none; border-radius:6px; padding:5px 8px; cursor:pointer; background:#0b2f6b; color:#fff; }
     @media (max-width: 900px) { .grid-admin { grid-template-columns: 1fr; } }
   </style>
@@ -26,9 +23,7 @@ codex/develop-complete-propertysetu-website-structure-ajuciq
       <nav>
         <a href="../../index.html">Home</a>
         <a href="../../add-property.html">Add Property</a>
-codex/develop-complete-propertysetu-website-structure-ajuciq
         <a href="customer-portal.html">Customer Portal</a>
-
       </nav>
     </div>
   </header>
@@ -46,10 +41,7 @@ codex/develop-complete-propertysetu-website-structure-ajuciq
           <ul id="reportQueue" class="queue"></ul>
         </section>
         <section class="admin-card">
-codex/develop-complete-propertysetu-website-structure-ajuciq
-          <h3>Hidden Bids (Admin Only)</h3>
           <h3>Hidden Bids (Sealed)</h3>
-
           <ul id="bidQueue" class="queue"></ul>
         </section>
       </div>
