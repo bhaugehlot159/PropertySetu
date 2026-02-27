@@ -373,6 +373,7 @@
     if (aiOutput) {
       aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
+    openAuthModal('customer');
   });
 
   updateMarketplaceStats();

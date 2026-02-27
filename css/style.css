@@ -13,7 +13,6 @@ body {
   font-family: Inter, Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
-  line-height: 1.5;
 }
 .container { width: min(1140px, 92%); margin: 0 auto; }
 
@@ -26,7 +25,7 @@ body {
 }
 .topbar-inner {
   display: flex;
-  justify-content: space-between;
+  gap: 12px;
   align-items: center;
   gap: 14px;
   padding: 12px 0;
@@ -104,6 +103,7 @@ body {
   margin-top: 6px;
   border-radius: 8px;
   padding: 8px 10px;
+  border-radius: 8px;
   cursor: pointer;
 }
 .slug-preview { margin-top: 10px; color: #e5efff; }
@@ -241,6 +241,7 @@ footer h3 { color: #fff; margin-top: 0; }
   color: #0b2f6b;
   font-size: 1.1rem;
 }
+.card h3 { margin-top: 0; margin-bottom: 8px; }
 
 .stat-box span {
   color: #31527e;
@@ -253,6 +254,7 @@ footer h3 { color: #fff; margin-top: 0; }
   color: #133a78;
   font-weight: 600;
 }
+.listing-card p { padding-bottom: 18px; }
 
 .ai-box {
   margin: 20px 0;
@@ -275,6 +277,26 @@ footer h3 { color: #fff; margin-top: 0; }
   padding: 10px;
   margin-bottom: 10px;
 }
+.auth-modal.show { display: flex; }
+.auth-modal-card {
+  width: min(420px, 92%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px;
+}
+.auth-modal-card input {
+  width: 100%;
+  border: 1px solid #ccd9f7;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 8px 0 14px;
+}
+.auth-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.auth-modal .outline-btn { color: #0b2f6b; border-color: #9ab9f7; }
 
 .ai-output {
   background: #fff;
