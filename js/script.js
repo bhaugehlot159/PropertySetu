@@ -1,4 +1,40 @@
 (() => {
+  const authKey = 'propertySetu:session';
+
+  const renderAuth = () => {
+    const session = JSON.parse(localStorage.getItem(authKey) || 'null');
+    const strip = document.getElementById('authStrip');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    if (!strip || !logoutBtn) return;
+
+    if (!session) {
+      strip.textContent = 'Not logged in';
+      logoutBtn.style.display = 'none';
+      return;
+    }
+
+    strip.textContent = `Logged in as ${session.role}: ${session.username}`;
+    logoutBtn.style.display = 'inline-block';
+  };
+
+  const login = (role) => {
+    const username = window.prompt(`Enter ${role} username`, role === 'admin' ? 'admin' : 'customer');
+    if (!username) return;
+
+    localStorage.setItem(authKey, JSON.stringify({ role, username }));
+    renderAuth();
+  };
+
+  document.getElementById('customerAuthBtn')?.addEventListener('click', () => login('customer'));
+  document.getElementById('adminAuthBtn')?.addEventListener('click', () => login('admin'));
+  document.getElementById('logoutBtn')?.addEventListener('click', () => {
+    localStorage.removeItem(authKey);
+    renderAuth();
+  });
+
+  renderAuth();
+
   const canvas = document.getElementById('heroCanvas');
   if (canvas) {
     const ctx = canvas.getContext('2d');
@@ -46,50 +82,6 @@
     });
   }
 
-  const AUTH_ROLE_KEY = 'propertysetuAuthRole';
-  const customerLoginBtn = document.getElementById('customerLoginBtn');
-  const adminLoginBtn = document.getElementById('adminLoginBtn');
-  const logoutBtn = document.getElementById('logoutBtn');
-  const authStatus = document.getElementById('authStatus');
-
-  const setAuthRole = (role) => {
-    if (role) {
-      localStorage.setItem(AUTH_ROLE_KEY, role);
-    } else {
-      localStorage.removeItem(AUTH_ROLE_KEY);
-    }
-    refreshAuthView();
-  };
-
-  const refreshAuthView = () => {
-    const role = localStorage.getItem(AUTH_ROLE_KEY);
-    if (role === 'customer') {
-      if (authStatus) authStatus.textContent = 'Logged in: Customer';
-      if (customerLoginBtn) customerLoginBtn.hidden = true;
-      if (adminLoginBtn) adminLoginBtn.hidden = false;
-      if (logoutBtn) logoutBtn.hidden = false;
-      return;
-    }
-
-    if (role === 'admin') {
-      if (authStatus) authStatus.textContent = 'Logged in: Admin';
-      if (customerLoginBtn) customerLoginBtn.hidden = false;
-      if (adminLoginBtn) adminLoginBtn.hidden = true;
-      if (logoutBtn) logoutBtn.hidden = false;
-      return;
-    }
-
-    if (authStatus) authStatus.textContent = 'Guest Mode';
-    if (customerLoginBtn) customerLoginBtn.hidden = false;
-    if (adminLoginBtn) adminLoginBtn.hidden = false;
-    if (logoutBtn) logoutBtn.hidden = true;
-  };
-
-  customerLoginBtn?.addEventListener('click', () => setAuthRole('customer'));
-  adminLoginBtn?.addEventListener('click', () => setAuthRole('admin'));
-  logoutBtn?.addEventListener('click', () => setAuthRole(''));
-  refreshAuthView();
-
   const locations = window.PROPERTYSETU_LOCATIONS || [];
   const citySelect = document.getElementById('citySelect');
   const locationSearch = document.getElementById('locationSearch');
@@ -115,7 +107,7 @@
       return;
     }
 
-    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 10);
+    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 12);
     suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
     suggestionList.querySelectorAll('li').forEach((item) => {
       item.addEventListener('click', () => {
