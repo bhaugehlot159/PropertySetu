@@ -15,6 +15,10 @@
         <a href="#rent">Rent</a>
         <a href="#care">Property Care</a>
         <a href="#dashboards">Dashboards</a>
+ codex/develop-complete-propertysetu-website-structure-nbroka
+        <a href="client/pages/customer-portal.html">Customer Portal</a>
+        <a href="client/pages/admin-portal.html">Admin Portal</a>
+ main
         <a href="#roadmap">Roadmap</a>
       </nav>
     </div>
@@ -43,11 +47,21 @@
             <option value="delhi">Delhi</option>
             <option value="mumbai">Mumbai</option>
           </select>
+codex/develop-complete-propertysetu-website-structure-nbroka
+          <input id="locationSearch" type="text" list="locationSuggestions" placeholder="Search locality e.g. Hiran Magri" />
+          <datalist id="locationSuggestions"></datalist>
+          <button id="searchButton">Search 🔎</button>
+        </div>
+        <ul id="suggestionList" class="suggestion-list"></ul>
+      </div>
+      <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
+      <div class="slug-preview" id="portalHint">Customer/Admin portals active.</div>
           <input id="locationSearch" type="text" placeholder="Search locality e.g. Hiran Magri" />
           <button id="searchButton">Search 🔎</button>
         </div>
       </div>
       <div class="slug-preview" id="slugPreview">SEO path preview: propertysetu.in/udaipur</div>
+  main
       <p><a href="add-property.html" style="display:inline-block;margin-top:10px;background:#ffbd00;color:#0f1c2f;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:700;">Add Property with Upload Form</a></p>
     </div>
   </section>
@@ -136,9 +150,14 @@
       <div class="container">
         <h2>User Panel System</h2>
         <div class="grid three">
+codex/develop-complete-propertysetu-website-structure-nbroka
+          <article class="card"><h3>Buyer Dashboard</h3><p>Save properties, compare listings, schedule visits and review history.</p><p><a href="client/pages/customer-portal.html">Open Customer Portal →</a></p></article>
+          <article class="card"><h3>Seller Dashboard</h3><p>Add properties, upload photos/video, manage price/status and performance analytics.</p><p><a href="add-property.html">Open Seller Add Property →</a></p></article>
+          <article class="card"><h3>Admin Dashboard</h3><p>Verification approvals, report handling, city management, commission and pricing controls.</p><p><a href="client/pages/admin-portal.html">Open Admin Portal →</a></p></article>
           <article class="card"><h3>Buyer Dashboard</h3><p>Save properties, compare listings, schedule visits and review history.</p></article>
           <article class="card"><h3>Seller Dashboard</h3><p>Add properties, upload photos/video, manage price/status and performance analytics.</p></article>
           <article class="card"><h3>Admin Dashboard</h3><p>Verification approvals, report handling, city management, commission and pricing controls.</p></article>
+ main
         </div>
       </div>
     </section>
@@ -244,6 +263,10 @@
     </div>
   </footer>
 
+codex/develop-complete-propertysetu-website-structure-nbroka
+  <script src="js/location.js"></script>
+
+ main
   <script src="js/script.js"></script>
 </body>
 </html>

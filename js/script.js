@@ -49,6 +49,74 @@ if (canvas) {
     setCanvasSize();
     buildStars();
   });
+codex/develop-complete-propertysetu-website-structure-nbroka
+}
+
+const locations = window.PROPERTYSETU_LOCATIONS || [];
+const input = document.getElementById('locationSearch');
+const citySelect = document.getElementById('citySelect');
+const slugPreview = document.getElementById('slugPreview');
+const suggestionList = document.getElementById('suggestionList');
+const locationSuggestions = document.getElementById('locationSuggestions');
+
+if (locationSuggestions) {
+  locationSuggestions.innerHTML = locations
+    .map((loc) => `<option value="${loc}"></option>`)
+    .join('');
+}
+
+if (citySelect && slugPreview) {
+  citySelect.addEventListener('change', () => {
+    slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
+  });
+}
+
+if (input) {
+  input.addEventListener('input', () => {
+    const value = input.value.toLowerCase().trim();
+
+    if (!suggestionList) return;
+    if (value.length < 2) {
+      suggestionList.innerHTML = '';
+      return;
+    }
+
+    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 6);
+    suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
+
+    suggestionList.querySelectorAll('li').forEach((li) => {
+      li.addEventListener('click', () => {
+        input.value = li.textContent;
+        suggestionList.innerHTML = '';
+      });
+    });
+  });
+}
+
+const tabButtons = document.querySelectorAll('.tab-btn');
+tabButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    tabButtons.forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+const searchButton = document.getElementById('searchButton');
+if (searchButton) {
+  searchButton.addEventListener('click', () => {
+    const selectedMode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
+    const city = citySelect?.value || 'udaipur';
+    const location = input?.value.trim() || 'all-areas';
+    const normalized = location.toLowerCase().replace(/\s+/g, '-');
+    window.location.hash = `search/${city}/${selectedMode}/${normalized}`;
+
+    const portalHint = document.getElementById('portalHint');
+    if (portalHint) {
+      portalHint.textContent = `Search ready for ${city.toUpperCase()} / ${selectedMode.toUpperCase()} / ${location}`;
+    }
+  });
+}
+=======
 }
 
 const locations = [
@@ -102,3 +170,4 @@ if (searchButton) {
     window.location.hash = `search/${city}/${selectedMode}/${normalized}`;
   });
 }
+main

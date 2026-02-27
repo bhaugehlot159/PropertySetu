@@ -213,3 +213,25 @@ footer p { margin: 0 0 4px; }
   .footer-grid { grid-template-columns: 1fr; }
   .hero { min-height: 84vh; }
 }
+codex/develop-complete-propertysetu-website-structure-nbroka
+
+
+.suggestion-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  text-align: left;
+}
+.suggestion-list li {
+  background: rgba(255, 255, 255, 0.92);
+  color: #10233f;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+.suggestion-list li:hover { background: #fff7d5; }
+.card a { color: #0b2f6b; font-weight: 700; text-decoration: none; }
+.card a:hover { text-decoration: underline; }
+
+ main
