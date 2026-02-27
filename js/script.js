@@ -1,211 +1,426 @@
-const canvas = document.getElementById('heroCanvas');
+(() => {
+  const API_BASE = `${window.location.origin}/api`;
 
-if (canvas) {
-  const ctx = canvas.getContext('2d');
-  const stars = [];
+  const canvas = document.getElementById('heroCanvas');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    const stars = [];
 
-  const setCanvasSize = () => {
-    canvas.width = window.innerWidth;
-    canvas.height = canvas.parentElement ? canvas.parentElement.offsetHeight : window.innerHeight;
-  };
+    const setCanvasSize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = canvas.parentElement?.offsetHeight || window.innerHeight;
+    };
 
-  const buildStars = () => {
-    stars.length = 0;
-codex/develop-complete-propertysetu-website-structure-ajuciq
-    for (let i = 0; i < 140; i += 1) {
-
-    for (let index = 0; index < 140; index += 1) {
-
-      stars.push({
-        x: (Math.random() - 0.5) * canvas.width,
-        y: (Math.random() - 0.5) * canvas.height,
-        z: Math.random() * canvas.width,
-      });
-    }
-  };
-
-  const animate = () => {
-    ctx.fillStyle = '#0b2f6b';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    stars.forEach((star) => {
-      star.z -= 2;
-      if (star.z <= 1) star.z = canvas.width;
-
-      const scale = 128 / star.z;
-      const px = star.x * scale + canvas.width / 2;
-      const py = star.y * scale + canvas.height / 2;
-
-      if (px >= 0 && px <= canvas.width && py >= 0 && py <= canvas.height) {
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.fillRect(px, py, 2, 2);
+    const buildStars = () => {
+      stars.length = 0;
+      for (let index = 0; index < 140; index += 1) {
+        stars.push({
+          x: (Math.random() - 0.5) * canvas.width,
+          y: (Math.random() - 0.5) * canvas.height,
+          z: Math.random() * canvas.width,
+        });
       }
-    });
+    };
 
-    requestAnimationFrame(animate);
-  };
+    const animate = () => {
+      ctx.fillStyle = '#0b2f6b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      stars.forEach((star) => {
+        star.z -= 2;
+        if (star.z <= 1) star.z = canvas.width;
+        const scale = 128 / star.z;
+        const px = star.x * scale + canvas.width / 2;
+        const py = star.y * scale + canvas.height / 2;
+        if (px >= 0 && px <= canvas.width && py >= 0 && py <= canvas.height) {
+          ctx.fillStyle = 'rgba(255,255,255,0.9)';
+          ctx.fillRect(px, py, 2, 2);
+        }
+      });
+      requestAnimationFrame(animate);
+    };
 
-  setCanvasSize();
-  buildStars();
-  animate();
-
-  window.addEventListener('resize', () => {
     setCanvasSize();
     buildStars();
-  });
-codex/develop-complete-propertysetu-website-structure-ajuciq
-}
-
-const fallbackLocations = [
-  'Hiran Magri Sector 1', 'Pratap Nagar', 'Sukher', 'Bhuwana', 'Bedla', 'Fatehpura', 'Shobhagpura', 'Chetak Circle',
-];
-const locations = (window.PROPERTYSETU_LOCATIONS && window.PROPERTYSETU_LOCATIONS.length)
-  ? window.PROPERTYSETU_LOCATIONS
-  : fallbackLocations;
-
-const input = document.getElementById('locationSearch');
-const citySelect = document.getElementById('citySelect');
-const slugPreview = document.getElementById('slugPreview');
-const suggestionList = document.getElementById('suggestionList');
-const locationSuggestions = document.getElementById('locationSuggestions');
-
-if (locationSuggestions) {
-  locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
-}
-
-if (citySelect && slugPreview) {
-  citySelect.addEventListener('change', () => {
-    slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
-  });
-}
-
-if (input) {
-  input.addEventListener('input', () => {
-    const value = input.value.toLowerCase().trim();
-    if (!suggestionList) return;
-    if (value.length < 2) {
-      suggestionList.innerHTML = '';
-      return;
-    }
-
-    const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 6);
-    suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
-
-    suggestionList.querySelectorAll('li').forEach((li) => {
-      li.addEventListener('click', () => {
-        input.value = li.textContent;
-        suggestionList.innerHTML = '';
-      });
+    animate();
+    window.addEventListener('resize', () => {
+      setCanvasSize();
+      buildStars();
     });
-  });
-}
+  }
 
-const tabButtons = document.querySelectorAll('.tab-btn');
-tabButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    tabButtons.forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
-
-const searchButton = document.getElementById('searchButton');
-if (searchButton) {
-  searchButton.addEventListener('click', () => {
-    const selectedMode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
-    const city = citySelect?.value || 'udaipur';
-    const location = input?.value.trim() || 'all-areas';
-    const normalized = location.toLowerCase().replace(/\s+/g, '-');
-    window.location.hash = `search/${city}/${selectedMode}/${normalized}`;
-
-    const portalHint = document.getElementById('portalHint');
-    if (portalHint) {
-      portalHint.textContent = `Search ready for ${city.toUpperCase()} / ${selectedMode.toUpperCase()} / ${location}`;
+  const readJsonStorage = (key, fallbackValue) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallbackValue;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return fallbackValue;
     }
-  });
-}
-
-const authBtn = document.getElementById('authBtn');
-if (authBtn) {
-  const setState = () => {
-    const token = localStorage.getItem('propertySetu:session');
-    authBtn.textContent = token ? 'Logout' : 'Login';
   };
 
-  authBtn.addEventListener('click', () => {
-    const token = localStorage.getItem('propertySetu:session');
-    if (token) {
-      localStorage.removeItem('propertySetu:session');
-      localStorage.removeItem('propertySetu:userRole');
-      setState();
-      return;
-    }
+  const writeJsonStorage = (key, value) => {
+    localStorage.setItem(key, JSON.stringify(value));
+  };
 
-    const role = prompt('Login role (customer/seller/admin):', 'customer');
-    if (!role) return;
-    localStorage.setItem('propertySetu:session', `${Date.now()}`);
-    localStorage.setItem('propertySetu:userRole', role.toLowerCase());
-    setState();
+  const locations = window.PROPERTYSETU_LOCATIONS || [];
+  const citySelect = document.getElementById('citySelect');
+  const locationSearch = document.getElementById('locationSearch');
+  const locationSuggestions = document.getElementById('locationSuggestions');
+  const suggestionList = document.getElementById('suggestionList');
+  const slugPreview = document.getElementById('slugPreview');
+  const tabButtons = document.querySelectorAll('.tab-btn');
+  const searchButton = document.getElementById('searchButton');
+
+  if (locationSuggestions) {
+    locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
+  }
+
+  citySelect?.addEventListener('change', () => {
+    if (slugPreview) slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
   });
 
-  setState();
-}
-}
-
-const locations = window.PROPERTYSETU_LOCATIONS || [];
-const input = document.getElementById('locationSearch');
-const citySelect = document.getElementById('citySelect');
-const slugPreview = document.getElementById('slugPreview');
-const suggestionList = document.getElementById('suggestionList');
-const searchButton = document.getElementById('searchButton');
-const tabButtons = document.querySelectorAll('.tab-btn');
-
-if (citySelect && slugPreview) {
-  citySelect.addEventListener('change', () => {
-    slugPreview.textContent = `SEO path preview: propertysetu.in/${citySelect.value}`;
-  });
-}
-
-if (input) {
-  input.addEventListener('input', () => {
+  locationSearch?.addEventListener('input', () => {
     if (!suggestionList) return;
-
-    const value = input.value.toLowerCase().trim();
+    const value = locationSearch.value.toLowerCase().trim();
     if (value.length < 2) {
       suggestionList.innerHTML = '';
       return;
     }
 
-    const filtered = locations.filter((location) => location.toLowerCase().includes(value)).slice(0, 8);
-    suggestionList.innerHTML = filtered.map((location) => `<li>${location}</li>`).join('');
+    const filtered = locations
+      .filter((loc) => loc.toLowerCase().includes(value))
+      .sort((a, b) => {
+        const aStarts = a.toLowerCase().startsWith(value) ? 0 : 1;
+        const bStarts = b.toLowerCase().startsWith(value) ? 0 : 1;
+        return aStarts - bStarts || a.localeCompare(b);
+      })
+      .slice(0, 25);
 
+    suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
     suggestionList.querySelectorAll('li').forEach((item) => {
       item.addEventListener('click', () => {
-        input.value = item.textContent || '';
+        locationSearch.value = item.textContent || '';
         suggestionList.innerHTML = '';
       });
     });
   });
-}
 
-tabButtons.forEach((button) => {
-  button.addEventListener('click', () => {
-    tabButtons.forEach((tab) => tab.classList.remove('active'));
-    button.classList.add('active');
+  tabButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      tabButtons.forEach((tab) => tab.classList.remove('active'));
+      btn.classList.add('active');
+    });
   });
-});
 
-if (searchButton) {
-  searchButton.addEventListener('click', () => {
-    const selectedMode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
+  searchButton?.addEventListener('click', () => {
+    const mode = document.querySelector('.tab-btn.active')?.dataset.mode || 'buy';
     const city = citySelect?.value || 'udaipur';
-    const location = input?.value.trim() || 'all-areas';
-    const normalizedLocation = location.toLowerCase().replace(/\s+/g, '-');
+    const location = locationSearch?.value.trim() || 'all-areas';
+    window.location.hash = `search/${city}/${mode}/${location.toLowerCase().replace(/\s+/g, '-')}`;
+  });
 
-    window.location.hash = `search/${city}/${selectedMode}/${normalizedLocation}`;
+  const customerAuthButton = document.getElementById('customerAuthButton');
+  const adminAuthButton = document.getElementById('adminAuthButton');
+  const sessionBadge = document.getElementById('sessionBadge');
+  const customerFeatureStatus = document.getElementById('customerFeatureStatus');
 
-    const portalHint = document.getElementById('portalHint');
-    if (portalHint) {
-      portalHint.textContent = `Search ready for ${city.toUpperCase()} / ${selectedMode.toUpperCase()} / ${location}`;
+  const authModal = document.getElementById('authModal');
+  const authModalTitle = document.getElementById('authModalTitle');
+  const authModalHint = document.getElementById('authModalHint');
+  const authNameInput = document.getElementById('authNameInput');
+  const authEmailInput = document.getElementById('authEmailInput');
+  const authPasswordInput = document.getElementById('authPasswordInput');
+  const authOtpInput = document.getElementById('authOtpInput');
+  const authErrorMessage = document.getElementById('authErrorMessage');
+  const authCancelButton = document.getElementById('authCancelButton');
+  const authSubmitButton = document.getElementById('authSubmitButton');
+  let authMode = 'customer';
+
+  const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
+  const setState = (role, payload) => {
+    if (!payload) {
+      localStorage.removeItem(`propertysetu-${role}-session`);
+      return;
+    }
+    writeJsonStorage(`propertysetu-${role}-session`, payload);
+  };
+
+  const updateAuthButtons = () => {
+    const customerState = getState('customer');
+    const adminState = getState('admin');
+
+    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
+    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
+
+    if (sessionBadge) {
+      if (adminState) sessionBadge.textContent = `Admin: ${adminState.name}`;
+      else if (customerState) sessionBadge.textContent = `Customer: ${customerState.name}`;
+      else sessionBadge.textContent = 'Guest Mode';
+    }
+
+    if (customerFeatureStatus) {
+      customerFeatureStatus.textContent = customerState
+        ? `✅ Welcome ${customerState.name}. All customer features unlocked: Wishlist, Compare, Visit, Chat, Bid, AI tools, Legal docs.`
+        : 'Please login as customer to unlock this panel.';
+    }
+  };
+
+  const openAuthModal = (role) => {
+    authMode = role;
+    if (!authModal || !authModalTitle || !authModalHint) return;
+    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Login' : 'Customer Secure Login';
+    authModalHint.textContent = 'Enter full details. First attempt auto-registers if account not found. Demo OTP: 123456';
+    if (authErrorMessage) authErrorMessage.textContent = '';
+    if (authNameInput) authNameInput.value = '';
+    if (authEmailInput) authEmailInput.value = '';
+    if (authPasswordInput) authPasswordInput.value = '';
+    if (authOtpInput) authOtpInput.value = '123456';
+    authModal.classList.add('show');
+    authModal.setAttribute('aria-hidden', 'false');
+    authNameInput?.focus();
+  };
+
+  const closeAuthModal = () => {
+    if (!authModal) return;
+    authModal.classList.remove('show');
+    authModal.setAttribute('aria-hidden', 'true');
+  };
+
+  const apiRequest = async (path, payload, token) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: payload ? 'POST' : 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Request failed');
+    return data;
+  };
+
+  const doAuthFlow = async () => {
+    const name = authNameInput?.value.trim() || '';
+    const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const password = authPasswordInput?.value || '';
+    const otp = authOtpInput?.value.trim() || '';
+
+    if (!name || !email || password.length < 6 || !otp) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
+      return;
+    }
+
+    const payload = { name, email, password, otp, role: authMode };
+
+    try {
+      const loginResponse = await apiRequest('/auth/login', payload);
+      setState(authMode, { ...loginResponse.user, token: loginResponse.token, loggedInAt: new Date().toISOString() });
+      closeAuthModal();
+      updateAuthButtons();
+      return;
+    } catch {
+      try {
+        const registerResponse = await apiRequest('/auth/register', payload);
+        setState(authMode, { ...registerResponse.user, token: registerResponse.token, loggedInAt: new Date().toISOString() });
+        closeAuthModal();
+        updateAuthButtons();
+      } catch (registerError) {
+        if (authErrorMessage) authErrorMessage.textContent = registerError.message;
+      }
+    }
+  };
+
+  customerAuthButton?.addEventListener('click', () => {
+    const current = getState('customer');
+    if (current) {
+      setState('customer', null);
+      updateAuthButtons();
+      return;
+    }
+    openAuthModal('customer');
+  });
+
+  adminAuthButton?.addEventListener('click', () => {
+    const current = getState('admin');
+    if (current) {
+      setState('admin', null);
+      updateAuthButtons();
+      return;
+    }
+    openAuthModal('admin');
+  });
+
+  authCancelButton?.addEventListener('click', closeAuthModal);
+  authSubmitButton?.addEventListener('click', doAuthFlow);
+
+  authModal?.addEventListener('click', (event) => {
+    if (event.target === authModal) closeAuthModal();
+  });
+
+  const marketplaceMessage = document.getElementById('marketplaceMessage');
+  const wishlistCount = document.getElementById('wishlistCount');
+  const compareCount = document.getElementById('compareCount');
+  const visitCount = document.getElementById('visitCount');
+  const sealedBidCount = document.getElementById('sealedBidCount');
+  const revealBidsButton = document.getElementById('revealBidsButton');
+  const clearWishlistButton = document.getElementById('clearWishlistButton');
+  const clearCompareButton = document.getElementById('clearCompareButton');
+
+  const initialMarketplace = readJsonStorage('propertysetu-marketplace-state', {
+    wishlist: [],
+    compare: [],
+    visits: [],
+    bids: [],
+  });
+
+  const marketplaceState = {
+    wishlist: new Set(initialMarketplace.wishlist || []),
+    compare: new Set(initialMarketplace.compare || []),
+    visits: initialMarketplace.visits || [],
+    bids: initialMarketplace.bids || [],
+  };
+
+  const persistMarketplaceState = () => {
+    writeJsonStorage('propertysetu-marketplace-state', {
+      wishlist: [...marketplaceState.wishlist],
+      compare: [...marketplaceState.compare],
+      visits: marketplaceState.visits,
+      bids: marketplaceState.bids,
+    });
+  };
+
+  const updateMarketplaceStats = () => {
+    if (wishlistCount) wishlistCount.textContent = `${marketplaceState.wishlist.size}`;
+    if (compareCount) compareCount.textContent = `${marketplaceState.compare.size}`;
+    if (visitCount) visitCount.textContent = `${marketplaceState.visits.length}`;
+    if (sealedBidCount) sealedBidCount.textContent = `${marketplaceState.bids.length}`;
+  };
+
+  const notify = (message) => {
+    if (marketplaceMessage) marketplaceMessage.textContent = message;
+  };
+
+  const ensureCustomerSession = () => {
+    const customer = getState('customer');
+    if (customer) return customer;
+    notify('Please login as Customer first to use this feature.');
+    openAuthModal('customer');
+    return null;
+  };
+
+  document.querySelectorAll('.listing-card').forEach((card) => {
+    const propertyId = card.dataset.propertyId;
+    const title = card.dataset.title || 'Property';
+
+    card.querySelectorAll('.action-btn').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const action = button.dataset.action;
+        const customer = ensureCustomerSession();
+        if (!customer) return;
+
+        if (action === 'wishlist') {
+          if (marketplaceState.wishlist.has(propertyId)) {
+            marketplaceState.wishlist.delete(propertyId);
+            notify(`${title} removed from wishlist.`);
+          } else {
+            marketplaceState.wishlist.add(propertyId);
+            notify(`${title} saved to wishlist.`);
+          }
+        }
+
+        if (action === 'compare') {
+          if (marketplaceState.compare.has(propertyId)) {
+            marketplaceState.compare.delete(propertyId);
+            notify(`${title} removed from compare.`);
+          } else if (marketplaceState.compare.size >= 3) {
+            notify('Compare supports up to 3 properties at once.');
+          } else {
+            marketplaceState.compare.add(propertyId);
+            notify(`${title} added to compare.`);
+          }
+        }
+
+        if (action === 'visit') {
+          marketplaceState.visits.push({ propertyId, at: new Date().toISOString() });
+          notify(`Visit request created for ${title}.`);
+        }
+
+        if (action === 'bid') {
+          const bidValue = window.prompt(`Enter your sealed bid amount for ${title} (₹):`);
+          const amount = Number(bidValue);
+          if (!bidValue || Number.isNaN(amount) || amount <= 0) {
+            notify('Please enter a valid positive bid amount.');
+            return;
+          }
+
+          try {
+            await apiRequest('/sealed-bids', { propertyId, propertyTitle: title, amount }, customer.token);
+            marketplaceState.bids.push({ propertyId, title, amount, at: new Date().toISOString() });
+            notify(`Sealed bid submitted for ${title}. Only admin can reveal winner.`);
+          } catch (error) {
+            notify(error.message);
+            return;
+          }
+        }
+
+        updateMarketplaceStats();
+        persistMarketplaceState();
+      });
+    });
+  });
+
+  clearWishlistButton?.addEventListener('click', () => {
+    marketplaceState.wishlist.clear();
+    updateMarketplaceStats();
+    persistMarketplaceState();
+    notify('Wishlist cleared.');
+  });
+
+  clearCompareButton?.addEventListener('click', () => {
+    marketplaceState.compare.clear();
+    updateMarketplaceStats();
+    persistMarketplaceState();
+    notify('Compare list cleared.');
+  });
+
+  revealBidsButton?.addEventListener('click', async () => {
+    const admin = getState('admin');
+    if (!admin) {
+      notify('Admin login required to reveal winning bid.');
+      openAuthModal('admin');
+      return;
+    }
+
+    try {
+      const response = await apiRequest('/sealed-bids/reveal', null, admin.token);
+      if (!response.winners?.length) {
+        notify('No bids available yet.');
+        return;
+      }
+      const summary = response.winners.map((entry) => `${entry.propertyTitle}: ₹${entry.amount.toLocaleString('en-IN')}`).join(' | ');
+      notify(`Winning sealed bids revealed by ${admin.name} → ${summary}`);
+    } catch (error) {
+      notify(error.message);
     }
   });
-}
+
+  const aiPromptInput = document.getElementById('aiPromptInput');
+  const aiGenerateButton = document.getElementById('aiGenerateButton');
+  const aiOutput = document.getElementById('aiOutput');
+
+  aiGenerateButton?.addEventListener('click', () => {
+    const promptText = aiPromptInput?.value.trim();
+    if (!promptText) {
+      if (aiOutput) aiOutput.textContent = 'Please enter property details to generate description.';
+      return;
+    }
+
+    if (aiOutput) {
+      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
+    }
+  });
+
+  updateMarketplaceStats();
+  updateAuthButtons();
+})();
