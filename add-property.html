@@ -15,7 +15,6 @@
     label { font-size: 0.9rem; font-weight: 600; color: #1f3658; }
     input, select, textarea { width: 100%; padding: 10px 11px; border-radius: 8px; border: 1px solid #cdd9f3; font: inherit; }
     textarea { min-height: 95px; resize: vertical; }
-    .file-help { font-size: 0.85rem; color: #496183; }
     .preview-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .preview-grid img { width: 92px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #d6e2fb; }
     .preview-grid video { width: 180px; border-radius: 8px; border: 1px solid #d6e2fb; }
@@ -50,83 +49,30 @@
             <div class="form-group"><label for="city">City *</label><select id="city" required><option>Udaipur</option><option>Jaipur</option><option>Jodhpur</option><option>Ahmedabad</option><option>Delhi</option><option>Mumbai</option></select></div>
             <div class="form-group"><label for="type">Type *</label><select id="type" required><option value="">Select</option><option>Buy</option><option>Sell</option><option>Rent</option><option>Lease</option><option>Girvi</option></select></div>
             <div class="form-group"><label for="category">Category *</label><select id="category" required><option value="">Select</option><option>House</option><option>Flat</option><option>Villa</option><option>Plot</option><option>Agriculture Land</option><option>Commercial</option><option>Farm House</option><option>PG / Hostel</option><option>Warehouse</option></select></div>
-codex/develop-complete-propertysetu-website-structure-ajuciq
-            <div class="form-group"><label for="location">Location *</label><input id="location" required placeholder="e.g. Hiran Magri Sector 4" /></div>
-
             <div class="form-group"><label for="location">Location *</label><input id="location" list="propertyLocationSuggestions" required placeholder="e.g. Hiran Magri Sector 4" /><datalist id="propertyLocationSuggestions"></datalist></div>
             <div class="form-group"><label for="price">Price (₹) *</label><input id="price" type="number" min="0" required /></div>
             <div class="form-group"><label for="negotiable">Negotiable</label><select id="negotiable"><option>No</option><option>Yes</option></select></div>
-            <div class="form-group full"><label for="description">Description</label><textarea id="description" placeholder="Property details..."></textarea></div>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2>Size & Feature Details</h2>
-          <div class="form-grid">
-            <div class="form-group"><label for="plotSize">Plot Size</label><input id="plotSize" placeholder="sq ft / sq yard" /></div>
-            <div class="form-group"><label for="builtUpArea">Built-up Area</label><input id="builtUpArea" /></div>
-            <div class="form-group"><label for="carpetArea">Carpet Area</label><input id="carpetArea" /></div>
-            <div class="form-group"><label for="floors">Floors</label><input id="floors" type="number" min="0" /></div>
-            <div class="form-group"><label for="facing">Facing</label><select id="facing"><option value="">Select</option><option>North</option><option>South</option><option>East</option><option>West</option></select></div>
-            <div class="form-group"><label for="furnished">Furnishing</label><select id="furnished"><option value="">Select</option><option>Furnished</option><option>Semi Furnished</option><option>Unfurnished</option></select></div>
-            <div class="form-group"><label for="bedrooms">Bedrooms</label><input id="bedrooms" type="number" min="0" /></div>
-            <div class="form-group"><label for="bathrooms">Bathrooms</label><input id="bathrooms" type="number" min="0" /></div>
-            <div class="form-group"><label for="parking">Parking</label><select id="parking"><option>No</option><option>Yes</option></select></div>
-            <div class="form-group"><label for="landmark">Nearby Landmark</label><input id="landmark" /></div>
+            <div class="form-group full"><label for="description">Description</label><textarea id="description"></textarea></div>
           </div>
         </section>
 
         <section class="panel">
           <h2>Media & Verification Upload</h2>
           <div class="form-grid">
-            <div class="form-group full">
-              <label for="photos">Property Photos * (Minimum 5)</label>
-              <input id="photos" type="file" accept="image/*" multiple required />
-              <p class="file-help">At least 5 photos required. Max 15 images allowed in this demo.</p>
-              <div id="photoPreview" class="preview-grid"></div>
-            </div>
-            <div class="form-group">
-              <label for="video">Video Tour (30-60 sec)</label>
-              <input id="video" type="file" accept="video/*" />
-              <div id="videoPreview" class="preview-grid"></div>
-            </div>
-            <div class="form-group">
-              <label for="floorPlan">Floor Plan</label>
-              <input id="floorPlan" type="file" accept="image/*,.pdf" />
-            </div>
-            <div class="form-group">
-              <label for="documents">Property Documents (Private)</label>
-              <input id="documents" type="file" accept=".pdf,image/*" multiple />
-            </div>
-            <div class="form-group">
-              <label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label>
-              <input id="ownerIdProof" type="file" accept=".pdf,image/*" />
-            </div>
-            <div class="form-group">
-              <label for="addressProof">Address Proof (Private)</label>
-              <input id="addressProof" type="file" accept=".pdf,image/*" />
-            </div>
+            <div class="form-group full"><label for="photos">Property Photos * (Minimum 5)</label><input id="photos" type="file" accept="image/*" multiple required /><div id="photoPreview" class="preview-grid"></div></div>
+            <div class="form-group"><label for="video">Video Tour (30-60 sec)</label><input id="video" type="file" accept="video/*" /><div id="videoPreview" class="preview-grid"></div></div>
+            <div class="form-group"><label for="floorPlan">Floor Plan</label><input id="floorPlan" type="file" accept="image/*,.pdf" /></div>
+            <div class="form-group"><label for="documents">Property Documents (Private)</label><input id="documents" type="file" accept=".pdf,image/*" multiple /></div>
+            <div class="form-group"><label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label><input id="ownerIdProof" type="file" accept=".pdf,image/*" /></div>
+            <div class="form-group"><label for="addressProof">Address Proof (Private)</label><input id="addressProof" type="file" accept=".pdf,image/*" /></div>
           </div>
         </section>
 
-        <section class="panel">
-          <div class="actions">
-            <button type="submit" class="btn">Submit Property</button>
-            <button type="button" id="saveDraft" class="btn alt">Save Local Draft</button>
-            <button type="button" id="clearDraft" class="btn alt">Clear Draft</button>
-          </div>
-          <div id="statusArea"></div>
-        </section>
-
-        <section class="panel">
-          <h2>Submission Payload Preview (Demo)</h2>
-          <pre id="payloadPreview" class="payload">No submission yet.</pre>
-        </section>
+        <section class="panel"><div class="actions"><button type="submit" class="btn">Submit Property</button><button type="button" id="saveDraft" class="btn alt">Save Local Draft</button><button type="button" id="clearDraft" class="btn alt">Clear Draft</button></div><div id="statusArea"></div></section>
+        <section class="panel"><h2>Submission Payload Preview (Demo)</h2><pre id="payloadPreview" class="payload">No submission yet.</pre></section>
       </form>
     </div>
   </main>
-
-codex/develop-complete-propertysetu-website-structure-ajuciq
 
   <script src="js/location.js"></script>
   <script src="js/add-property.js"></script>

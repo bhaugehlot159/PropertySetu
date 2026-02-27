@@ -1,4 +1,3 @@
-codex/develop-complete-propertysetu-website-structure-ajuciq
 const bidKey = 'propertySetu:sealedBids';
 
 const verification = [
@@ -11,13 +10,6 @@ const reports = [
   { id: 'R-31', label: 'Duplicate photo complaint P-109' },
 ];
 
-codex/develop-complete-propertysetu-website-structure-ajuciq
-
-const bids = [
-  { property: 'P-145', amount: '₹45,00,000', bidder: 'Buyer-22' },
-  { property: 'P-109', amount: '₹1,10,00,000', bidder: 'Buyer-11' },
-];
-
 const row = (left, right = '<button>Resolve</button>') => `<li><span>${left}</span>${right}</li>`;
 
 document.getElementById('verificationQueue').innerHTML = verification
@@ -28,13 +20,19 @@ document.getElementById('reportQueue').innerHTML = reports
   .map((item) => row(`${item.id} · ${item.label}`))
   .join('');
 
-codex/develop-complete-propertysetu-website-structure-ajuciq
-const bids = JSON.parse(localStorage.getItem(bidKey) || '[]');
+if (JSON.parse(localStorage.getItem(bidKey) || '[]').length === 0) {
+  localStorage.setItem(
+    bidKey,
+    JSON.stringify([{ propertyId: 'P-145', amount: 4500000, bidder: 'buyer-22', publicVisible: false, modifiedByAdmin: null }]),
+  );
+}
 
 const renderBids = () => {
   const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
   document.getElementById('bidQueue').innerHTML = current.length
-    ? current.map((item, idx) => `
+    ? current
+      .map(
+        (item, idx) => `
       <li>
         <span>${item.propertyId} · ₹${item.amount} (${item.bidder})</span>
         <span>
@@ -42,7 +40,9 @@ const renderBids = () => {
           <button onclick="modifyBid(${idx})">Modify</button>
           <button onclick="revealBid(${idx})">Reveal</button>
         </span>
-      </li>`).join('')
+      </li>`,
+      )
+      .join('')
     : '<li><span>No bids yet from customers.</span></li>';
 };
 
@@ -64,14 +64,4 @@ window.revealBid = (idx) => {
   renderBids();
 };
 
-if (bids.length === 0) {
-  localStorage.setItem(bidKey, JSON.stringify([
-    { propertyId: 'P-145', amount: 4500000, bidder: 'buyer-22', publicVisible: false, modifiedByAdmin: null },
-  ]));
-}
-
 renderBids();
-
-document.getElementById('bidQueue').innerHTML = bids
-  .map((item) => row(`${item.property} · Hidden Bid 🔒`, `<button title="${item.bidder} ${item.amount}">Reveal</button>`))
-  .join('');
