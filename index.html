@@ -14,7 +14,10 @@
         <h1>India's Trusted Property & Care Platform</h1>
         <p>Buy, Sell, Rent, Lease, Farmhouse, PG & More in Udaipur</p>
         <div class="search-bar">
-            <input type="text" id="locationSearch" placeholder="Search Location..." />
+            <div class="location-search-wrapper">
+                <input type="text" id="locationSearch" placeholder="Search Location..." autocomplete="off" />
+                <div id="locationSuggestions" class="suggestions-box" role="listbox" aria-label="Location suggestions"></div>
+            </div>
             <select id="categorySelect">
                 <option value="buy">Buy</option>
                 <option value="sell">Sell</option>

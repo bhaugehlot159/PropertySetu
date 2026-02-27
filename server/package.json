@@ -20,10 +20,3 @@
     "nodemon": "^3.0.2"
   }
 }
-{
-  "name": "Bhavesh",
-  "email": "test@test.com",
-  "phone": "9876543210",
-  "password": "123456",
-  "role": "seller"
-}
