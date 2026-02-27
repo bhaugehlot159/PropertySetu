@@ -13,6 +13,7 @@
 
   const buildStars = () => {
     stars.length = 0;
+    for (let index = 0; index < 140; index += 1) {
     for (let i = 0; i < 140; i += 1) {
       stars.push({
         x: (Math.random() - 0.5) * canvas.width,
@@ -97,11 +98,13 @@ const citySelect = document.getElementById('citySelect');
 const slugPreview = document.getElementById('slugPreview');
 const suggestionList = document.getElementById('suggestionList');
 const searchButton = document.getElementById('searchButton');
+const tabButtons = document.querySelectorAll('.tab-btn');
+const authBtn = document.getElementById('authBtn');
 const locationSuggestions = document.getElementById('locationSuggestions');
 const tabButtons = document.querySelectorAll('.tab-btn');
 
 if (locationSuggestions) {
-  locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
+  locationSuggestions.innerHTML = locations.map((location) => `<option value="${location}"></option>`).join('');
 }
 
 if (citySelect && slugPreview) {
@@ -113,12 +116,15 @@ if (citySelect && slugPreview) {
 if (input) {
   input.addEventListener('input', () => {
     if (!suggestionList) return;
+
     const value = input.value.toLowerCase().trim();
     if (value.length < 2) {
       suggestionList.innerHTML = '';
       return;
     }
 
+    const filtered = locations.filter((location) => location.toLowerCase().includes(value)).slice(0, 8);
+    suggestionList.innerHTML = filtered.map((location) => `<li>${location}</li>`).join('');
     const filtered = locations.filter((loc) => loc.toLowerCase().includes(value)).slice(0, 8);
     suggestionList.innerHTML = filtered.map((loc) => `<li>${loc}</li>`).join('');
 
@@ -147,14 +153,10 @@ if (searchButton) {
 
     window.location.hash = `search/${city}/${selectedMode}/${normalizedLocation}`;
 
-    const portalHint = document.getElementById('portalHint');
-    if (portalHint) {
-      portalHint.textContent = `Search ready for ${city.toUpperCase()} / ${selectedMode.toUpperCase()} / ${location}`;
-    }
+    window.location.hash = `search/${city}/${selectedMode}/${normalizedLocation}`;
   });
 }
 
-const authBtn = document.getElementById('authBtn');
 if (authBtn) {
   const setState = () => {
     const token = localStorage.getItem('propertySetu:session');

@@ -148,6 +148,13 @@
       <div class="container topbar-inner">
         <a class="brand" href="#home">🏡 PropertySetu</a>
         <nav>
+          <a href="#buy">Buy Property</a>
+          <a href="#rent">Rent Property</a>
+          <a href="#care">Property Care</a>
+          <a href="#dashboards">User Panels</a>
+          <a href="#legal">Legal</a>
+        </nav>
+        <button id="authBtn" class="auth-btn" type="button">Login</button>
           <a href="#buy">Buy</a>
           <a href="#rent">Rent</a>
           <a href="#care">Property Care</a>
@@ -176,20 +183,23 @@
     <section class="hero" id="home">
       <canvas id="heroCanvas"></canvas>
       <div class="container hero-content">
+        <p class="eyebrow">Udaipur Live • Multi-city SEO Ready</p>
+        <h1>India's Trusted Property & Care Platform</h1>
+        <p class="subline">Buy • Rent • Plot • Commercial with verified listings and end-to-end property care.</p>
         <p class="eyebrow">Udaipur Live • Multi-City Ready</p>
         <h1>India's Trusted Property & Care Platform</h1>
         <p class="subline">Buy, Rent, Commercial, Plot, Farmhouse, and Property Care Services in one place.</p>
 
         <div class="search-panel">
           <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
-            <button class="tab-btn active" data-mode="buy">Buy</button>
-            <button class="tab-btn" data-mode="rent">Rent</button>
-            <button class="tab-btn" data-mode="plot">Plot</button>
-            <button class="tab-btn" data-mode="commercial">Commercial</button>
+            <button class="tab-btn active" data-mode="buy" type="button">Buy</button>
+            <button class="tab-btn" data-mode="rent" type="button">Rent</button>
+            <button class="tab-btn" data-mode="plot" type="button">Plot</button>
+            <button class="tab-btn" data-mode="commercial" type="button">Commercial</button>
           </div>
           <div class="search-controls">
-            <select id="citySelect" aria-label="Select city">
-              <option value="udaipur">Udaipur</option>
+            <select id="citySelect" aria-label="City selector">
+              <option value="udaipur">Udaipur (Default)</option>
               <option value="jaipur">Jaipur</option>
               <option value="jodhpur">Jodhpur</option>
               <option value="ahmedabad">Ahmedabad</option>
@@ -203,6 +213,7 @@
           <ul id="suggestionList" class="suggestion-list"></ul>
         </div>
 
+        <div id="slugPreview" class="slug-preview">SEO path preview: propertysetu.in/udaipur</div>
         <p id="slugPreview" class="slug-preview">SEO path preview: propertysetu.in/udaipur</p>
       </div>
     </section>
@@ -212,6 +223,12 @@
         <div class="container">
           <h2>🏡 Buy Property</h2>
           <div class="grid three">
+            <article class="card"><h3>House</h3></article>
+            <article class="card"><h3>Flat</h3></article>
+            <article class="card"><h3>Villa</h3></article>
+            <article class="card"><h3>Plot</h3></article>
+            <article class="card"><h3>Agricultural Land</h3></article>
+            <article class="card"><h3>Commercial Property</h3></article>
             <article class="card"><h3>House</h3><p>Ready-to-move and under-construction homes.</p></article>
             <article class="card"><h3>Flat</h3><p>1BHK to luxury apartments in prime areas.</p></article>
             <article class="card"><h3>Villa</h3><p>Premium independent villas and gated options.</p></article>
@@ -226,6 +243,10 @@
         <div class="container">
           <h2>🏢 Rent Property</h2>
           <div class="grid four">
+            <article class="card"><h3>House for Rent</h3></article>
+            <article class="card"><h3>Shop for Rent</h3></article>
+            <article class="card"><h3>Office Space</h3></article>
+            <article class="card"><h3>PG</h3></article>
             <article class="card"><h3>House for Rent</h3><p>Family and single occupancy homes.</p></article>
             <article class="card"><h3>Shop for Rent</h3><p>Street-front and market-connected outlets.</p></article>
             <article class="card"><h3>Office Space</h3><p>Small office suites to enterprise spaces.</p></article>
@@ -238,6 +259,12 @@
         <div class="container">
           <h2>🛠 Property Care Services</h2>
           <div class="grid three">
+            <article class="card"><h3>Monthly House Check</h3></article>
+            <article class="card"><h3>Cleaning Service</h3></article>
+            <article class="card"><h3>Garden / Vadi Maintenance</h3></article>
+            <article class="card"><h3>Security Visit</h3></article>
+            <article class="card"><h3>Bill Payment Handling</h3></article>
+            <article class="card"><h3>Tenant Management</h3></article>
             <article class="card"><h3>Monthly House Check</h3><p>Lock, leakage, utility and condition report.</p></article>
             <article class="card"><h3>Cleaning Service</h3><p>Routine, deep, and pre-tenant cleaning.</p></article>
             <article class="card"><h3>Garden / Vadi Maintenance</h3><p>Landscape and farm upkeep by local teams.</p></article>
@@ -248,6 +275,22 @@
         </div>
       </section>
 
+      <section class="section muted" id="dashboards">
+        <div class="container">
+          <h2>👤 User Panel System</h2>
+          <div class="grid three">
+            <article class="card">
+              <h3>Seller Dashboard</h3>
+              <p>Property add, photos upload, price set, status update.</p>
+            </article>
+            <article class="card">
+              <h3>Buyer Dashboard</h3>
+              <p>Save property, contact owner, schedule visit.</p>
+            </article>
+            <article class="card">
+              <h3>Future Expansion</h3>
+              <p>propertysetu.in/udaipur, /jaipur, /jodhpur, /ahmedabad, /delhi, /mumbai</p>
+            </article>
       <section class="section muted" id="plans">
         <div class="container">
           <h2>Property Care Subscription Plans</h2>
@@ -261,6 +304,7 @@
 
       <section class="section" id="legal">
         <div class="container">
+          <h2>📜 Legal Pages</h2>
           <h2>Important Legal Pages</h2>
           <div class="pill-row">
             <a href="legal/terms.html">Terms & Conditions</a>
@@ -275,6 +319,9 @@
 
     <footer>
       <div class="container footer-grid">
+        <div><h3>Trust</h3><p>Verified Listings Badge • Owner Verification • Reviews</p></div>
+        <div><h3>Support</h3><p>WhatsApp Chat • Office Address • Schedule Visit</p></div>
+        <div><h3>Theme</h3><p>Clean White + Dark Blue • Mobile Friendly</p></div>
         <div>
           <h3>PropertySetu</h3>
           <p>Office: Udaipur, Rajasthan</p>
