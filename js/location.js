@@ -1,3 +1,4 @@
+ codex/add-auto-suggestion-feature-for-udaipur-codes
 const UDAIPUR_LOCATIONS = [
     "Hiran Magri Sector 1",
     "Hiran Magri Sector 2",
@@ -299,3 +300,27 @@ document.addEventListener("DOMContentLoaded", () => {
     attachLocationSuggestions("locationSearch");
     attachLocationSuggestions("location");
 });
+
+window.PROPERTYSETU_LOCATIONS = [
+  'Hiran Magri Sector 1',
+  'Hiran Magri Sector 2',
+  'Hiran Magri Sector 3',
+  'Pratap Nagar',
+  'Ambamata',
+  'Sukher',
+  'Bhuwana',
+  'Bedla',
+  'Fatehpura',
+  'Shobhagpura',
+  'Saheli Nagar',
+  'Chetak Circle',
+  'Badi',
+  'Debari',
+  'Titardi',
+  'Savina',
+  'Airport Road',
+  'Balicha',
+  'Umarda',
+  'Gogunda',
+];
+ main

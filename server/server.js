@@ -1,42 +1,52 @@
-import featureRoutes from "./routes/featureRoutes.js";
-
-import notificationRoutes from "./routes/notificationRoutes.js";
-
-import chatRoutes from "./routes/chatRoutes.js";
-
-import paymentRoutes from "./routes/paymentRoutes.js";
-
-import adminRoutes from "./routes/adminRoutes.js";
-
-import reviewRoutes from "./routes/reviewRoutes.js";
-
-import subscriptionRoutes from "./routes/subscriptionRoutes.js";
-
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import authRoutes from "./routes/authRoutes.js";
 import propertyRoutes from "./routes/propertyRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
-app.use("/api/admin", adminRoutes);
+import subscriptionRoutes from "./routes/subscriptionRoutes.js";
+import reviewRoutes from "./routes/reviewRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import featureRoutes from "./routes/featureRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 5000;
+ codex/make-entire-website-runnable-with-auto-suggestions
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const webRoot = path.join(__dirname, "..");
+
+ main
 
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
+ codex/make-entire-website-runnable-with-auto-suggestions
+if (process.env.MONGO_URI) {
+  mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => console.log("MongoDB Connected"))
+    .catch((err) => console.error("MongoDB connection failed:", err.message));
+} else {
+  console.warn("MONGO_URI missing. Running without database connection.");
+}
 
 // MongoDB Connect
-mongoose.connect(process.env.MONGO_URI)
-.then(() => console.log("MongoDB Connected"))
-.catch((err) => console.log(err));
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.log(err));
+ main
 
-// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/search", searchRoutes);
@@ -46,12 +56,28 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/feature", featureRoutes);
+app.use("/api/admin", adminRoutes);
 
-// Test Route
-app.get("/", (req, res) => {
-    res.json({ message: "PropertySetu API Running" });
+ codex/make-entire-website-runnable-with-auto-suggestions
+app.get("/api", (req, res) => {
+  res.json({ message: "PropertySetu API Running" });
+});
+
+app.use(express.static(webRoot));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(webRoot, "index.html"));
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`PropertySetu server running on port ${PORT}`);
+
+// Test Route
+app.get("/", (req, res) => {
+  res.json({ message: "PropertySetu API Running" });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+ main
 });

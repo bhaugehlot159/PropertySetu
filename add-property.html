@@ -1,62 +1,128 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PropertySetu – Add Property</title>
-<link rel="stylesheet" href="../css/style.css">
-<style>
-body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f6f9; }
-header { background:#0b3d91; color:white; padding:15px; text-align:center; font-size:24px; }
-.container { max-width: 800px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
-h2 { color:#0b3d91; margin-bottom:15px; }
-form input, form select, form textarea { width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #ccc; }
-form button { background:#0b3d91; color:white; padding:10px 15px; border:none; border-radius:4px; cursor:pointer; }
-form button:hover { background:#092f6d; }
-img.preview { width:100px; height:80px; object-fit:cover; margin-right:5px; margin-bottom:5px; border-radius:4px; border:1px solid #ccc; }
-video.preview { width:200px; height:150px; margin-bottom:5px; border-radius:4px; border:1px solid #ccc; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu – Add Property</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .form-shell { padding: 34px 0 50px; }
+    .panel { background: #fff; border-radius: 12px; border: 1px solid #dbe7ff; box-shadow: 0 8px 24px rgba(16, 43, 87, 0.08); padding: 18px; margin-bottom: 16px; }
+    .panel h2 { margin: 0 0 12px; color: #0b2f6b; font-size: 1.2rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .form-group { display: grid; gap: 6px; }
+    .form-group.full { grid-column: 1 / -1; }
+    label { font-size: 0.9rem; font-weight: 600; color: #1f3658; }
+    input, select, textarea { width: 100%; padding: 10px 11px; border-radius: 8px; border: 1px solid #cdd9f3; font: inherit; }
+    textarea { min-height: 95px; resize: vertical; }
+    .file-help { font-size: 0.85rem; color: #496183; }
+    .preview-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .preview-grid img { width: 92px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #d6e2fb; }
+    .preview-grid video { width: 180px; border-radius: 8px; border: 1px solid #d6e2fb; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn { border: none; background: #0b2f6b; color: #fff; padding: 11px 16px; border-radius: 8px; cursor: pointer; font-weight: 700; }
+    .btn.alt { background: #eff4ff; color: #17355e; border: 1px solid #cdd9f3; }
+    .status-box { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 0.92rem; }
+    .status-box.ok { background: #ecf8ee; border: 1px solid #b8e6c0; color: #1b6a2a; }
+    .status-box.err { background: #fff1f1; border: 1px solid #f1c8c8; color: #8d1e1e; }
+    .payload { background: #f7faff; border: 1px solid #d9e6ff; border-radius: 8px; padding: 10px; font-size: 0.85rem; overflow: auto; max-height: 280px; }
+    @media (max-width: 760px) { .form-grid { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">PropertySetu</div>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="add-property.html">Add Property</a>
+      </nav>
+    </div>
+  </header>
 
-<header>PropertySetu – Add Property</header>
+  <main class="form-shell">
+    <div class="container">
+      <form id="addPropertyForm">
+        <section class="panel">
+          <h2>Basic Information</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="title">Property Title *</label><input id="title" required /></div>
+            <div class="form-group"><label for="city">City *</label><select id="city" required><option>Udaipur</option><option>Jaipur</option><option>Jodhpur</option><option>Ahmedabad</option><option>Delhi</option><option>Mumbai</option></select></div>
+            <div class="form-group"><label for="type">Type *</label><select id="type" required><option value="">Select</option><option>Buy</option><option>Sell</option><option>Rent</option><option>Lease</option><option>Girvi</option></select></div>
+            <div class="form-group"><label for="category">Category *</label><select id="category" required><option value="">Select</option><option>House</option><option>Flat</option><option>Villa</option><option>Plot</option><option>Agriculture Land</option><option>Commercial</option><option>Farm House</option><option>PG / Hostel</option><option>Warehouse</option></select></div>
+            <div class="form-group"><label for="location">Location *</label><input id="location" required placeholder="e.g. Hiran Magri Sector 4" /></div>
+            <div class="form-group"><label for="price">Price (₹) *</label><input id="price" type="number" min="0" required /></div>
+            <div class="form-group"><label for="negotiable">Negotiable</label><select id="negotiable"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group full"><label for="description">Description</label><textarea id="description" placeholder="Property details..."></textarea></div>
+          </div>
+        </section>
 
-<div class="container">
-<h2>Add New Property</h2>
-<form id="addPropertyForm">
-    <input type="text" id="title" placeholder="Property Title" required>
-    <select id="category" required>
-        <option value="">Select Category</option>
-        <option value="Buy">Buy</option>
-        <option value="Sell">Sell</option>
-        <option value="Rent">Rent</option>
-        <option value="Lease">Lease</option>
-        <option value="Girvi">Girvi / Mortgage</option>
-        <option value="Vadi / Plot">Vadi / Plot</option>
-        <option value="Farm House">Farm House</option>
-        <option value="Property Care">Property Care</option>
-        <option value="Home Maintenance">Home Maintenance</option>
-        <option value="Home Watch">Home Watch</option>
-        <option value="Commercial">Commercial</option>
-        <option value="PG / Hostel">PG / Hostel</option>
-        <option value="Warehouse">Warehouse</option>
-        <option value="Agriculture Land">Agriculture Land</option>
-    </select>
-    <input type="number" id="price" placeholder="Price in INR" required>
-    <textarea id="description" placeholder="Property Description" rows="4"></textarea>
+        <section class="panel">
+          <h2>Size & Feature Details</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="plotSize">Plot Size</label><input id="plotSize" placeholder="sq ft / sq yard" /></div>
+            <div class="form-group"><label for="builtUpArea">Built-up Area</label><input id="builtUpArea" /></div>
+            <div class="form-group"><label for="carpetArea">Carpet Area</label><input id="carpetArea" /></div>
+            <div class="form-group"><label for="floors">Floors</label><input id="floors" type="number" min="0" /></div>
+            <div class="form-group"><label for="facing">Facing</label><select id="facing"><option value="">Select</option><option>North</option><option>South</option><option>East</option><option>West</option></select></div>
+            <div class="form-group"><label for="furnished">Furnishing</label><select id="furnished"><option value="">Select</option><option>Furnished</option><option>Semi Furnished</option><option>Unfurnished</option></select></div>
+            <div class="form-group"><label for="bedrooms">Bedrooms</label><input id="bedrooms" type="number" min="0" /></div>
+            <div class="form-group"><label for="bathrooms">Bathrooms</label><input id="bathrooms" type="number" min="0" /></div>
+            <div class="form-group"><label for="parking">Parking</label><select id="parking"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group"><label for="landmark">Nearby Landmark</label><input id="landmark" /></div>
+          </div>
+        </section>
 
-    <label>Upload Photos (max 5)</label>
-    <input type="file" id="photos" accept="image/*" multiple required>
-    <div id="photoPreview"></div>
+        <section class="panel">
+          <h2>Media & Verification Upload</h2>
+          <div class="form-grid">
+            <div class="form-group full">
+              <label for="photos">Property Photos * (Minimum 5)</label>
+              <input id="photos" type="file" accept="image/*" multiple required />
+              <p class="file-help">At least 5 photos required. Max 15 images allowed in this demo.</p>
+              <div id="photoPreview" class="preview-grid"></div>
+            </div>
+            <div class="form-group">
+              <label for="video">Video Tour (30-60 sec)</label>
+              <input id="video" type="file" accept="video/*" />
+              <div id="videoPreview" class="preview-grid"></div>
+            </div>
+            <div class="form-group">
+              <label for="floorPlan">Floor Plan</label>
+              <input id="floorPlan" type="file" accept="image/*,.pdf" />
+            </div>
+            <div class="form-group">
+              <label for="documents">Property Documents (Private)</label>
+              <input id="documents" type="file" accept=".pdf,image/*" multiple />
+            </div>
+            <div class="form-group">
+              <label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label>
+              <input id="ownerIdProof" type="file" accept=".pdf,image/*" />
+            </div>
+            <div class="form-group">
+              <label for="addressProof">Address Proof (Private)</label>
+              <input id="addressProof" type="file" accept=".pdf,image/*" />
+            </div>
+          </div>
+        </section>
 
-    <label>Upload Video (Optional)</label>
-    <input type="file" id="video" accept="video/*">
-    <div id="videoPreview"></div>
+        <section class="panel">
+          <div class="actions">
+            <button type="submit" class="btn">Submit Property</button>
+            <button type="button" id="saveDraft" class="btn alt">Save Local Draft</button>
+            <button type="button" id="clearDraft" class="btn alt">Clear Draft</button>
+          </div>
+          <div id="statusArea"></div>
+        </section>
 
-    <button type="submit">Submit Property</button>
-</form>
-</div>
+        <section class="panel">
+          <h2>Submission Payload Preview (Demo)</h2>
+          <pre id="payloadPreview" class="payload">No submission yet.</pre>
+        </section>
+      </form>
+    </div>
+  </main>
 
-<script src="../js/addProperty.js"></script>
+  <script src="js/add-property.js"></script>
 </body>
 </html>
