@@ -33,3 +33,13 @@ Serve project root with any static server, for example:
 npx serve .
 ```
 Then open the shown URL in browser.
+
+
+## Codex PR workflow note
+If Codex shows this message:
+- `Codex does not currently support updating PRs that are updated outside of Codex.`
+
+Use this flow:
+1. Commit new changes on the same branch.
+2. Create a **new PR** from Codex instead of trying to update the old PR.
+3. Close/supersede the previous PR in GitHub if needed.
