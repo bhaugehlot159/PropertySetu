@@ -20,13 +20,17 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+ codex/make-entire-website-runnable-with-auto-suggestions
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webRoot = path.join(__dirname, "..");
 
+ main
+
 app.use(cors());
 app.use(express.json());
 
+ codex/make-entire-website-runnable-with-auto-suggestions
 if (process.env.MONGO_URI) {
   mongoose
     .connect(process.env.MONGO_URI)
@@ -35,6 +39,13 @@ if (process.env.MONGO_URI) {
 } else {
   console.warn("MONGO_URI missing. Running without database connection.");
 }
+
+// MongoDB Connect
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.log(err));
+ main
 
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
@@ -47,6 +58,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/feature", featureRoutes);
 app.use("/api/admin", adminRoutes);
 
+ codex/make-entire-website-runnable-with-auto-suggestions
 app.get("/api", (req, res) => {
   res.json({ message: "PropertySetu API Running" });
 });
@@ -59,4 +71,13 @@ app.get("*", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`PropertySetu server running on port ${PORT}`);
+
+// Test Route
+app.get("/", (req, res) => {
+  res.json({ message: "PropertySetu API Running" });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+ main
 });
