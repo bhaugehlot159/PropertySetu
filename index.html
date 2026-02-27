@@ -148,6 +148,17 @@
       <div class="container topbar-inner">
         <a class="brand" href="#home">🏡 PropertySetu</a>
         <nav>
+          <a href="#buy">Buy</a>
+          <a href="#rent">Rent</a>
+          <a href="#care">Property Care</a>
+          <a href="#demo-listings">Demo Listings</a>
+          <a href="#smart-features">Smart Features</a>
+          <a href="#legal">Legal</a>
+        </nav>
+        <div class="auth-actions">
+          <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
+          <button id="adminAuthButton" class="solid-btn" type="button">Admin Login</button>
+          <span id="sessionBadge" class="session-badge">Guest Mode</span>
           <a href="#buy">Buy Property</a>
           <a href="#rent">Rent Property</a>
           <a href="#care">Property Care</a>
@@ -249,6 +260,65 @@
         <div class="container">
           <h2>🛠 Property Care Services</h2>
           <div class="grid three">
+            <article class="card"><h3>Monthly House Check</h3><p>Lock, leakage, utility and condition report.</p></article>
+            <article class="card"><h3>Cleaning Service</h3><p>Routine, deep, and pre-tenant cleaning.</p></article>
+            <article class="card"><h3>Garden / Vadi Maintenance</h3><p>Landscape and farm upkeep by local teams.</p></article>
+            <article class="card"><h3>Security Visit</h3><p>On-site checks with photo proof.</p></article>
+            <article class="card"><h3>Bill Payment Handling</h3><p>Electricity/water bill payment with receipts.</p></article>
+            <article class="card"><h3>Tenant Management</h3><p>Move-in coordination and tenant communication.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section muted" id="demo-listings">
+        <div class="container">
+          <h2>Live Marketplace Demo (OLX-style + Better)</h2>
+          <p class="section-intro">Try wishlist, compare, visit booking and hidden bidding directly on demo properties.</p>
+          <div class="grid three">
+            <article class="card listing-card" data-property-id="villa-bhuwana" data-title="4BHK Premium Villa • Bhuwana">
+              <img src="https://images.unsplash.com/photo-1560185007-c5ca9d2c014d?auto=format&fit=crop&w=1200&q=80" alt="Modern villa in Bhuwana" loading="lazy" />
+              <h3>4BHK Premium Villa • Bhuwana</h3>
+              <p>₹1.85 Cr • 3200 sq.ft • Verified Listing • Video Tour Available</p>
+              <div class="listing-actions">
+                <button class="action-btn" data-action="wishlist" type="button">♡ Save</button>
+                <button class="action-btn" data-action="compare" type="button">⇄ Compare</button>
+                <button class="action-btn" data-action="visit" type="button">📅 Visit</button>
+                <button class="action-btn" data-action="bid" type="button">🔒 Sealed Bid</button>
+              </div>
+            </article>
+            <article class="card listing-card" data-property-id="flat-hm" data-title="2BHK Flat • Hiran Magri">
+              <img src="https://images.unsplash.com/photo-1523217582562-09d0def993a6?auto=format&fit=crop&w=1200&q=80" alt="Apartment in Hiran Magri" loading="lazy" />
+              <h3>2BHK Flat • Hiran Magri</h3>
+              <p>₹32,000/month • Furnished • Lift + Parking • Owner Verified</p>
+              <div class="listing-actions">
+                <button class="action-btn" data-action="wishlist" type="button">♡ Save</button>
+                <button class="action-btn" data-action="compare" type="button">⇄ Compare</button>
+                <button class="action-btn" data-action="visit" type="button">📅 Visit</button>
+                <button class="action-btn" data-action="bid" type="button">🔒 Sealed Bid</button>
+              </div>
+            </article>
+            <article class="card listing-card" data-property-id="showroom-chetak" data-title="Commercial Showroom • Chetak Circle">
+              <img src="https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=1200&q=80" alt="Commercial showroom at Chetak Circle" loading="lazy" />
+              <h3>Commercial Showroom • Chetak Circle</h3>
+              <p>₹4.4 Cr • 1800 sq.ft • High Footfall • Sealed Bid Enabled</p>
+              <div class="listing-actions">
+                <button class="action-btn" data-action="wishlist" type="button">♡ Save</button>
+                <button class="action-btn" data-action="compare" type="button">⇄ Compare</button>
+                <button class="action-btn" data-action="visit" type="button">📅 Visit</button>
+                <button class="action-btn" data-action="bid" type="button">🔒 Sealed Bid</button>
+              </div>
+            </article>
+          </div>
+
+          <div class="marketplace-panel">
+            <div class="stat-box"><strong id="wishlistCount">0</strong><span>Saved</span></div>
+            <div class="stat-box"><strong id="compareCount">0</strong><span>Compare</span></div>
+            <div class="stat-box"><strong id="visitCount">0</strong><span>Visits Booked</span></div>
+            <div class="stat-box"><strong id="sealedBidCount">0</strong><span>Hidden Bids</span></div>
+            <button id="revealBidsButton" class="solid-btn" type="button">Admin: Reveal Winning Bid</button>
+            <button id="clearWishlistButton" class="outline-btn" type="button">Clear Saved</button>
+            <button id="clearCompareButton" class="outline-btn" type="button">Clear Compare</button>
+          <div class="grid three">
             <article class="card"><h3>Monthly House Check</h3></article>
             <article class="card"><h3>Cleaning Service</h3></article>
             <article class="card"><h3>Garden / Vadi Maintenance</h3></article>
@@ -262,9 +332,33 @@
             <article class="card"><h3>Bill Payment Handling</h3><p>Electricity/water bill payment with receipts.</p></article>
             <article class="card"><h3>Tenant Management</h3><p>Move-in coordination and tenant communication.</p></article>
           </div>
+          <p id="marketplaceMessage" class="marketplace-message"></p>
         </div>
       </section>
 
+      <section class="section" id="smart-features">
+        <div class="container">
+          <h2>🚀 OLX se Better Smart Service Stack</h2>
+          <div class="grid three">
+            <article class="card"><h3>In-App Trust Layer</h3><p>Verified owner, verified docs, and listing fraud checks with report button support.</p></article>
+            <article class="card"><h3>AI Description Draft</h3><p>Enter key details and generate polished description text in one click.</p></article>
+            <article class="card"><h3>Visit + Care Workflow</h3><p>Schedule visit, subscribe care package, and monitor property health from dashboard.</p></article>
+          </div>
+
+          <div class="ai-box">
+            <label for="aiPromptInput">Quick AI Description Demo</label>
+            <textarea id="aiPromptInput" rows="3" placeholder="Example: 3BHK villa in Bhuwana, 2 parking, garden, near school"></textarea>
+            <button id="aiGenerateButton" class="solid-btn" type="button">Generate Description</button>
+            <p id="aiOutput" class="ai-output">Your generated property description will appear here.</p>
+          </div>
+
+          <div class="pill-row">
+            <a href="add-property.html">Add Property Form</a>
+            <a href="property-details.html">Property Details</a>
+            <a href="seller-dashboard.html">Seller Dashboard</a>
+            <a href="client/pages/customer-portal.html">Customer Portal</a>
+            <a href="client/pages/admin-portal.html">Admin Portal</a>
+            <a href="subscription.html">Subscription</a>
       <section class="section muted" id="demo-listings">
         <div class="container">
           <h2>Featured Demo Properties</h2>
@@ -288,6 +382,8 @@
         </div>
       </section>
 
+      <section class="section muted" id="legal">
+        <div class="container">
       <section class="section" id="plans">
       <section class="section muted" id="dashboards">
         <div class="container">

@@ -51,6 +51,8 @@ app.use(express.json());
 if (process.env.MONGO_URI) {
   mongoose
     .connect(process.env.MONGO_URI)
+    .then(() => console.log("MongoDB Connected"))
+    .catch((err) => console.error("MongoDB connection error:", err.message));
     .then(() => console.log('MongoDB connected'))
     .catch((error) => console.error('MongoDB connection error:', error.message));
 } else {
