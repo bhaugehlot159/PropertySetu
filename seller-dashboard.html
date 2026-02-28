@@ -20,6 +20,9 @@ button:hover { background:#092f6d; }
 <body>
 
 <header>PropertySetu Seller Dashboard</header>
+<div style="text-align:center;padding:10px;background:#eaf1ff;">
+  <a href="index.html">Home</a> | <a href="add-property.html">Add Property</a> | <a href="dashboard.html">User Dashboard</a> | <a href="admin-dashboard.html">Admin Dashboard</a>
+</div>
 
 <div class="container">
 <h2>Add New Property</h2>
@@ -79,39 +82,72 @@ button:hover { background:#092f6d; }
 </div>
 
 <script>
-// Demo front-end logic
 const form = document.getElementById('addPropertyForm');
 const propertyList = document.getElementById('propertyList');
+const LISTINGS_KEY = 'propertySetu:listings';
 
-form.addEventListener('submit', function(e) {
-    e.preventDefault();
+const readJson = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
-    const property = {
-        title: document.getElementById('title').value,
-        category: document.getElementById('category').value,
-        location: document.getElementById('location').value,
-        price: document.getElementById('price').value,
-        description: document.getElementById('description').value,
-        featured: document.getElementById('featured').value === 'yes' ? true : false,
-        photos: document.getElementById('photos').files.length,
-        video: document.getElementById('video').files.length
-    };
+const writeJson = (key, value) => {
+  localStorage.setItem(key, JSON.stringify(value));
+};
 
+const render = () => {
+  const items = readJson(LISTINGS_KEY, []);
+  propertyList.innerHTML = '';
+  if (!items.length) {
+    propertyList.innerHTML = '<p>No properties yet.</p>';
+    return;
+  }
+
+  items.forEach((property) => {
     const card = document.createElement('div');
     card.className = 'property-card';
     card.innerHTML = `
-        <h3>${property.title} ${property.featured ? '<span class="featured-badge">FEATURED</span>' : ''}</h3>
-        <p><b>Category:</b> ${property.category}</p>
-        <p><b>Location:</b> ${property.location}</p>
-        <p><b>Price:</b> ₹${property.price}</p>
-        <p><b>Description:</b> ${property.description}</p>
-        <p><b>Photos Uploaded:</b> ${property.photos}</p>
-        <p><b>Video Uploaded:</b> ${property.video > 0 ? 'Yes' : 'No'}</p>
+      <h3>${property.title} ${property.featured ? '<span class="featured-badge">FEATURED</span>' : ''}</h3>
+      <p><b>Category:</b> ${property.category || '-'}</p>
+      <p><b>Location:</b> ${property.location || '-'}</p>
+      <p><b>Price:</b> ₹${Number(property.price || 0).toLocaleString('en-IN')}</p>
+      <p><b>Status:</b> ${property.status || 'Pending Approval'}</p>
     `;
-
     propertyList.prepend(card);
-    form.reset();
+  });
+};
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+
+  const property = {
+    id: `seller-${Date.now()}`,
+    title: document.getElementById('title').value,
+    category: document.getElementById('category').value,
+    location: document.getElementById('location').value,
+    price: Number(document.getElementById('price').value || 0),
+    description: document.getElementById('description').value,
+    featured: document.getElementById('featured').value === 'yes',
+    photosCount: document.getElementById('photos').files.length,
+    videoUploaded: document.getElementById('video').files.length > 0,
+    city: 'Udaipur',
+    status: 'Pending Approval',
+    createdAt: new Date().toISOString(),
+  };
+
+  const items = readJson(LISTINGS_KEY, []);
+  items.unshift(property);
+  writeJson(LISTINGS_KEY, items);
+  form.reset();
+  render();
+  alert('Property added and connected across dashboards ✅');
 });
+
+render();
 </script>
 <script src="js/location.js"></script>
 

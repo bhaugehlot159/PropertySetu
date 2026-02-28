@@ -17,18 +17,20 @@ Open:
 ## Secure Auth Demo (Customer/Admin)
 Demo OTP for both roles: `123456`
 
+Login now supports **email OR mobile number** for both customer and admin roles. Signup includes basic fake-account detection (disposable email, repeated digits mobile, weak obvious passwords).
+
 Register/Login flow is automatic from UI modal. You can also test via API:
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/register \
   -H "content-type: application/json" \
-  -d '{"name":"Demo Customer","email":"customer@propertysetu.in","password":"customer123","role":"customer","otp":"123456"}'
+  -d '{"name":"Demo Customer","email":"customer@propertysetu.in","mobile":"9876543210","password":"customer123","role":"customer","otp":"123456"}'
 ```
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/login \
   -H "content-type: application/json" \
-  -d '{"email":"customer@propertysetu.in","password":"customer123","role":"customer","otp":"123456"}'
+  -d '{"mobile":"9876543210","password":"customer123","role":"customer","otp":"123456"}'
 ```
 
 ## Sealed Bid Demo API
@@ -76,3 +78,15 @@ Use this flow:
 ## Production Blueprint
 Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.md`.
 
+
+```bash
+curl -X POST http://localhost:5000/api/auth/logout \
+  -H "authorization: Bearer <token>"
+```
+
+
+## Connected Demo Flow (All major folders linked)
+1. Add property from `add-property.html` **or** `seller-dashboard.html`.
+2. See same data on `dashboard.html` (user view).
+3. Approve/reject from `admin-dashboard.html` (admin view).
+4. Status updates sync via shared browser storage key: `propertySetu:listings`.

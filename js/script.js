@@ -123,18 +123,23 @@
   const adminAuthButton = document.getElementById('adminAuthButton');
   const sessionBadge = document.getElementById('sessionBadge');
   const customerFeatureStatus = document.getElementById('customerFeatureStatus');
+  const liveDashboard = document.getElementById('liveDashboard');
 
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
   const authNameInput = document.getElementById('authNameInput');
   const authEmailInput = document.getElementById('authEmailInput');
+  const authMobileInput = document.getElementById('authMobileInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
   const authCancelButton = document.getElementById('authCancelButton');
   const authSubmitButton = document.getElementById('authSubmitButton');
+  const authLoginTab = document.getElementById('authLoginTab');
+  const authSignupTab = document.getElementById('authSignupTab');
   let authMode = 'customer';
+  let authAction = 'login';
 
   const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
   const setState = (role, payload) => {
@@ -143,6 +148,50 @@
       return;
     }
     writeJsonStorage(`propertysetu-${role}-session`, payload);
+  };
+
+
+  const renderLiveDashboard = () => {
+    if (!liveDashboard) return;
+    const customerState = getState('customer');
+    const adminState = getState('admin');
+
+    if (!customerState && !adminState) {
+      liveDashboard.classList.add('locked');
+      liveDashboard.innerHTML = '<p class="dashboard-empty">Login karo to dashboard modules unlock ho jayenge.</p>';
+      return;
+    }
+
+    liveDashboard.classList.remove('locked');
+
+    if (adminState) {
+      liveDashboard.innerHTML = `
+        <h3>Welcome Admin, ${adminState.name}</h3>
+        <div class="dashboard-grid">
+          <article class="dashboard-card"><h4>Verification Queue</h4><p>Property approvals, user KYC aur suspicious activity moderation.</p></article>
+          <article class="dashboard-card"><h4>Bid Oversight</h4><p>Hidden bids reveal, winner validation aur secure audit trail.</p></article>
+          <article class="dashboard-card"><h4>Platform Controls</h4><p>Reports handling, featured listings, fraud prevention controls.</p></article>
+        </div>
+        <div class="dashboard-links">
+          <a href="admin-dashboard.html">Open Admin Dashboard</a>
+          <a href="client/pages/admin-portal.html">Open Admin Portal</a>
+        </div>
+      `;
+      return;
+    }
+
+    liveDashboard.innerHTML = `
+      <h3>Welcome Customer, ${customerState.name}</h3>
+      <div class="dashboard-grid">
+        <article class="dashboard-card"><h4>Wishlist & Compare</h4><p>Favorite listings manage karo aur side-by-side comparison karo.</p></article>
+        <article class="dashboard-card"><h4>Visit & Chat</h4><p>Site visits schedule karo, support chat aur property care services use karo.</p></article>
+        <article class="dashboard-card"><h4>Bidding & AI Tools</h4><p>Sealed bid submit karo, location insights aur pricing AI signals dekho.</p></article>
+      </div>
+      <div class="dashboard-links">
+        <a href="dashboard.html">Open Customer Dashboard</a>
+        <a href="client/pages/customer-portal.html">Open Customer Portal</a>
+      </div>
+    `;
   };
 
   const updateAuthButtons = () => {
@@ -163,21 +212,33 @@
         ? `✅ Welcome ${customerState.name}. All customer features unlocked: Wishlist, Compare, Visit, Chat, Bid, AI tools, Legal docs.`
         : 'Please login as customer to unlock this panel.';
     }
+
+    renderLiveDashboard();
+  };
+
+  const setAuthAction = (mode) => {
+    authAction = mode === 'signup' ? 'signup' : 'login';
+    authLoginTab?.classList.toggle('active', authAction === 'login');
+    authSignupTab?.classList.toggle('active', authAction === 'signup');
+    if (authSubmitButton) authSubmitButton.textContent = authAction === 'signup' ? 'Create Account' : 'Login';
+    if (authNameInput) authNameInput.style.display = authAction === 'signup' ? 'block' : 'none';
   };
 
   const openAuthModal = (role) => {
     authMode = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
-    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Login' : 'Customer Secure Login';
-    authModalHint.textContent = 'Enter full details. First attempt auto-registers if account not found. Demo OTP: 123456';
+    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
+    authModalHint.textContent = 'Email ya Mobile number se login/signup karein. Demo OTP: 123456';
     if (authErrorMessage) authErrorMessage.textContent = '';
     if (authNameInput) authNameInput.value = '';
     if (authEmailInput) authEmailInput.value = '';
+    if (authMobileInput) authMobileInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
+    setAuthAction('login');
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authNameInput?.focus();
+    authEmailInput?.focus();
   };
 
   const closeAuthModal = () => {
@@ -203,51 +264,71 @@
   const doAuthFlow = async () => {
     const name = authNameInput?.value.trim() || '';
     const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const mobile = authMobileInput?.value.trim() || '';
     const password = authPasswordInput?.value || '';
     const otp = authOtpInput?.value.trim() || '';
 
-    if (!name || !email || password.length < 6 || !otp) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
+    if (!email && !mobile) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Email ya mobile number me se koi ek dena zaruri hai.';
       return;
     }
-    openAuthModal('customer');
-  });
 
-    const payload = { name, email, password, otp, role: authMode };
+    if (authAction === 'signup' && !name) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Signup ke liye full name required hai.';
+      return;
+    }
+
+    if (password.length < 6 || !otp) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Password 6+ characters aur OTP required hai.';
+      return;
+    }
+
+    if (authErrorMessage) authErrorMessage.textContent = '';
+    const payload = { name, email, mobile, password, otp, role: authMode };
 
     try {
-      const loginResponse = await apiRequest('/auth/login', payload);
-      setState(authMode, { ...loginResponse.user, token: loginResponse.token, loggedInAt: new Date().toISOString() });
+      const endpoint = authAction === 'signup' ? '/auth/register' : '/auth/login';
+      const authResponse = await apiRequest(endpoint, payload);
+      setState(authMode, { ...authResponse.user, token: authResponse.token, loggedInAt: new Date().toISOString() });
       closeAuthModal();
       updateAuthButtons();
-      return;
-    } catch {
-      try {
-        const registerResponse = await apiRequest('/auth/register', payload);
-        setState(authMode, { ...registerResponse.user, token: registerResponse.token, loggedInAt: new Date().toISOString() });
-        closeAuthModal();
-        updateAuthButtons();
-      } catch (registerError) {
-        if (authErrorMessage) authErrorMessage.textContent = registerError.message;
+    } catch (authError) {
+      if (authAction === 'login' && String(authError.message || '').includes('User not found')) {
+        if (authErrorMessage) authErrorMessage.textContent = 'Account nahi mila. Signup tab pe jaake account banayein.';
+        return;
       }
+      if (authErrorMessage) authErrorMessage.textContent = authError.message;
     }
   };
 
-  customerAuthButton?.addEventListener('click', () => {
+
+  const logoutRole = async (role) => {
+    const current = getState(role);
+    if (!current) return;
+
+    try {
+      await apiRequest('/auth/logout', { role }, current.token);
+    } catch {
+      // ignore server error, still clear local session
+    }
+
+    setState(role, null);
+    updateAuthButtons();
+  };
+
+  customerAuthButton?.addEventListener('click', async () => {
     const current = getState('customer');
     if (current) {
-      setState('customer', null);
-      updateAuthButtons();
+      await logoutRole('customer');
       return;
     }
     openAuthModal('customer');
   });
 
-  adminAuthButton?.addEventListener('click', () => {
+  adminAuthButton?.addEventListener('click', async () => {
     const current = getState('admin');
     if (current) {
-      setState('admin', null);
-      updateAuthButtons();
+      await logoutRole('admin');
       return;
     }
     openAuthModal('admin');
@@ -255,6 +336,8 @@
 
   authCancelButton?.addEventListener('click', closeAuthModal);
   authSubmitButton?.addEventListener('click', doAuthFlow);
+  authLoginTab?.addEventListener('click', () => setAuthAction('login'));
+  authSignupTab?.addEventListener('click', () => setAuthAction('signup'));
 
   authModal?.addEventListener('click', (event) => {
     if (event.target === authModal) closeAuthModal();
