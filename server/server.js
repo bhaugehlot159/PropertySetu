@@ -41,6 +41,22 @@ const signToken = (user) => jwt.sign(
   { expiresIn: '24h' },
 );
 
+const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
+const sanitizePhone = (value) => String(value || '').replace(/\D/g, '');
+const looksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const findUserByIdentifier = (identifier, role) => {
+  const cleanIdentifier = normalizeIdentifier(identifier);
+  const phoneValue = sanitizePhone(identifier);
+
+  return users.find((entry) => {
+    if (entry.role !== role) return false;
+    if (cleanIdentifier && entry.email === cleanIdentifier) return true;
+    if (phoneValue && entry.phone === phoneValue) return true;
+    return false;
+  });
+};
+
 const authGuard = (req, res, next) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -138,22 +154,20 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const {
-    name,
-    email,
-    phone,
-    password,
-    role,
-    otp,
-  } = req.body || {};
-
-  const cleanEmail = normalizeEmail(email);
-  const cleanPhone = normalizePhone(phone);
-  const cleanName = normalizeName(name);
+  const { name, identifier, email, phone, password, role, otp } = req.body || {};
+  const cleanName = String(name || '').trim();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
+  const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
+  const parsedPhone = sanitizePhone(phone || identifier);
+  const parsedEmail = normalizeIdentifier(email || (looksLikeEmail(cleanIdentifier) ? cleanIdentifier : ''));
 
-  if (String(otp || '') !== '123456') {
-    res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
+  if (!cleanName || !cleanIdentifier || !password || String(password).length < 6) {
+    res.status(400).json({ ok: false, message: 'Name, Email/Mobile and password (min 6) are required.' });
+    return;
+  }
+
+  if (!parsedEmail && parsedPhone.length < 10) {
+    res.status(400).json({ ok: false, message: 'Please enter a valid email or mobile number.' });
     return;
   }
 
@@ -168,11 +182,9 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  const existingUser = users.find((user) => user.role === cleanRole
-    && ((cleanEmail && user.email === cleanEmail) || (cleanPhone && user.phone === cleanPhone)));
-
-  if (existingUser) {
-    res.status(409).json({ ok: false, message: 'Account already exists. Please login.' });
+  const existing = findUserByIdentifier(cleanIdentifier, cleanRole);
+  if (existing) {
+    res.status(409).json({ ok: false, message: 'Account already exists for this role. Please login.' });
     return;
   }
 
@@ -180,8 +192,8 @@ app.post('/api/auth/register', async (req, res) => {
   const user = {
     id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: cleanName,
-    email: cleanEmail || null,
-    phone: cleanPhone || null,
+    email: parsedEmail || `${parsedPhone}@mobile.propertysetu.in`,
+    phone: parsedPhone || '',
     passwordHash: hashedPassword,
     role: cleanRole,
     verified: true,
@@ -196,31 +208,22 @@ app.post('/api/auth/register', async (req, res) => {
     user: {
       id: user.id,
       name: user.name,
-      email: user.email,
+      email: parsedEmail,
       phone: user.phone,
       role: user.role,
       verified: user.verified,
+      loginIdentifierType: parsedEmail ? 'email' : 'mobile',
     },
   });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const {
-    identifier,
-    email,
-    phone,
-    password,
-    role,
-    otp,
-  } = req.body || {};
-
-  const cleanEmail = normalizeEmail(email);
-  const cleanPhone = normalizePhone(phone);
-  const cleanIdentifier = String(identifier || '').trim().toLowerCase();
+  const { identifier, email, phone, password, role, otp } = req.body || {};
+  const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
-  if (!identifier || !password) {
-    res.status(400).json({ ok: false, message: 'Email/mobile and password are required.' });
+  if (!cleanIdentifier || !password) {
+    res.status(400).json({ ok: false, message: 'Email/Mobile and password are required.' });
     return;
   }
 
@@ -229,20 +232,9 @@ app.post('/api/auth/login', async (req, res) => {
     return;
   }
 
-  if (!cleanIdentifier && !cleanEmail && !cleanPhone) {
-    res.status(400).json({ ok: false, message: 'Login requires email or mobile number.' });
-    return;
-  }
-
-  const user = findUserByIdentifier({
-    role: cleanRole,
-    identifier: cleanIdentifier,
-    email: cleanEmail,
-    phone: cleanPhone,
-  });
-
+  const user = findUserByIdentifier(cleanIdentifier, cleanRole);
   if (!user) {
-    res.status(404).json({ ok: false, message: 'User not found. Please sign up first.' });
+    res.status(404).json({ ok: false, message: 'User not found. Please signup first.' });
     return;
   }
 
@@ -259,16 +251,17 @@ app.post('/api/auth/login', async (req, res) => {
     user: {
       id: user.id,
       name: user.name,
-      email: user.email,
+      email: user.email.includes('@mobile.propertysetu.in') ? '' : user.email,
       phone: user.phone,
       role: user.role,
       verified: user.verified,
+      loginIdentifierType: looksLikeEmail(cleanIdentifier) ? 'email' : 'mobile',
     },
   });
 });
 
-app.post('/api/auth/logout', (_req, res) => {
-  res.json({ ok: true, message: 'Logged out successfully.' });
+app.post('/api/auth/logout', authGuard, (_req, res) => {
+  res.json({ ok: true, message: 'Logout successful on client side. Please clear token.' });
 });
 
 app.get('/api/auth/me', authGuard, (req, res) => {

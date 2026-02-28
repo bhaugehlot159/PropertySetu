@@ -130,8 +130,6 @@
   const authActionSelect = document.getElementById('authActionSelect');
   const authNameInput = document.getElementById('authNameInput');
   const authIdentifierInput = document.getElementById('authIdentifierInput');
-  const authEmailInput = document.getElementById('authEmailInput');
-  const authPhoneInput = document.getElementById('authPhoneInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
@@ -139,9 +137,8 @@
   const authSubmitButton = document.getElementById('authSubmitButton');
   const authLoginModeButton = document.getElementById('authLoginModeButton');
   const authSignupModeButton = document.getElementById('authSignupModeButton');
-
-  let authRole = 'customer';
-  let authAction = 'login';
+  let authMode = 'customer';
+  let authActionMode = 'login';
 
   const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
   const setState = (role, payload) => {
@@ -178,33 +175,34 @@
     }
   };
 
-  const setAuthAction = (action) => {
-    authAction = action;
-    if (authLoginModeButton) authLoginModeButton.classList.toggle('active', action === 'login');
-    if (authSignupModeButton) authSignupModeButton.classList.toggle('active', action === 'signup');
-    if (authSubmitButton) authSubmitButton.textContent = action === 'signup' ? 'Create Account' : 'Login';
-    if (authNameInput) authNameInput.style.display = action === 'signup' ? 'block' : 'none';
+  const updateAuthActionUI = () => {
+    const isSignup = authActionMode === 'signup';
+    if (authLoginModeButton) authLoginModeButton.classList.toggle('active', !isSignup);
+    if (authSignupModeButton) authSignupModeButton.classList.toggle('active', isSignup);
+    if (authNameInput) authNameInput.style.display = isSignup ? 'block' : 'none';
+    if (authSubmitButton) authSubmitButton.textContent = isSignup ? 'Create Account' : 'Login';
+    if (authModalHint) {
+      authModalHint.textContent = isSignup
+        ? 'Create genuine account with Email or Mobile. OTP required. Demo OTP: 123456'
+        : 'Secure login with Email or Mobile. Demo OTP: 123456';
+    }
   };
 
-  const openAuthModal = (role) => {
-    authRole = role;
-    if (!authModal || !authModalTitle || !authModalHint) return;
+  const openAuthModal = (role, mode = 'login') => {
+    authMode = role;
+    authActionMode = mode;
+    if (!authModal || !authModalTitle) return;
     authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
-    authModalHint.textContent = 'Use genuine details. Login supports Email or Mobile. Demo OTP: 123456';
     if (authErrorMessage) authErrorMessage.textContent = '';
     if (authActionSelect) authActionSelect.value = 'login';
     if (authNameInput) authNameInput.value = '';
     if (authIdentifierInput) authIdentifierInput.value = '';
-    if (authEmailInput) authEmailInput.value = '';
-    if (authPhoneInput) authPhoneInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
-    if (authContactMethod) authContactMethod.value = 'email';
-    updateContactPlaceholder();
-    setAuthAction('login');
+    updateAuthActionUI();
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authIdentifierInput?.focus();
+    (authIdentifierInput || authNameInput)?.focus();
   };
 
   const closeAuthModal = () => {
@@ -244,65 +242,66 @@
     const action = authActionSelect?.value || 'login';
     const name = authNameInput?.value.trim() || '';
     const identifier = authIdentifierInput?.value.trim() || '';
-    const email = authEmailInput?.value.trim().toLowerCase() || '';
-    const phone = (authPhoneInput?.value || '').replace(/\D/g, '');
     const password = authPasswordInput?.value || '';
     const otp = authOtpInput?.value.trim() || '';
 
-    if (password.length < 6 || !otp) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Password (6+) and OTP are required.';
+    if (!identifier || password.length < 6 || !otp || (authActionMode === 'signup' && !name)) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Login/Signup details missing. Name required for Signup, and Email/Mobile + Password + OTP are mandatory.';
       return;
     }
 
-    if (action === 'signup' && (!name || (!email && !phone))) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Signup requires name + at least email or mobile number.';
-      return;
-    }
-
-    if (action === 'login' && !identifier && !email && !phone) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Login requires email or mobile number.';
-      return;
-    }
-
-    const payload = {
-      role: authMode,
-      otp,
-      password,
-      ...(name ? { name } : {}),
-      ...(identifier ? { identifier } : {}),
-      ...(email ? { email } : {}),
-      ...(phone ? { phone } : {}),
-    };
+    const payload = { name, identifier, password, otp, role: authMode };
 
     try {
-      const response = action === 'signup'
-        ? await apiRequest('/auth/register', payload)
-        : await apiRequest('/auth/login', payload);
-
+      const endpoint = authActionMode === 'signup' ? '/auth/register' : '/auth/login';
+      const response = await apiRequest(endpoint, payload);
       setState(authMode, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
       closeAuthModal();
       updateAuthButtons();
+      return;
     } catch (error) {
       if (authErrorMessage) authErrorMessage.textContent = error.message;
     }
   };
 
-  customerAuthButton?.addEventListener('click', () => {
+  customerAuthButton?.addEventListener('click', async () => {
     const current = getState('customer');
     if (current) {
-      performLogout('customer');
+      try {
+        await apiRequest('/auth/logout', { role: 'customer' }, current.token);
+      } catch {
+        // no-op for demo token invalidation
+      }
+      setState('customer', null);
+      updateAuthButtons();
       return;
     }
-    openAuthModal('customer');
+    openAuthModal('customer', 'login');
   });
 
-  adminAuthButton?.addEventListener('click', () => {
+  adminAuthButton?.addEventListener('click', async () => {
     const current = getState('admin');
     if (current) {
-      performLogout('admin');
+      try {
+        await apiRequest('/auth/logout', { role: 'admin' }, current.token);
+      } catch {
+        // no-op for demo token invalidation
+      }
+      setState('admin', null);
+      updateAuthButtons();
       return;
     }
-    openAuthModal('admin');
+    openAuthModal('admin', 'login');
+  });
+
+  authLoginModeButton?.addEventListener('click', () => {
+    authActionMode = 'login';
+    updateAuthActionUI();
+  });
+
+  authSignupModeButton?.addEventListener('click', () => {
+    authActionMode = 'signup';
+    updateAuthActionUI();
   });
 
   authContactMethod?.addEventListener('change', updateContactPlaceholder);
