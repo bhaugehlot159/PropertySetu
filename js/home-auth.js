@@ -5,7 +5,8 @@
   const adminAuthButton = document.getElementById('adminAuthButton');
   const sessionBadge = document.getElementById('sessionBadge');
   const customerFeatureStatus = document.getElementById('customerFeatureStatus');
-  const customerAddPropertyLink = document.getElementById('customerAddPropertyLink');
+  const customerBoardStatus = document.getElementById('customerBoardStatus');
+  const adminBoardStatus = document.getElementById('adminBoardStatus');
 
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
@@ -67,28 +68,42 @@
     const customer = getState('customer');
     const admin = getState('admin');
 
-    document.querySelectorAll('[data-role="customer"]').forEach((el) => {
-      el.classList.toggle('hidden-locked', !customer);
+    document.querySelectorAll('[data-lock-role="customer"]').forEach((el) => {
+      const locked = !customer;
+      el.classList.toggle('locked', locked);
+      if (locked) el.setAttribute('aria-disabled', 'true');
+      else el.removeAttribute('aria-disabled');
     });
 
-    document.querySelectorAll('[data-role="admin"]').forEach((el) => {
-      el.classList.toggle('hidden-locked', !admin);
+    document.querySelectorAll('[data-lock-role="admin"]').forEach((el) => {
+      const locked = !admin;
+      el.classList.toggle('locked', locked);
+      if (locked) el.setAttribute('aria-disabled', 'true');
+      else el.removeAttribute('aria-disabled');
     });
 
-    if (customerAddPropertyLink) {
-      if (customer) {
-        customerAddPropertyLink.setAttribute('href', 'add-property.html');
-        customerAddPropertyLink.textContent = 'Add Property (Unlocked)';
-      } else {
-        customerAddPropertyLink.setAttribute('href', '#');
-        customerAddPropertyLink.textContent = 'Add Property (Login Required)';
-      }
+    if (customerBoardStatus) {
+      customerBoardStatus.textContent = customer
+        ? `✅ Customer ${customer.name} logged in. Add Property, Dashboard, Chat sab unlock hai.`
+        : 'Customer login ke baad sabhi features open honge.';
+    }
+
+    if (adminBoardStatus) {
+      adminBoardStatus.textContent = admin
+        ? `✅ Admin ${admin.name} logged in. Moderation, portals, chat oversight unlock hai.`
+        : 'Admin login ke baad moderation aur control features open honge.';
     }
 
     if (customerFeatureStatus) {
-      if (admin) customerFeatureStatus.textContent = `✅ Admin ${admin.name} logged in. Admin features unlocked.`;
-      else if (customer) customerFeatureStatus.textContent = `✅ Customer ${customer.name} logged in. All customer features unlocked including Add Property.`;
-      else customerFeatureStatus.textContent = 'Please login as customer/admin to unlock features.';
+      if (admin && customer) {
+        customerFeatureStatus.textContent = `✅ Customer (${customer.name}) + Admin (${admin.name}) dono login hain. Sabhi role features available.`;
+      } else if (admin) {
+        customerFeatureStatus.textContent = `✅ Admin ${admin.name} logged in. Admin board unlocked.`;
+      } else if (customer) {
+        customerFeatureStatus.textContent = `✅ Customer ${customer.name} logged in. Customer board unlocked.`;
+      } else {
+        customerFeatureStatus.textContent = 'Please login as customer/admin to unlock features.';
+      }
     }
   };
 
@@ -178,10 +193,14 @@
   authLoginTab?.addEventListener('click', () => setAuthAction('login'));
   authSignupTab?.addEventListener('click', () => setAuthAction('signup'));
 
-  customerAddPropertyLink?.addEventListener('click', (event) => {
-    if (getState('customer')) return;
-    event.preventDefault();
-    openAuthModal('customer');
+  document.querySelectorAll('[data-lock-role]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      const role = link.getAttribute('data-lock-role');
+      if (!role) return;
+      if (getState(role)) return;
+      event.preventDefault();
+      openAuthModal(role);
+    });
   });
 
   authModal?.addEventListener('click', (event) => {

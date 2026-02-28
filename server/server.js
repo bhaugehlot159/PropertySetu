@@ -106,7 +106,7 @@ app.post('/api/auth/register', async (req, res) => {
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
   const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
   const parsedPhone = sanitizePhone(phone || identifier);
-  const parsedEmail = normalizeIdentifier(email || (looksLikeEmail(cleanIdentifier) ? cleanIdentifier : ''));
+  const parsedEmail = (email || (looksLikeEmail(cleanIdentifier) ? cleanIdentifier : ''));
 
   if (!cleanName || (!cleanEmail && !cleanMobile) || !password || String(password).length < 6) {
     res.status(400).json({ ok: false, message: 'Name, password (min 6), and either email or mobile are required.' });

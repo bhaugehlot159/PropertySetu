@@ -6,14 +6,17 @@
     <title>PropertySetu | Home</title>
     <link rel="stylesheet" href="css/style.css" />
     <style>
-      .mini-home { padding: 32px 0 50px; }
+      .mini-home { padding: 28px 0 46px; }
       .mini-card { background:#fff; border:1px solid #d6e3ff; border-radius:12px; padding:18px; margin-bottom:14px; }
       .mini-card h2, .mini-card h3 { margin-top:0; color:#0b2f6b; }
       .home-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-      .feature-grid { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:10px; }
-      .feature-item { border:1px solid #dce7ff; border-radius:10px; padding:12px; background:#f8fbff; }
-      .hidden-locked { opacity:.65; }
-      @media (max-width:800px){ .feature-grid{grid-template-columns:1fr;} }
+      .role-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+      .role-board { border:1px solid #dce7ff; border-radius:10px; padding:12px; background:#f8fbff; }
+      .feature-list { margin:10px 0 0; padding-left:16px; }
+      .feature-list li { margin-bottom:8px; }
+      .feature-link.locked { pointer-events:none; opacity:.55; text-decoration:line-through; }
+      .board-status { margin:8px 0 0; font-size:.9rem; color:#24436c; }
+      @media (max-width:800px){ .role-grid{grid-template-columns:1fr;} }
     </style>
   </head>
   <body>
@@ -24,7 +27,6 @@
           <a href="folders/common/all-features.html">All Features (Folder)</a>
           <a href="folders/customer/customer-features.html">Customer Folder</a>
           <a href="folders/admin/admin-features.html">Admin Folder</a>
-          <a href="legal/terms.html">Terms</a>
         </nav>
         <div class="auth-actions">
           <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
@@ -37,20 +39,38 @@
     <main class="mini-home">
       <section class="container mini-card">
         <h2>PropertySetu Home (Compact)</h2>
-        <p>Home page par sirf compulsory items rakhe gaye hain. Baaki features folder-wise pages me shift kiye gaye hain.</p>
+        <p>Compulsory home summary + login controls only. Sabhi major features niche role-wise login ke baad unlock hote hain.</p>
         <div class="home-actions">
-          <a class="solid-btn" href="folders/common/all-features.html">Open All Features</a>
-          <a class="outline-btn" href="add-property.html" id="customerAddPropertyLink">Add Property (Login Required)</a>
+          <a class="solid-btn" href="folders/common/all-features.html">Open All Folders</a>
         </div>
       </section>
 
       <section class="container mini-card" id="postLoginFeatures">
-        <h3>Login ke baad Features</h3>
-        <div class="feature-grid">
-          <article class="feature-item hidden-locked" data-role="customer">Customer Dashboard (wishlist, compare, visit, bid)</article>
-          <article class="feature-item hidden-locked" data-role="customer">Add Property + Draft + Media + AI Risk</article>
-          <article class="feature-item hidden-locked" data-role="admin">Admin Approval / Reject</article>
-          <article class="feature-item hidden-locked" data-role="admin">Hidden Bid Reveal + Moderation</article>
+        <h3>Top Board: Customer Login / Admin Login Features</h3>
+        <div class="role-grid">
+          <article class="role-board">
+            <h4>Customer Features (Login Required)</h4>
+            <ul class="feature-list">
+              <li><a class="feature-link locked" data-lock-role="customer" href="add-property.html">Add Property</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="dashboard.html">Customer Dashboard</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="client/pages/customer-portal.html">Customer Portal</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="user-dashboard.html">Chat</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="property-care.html">Property Care</a></li>
+            </ul>
+            <p class="board-status" id="customerBoardStatus">Customer login ke baad sabhi features open honge.</p>
+          </article>
+
+          <article class="role-board">
+            <h4>Admin Features (Login Required)</h4>
+            <ul class="feature-list">
+              <li><a class="feature-link locked" data-lock-role="admin" href="admin-dashboard.html">Admin Dashboard</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="client/pages/admin-portal.html">Admin Portal</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="seller-dashboard.html">Seller Listings Monitor</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="dashboard.html">Marketplace Snapshot</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="user-dashboard.html">Chat Oversight</a></li>
+            </ul>
+            <p class="board-status" id="adminBoardStatus">Admin login ke baad moderation aur control features open honge.</p>
+          </article>
         </div>
         <p id="customerFeatureStatus" class="feature-status">Please login as customer/admin to unlock features.</p>
       </section>
