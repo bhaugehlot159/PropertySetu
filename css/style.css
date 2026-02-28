@@ -350,3 +350,19 @@ footer h3 { color: #fff; margin-top: 0; }
 .auth-modal-card .solid-btn {
   color: #091125;
 }
+
+.auth-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.auth-tab {
+  flex: 1;
+}
+
+.auth-tab.active {
+  background: #0b2f6b;
+  color: #fff;
+  border-color: #0b2f6b;
+}
