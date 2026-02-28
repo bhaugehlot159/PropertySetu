@@ -74,6 +74,5 @@ Use this flow:
 2. Create a **new PR** from Codex instead of trying to update the old PR.
 3. Close/supersede the previous PR in GitHub if needed.
 ## Production Blueprint
-Detailed production rollout plan has been added at:
-- `docs/PRODUCTION_BLUEPRINT.md`
+Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.md`.
 
