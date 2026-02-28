@@ -137,7 +137,11 @@
   const authErrorMessage = document.getElementById('authErrorMessage');
   const authCancelButton = document.getElementById('authCancelButton');
   const authSubmitButton = document.getElementById('authSubmitButton');
-  let authMode = 'customer';
+  const authLoginModeButton = document.getElementById('authLoginModeButton');
+  const authSignupModeButton = document.getElementById('authSignupModeButton');
+
+  let authRole = 'customer';
+  let authAction = 'login';
 
   const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
   const setState = (role, payload) => {
@@ -148,12 +152,18 @@
     writeJsonStorage(`propertysetu-${role}-session`, payload);
   };
 
+  const updateContactPlaceholder = () => {
+    if (!authContactMethod || !authContactInput) return;
+    authContactInput.placeholder = authContactMethod.value === 'mobile' ? 'Mobile Number (10-15 digits)' : 'Email Address';
+    authContactInput.type = 'text';
+  };
+
   const updateAuthButtons = () => {
     const customerState = getState('customer');
     const adminState = getState('admin');
 
-    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
-    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
+    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Customer Logout (${customerState.name})` : 'Customer Login';
+    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Admin Logout (${adminState.name})` : 'Admin Login';
 
     if (sessionBadge) {
       if (adminState) sessionBadge.textContent = `Admin: ${adminState.name}`;
@@ -168,8 +178,16 @@
     }
   };
 
+  const setAuthAction = (action) => {
+    authAction = action;
+    if (authLoginModeButton) authLoginModeButton.classList.toggle('active', action === 'login');
+    if (authSignupModeButton) authSignupModeButton.classList.toggle('active', action === 'signup');
+    if (authSubmitButton) authSubmitButton.textContent = action === 'signup' ? 'Create Account' : 'Login';
+    if (authNameInput) authNameInput.style.display = action === 'signup' ? 'block' : 'none';
+  };
+
   const openAuthModal = (role) => {
-    authMode = role;
+    authRole = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
     authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
     authModalHint.textContent = 'Use genuine details. Login supports Email or Mobile. Demo OTP: 123456';
@@ -181,6 +199,9 @@
     if (authPhoneInput) authPhoneInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
+    if (authContactMethod) authContactMethod.value = 'email';
+    updateContactPlaceholder();
+    setAuthAction('login');
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
     authIdentifierInput?.focus();
@@ -284,6 +305,9 @@
     openAuthModal('admin');
   });
 
+  authContactMethod?.addEventListener('change', updateContactPlaceholder);
+  authLoginModeButton?.addEventListener('click', () => setAuthAction('login'));
+  authSignupModeButton?.addEventListener('click', () => setAuthAction('signup'));
   authCancelButton?.addEventListener('click', closeAuthModal);
   authSubmitButton?.addEventListener('click', doAuthFlow);
 
@@ -452,11 +476,6 @@
     if (aiOutput) {
       aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
-
-    if (aiOutput) {
-      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
-    }
-    openAuthModal('customer');
   });
 
   updateMarketplaceStats();

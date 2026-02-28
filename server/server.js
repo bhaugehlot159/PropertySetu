@@ -219,6 +219,11 @@ app.post('/api/auth/login', async (req, res) => {
   const cleanIdentifier = String(identifier || '').trim().toLowerCase();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
+  if (!identifier || !password) {
+    res.status(400).json({ ok: false, message: 'Email/mobile and password are required.' });
+    return;
+  }
+
   if (String(otp || '') !== '123456') {
     res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
     return;
