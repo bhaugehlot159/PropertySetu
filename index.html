@@ -3,21 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PropertySetu | Buy, Rent & Property Care</title>
+    <title>PropertySetu | Home</title>
     <link rel="stylesheet" href="css/style.css" />
+    <style>
+      .mini-home { padding: 32px 0 50px; }
+      .mini-card { background:#fff; border:1px solid #d6e3ff; border-radius:12px; padding:18px; margin-bottom:14px; }
+      .mini-card h2, .mini-card h3 { margin-top:0; color:#0b2f6b; }
+      .home-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+      .feature-grid { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:10px; }
+      .feature-item { border:1px solid #dce7ff; border-radius:10px; padding:12px; background:#f8fbff; }
+      .hidden-locked { opacity:.65; }
+      @media (max-width:800px){ .feature-grid{grid-template-columns:1fr;} }
+    </style>
   </head>
   <body>
     <header class="topbar">
       <div class="container topbar-inner">
-        <a class="brand" href="#home">🏡 PropertySetu</a>
+        <a class="brand" href="index.html">🏡 PropertySetu</a>
         <nav>
-          <a href="#buy">Buy</a>
-          <a href="#rent">Rent</a>
-          <a href="#care">Property Care</a>
-          <a href="#demo-listings">Demo Listings</a>
-          <a href="#smart-features">Smart Features</a>
-          <a href="#customer-hub">Customer Hub</a>
-          <a href="#legal">Legal</a>
+          <a href="folders/common/all-features.html">All Features (Folder)</a>
+          <a href="folders/customer/customer-features.html">Customer Folder</a>
+          <a href="folders/admin/admin-features.html">Admin Folder</a>
+          <a href="legal/terms.html">Terms</a>
         </nav>
         <div class="auth-actions">
           <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
@@ -25,213 +32,27 @@
           <span id="sessionBadge" class="session-badge">Guest Mode</span>
         </div>
       </div>
-      <div class="container auth-strip" id="authStrip">Not logged in</div>
     </header>
 
-    <section class="hero" id="home">
-      <canvas id="heroCanvas"></canvas>
-      <div class="container hero-content">
-        <p class="eyebrow">Udaipur Live • Multi-City Ready</p>
-        <h1>India's Trusted Property & Care Platform</h1>
-        <p class="subline">Buy, Rent, Commercial, Plot, Farmhouse, and Property Care Services in one place.</p>
-
-        <div class="search-panel">
-          <div class="search-tabs" role="tablist" aria-label="Property mode tabs">
-            <button class="tab-btn active" data-mode="buy" type="button">Buy</button>
-            <button class="tab-btn" data-mode="rent" type="button">Rent</button>
-            <button class="tab-btn" data-mode="plot" type="button">Plot</button>
-            <button class="tab-btn" data-mode="commercial" type="button">Commercial</button>
-          </div>
-          <div class="search-controls">
-            <select id="citySelect" aria-label="City selector">
-              <option value="udaipur">Udaipur (Default)</option>
-              <option value="jaipur">Jaipur</option>
-              <option value="jodhpur">Jodhpur</option>
-              <option value="ahmedabad">Ahmedabad</option>
-              <option value="delhi">Delhi</option>
-              <option value="mumbai">Mumbai</option>
-            </select>
-            <input id="locationSearch" type="text" list="locationSuggestions" placeholder="Search locality e.g. Hiran Magri" />
-            <datalist id="locationSuggestions"></datalist>
-            <button id="searchButton" type="button">Search 🔎</button>
-          </div>
-          <ul id="suggestionList" class="suggestion-list"></ul>
-        </div>
-
-        <p id="slugPreview" class="slug-preview">SEO path preview: propertysetu.in/udaipur</p>
-      </div>
-    </section>
-
-    <main>
-      <section class="section" id="buy">
-        <div class="container">
-          <h2>🏡 Buy Property</h2>
-          <div class="grid three">
-            <article class="card"><h3>House</h3><p>Ready-to-move and under-construction homes.</p></article>
-            <article class="card"><h3>Flat</h3><p>1BHK to luxury apartments in prime areas.</p></article>
-            <article class="card"><h3>Villa</h3><p>Premium independent villas and gated options.</p></article>
-            <article class="card"><h3>Plot</h3><p>Residential and investment-ready land parcels.</p></article>
-            <article class="card"><h3>Agricultural Land</h3><p>Farming and vadi use land listings.</p></article>
-            <article class="card"><h3>Commercial Property</h3><p>Shops, offices, showrooms, and mixed-use spaces.</p></article>
-          </div>
+    <main class="mini-home">
+      <section class="container mini-card">
+        <h2>PropertySetu Home (Compact)</h2>
+        <p>Home page par sirf compulsory items rakhe gaye hain. Baaki features folder-wise pages me shift kiye gaye hain.</p>
+        <div class="home-actions">
+          <a class="solid-btn" href="folders/common/all-features.html">Open All Features</a>
+          <a class="outline-btn" href="add-property.html" id="customerAddPropertyLink">Add Property (Login Required)</a>
         </div>
       </section>
 
-      <section class="section muted" id="rent">
-        <div class="container">
-          <h2>🏢 Rent Property</h2>
-          <div class="grid four">
-            <article class="card"><h3>House for Rent</h3><p>Family and single occupancy homes.</p></article>
-            <article class="card"><h3>Shop for Rent</h3><p>Street-front and market-connected outlets.</p></article>
-            <article class="card"><h3>Office Space</h3><p>Small office suites to enterprise spaces.</p></article>
-            <article class="card"><h3>PG / Hostel</h3><p>Budget and premium PG with amenities.</p></article>
-          </div>
+      <section class="container mini-card" id="postLoginFeatures">
+        <h3>Login ke baad Features</h3>
+        <div class="feature-grid">
+          <article class="feature-item hidden-locked" data-role="customer">Customer Dashboard (wishlist, compare, visit, bid)</article>
+          <article class="feature-item hidden-locked" data-role="customer">Add Property + Draft + Media + AI Risk</article>
+          <article class="feature-item hidden-locked" data-role="admin">Admin Approval / Reject</article>
+          <article class="feature-item hidden-locked" data-role="admin">Hidden Bid Reveal + Moderation</article>
         </div>
-      </section>
-
-      <section class="section" id="care">
-        <div class="container">
-          <h2>🛠 Property Care Services</h2>
-          <div class="grid three">
-            <article class="card"><h3>Monthly House Check</h3><p>Lock, leakage, utility and condition report.</p></article>
-            <article class="card"><h3>Cleaning Service</h3><p>Routine, deep, and pre-tenant cleaning.</p></article>
-            <article class="card"><h3>Garden / Vadi Maintenance</h3><p>Landscape and farm upkeep by local teams.</p></article>
-            <article class="card"><h3>Security Visit</h3><p>On-site checks with photo proof.</p></article>
-            <article class="card"><h3>Bill Payment Handling</h3><p>Electricity/water bill payment with receipts.</p></article>
-            <article class="card"><h3>Tenant Management</h3><p>Move-in coordination and tenant communication.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section muted" id="demo-listings">
-        <div class="container">
-          <h2>Live Marketplace Demo (OLX-style + Better)</h2>
-          <p class="section-intro">Try wishlist, compare, visit booking and hidden bidding directly on demo properties.</p>
-          <div class="grid three">
-            <article class="card listing-card" data-property-id="villa-bhuwana" data-title="4BHK Premium Villa • Bhuwana">
-              <img src="https://images.unsplash.com/photo-1560185007-c5ca9d2c014d?auto=format&fit=crop&w=1200&q=80" alt="Modern villa in Bhuwana" loading="lazy" />
-              <h3>4BHK Premium Villa • Bhuwana</h3>
-              <p>₹1.85 Cr • 3200 sq.ft • Verified Listing • Video Tour Available</p>
-              <div class="listing-actions">
-                <button class="action-btn" data-action="wishlist" type="button">♡ Save</button>
-                <button class="action-btn" data-action="compare" type="button">⇄ Compare</button>
-                <button class="action-btn" data-action="visit" type="button">📅 Visit</button>
-                <button class="action-btn" data-action="bid" type="button">🔒 Sealed Bid</button>
-              </div>
-            </article>
-            <article class="card listing-card" data-property-id="flat-hm" data-title="2BHK Flat • Hiran Magri">
-              <img src="https://images.unsplash.com/photo-1523217582562-09d0def993a6?auto=format&fit=crop&w=1200&q=80" alt="Apartment in Hiran Magri" loading="lazy" />
-              <h3>2BHK Flat • Hiran Magri</h3>
-              <p>₹32,000/month • Furnished • Lift + Parking • Owner Verified</p>
-              <div class="listing-actions">
-                <button class="action-btn" data-action="wishlist" type="button">♡ Save</button>
-                <button class="action-btn" data-action="compare" type="button">⇄ Compare</button>
-                <button class="action-btn" data-action="visit" type="button">📅 Visit</button>
-                <button class="action-btn" data-action="bid" type="button">🔒 Sealed Bid</button>
-              </div>
-            </article>
-            <article class="card listing-card" data-property-id="showroom-chetak" data-title="Commercial Showroom • Chetak Circle">
-              <img src="https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=1200&q=80" alt="Commercial showroom at Chetak Circle" loading="lazy" />
-              <h3>Commercial Showroom • Chetak Circle</h3>
-              <p>₹4.4 Cr • 1800 sq.ft • High Footfall • Sealed Bid Enabled</p>
-              <div class="listing-actions">
-                <button class="action-btn" data-action="wishlist" type="button">♡ Save</button>
-                <button class="action-btn" data-action="compare" type="button">⇄ Compare</button>
-                <button class="action-btn" data-action="visit" type="button">📅 Visit</button>
-                <button class="action-btn" data-action="bid" type="button">🔒 Sealed Bid</button>
-              </div>
-            </article>
-          </div>
-
-          <div class="marketplace-panel">
-            <div class="stat-box"><strong id="wishlistCount">0</strong><span>Saved</span></div>
-            <div class="stat-box"><strong id="compareCount">0</strong><span>Compare</span></div>
-            <div class="stat-box"><strong id="visitCount">0</strong><span>Visits Booked</span></div>
-            <div class="stat-box"><strong id="sealedBidCount">0</strong><span>Hidden Bids</span></div>
-            <button id="revealBidsButton" class="solid-btn" type="button">Admin: Reveal Winning Bid</button>
-            <button id="clearWishlistButton" class="outline-btn" type="button">Clear Saved</button>
-            <button id="clearCompareButton" class="outline-btn" type="button">Clear Compare</button>
-          </div>
-          <p id="marketplaceMessage" class="marketplace-message"></p>
-        </div>
-      </section>
-
-      <section class="section" id="smart-features">
-        <div class="container">
-          <h2>🚀 OLX se Better Smart Service Stack</h2>
-          <div class="grid three">
-            <article class="card"><h3>In-App Trust Layer</h3><p>Verified owner, verified docs, and listing fraud checks with report button support.</p></article>
-            <article class="card"><h3>AI Description Draft</h3><p>Enter key details and generate polished description text in one click.</p></article>
-            <article class="card"><h3>Visit + Care Workflow</h3><p>Schedule visit, subscribe care package, and monitor property health from dashboard.</p></article>
-          </div>
-
-          <div class="ai-box">
-            <label for="aiPromptInput">Quick AI Description Demo</label>
-            <textarea id="aiPromptInput" rows="3" placeholder="Example: 3BHK villa in Bhuwana, 2 parking, garden, near school"></textarea>
-            <button id="aiGenerateButton" class="solid-btn" type="button">Generate Description</button>
-            <p id="aiOutput" class="ai-output">Your generated property description will appear here.</p>
-          </div>
-
-          <div class="pill-row">
-            <a href="add-property.html">Add Property Form</a>
-            <a href="property-details.html">Property Details</a>
-            <a href="seller-dashboard.html">Seller Dashboard</a>
-            <a href="client/pages/customer-portal.html">Customer Portal</a>
-            <a href="client/pages/admin-portal.html">Admin Portal</a>
-            <a href="subscription.html">Subscription</a>
-          </div>
-        </div>
-      </section>
-
-
-      <section class="section muted" id="customer-hub">
-        <div class="container">
-          <h2>👤 Customer Login ke baad Full Feature Access</h2>
-          <p class="section-intro">Login hone ke baad customer ko yeh sab modules unlock hote hain (demo-ready workflow).</p>
-          <div class="grid three">
-            <article class="card"><h3>Wishlist + Compare</h3><p>Save properties, compare up to 3 listings, and track shortlisted options.</p></article>
-            <article class="card"><h3>Schedule Visit + Video Visit</h3><p>Book normal visit, request 30-second video tour, and receive confirmation updates.</p></article>
-            <article class="card"><h3>In-App Chat + Privacy</h3><p>Masked communication flow with spam protection and no public number exposure.</p></article>
-            <article class="card"><h3>AI Pricing + AI Description</h3><p>Area-average pricing hint, auto listing summary, and suspicious pricing alerts.</p></article>
-            <article class="card"><h3>Photo/Video/Docs Upload</h3><p>Min 5 photos, short video, floor plan and private document support ready in forms.</p></article>
-            <article class="card"><h3>Trust & Verification</h3><p>Owner verification, listing badge, report listing, and admin moderation controls.</p></article>
-          </div>
-          <div id="customerFeatureStatus" class="feature-status">Please login as customer to unlock this panel.</div>
-        </div>
-      </section>
-
-      <section class="section" id="business-model">
-        <div class="container">
-          <h2>💰 Revenue + Professional Service Stack</h2>
-          <div class="grid four">
-            <article class="card"><h3>Featured Listing</h3><p>7 days ₹299 • 30 days ₹999 • Premium visibility.</p></article>
-            <article class="card"><h3>Property Care Subscription</h3><p>Basic / Pro / Premium maintenance plans.</p></article>
-            <article class="card"><h3>Documentation Services</h3><p>Sale deed draft, rent agreement template, stamp duty guidance.</p></article>
-            <article class="card"><h3>Agent Membership</h3><p>Verified local agents, ratings and transparent commission model.</p></article>
-          </div>
-        </div>
-      </section>
-      <section class="section" id="liveDashboardSection">
-        <div class="container">
-          <h2>📊 Live Dashboard (Login ke baad)</h2>
-          <p class="section-intro">Customer aur Admin login ke baad yahan se sabhi major features access karein.</p>
-          <div id="liveDashboard" class="live-dashboard locked">
-            <p class="dashboard-empty">Login karo to dashboard modules unlock ho jayenge.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="section muted" id="legal">
-        <div class="container">
-          <h2>Important Legal Pages</h2>
-          <div class="pill-row">
-            <a href="legal/terms.html">Terms & Conditions</a>
-            <a href="legal/privacy.html">Privacy Policy</a>
-            <a href="legal/refund.html">Refund Policy</a>
-            <a href="legal/disclaimer.html">Disclaimer</a>
-            <a href="legal/service-agreement.html">Service Agreement</a>
-          </div>
-        </div>
+        <p id="customerFeatureStatus" class="feature-status">Please login as customer/admin to unlock features.</p>
       </section>
     </main>
 
@@ -256,49 +77,6 @@
       </div>
     </div>
 
-    <footer>
-      <div class="container footer-grid">
-        <div><h3>Trust</h3><p>Verified Listings Badge • Owner Verification • Reviews</p></div>
-        <div><h3>Support</h3><p>WhatsApp Chat • Office Address • Schedule Visit</p></div>
-        <div><h3>Theme</h3><p>Clean White + Dark Blue • Mobile Friendly</p></div>
-        <div>
-          <h3>PropertySetu</h3>
-          <p>Office: Udaipur, Rajasthan</p>
-        </div>
-        <div>
-          <h3>Future City URLs</h3>
-          <p>propertysetu.in/udaipur</p>
-          <p>propertysetu.in/jaipur</p>
-        </div>
-        <div>
-          <h3>Trust Signals</h3>
-          <p>Verified Listings Badge</p>
-          <p>Owner Verification</p>
-          <p>Customer Reviews</p>
-        </div>
-      </div>
-    </footer>
-
-    <dialog id="authDialog" class="auth-dialog">
-      <form method="dialog" id="authForm" class="auth-form">
-        <h3 id="authTitle">Login</h3>
-        <p id="authDescription">Secure local demo login for PropertySetu.</p>
-        <label>
-          Email
-          <input id="authEmail" type="email" required placeholder="name@example.com" />
-        </label>
-        <label>
-          Password
-          <input id="authPassword" type="password" required minlength="6" placeholder="Enter password" />
-        </label>
-        <div class="auth-row">
-          <button type="submit" class="primary-btn">Login</button>
-          <button type="button" id="authCancel" class="ghost-btn">Cancel</button>
-        </div>
-      </form>
-    </dialog>
-
-    <script src="js/location.js"></script>
-    <script src="js/script.js"></script>
+    <script src="js/home-auth.js"></script>
   </body>
 </html>

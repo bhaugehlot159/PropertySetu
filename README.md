@@ -90,3 +90,11 @@ curl -X POST http://localhost:5000/api/auth/logout \
 2. See same data on `dashboard.html` (user view).
 3. Approve/reject from `admin-dashboard.html` (admin view).
 4. Status updates sync via shared browser storage key: `propertySetu:listings`.
+
+## Folder-wise Layout (New)
+- Compact Home: `/index.html`
+- All features hub: `/folders/common/all-features.html`
+- Customer folder: `/folders/customer/customer-features.html`
+- Admin folder: `/folders/admin/admin-features.html`
+
+Home page now keeps only compulsory items; detailed modules are linked folder-wise without deleting old pages.
