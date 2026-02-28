@@ -127,6 +127,7 @@
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
+  const authActionSelect = document.getElementById('authActionSelect');
   const authNameInput = document.getElementById('authNameInput');
   const authEmailInput = document.getElementById('authEmailInput');
   const authMobileInput = document.getElementById('authMobileInput');
@@ -149,12 +150,18 @@
     writeJsonStorage(`propertysetu-${role}-session`, payload);
   };
 
+  const updateContactPlaceholder = () => {
+    if (!authContactMethod || !authContactInput) return;
+    authContactInput.placeholder = authContactMethod.value === 'mobile' ? 'Mobile Number (10-15 digits)' : 'Email Address';
+    authContactInput.type = 'text';
+  };
+
   const updateAuthButtons = () => {
     const customerState = getState('customer');
     const adminState = getState('admin');
 
-    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
-    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
+    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Customer Logout (${customerState.name})` : 'Customer Login';
+    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Admin Logout (${adminState.name})` : 'Admin Login';
 
     if (sessionBadge) {
       if (adminState) sessionBadge.textContent = `Admin: ${adminState.name}`;
@@ -183,6 +190,7 @@
     authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
     authModalHint.textContent = 'Email ya Mobile number se login/signup karein. Demo OTP: 123456';
     if (authErrorMessage) authErrorMessage.textContent = '';
+    if (authActionSelect) authActionSelect.value = 'login';
     if (authNameInput) authNameInput.value = '';
     if (authEmailInput) authEmailInput.value = '';
     if (authMobileInput) authMobileInput.value = '';
@@ -214,7 +222,21 @@
     return data;
   };
 
+  const performLogout = async (role) => {
+    const state = getState(role);
+    if (state?.token) {
+      try {
+        await apiRequest('/auth/logout', null, state.token);
+      } catch {
+        // no-op for stateless logout
+      }
+    }
+    setState(role, null);
+    updateAuthButtons();
+  };
+
   const doAuthFlow = async () => {
+    const action = authActionSelect?.value || 'login';
     const name = authNameInput?.value.trim() || '';
     const email = authEmailInput?.value.trim().toLowerCase() || '';
     const mobile = authMobileInput?.value.trim() || '';
@@ -250,26 +272,49 @@
     }
   };
 
-  customerAuthButton?.addEventListener('click', () => {
+  customerAuthButton?.addEventListener('click', async () => {
     const current = getState('customer');
     if (current) {
+      try {
+        await apiRequest('/auth/logout', { role: 'customer' }, current.token);
+      } catch {
+        // no-op for demo token invalidation
+      }
       setState('customer', null);
       updateAuthButtons();
       return;
     }
-    openAuthModal('customer');
+    openAuthModal('customer', 'login');
   });
 
-  adminAuthButton?.addEventListener('click', () => {
+  adminAuthButton?.addEventListener('click', async () => {
     const current = getState('admin');
     if (current) {
+      try {
+        await apiRequest('/auth/logout', { role: 'admin' }, current.token);
+      } catch {
+        // no-op for demo token invalidation
+      }
       setState('admin', null);
       updateAuthButtons();
       return;
     }
-    openAuthModal('admin');
+    openAuthModal('admin', 'login');
   });
 
+  authLoginModeButton?.addEventListener('click', () => {
+    authActionMode = 'login';
+    updateAuthActionUI();
+  });
+
+  authSignupModeButton?.addEventListener('click', () => {
+    authActionMode = 'signup';
+    updateAuthActionUI();
+  });
+
+  authContactMethod?.addEventListener('change', updateContactPlaceholder);
+  authLoginModeButton?.addEventListener('click', () => setAuthAction('login'));
+  authSignupModeButton?.addEventListener('click', () => setAuthAction('signup'));
   authCancelButton?.addEventListener('click', closeAuthModal);
   authSubmitButton?.addEventListener('click', doAuthFlow);
   authLoginTab?.addEventListener('click', () => setAuthAction('login'));
@@ -440,11 +485,6 @@
     if (aiOutput) {
       aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
-
-    if (aiOutput) {
-      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
-    }
-    openAuthModal('customer');
   });
 
   updateMarketplaceStats();
