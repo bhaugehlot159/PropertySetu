@@ -336,6 +336,25 @@ footer h3 { color: #fff; margin-top: 0; }
   font-weight: 600;
 }
 
+
+.auth-mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.auth-mode-toggle .outline-btn {
+  color: #0b2f6b;
+  border-color: #9ab9f7;
+}
+
+.auth-mode-toggle .outline-btn.active {
+  background: #0b2f6b;
+  color: #fff;
+  border-color: #0b2f6b;
+}
+
 .auth-error {
   min-height: 18px;
   color: #c62828;

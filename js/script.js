@@ -128,13 +128,16 @@
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
   const authNameInput = document.getElementById('authNameInput');
-  const authEmailInput = document.getElementById('authEmailInput');
+  const authIdentifierInput = document.getElementById('authIdentifierInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
   const authCancelButton = document.getElementById('authCancelButton');
   const authSubmitButton = document.getElementById('authSubmitButton');
+  const authLoginModeButton = document.getElementById('authLoginModeButton');
+  const authSignupModeButton = document.getElementById('authSignupModeButton');
   let authMode = 'customer';
+  let authActionMode = 'login';
 
   const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
   const setState = (role, payload) => {
@@ -165,19 +168,33 @@
     }
   };
 
-  const openAuthModal = (role) => {
+  const updateAuthActionUI = () => {
+    const isSignup = authActionMode === 'signup';
+    if (authLoginModeButton) authLoginModeButton.classList.toggle('active', !isSignup);
+    if (authSignupModeButton) authSignupModeButton.classList.toggle('active', isSignup);
+    if (authNameInput) authNameInput.style.display = isSignup ? 'block' : 'none';
+    if (authSubmitButton) authSubmitButton.textContent = isSignup ? 'Create Account' : 'Login';
+    if (authModalHint) {
+      authModalHint.textContent = isSignup
+        ? 'Create genuine account with Email or Mobile. OTP required. Demo OTP: 123456'
+        : 'Secure login with Email or Mobile. Demo OTP: 123456';
+    }
+  };
+
+  const openAuthModal = (role, mode = 'login') => {
     authMode = role;
-    if (!authModal || !authModalTitle || !authModalHint) return;
-    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Login' : 'Customer Secure Login';
-    authModalHint.textContent = 'Enter full details. First attempt auto-registers if account not found. Demo OTP: 123456';
+    authActionMode = mode;
+    if (!authModal || !authModalTitle) return;
+    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
     if (authErrorMessage) authErrorMessage.textContent = '';
     if (authNameInput) authNameInput.value = '';
-    if (authEmailInput) authEmailInput.value = '';
+    if (authIdentifierInput) authIdentifierInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
+    updateAuthActionUI();
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authNameInput?.focus();
+    (authIdentifierInput || authNameInput)?.focus();
   };
 
   const closeAuthModal = () => {
@@ -202,55 +219,67 @@
 
   const doAuthFlow = async () => {
     const name = authNameInput?.value.trim() || '';
-    const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const identifier = authIdentifierInput?.value.trim() || '';
     const password = authPasswordInput?.value || '';
     const otp = authOtpInput?.value.trim() || '';
 
-    if (!name || !email || password.length < 6 || !otp) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
+    if (!identifier || password.length < 6 || !otp || (authActionMode === 'signup' && !name)) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Login/Signup details missing. Name required for Signup, and Email/Mobile + Password + OTP are mandatory.';
       return;
     }
-    openAuthModal('customer');
-  });
 
-    const payload = { name, email, password, otp, role: authMode };
+    const payload = { name, identifier, password, otp, role: authMode };
 
     try {
-      const loginResponse = await apiRequest('/auth/login', payload);
-      setState(authMode, { ...loginResponse.user, token: loginResponse.token, loggedInAt: new Date().toISOString() });
+      const endpoint = authActionMode === 'signup' ? '/auth/register' : '/auth/login';
+      const response = await apiRequest(endpoint, payload);
+      setState(authMode, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
       closeAuthModal();
       updateAuthButtons();
       return;
-    } catch {
-      try {
-        const registerResponse = await apiRequest('/auth/register', payload);
-        setState(authMode, { ...registerResponse.user, token: registerResponse.token, loggedInAt: new Date().toISOString() });
-        closeAuthModal();
-        updateAuthButtons();
-      } catch (registerError) {
-        if (authErrorMessage) authErrorMessage.textContent = registerError.message;
-      }
+    } catch (error) {
+      if (authErrorMessage) authErrorMessage.textContent = error.message;
     }
   };
 
-  customerAuthButton?.addEventListener('click', () => {
+  customerAuthButton?.addEventListener('click', async () => {
     const current = getState('customer');
     if (current) {
+      try {
+        await apiRequest('/auth/logout', { role: 'customer' }, current.token);
+      } catch {
+        // no-op for demo token invalidation
+      }
       setState('customer', null);
       updateAuthButtons();
       return;
     }
-    openAuthModal('customer');
+    openAuthModal('customer', 'login');
   });
 
-  adminAuthButton?.addEventListener('click', () => {
+  adminAuthButton?.addEventListener('click', async () => {
     const current = getState('admin');
     if (current) {
+      try {
+        await apiRequest('/auth/logout', { role: 'admin' }, current.token);
+      } catch {
+        // no-op for demo token invalidation
+      }
       setState('admin', null);
       updateAuthButtons();
       return;
     }
-    openAuthModal('admin');
+    openAuthModal('admin', 'login');
+  });
+
+  authLoginModeButton?.addEventListener('click', () => {
+    authActionMode = 'login';
+    updateAuthActionUI();
+  });
+
+  authSignupModeButton?.addEventListener('click', () => {
+    authActionMode = 'signup';
+    updateAuthActionUI();
   });
 
   authCancelButton?.addEventListener('click', closeAuthModal);
@@ -421,11 +450,6 @@
     if (aiOutput) {
       aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
-
-    if (aiOutput) {
-      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
-    }
-    openAuthModal('customer');
   });
 
   updateMarketplaceStats();
