@@ -127,6 +127,7 @@
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
+  const authActionSelect = document.getElementById('authActionSelect');
   const authNameInput = document.getElementById('authNameInput');
   const authIdentifierInput = document.getElementById('authIdentifierInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
@@ -148,12 +149,18 @@
     writeJsonStorage(`propertysetu-${role}-session`, payload);
   };
 
+  const updateContactPlaceholder = () => {
+    if (!authContactMethod || !authContactInput) return;
+    authContactInput.placeholder = authContactMethod.value === 'mobile' ? 'Mobile Number (10-15 digits)' : 'Email Address';
+    authContactInput.type = 'text';
+  };
+
   const updateAuthButtons = () => {
     const customerState = getState('customer');
     const adminState = getState('admin');
 
-    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
-    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
+    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Customer Logout (${customerState.name})` : 'Customer Login';
+    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Admin Logout (${adminState.name})` : 'Admin Login';
 
     if (sessionBadge) {
       if (adminState) sessionBadge.textContent = `Admin: ${adminState.name}`;
@@ -187,6 +194,7 @@
     if (!authModal || !authModalTitle) return;
     authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
     if (authErrorMessage) authErrorMessage.textContent = '';
+    if (authActionSelect) authActionSelect.value = 'login';
     if (authNameInput) authNameInput.value = '';
     if (authIdentifierInput) authIdentifierInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
@@ -217,7 +225,21 @@
     return data;
   };
 
+  const performLogout = async (role) => {
+    const state = getState(role);
+    if (state?.token) {
+      try {
+        await apiRequest('/auth/logout', null, state.token);
+      } catch {
+        // no-op for stateless logout
+      }
+    }
+    setState(role, null);
+    updateAuthButtons();
+  };
+
   const doAuthFlow = async () => {
+    const action = authActionSelect?.value || 'login';
     const name = authNameInput?.value.trim() || '';
     const identifier = authIdentifierInput?.value.trim() || '';
     const password = authPasswordInput?.value || '';
@@ -282,6 +304,9 @@
     updateAuthActionUI();
   });
 
+  authContactMethod?.addEventListener('change', updateContactPlaceholder);
+  authLoginModeButton?.addEventListener('click', () => setAuthAction('login'));
+  authSignupModeButton?.addEventListener('click', () => setAuthAction('signup'));
   authCancelButton?.addEventListener('click', closeAuthModal);
   authSubmitButton?.addEventListener('click', doAuthFlow);
 

@@ -29,7 +29,17 @@ app.use(express.static(webRoot));
 const bids = [];
 const users = [];
 
-const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+const signToken = (user) => jwt.sign(
+  {
+    id: user.id,
+    role: user.role,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+  },
+  JWT_SECRET,
+  { expiresIn: '24h' },
+);
 
 const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
 const sanitizePhone = (value) => String(value || '').replace(/\D/g, '');
@@ -63,12 +73,79 @@ const authGuard = (req, res, next) => {
   }
 };
 
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+const normalizeName = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+
+const looksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const looksLikePhone = (value) => /^\d{10}$/.test(value);
+
+const blockedEmailPatterns = [
+  /@example\.com$/i,
+  /@test\.com$/i,
+  /@mailinator\.com$/i,
+  /@tempmail/i,
+  /\bfake\b/i,
+];
+
+const validateGenuineProfile = ({ name, email, phone, password }) => {
+  if (!name || name.length < 3 || /[^a-zA-Z\s]/.test(name)) {
+    return 'Please enter a genuine full name (letters and spaces only).';
+  }
+
+  if (email) {
+    if (!looksLikeEmail(email)) {
+      return 'Please enter a valid email address.';
+    }
+    if (blockedEmailPatterns.some((pattern) => pattern.test(email))) {
+      return 'Disposable/test email addresses are not allowed. Please use a genuine email.';
+    }
+  }
+
+  if (phone && !looksLikePhone(phone)) {
+    return 'Please enter a valid 10-digit Indian mobile number.';
+  }
+
+  if (!email && !phone) {
+    return 'Provide at least one contact method: email or mobile number.';
+  }
+
+  if (!password || password.length < 6) {
+    return 'Password must contain at least 6 characters.';
+  }
+
+  if (/^(123456|password|qwerty|000000)$/i.test(password)) {
+    return 'Weak password detected. Please choose a stronger password.';
+  }
+
+  return null;
+};
+
+const findUserByIdentifier = ({ role, identifier, email, phone }) => {
+  const cleanIdentifier = String(identifier || '').trim().toLowerCase();
+  const normalizedPhoneIdentifier = normalizePhone(identifier);
+
+  return users.find((entry) => {
+    if (entry.role !== role) return false;
+
+    if (cleanIdentifier) {
+      if (looksLikeEmail(cleanIdentifier)) return entry.email === cleanIdentifier;
+      if (normalizedPhoneIdentifier) return entry.phone === normalizedPhoneIdentifier;
+      return false;
+    }
+
+    if (email && entry.email === email) return true;
+    if (phone && entry.phone === phone) return true;
+    return false;
+  });
+};
+
 app.get('/api', (_req, res) => {
   res.json({
     ok: true,
     service: 'PropertySetu API',
-    version: '1.1.0',
-    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers'],
+    version: '1.2.0',
+    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers', 'email-or-mobile-login', 'fake-profile-detection'],
   });
 });
 
@@ -94,8 +171,14 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  if (String(otp || '') !== '123456') {
-    res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
+  const validationError = validateGenuineProfile({
+    name: cleanName,
+    email: cleanEmail,
+    phone: cleanPhone,
+    password: String(password || ''),
+  });
+  if (validationError) {
+    res.status(400).json({ ok: false, message: validationError });
     return;
   }
 
