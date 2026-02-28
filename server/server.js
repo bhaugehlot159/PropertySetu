@@ -29,7 +29,18 @@ app.use(express.static(webRoot));
 const bids = [];
 const users = [];
 
-const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+const disposableDomains = new Set([
+  'mailinator.com',
+  'tempmail.com',
+  '10minutemail.com',
+  'guerrillamail.com',
+  'yopmail.com',
+]);
+
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+
+const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email, phone: user.phone }, JWT_SECRET, { expiresIn: '24h' });
 
 const authGuard = (req, res, next) => {
   const authHeader = req.headers.authorization || '';
@@ -47,11 +58,38 @@ const authGuard = (req, res, next) => {
   }
 };
 
+const findUserByIdentifier = (identifierType, identifierValue, role) => {
+  if (identifierType === 'mobile') {
+    return users.find((entry) => entry.phone === identifierValue && entry.role === role);
+  }
+  return users.find((entry) => entry.email === identifierValue && entry.role === role);
+};
+
+const detectFakeSignup = ({ name, email, phone, password }) => {
+  const reasons = [];
+  if (/\b(test|fake|spam|demo user)\b/i.test(name)) reasons.push('Suspicious name pattern detected.');
+
+  const domain = email.includes('@') ? email.split('@')[1] : '';
+  if (domain && disposableDomains.has(domain)) reasons.push('Disposable email domains are not allowed.');
+
+  if (phone && /^(\d)\1{9}$/.test(phone)) reasons.push('Invalid mobile number pattern detected.');
+
+  if (/^(123456|1234567|password|qwerty)/i.test(password)) reasons.push('Password is too weak for a genuine account.');
+
+  const duplicateCount = users.filter((entry) => (email && entry.email === email) || (phone && entry.phone === phone)).length;
+  if (duplicateCount >= 2) reasons.push('Too many accounts detected with same identifier.');
+
+  return {
+    isFake: reasons.length > 0,
+    reasons,
+  };
+};
+
 app.get('/api', (_req, res) => {
   res.json({
     ok: true,
     service: 'PropertySetu API',
-    version: '1.1.0',
+    version: '1.2.0',
     features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers'],
   });
 });
@@ -61,13 +99,24 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password, role, otp } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const { name, email, mobile, password, role, otp } = req.body || {};
+  const cleanEmail = normalizeEmail(email);
+  const cleanMobile = normalizePhone(mobile);
   const cleanName = String(name || '').trim();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
-  if (!cleanName || !cleanEmail || !password || String(password).length < 6) {
-    res.status(400).json({ ok: false, message: 'Name, email and password (min 6) are required.' });
+  if (!cleanName || (!cleanEmail && !cleanMobile) || !password || String(password).length < 6) {
+    res.status(400).json({ ok: false, message: 'Name, password (min 6), and either email or mobile are required.' });
+    return;
+  }
+
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    res.status(400).json({ ok: false, message: 'Please enter a valid email address.' });
+    return;
+  }
+
+  if (cleanMobile && !/^\d{10}$/.test(cleanMobile)) {
+    res.status(400).json({ ok: false, message: 'Mobile number must be exactly 10 digits.' });
     return;
   }
 
@@ -76,7 +125,13 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  const existing = users.find((user) => user.email === cleanEmail && user.role === cleanRole);
+  const fakeCheck = detectFakeSignup({ name: cleanName, email: cleanEmail, phone: cleanMobile, password: String(password) });
+  if (fakeCheck.isFake) {
+    res.status(422).json({ ok: false, message: `Signup blocked: ${fakeCheck.reasons.join(' ')}` });
+    return;
+  }
+
+  const existing = users.find((user) => user.role === cleanRole && ((cleanEmail && user.email === cleanEmail) || (cleanMobile && user.phone === cleanMobile)));
   if (existing) {
     res.status(409).json({ ok: false, message: 'User already exists for this role. Please login.' });
     return;
@@ -86,7 +141,8 @@ app.post('/api/auth/register', async (req, res) => {
   const user = {
     id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: cleanName,
-    email: cleanEmail,
+    email: cleanEmail || null,
+    phone: cleanMobile || null,
     passwordHash: hashedPassword,
     role: cleanRole,
     verified: true,
@@ -95,12 +151,13 @@ app.post('/api/auth/register', async (req, res) => {
   users.push(user);
   const token = signToken(user);
 
-  res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
+  res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, verified: user.verified } });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password, role, otp } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const { email, mobile, password, role, otp } = req.body || {};
+  const cleanEmail = normalizeEmail(email);
+  const cleanMobile = normalizePhone(mobile);
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
   if (String(otp || '') !== '123456') {
@@ -108,7 +165,15 @@ app.post('/api/auth/login', async (req, res) => {
     return;
   }
 
-  const user = users.find((entry) => entry.email === cleanEmail && entry.role === cleanRole);
+  if (!cleanEmail && !cleanMobile) {
+    res.status(400).json({ ok: false, message: 'Please enter email or mobile to login.' });
+    return;
+  }
+
+  const identifierType = cleanMobile ? 'mobile' : 'email';
+  const identifierValue = cleanMobile || cleanEmail;
+  const user = findUserByIdentifier(identifierType, identifierValue, cleanRole);
+
   if (!user) {
     res.status(404).json({ ok: false, message: 'User not found. Please register first.' });
     return;
@@ -121,7 +186,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = signToken(user);
-  res.json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
+  res.json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, verified: user.verified } });
+});
+
+app.post('/api/auth/logout', authGuard, (_req, res) => {
+  res.json({ ok: true, message: 'Logged out successfully. Please clear token on client.' });
 });
 
 app.get('/api/auth/me', authGuard, (req, res) => {

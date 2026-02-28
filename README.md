@@ -17,18 +17,20 @@ Open:
 ## Secure Auth Demo (Customer/Admin)
 Demo OTP for both roles: `123456`
 
+Login now supports **email OR mobile number** for both customer and admin roles. Signup includes basic fake-account detection (disposable email, repeated digits mobile, weak obvious passwords).
+
 Register/Login flow is automatic from UI modal. You can also test via API:
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/register \
   -H "content-type: application/json" \
-  -d '{"name":"Demo Customer","email":"customer@propertysetu.in","password":"customer123","role":"customer","otp":"123456"}'
+  -d '{"name":"Demo Customer","email":"customer@propertysetu.in","mobile":"9876543210","password":"customer123","role":"customer","otp":"123456"}'
 ```
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/login \
   -H "content-type: application/json" \
-  -d '{"email":"customer@propertysetu.in","password":"customer123","role":"customer","otp":"123456"}'
+  -d '{"mobile":"9876543210","password":"customer123","role":"customer","otp":"123456"}'
 ```
 
 ## Sealed Bid Demo API
@@ -63,7 +65,13 @@ Available in `/legal`:
 
 
 ## Production Blueprint
-Detailed non-destructive production roadmap: `PRODUCTION_GRADE_BLUEPRINT.md`
+Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.md`.
+
+## Auth Logout API
+```bash
+curl -X POST http://localhost:5000/api/auth/logout \
+  -H "authorization: Bearer <token>"
+```
 
 ## Codex PR workflow note
 If Codex shows this message:
@@ -73,6 +81,26 @@ Use this flow:
 1. Commit new changes on the same branch.
 2. Create a **new PR** from Codex instead of trying to update the old PR.
 3. Close/supersede the previous PR in GitHub if needed.
-## Production Blueprint
-Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.md`.
 
+## Connected Demo Flow (All major folders linked)
+1. Add property from `add-property.html` **or** `seller-dashboard.html`.
+2. See same data on `dashboard.html` (user view).
+3. Approve/reject from `admin-dashboard.html` (admin view).
+4. Status updates sync via shared browser storage key: `propertySetu:listings`.
+
+## Folder-wise Layout (New)
+- Compact Home: `/index.html`
+- All features hub: `/folders/common/all-features.html`
+- Customer folder: `/folders/customer/customer-features.html`
+- Admin folder: `/folders/admin/admin-features.html`
+
+Home page now keeps only compulsory items; detailed modules are linked folder-wise without deleting old pages.
+
+
+## Merge file-count clarification
+GitHub PR pages can show different **Files changed** counts when work is split across multiple PRs.
+- The large auth/layout integration update touched **14 files** in one changeset:
+  `README.md`, `admin-dashboard.html`, `css/style.css`, `dashboard.html`, `dashboard.js`, `folders/admin/admin-features.html`, `folders/common/all-features.html`, `folders/customer/customer-features.html`, `index.html`, `js/add-property.js`, `js/home-auth.js`, `js/script.js`, `seller-dashboard.html`, `server/server.js`.
+- If you see only **6 files** on a merged PR, that page is showing only that PR's incremental diff (not all earlier merged commits).
+
+Tip: open the specific commit diff to verify exact file list.
