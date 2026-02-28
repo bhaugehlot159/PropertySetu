@@ -394,3 +394,61 @@ footer h3 { color: #fff; margin-top: 0; }
   color: #fff;
   border-color: #0b2f6b;
 }
+
+
+.live-dashboard {
+  border: 1px solid #cfe0ff;
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.live-dashboard.locked {
+  background: #f7faff;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-card {
+  border: 1px solid #d8e5ff;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.dashboard-card h4 {
+  margin: 0 0 6px;
+  color: #0b2f6b;
+}
+
+.dashboard-links {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboard-links a {
+  text-decoration: none;
+  border: 1px solid #bed3ff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #103978;
+  font-weight: 600;
+}
+
+.dashboard-empty {
+  margin: 0;
+  color: #224778;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}

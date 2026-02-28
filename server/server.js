@@ -123,8 +123,8 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  if (!parsedEmail && parsedPhone.length < 10) {
-    res.status(400).json({ ok: false, message: 'Please enter a valid email or mobile number.' });
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    res.status(400).json({ ok: false, message: 'Please enter a valid email address.' });
     return;
   }
 
