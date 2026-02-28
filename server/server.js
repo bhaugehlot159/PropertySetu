@@ -104,6 +104,9 @@ app.post('/api/auth/register', async (req, res) => {
   const cleanMobile = normalizePhone(mobile);
   const cleanName = String(name || '').trim();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
+  const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
+  const parsedPhone = sanitizePhone(phone || identifier);
+  const parsedEmail = normalizeIdentifier(email || (looksLikeEmail(cleanIdentifier) ? cleanIdentifier : ''));
 
   if (!cleanName || (!cleanEmail && !cleanMobile) || !password || String(password).length < 6) {
     res.status(400).json({ ok: false, message: 'Name, password (min 6), and either email or mobile are required.' });
@@ -120,8 +123,8 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  if (String(otp || '') !== '123456') {
-    res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    res.status(400).json({ ok: false, message: 'Please enter a valid email address.' });
     return;
   }
 
@@ -133,7 +136,7 @@ app.post('/api/auth/register', async (req, res) => {
 
   const existing = users.find((user) => user.role === cleanRole && ((cleanEmail && user.email === cleanEmail) || (cleanMobile && user.phone === cleanMobile)));
   if (existing) {
-    res.status(409).json({ ok: false, message: 'User already exists for this role. Please login.' });
+    res.status(409).json({ ok: false, message: 'Account already exists for this role. Please login.' });
     return;
   }
 
@@ -160,6 +163,11 @@ app.post('/api/auth/login', async (req, res) => {
   const cleanMobile = normalizePhone(mobile);
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
+  if (!cleanIdentifier || !password) {
+    res.status(400).json({ ok: false, message: 'Email/Mobile and password are required.' });
+    return;
+  }
+
   if (String(otp || '') !== '123456') {
     res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
     return;
@@ -175,7 +183,7 @@ app.post('/api/auth/login', async (req, res) => {
   const user = findUserByIdentifier(identifierType, identifierValue, cleanRole);
 
   if (!user) {
-    res.status(404).json({ ok: false, message: 'User not found. Please register first.' });
+    res.status(404).json({ ok: false, message: 'User not found. Please signup first.' });
     return;
   }
 
