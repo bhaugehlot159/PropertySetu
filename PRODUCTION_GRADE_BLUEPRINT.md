@@ -1,138 +1,211 @@
-# PropertySetu Production-Grade Blueprint
+# Production-Grade Blueprint for PropertySetu
 
-> Goal: Existing website ko **delete kiye bina** production-grade, reliable, secure aur scalable platform me evolve karna.
+## What your brief implies in production terms
 
-## 1) Production ka asli matlab
+Your requirement (**"Meri website ko full production bana do"**, **"Purana jo bhi bana hai use mat hatana"**, **"Properly working bana do"**, **"Ek OLX se bhi behatar"**) translates to a shift from a static or partially-working site to a **reliable marketplace + services platform** with real users, real uploads, real payments, real moderation, and strong trust/safety.
 
-Production-ready banane ka matlab sirf UI polish nahi hota. Iska matlab hai:
-- strong auth + authorization,
-- reliable data workflows,
-- uploads + payments + moderation working end-to-end,
-- trust/safety,
-- legal/privacy compliance,
-- observability and ops readiness.
+That “production” bar is not mainly about UI polish; it is mostly about **systems**: authentication, authorisation, data integrity, auditability, abuse controls, operational workflows, and compliance.
 
-Is project ke liye right strategy hai: **incremental modernization (Strangler pattern)**.
-- Purani website live rahegi.
-- Naye modules gradually add honge.
-- Risk low rahega, shipping continuous rahegi.
+A key constraint is preserving whatever is already built. The strongest proven approach for this is an incremental modernisation pattern (often called the *Strangler Fig* approach): keep the existing site working while you progressively route new functionality to new modules/services, so value ships gradually and risk stays contained.
 
-## 2) Target platform architecture (Buy/Sell/Rent + Property Care)
+To be “better than a classifieds benchmark”, you do not need to out-copy every feature. You need to win on the things that matter in property:
 
-System ko 4 collaborating blocks me split karo:
+- **trust**
+- **verification**
+- **higher-quality listings**
+- **privacy-first communication**
+- **visit scheduling**
+- and your **Property Care** subscription, which is a differentiator that general classifieds typically don’t operationalise end-to-end.
 
-1. **Public Marketplace**
-   - listings, search/filters, city pages, lead capture.
-2. **User Accounts**
-   - OTP login, buyer/seller/agent/admin roles, dashboards.
-3. **Property Care Operations**
-   - service catalog, booking, scheduling, assignment, proof-of-service, subscriptions.
-4. **Admin + Trust/Safety Console**
-   - moderation, verification approvals, fraud reports, disputes, audit logs.
+## Architecture that supports Buy/Sell/Rent plus Property Care end-to-end
 
-## 3) Data model that supports real workflows
+A production architecture for your scope (marketplace + service operations) is best treated as **four cooperating systems**:
 
-### Marketplace entities
-- **User**: role, phone_verified, verification_state, abuse_flags.
-- **PropertyListing**: transaction type, property type, location hierarchy, media, trust flags.
-- **Lead/Enquiry**: chat, visit request, phone reveal, WhatsApp/email events.
-- **VisitBooking**: slot + status + reminders.
-- **Review/Rating**: moderated and scoped feedback.
+### 1) Public marketplace (Buy/Sell/Rent)
+Listings, search, filters, city/locality pages, lead capture (chat/visit request), basic anti-spam.
+
+### 2) User/account system (Buyer/Seller/Agent)
+OTP login, role-based dashboards, saved properties, listing management, and verification status.
+
+### 3) Property Care operations system
+Service catalogue (monthly check, cleaning, garden care, bill payments, security visit, farmhouse/vadi maintenance), subscription packages, scheduling, staff assignment, service proofs (photos), and closure notes.
+
+### 4) Admin & Trust/Safety console
+Listing moderation, verified badge approvals, fraud flags, reports & disputes, payment reconciliation, compliance exports, and audit logs.
+
+Because you want **city-based SEO pages** (for example `/udaipur`, `/jaipur`), the frontend should support a routing model that can generate pages reliably and quickly.
+
+For production hardening, treat the “hero search” as only the top of the funnel; the actual work is done by the backend + database + media storage + moderation tooling.
+
+## Data model and workflows that make the platform “properly working”
+
+A platform like yours becomes stable when the **data model matches real workflows**, not just UI categories.
+
+### Marketplace core entities
+
+#### User
+- Roles: buyer/tenant, seller/owner, agent, admin, operations staff.
+- State: phone verified, optional identity verification state, abuse flags, subscription state.
+- Baseline protections: SMS verification + OTP request rate limiting.
+
+#### Property Listing
+- Transaction: buy/sell, rent, lease, mortgage (“girvi”) where applicable.
+- Type: house, flat, villa, plot, agricultural land, commercial, warehouse, PG/hostel, farmhouse/vadi.
+- Location: city → locality/area → landmark; geo coordinates optional.
+- Media: photos (enforce minimum), optional short video, optional floor plan, optional private documents.
+- Trust flags: verified-by-admin, owner-verified, featured/boosted, report count.
+
+#### Lead / Enquiry
+Track conversion actions:
+- chat started
+- visit request
+- phone reveal request
+- WhatsApp click
+- email
+
+#### Visit Booking
+Calendar slot + status pipeline:
+- requested
+- accepted
+- rejected
+- completed
+- no-show
+
+Also includes reminders and follow-ups.
+
+#### Review / Rating
+If implemented, keep scope controlled:
+- property accuracy
+- owner behaviour
+- agent service
+
+Moderation is mandatory before broad visibility.
 
 ### Property Care entities
-- **ServiceCatalogItem**
-- **ServiceOrder** (schedule, assigned staff, completion proof)
-- **SubscriptionPlan** (renew/pause/cancel lifecycle)
 
-### Sealed bid module
-- bidder data private-by-default.
-- admin-only reveal endpoint.
-- full audit trail for every reveal/decision action.
+#### Service Catalogue Item
+Examples:
+- monthly house check
+- cleaning
+- garden/vadi maintenance
+- security visit
+- bill payment handling
+- tenant coordination
 
-## 4) Security and trust baseline (must-have)
+#### Service Order
+Booking + schedule + assigned staff + proof (before/after photos) + completion notes + invoice.
 
-- OTP login with strict rate limiting.
-- Role and object-level access checks on every sensitive endpoint.
-- File upload hardening:
-  - allowlist extensions,
-  - MIME/content validation,
-  - generated server-side file names,
-  - size limits,
-  - malware scan pipeline.
-- Admin audit logs immutable format me maintain karo.
-- Private docs (verification docs) private storage bucket me rakho.
+#### Subscription Plan
+Monthly packages, renewal, pause/cancel, upgrade/downgrade.
 
-## 5) Compliance-first product requirements
+### Sealed-bid module (hidden bidding)
 
-- DPDP-aligned consent + notice logs.
-- consent withdrawal flow.
-- retention and deletion policy implementation.
-- legal pages operationally linked in UI and user flows.
-- identity verification flows ko privacy-by-design model me रखो (minimum data principle).
-- project/promoter listings ke liye RERA-sensitive moderation checks.
+This is a security-critical workflow, not just a UI toggle:
 
-## 6) Payments and monetization reliability
+- Bid records are never returned to buyers/sellers.
+- Only admin endpoints can access bid details.
+- Admin actions: accept/reject/reveal winner.
+- Full audit trail for disputes and compliance.
 
-Monetization modules:
-- featured listing fees,
-- agent subscriptions,
-- property care subscriptions.
+## Trust, verification, privacy, and India compliance constraints
 
-Implementation rules:
-- payment status webhooks mandatory.
-- idempotent webhook processing.
-- internal transaction ledger table.
-- reconciliation views in admin panel.
+### DPDP readiness as a product requirement
 
-## 7) SEO and performance for multi-city growth
+Implement as product capabilities, not just policy pages:
 
-- city routes: `/udaipur`, `/jaipur`, `/kota`, etc.
-- locality/category landing pages for high-intent indexing.
-- canonical strategy for filtered pages.
-- sitemap + structured metadata.
-- SSR/SSG where appropriate so indexable HTML consistently serve ho.
+- Purpose-based notice + explicit consent logging.
+- Consent withdrawal flow with easy UX.
+- Evidence trail for “when/what/how consent was collected”.
+- Data minimisation and retention controls.
+- Multilingual notices where required.
 
-## 8) Incremental delivery roadmap (without removing old work)
+### Aadhaar verification caution
 
-### Phase 1 — Foundation
-- existing UI untouched.
-- backend auth, roles, listing ownership checks.
-- DB as single source of truth.
-- audit log skeleton.
+Do not roll out Aadhaar flows casually. Start with safer trust layers:
 
-### Phase 2 — Marketplace hardening
-- Add Property flow with secure uploads.
-- lead tracking and visit requests.
-- report listing + moderation queue.
-- featured listing payment wiring.
+- phone OTP verification
+- optional PAN-based verification for owners/agents
+- manual document review for “Verified by PropertySetu”
+- private storage bucket + strict access controls
 
-### Phase 3 — Property Care operationalization
-- service catalog + packages.
-- booking/scheduling/assignment.
-- completion proof upload.
-- recurring billing lifecycle.
+Only expand to Aadhaar-linked flows with explicit legal/compliance review.
 
-### Phase 4 — Trust advanced features
-- verified badge process.
-- moderated reviews.
-- sealed-bid admin reveal controls.
+### RERA-aware listing policy
 
-### Phase 5 — Compliance + scale
-- consent records + retention workflows.
-- RERA-sensitive controls.
-- analytics, alerts, incident runbooks, backups.
+For promoter/new-project style listings, enforce:
 
-## 9) Definition of Done for “Production Ready”
+- RERA registration details (where applicable)
+- listing moderation checks
+- clear legal disclaimers
 
-Project tab tak production-ready nahi maana jayega jab tak:
-- auth + authorization + ownership checks stable na ho,
-- uploads secure pipeline me na ho,
-- payments webhook+ledger reconciliation ke saath stable na ho,
-- moderation and dispute workflows live na ho,
-- compliance + legal + data-governance controls documented and implemented na ho,
-- operational monitoring + backup/restore drills validated na ho.
+### Secure file-upload controls
 
----
+Production-grade upload pipeline should enforce:
 
-### Non-destructive commitment
-Is blueprint ka objective exactly yehi hai: **existing product ko hataye bina**, modules add karke, safely production-level capability tak pahunchna.
+- extension allowlist
+- MIME/type signature validation (don’t trust browser header)
+- file size limits
+- safe server-side renaming
+- role-based upload permissions
+- malware scan before publish
+- private-by-default storage for sensitive docs
+
+## Payments, featured listings, and subscriptions that reconcile
+
+Monetisation (featured listing fees, agent subscription, property care packages) requires operational integrity:
+
+- webhook-driven payment state updates
+- idempotent event handling
+- payment ledger tables
+- retry-safe status transitions
+
+Without this, you will face recurring “paid but not activated” incidents.
+
+## SEO, performance, and multi-city structure
+
+City pages are correct direction, but must avoid duplicate content traps.
+
+### SEO rules
+- Stable crawlable HTML for landing pages.
+- Canonical URLs for filtered/search permutations.
+- Index only high-intent pages (city/locality/category), not all filter combinations.
+- Sitemap discipline.
+- Canonical tags rendered server-side.
+
+## Phased delivery roadmap (without deleting old work)
+
+### Phase 1: Foundation
+Keep current site functional; add backend skeleton.
+
+Definition of done:
+- single source-of-truth database for users/listings
+- OTP login with request rate limiting
+- role-based access control
+- admin audit logs
+
+### Phase 2: Marketplace hardening
+- Add Property with minimum photos rule.
+- Secure media upload pipeline.
+- Chat-first privacy model.
+- Reporting + moderation queue.
+- Featured placements tied to reconciled payments.
+
+### Phase 3: Property Care operations
+- Service catalog + package pricing.
+- Booking/scheduling/assignment workflow.
+- Service completion proofs.
+- Recurring billing + renewals + dunning.
+
+### Phase 4: Advanced trust
+- “Verified by PropertySetu” badge workflow.
+- Moderated reviews.
+- Sealed bids with strict object-level authorisation.
+
+### Phase 5: Compliance hardening
+- DPDP-grade consent/notice/withdrawal/retention implementation.
+- Identity verification privacy guardrails.
+- RERA-aware moderation for relevant inventory.
+
+## Final outcome target
+
+This phased rollout preserves all existing work while turning PropertySetu into a production-grade, trust-led real estate + service operations platform. The roadmap is designed to ship value incrementally, reduce risk, and avoid breaking old modules while new systems are introduced.
