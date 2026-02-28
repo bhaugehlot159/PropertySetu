@@ -29,33 +29,18 @@ app.use(express.static(webRoot));
 const bids = [];
 const users = [];
 
-const signToken = (user) => jwt.sign(
-  {
-    id: user.id,
-    role: user.role,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-  },
-  JWT_SECRET,
-  { expiresIn: '24h' },
-);
+const disposableDomains = new Set([
+  'mailinator.com',
+  'tempmail.com',
+  '10minutemail.com',
+  'guerrillamail.com',
+  'yopmail.com',
+]);
 
-const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
-const sanitizePhone = (value) => String(value || '').replace(/\D/g, '');
-const looksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
 
-const findUserByIdentifier = (identifier, role) => {
-  const cleanIdentifier = normalizeIdentifier(identifier);
-  const phoneValue = sanitizePhone(identifier);
-
-  return users.find((entry) => {
-    if (entry.role !== role) return false;
-    if (cleanIdentifier && entry.email === cleanIdentifier) return true;
-    if (phoneValue && entry.phone === phoneValue) return true;
-    return false;
-  });
-};
+const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email, phone: user.phone }, JWT_SECRET, { expiresIn: '24h' });
 
 const authGuard = (req, res, next) => {
   const authHeader = req.headers.authorization || '';
@@ -73,71 +58,31 @@ const authGuard = (req, res, next) => {
   }
 };
 
-const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
-const normalizeName = (value) => String(value || '').trim().replace(/\s+/g, ' ');
-
-const looksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-const looksLikePhone = (value) => /^\d{10}$/.test(value);
-
-const blockedEmailPatterns = [
-  /@example\.com$/i,
-  /@test\.com$/i,
-  /@mailinator\.com$/i,
-  /@tempmail/i,
-  /\bfake\b/i,
-];
-
-const validateGenuineProfile = ({ name, email, phone, password }) => {
-  if (!name || name.length < 3 || /[^a-zA-Z\s]/.test(name)) {
-    return 'Please enter a genuine full name (letters and spaces only).';
+const findUserByIdentifier = (identifierType, identifierValue, role) => {
+  if (identifierType === 'mobile') {
+    return users.find((entry) => entry.phone === identifierValue && entry.role === role);
   }
-
-  if (email) {
-    if (!looksLikeEmail(email)) {
-      return 'Please enter a valid email address.';
-    }
-    if (blockedEmailPatterns.some((pattern) => pattern.test(email))) {
-      return 'Disposable/test email addresses are not allowed. Please use a genuine email.';
-    }
-  }
-
-  if (phone && !looksLikePhone(phone)) {
-    return 'Please enter a valid 10-digit Indian mobile number.';
-  }
-
-  if (!email && !phone) {
-    return 'Provide at least one contact method: email or mobile number.';
-  }
-
-  if (!password || password.length < 6) {
-    return 'Password must contain at least 6 characters.';
-  }
-
-  if (/^(123456|password|qwerty|000000)$/i.test(password)) {
-    return 'Weak password detected. Please choose a stronger password.';
-  }
-
-  return null;
+  return users.find((entry) => entry.email === identifierValue && entry.role === role);
 };
 
-const findUserByIdentifier = ({ role, identifier, email, phone }) => {
-  const cleanIdentifier = String(identifier || '').trim().toLowerCase();
-  const normalizedPhoneIdentifier = normalizePhone(identifier);
+const detectFakeSignup = ({ name, email, phone, password }) => {
+  const reasons = [];
+  if (/\b(test|fake|spam|demo user)\b/i.test(name)) reasons.push('Suspicious name pattern detected.');
 
-  return users.find((entry) => {
-    if (entry.role !== role) return false;
+  const domain = email.includes('@') ? email.split('@')[1] : '';
+  if (domain && disposableDomains.has(domain)) reasons.push('Disposable email domains are not allowed.');
 
-    if (cleanIdentifier) {
-      if (looksLikeEmail(cleanIdentifier)) return entry.email === cleanIdentifier;
-      if (normalizedPhoneIdentifier) return entry.phone === normalizedPhoneIdentifier;
-      return false;
-    }
+  if (phone && /^(\d)\1{9}$/.test(phone)) reasons.push('Invalid mobile number pattern detected.');
 
-    if (email && entry.email === email) return true;
-    if (phone && entry.phone === phone) return true;
-    return false;
-  });
+  if (/^(123456|1234567|password|qwerty)/i.test(password)) reasons.push('Password is too weak for a genuine account.');
+
+  const duplicateCount = users.filter((entry) => (email && entry.email === email) || (phone && entry.phone === phone)).length;
+  if (duplicateCount >= 2) reasons.push('Too many accounts detected with same identifier.');
+
+  return {
+    isFake: reasons.length > 0,
+    reasons,
+  };
 };
 
 app.get('/api', (_req, res) => {
@@ -145,7 +90,7 @@ app.get('/api', (_req, res) => {
     ok: true,
     service: 'PropertySetu API',
     version: '1.2.0',
-    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers', 'email-or-mobile-login', 'fake-profile-detection'],
+    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers'],
   });
 });
 
@@ -154,15 +99,27 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, identifier, email, phone, password, role, otp } = req.body || {};
+  const { name, email, mobile, password, role, otp } = req.body || {};
+  const cleanEmail = normalizeEmail(email);
+  const cleanMobile = normalizePhone(mobile);
   const cleanName = String(name || '').trim();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
   const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
   const parsedPhone = sanitizePhone(phone || identifier);
   const parsedEmail = normalizeIdentifier(email || (looksLikeEmail(cleanIdentifier) ? cleanIdentifier : ''));
 
-  if (!cleanName || !cleanIdentifier || !password || String(password).length < 6) {
-    res.status(400).json({ ok: false, message: 'Name, Email/Mobile and password (min 6) are required.' });
+  if (!cleanName || (!cleanEmail && !cleanMobile) || !password || String(password).length < 6) {
+    res.status(400).json({ ok: false, message: 'Name, password (min 6), and either email or mobile are required.' });
+    return;
+  }
+
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    res.status(400).json({ ok: false, message: 'Please enter a valid email address.' });
+    return;
+  }
+
+  if (cleanMobile && !/^\d{10}$/.test(cleanMobile)) {
+    res.status(400).json({ ok: false, message: 'Mobile number must be exactly 10 digits.' });
     return;
   }
 
@@ -171,18 +128,13 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  const validationError = validateGenuineProfile({
-    name: cleanName,
-    email: cleanEmail,
-    phone: cleanPhone,
-    password: String(password || ''),
-  });
-  if (validationError) {
-    res.status(400).json({ ok: false, message: validationError });
+  const fakeCheck = detectFakeSignup({ name: cleanName, email: cleanEmail, phone: cleanMobile, password: String(password) });
+  if (fakeCheck.isFake) {
+    res.status(422).json({ ok: false, message: `Signup blocked: ${fakeCheck.reasons.join(' ')}` });
     return;
   }
 
-  const existing = findUserByIdentifier(cleanIdentifier, cleanRole);
+  const existing = users.find((user) => user.role === cleanRole && ((cleanEmail && user.email === cleanEmail) || (cleanMobile && user.phone === cleanMobile)));
   if (existing) {
     res.status(409).json({ ok: false, message: 'Account already exists for this role. Please login.' });
     return;
@@ -192,8 +144,8 @@ app.post('/api/auth/register', async (req, res) => {
   const user = {
     id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: cleanName,
-    email: parsedEmail || `${parsedPhone}@mobile.propertysetu.in`,
-    phone: parsedPhone || '',
+    email: cleanEmail || null,
+    phone: cleanMobile || null,
     passwordHash: hashedPassword,
     role: cleanRole,
     verified: true,
@@ -202,24 +154,13 @@ app.post('/api/auth/register', async (req, res) => {
   users.push(user);
   const token = signToken(user);
 
-  res.status(201).json({
-    ok: true,
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: parsedEmail,
-      phone: user.phone,
-      role: user.role,
-      verified: user.verified,
-      loginIdentifierType: parsedEmail ? 'email' : 'mobile',
-    },
-  });
+  res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, verified: user.verified } });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { identifier, email, phone, password, role, otp } = req.body || {};
-  const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
+  const { email, mobile, password, role, otp } = req.body || {};
+  const cleanEmail = normalizeEmail(email);
+  const cleanMobile = normalizePhone(mobile);
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
   if (!cleanIdentifier || !password) {
@@ -232,7 +173,15 @@ app.post('/api/auth/login', async (req, res) => {
     return;
   }
 
-  const user = findUserByIdentifier(cleanIdentifier, cleanRole);
+  if (!cleanEmail && !cleanMobile) {
+    res.status(400).json({ ok: false, message: 'Please enter email or mobile to login.' });
+    return;
+  }
+
+  const identifierType = cleanMobile ? 'mobile' : 'email';
+  const identifierValue = cleanMobile || cleanEmail;
+  const user = findUserByIdentifier(identifierType, identifierValue, cleanRole);
+
   if (!user) {
     res.status(404).json({ ok: false, message: 'User not found. Please signup first.' });
     return;
@@ -245,23 +194,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = signToken(user);
-  res.json({
-    ok: true,
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email.includes('@mobile.propertysetu.in') ? '' : user.email,
-      phone: user.phone,
-      role: user.role,
-      verified: user.verified,
-      loginIdentifierType: looksLikeEmail(cleanIdentifier) ? 'email' : 'mobile',
-    },
-  });
+  res.json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, verified: user.verified } });
 });
 
 app.post('/api/auth/logout', authGuard, (_req, res) => {
-  res.json({ ok: true, message: 'Logout successful on client side. Please clear token.' });
+  res.json({ ok: true, message: 'Logged out successfully. Please clear token on client.' });
 });
 
 app.get('/api/auth/me', authGuard, (req, res) => {

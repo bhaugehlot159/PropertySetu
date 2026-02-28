@@ -379,47 +379,18 @@ footer h3 { color: #fff; margin-top: 0; }
   color: #091125;
 }
 
-
-.auth-switch-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.auth-mode-switch {
+  display: flex;
   gap: 8px;
-  margin: 10px 0 14px;
+  margin: 10px 0;
 }
 
-.auth-mode-btn {
-  border: 1px solid #c3d5ff;
-  border-radius: 8px;
-  padding: 10px;
-  background: #f6f9ff;
-  color: #0d326e;
-  font-weight: 700;
-  cursor: pointer;
+.auth-tab {
+  flex: 1;
 }
 
-.auth-mode-btn.active {
+.auth-tab.active {
   background: #0b2f6b;
-  border-color: #0b2f6b;
   color: #fff;
-}
-
-.auth-contact-row {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 8px;
-}
-
-.auth-contact-row select,
-.auth-contact-row input {
-  width: 100%;
-  border: 1px solid #ccd9f7;
-  border-radius: 10px;
-  padding: 12px;
-  margin: 8px 0 14px;
-}
-
-@media (max-width: 640px) {
-  .auth-contact-row {
-    grid-template-columns: 1fr;
-  }
+  border-color: #0b2f6b;
 }
