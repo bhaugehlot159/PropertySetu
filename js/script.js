@@ -127,9 +127,11 @@
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
+  const authActionSelect = document.getElementById('authActionSelect');
   const authNameInput = document.getElementById('authNameInput');
-  const authContactMethod = document.getElementById('authContactMethod');
-  const authContactInput = document.getElementById('authContactInput');
+  const authIdentifierInput = document.getElementById('authIdentifierInput');
+  const authEmailInput = document.getElementById('authEmailInput');
+  const authPhoneInput = document.getElementById('authPhoneInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
@@ -188,10 +190,13 @@
     authRole = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
     authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
-    authModalHint.textContent = 'Use Email ya Mobile Number, OTP + password ke saath secure login/signup karein. Demo OTP: 123456';
+    authModalHint.textContent = 'Use genuine details. Login supports Email or Mobile. Demo OTP: 123456';
     if (authErrorMessage) authErrorMessage.textContent = '';
+    if (authActionSelect) authActionSelect.value = 'login';
     if (authNameInput) authNameInput.value = '';
-    if (authContactInput) authContactInput.value = '';
+    if (authIdentifierInput) authIdentifierInput.value = '';
+    if (authEmailInput) authEmailInput.value = '';
+    if (authPhoneInput) authPhoneInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
     if (authContactMethod) authContactMethod.value = 'email';
@@ -199,7 +204,7 @@
     setAuthAction('login');
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authContactInput?.focus();
+    authIdentifierInput?.focus();
   };
 
   const closeAuthModal = () => {
@@ -222,30 +227,59 @@
     return data;
   };
 
+  const performLogout = async (role) => {
+    const state = getState(role);
+    if (state?.token) {
+      try {
+        await apiRequest('/auth/logout', null, state.token);
+      } catch {
+        // no-op for stateless logout
+      }
+    }
+    setState(role, null);
+    updateAuthButtons();
+  };
+
   const doAuthFlow = async () => {
+    const action = authActionSelect?.value || 'login';
     const name = authNameInput?.value.trim() || '';
-    const method = authContactMethod?.value || 'email';
-    const identifier = authContactInput?.value.trim() || '';
+    const identifier = authIdentifierInput?.value.trim() || '';
+    const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const phone = (authPhoneInput?.value || '').replace(/\D/g, '');
     const password = authPasswordInput?.value || '';
     const otp = authOtpInput?.value.trim() || '';
 
-    if (!identifier || password.length < 6 || !otp || (authAction === 'signup' && !name)) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Signup ke liye name + email/mobile + password(6+) + OTP required hai.';
+    if (password.length < 6 || !otp) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Password (6+) and OTP are required.';
+      return;
+    }
+
+    if (action === 'signup' && (!name || (!email && !phone))) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Signup requires name + at least email or mobile number.';
+      return;
+    }
+
+    if (action === 'login' && !identifier && !email && !phone) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Login requires email or mobile number.';
       return;
     }
 
     const payload = {
-      role: authRole,
+      role: authMode,
       otp,
       password,
-      ...(authAction === 'signup' ? { name } : {}),
-      ...(method === 'mobile' ? { mobile: identifier } : { email: identifier }),
+      ...(name ? { name } : {}),
+      ...(identifier ? { identifier } : {}),
+      ...(email ? { email } : {}),
+      ...(phone ? { phone } : {}),
     };
 
     try {
-      const route = authAction === 'signup' ? '/auth/register' : '/auth/login';
-      const response = await apiRequest(route, payload);
-      setState(authRole, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
+      const response = action === 'signup'
+        ? await apiRequest('/auth/register', payload)
+        : await apiRequest('/auth/login', payload);
+
+      setState(authMode, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
       closeAuthModal();
       updateAuthButtons();
     } catch (error) {
@@ -256,8 +290,7 @@
   customerAuthButton?.addEventListener('click', () => {
     const current = getState('customer');
     if (current) {
-      setState('customer', null);
-      updateAuthButtons();
+      performLogout('customer');
       return;
     }
     openAuthModal('customer');
@@ -266,8 +299,7 @@
   adminAuthButton?.addEventListener('click', () => {
     const current = getState('admin');
     if (current) {
-      setState('admin', null);
-      updateAuthButtons();
+      performLogout('admin');
       return;
     }
     openAuthModal('admin');
