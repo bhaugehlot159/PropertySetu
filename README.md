@@ -69,3 +69,6 @@ Use this flow:
 1. Commit new changes on the same branch.
 2. Create a **new PR** from Codex instead of trying to update the old PR.
 3. Close/supersede the previous PR in GitHub if needed.
+## Production Blueprint
+Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.md`.
+
