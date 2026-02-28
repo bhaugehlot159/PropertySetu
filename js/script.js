@@ -128,13 +128,18 @@
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
   const authNameInput = document.getElementById('authNameInput');
-  const authEmailInput = document.getElementById('authEmailInput');
+  const authContactMethod = document.getElementById('authContactMethod');
+  const authContactInput = document.getElementById('authContactInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
   const authCancelButton = document.getElementById('authCancelButton');
   const authSubmitButton = document.getElementById('authSubmitButton');
-  let authMode = 'customer';
+  const authLoginModeButton = document.getElementById('authLoginModeButton');
+  const authSignupModeButton = document.getElementById('authSignupModeButton');
+
+  let authRole = 'customer';
+  let authAction = 'login';
 
   const getState = (role) => readJsonStorage(`propertysetu-${role}-session`, null);
   const setState = (role, payload) => {
@@ -145,12 +150,18 @@
     writeJsonStorage(`propertysetu-${role}-session`, payload);
   };
 
+  const updateContactPlaceholder = () => {
+    if (!authContactMethod || !authContactInput) return;
+    authContactInput.placeholder = authContactMethod.value === 'mobile' ? 'Mobile Number (10-15 digits)' : 'Email Address';
+    authContactInput.type = 'text';
+  };
+
   const updateAuthButtons = () => {
     const customerState = getState('customer');
     const adminState = getState('admin');
 
-    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Logout ${customerState.name}` : 'Customer Login';
-    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Logout ${adminState.name}` : 'Admin Login';
+    if (customerAuthButton) customerAuthButton.textContent = customerState ? `Customer Logout (${customerState.name})` : 'Customer Login';
+    if (adminAuthButton) adminAuthButton.textContent = adminState ? `Admin Logout (${adminState.name})` : 'Admin Login';
 
     if (sessionBadge) {
       if (adminState) sessionBadge.textContent = `Admin: ${adminState.name}`;
@@ -165,19 +176,30 @@
     }
   };
 
+  const setAuthAction = (action) => {
+    authAction = action;
+    if (authLoginModeButton) authLoginModeButton.classList.toggle('active', action === 'login');
+    if (authSignupModeButton) authSignupModeButton.classList.toggle('active', action === 'signup');
+    if (authSubmitButton) authSubmitButton.textContent = action === 'signup' ? 'Create Account' : 'Login';
+    if (authNameInput) authNameInput.style.display = action === 'signup' ? 'block' : 'none';
+  };
+
   const openAuthModal = (role) => {
-    authMode = role;
+    authRole = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
-    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Login' : 'Customer Secure Login';
-    authModalHint.textContent = 'Enter full details. First attempt auto-registers if account not found. Demo OTP: 123456';
+    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
+    authModalHint.textContent = 'Use Email ya Mobile Number, OTP + password ke saath secure login/signup karein. Demo OTP: 123456';
     if (authErrorMessage) authErrorMessage.textContent = '';
     if (authNameInput) authNameInput.value = '';
-    if (authEmailInput) authEmailInput.value = '';
+    if (authContactInput) authContactInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
+    if (authContactMethod) authContactMethod.value = 'email';
+    updateContactPlaceholder();
+    setAuthAction('login');
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authNameInput?.focus();
+    authContactInput?.focus();
   };
 
   const closeAuthModal = () => {
@@ -202,34 +224,32 @@
 
   const doAuthFlow = async () => {
     const name = authNameInput?.value.trim() || '';
-    const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const method = authContactMethod?.value || 'email';
+    const identifier = authContactInput?.value.trim() || '';
     const password = authPasswordInput?.value || '';
     const otp = authOtpInput?.value.trim() || '';
 
-    if (!name || !email || password.length < 6 || !otp) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
+    if (!identifier || password.length < 6 || !otp || (authAction === 'signup' && !name)) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Signup ke liye name + email/mobile + password(6+) + OTP required hai.';
       return;
     }
-    openAuthModal('customer');
-  });
 
-    const payload = { name, email, password, otp, role: authMode };
+    const payload = {
+      role: authRole,
+      otp,
+      password,
+      ...(authAction === 'signup' ? { name } : {}),
+      ...(method === 'mobile' ? { mobile: identifier } : { email: identifier }),
+    };
 
     try {
-      const loginResponse = await apiRequest('/auth/login', payload);
-      setState(authMode, { ...loginResponse.user, token: loginResponse.token, loggedInAt: new Date().toISOString() });
+      const route = authAction === 'signup' ? '/auth/register' : '/auth/login';
+      const response = await apiRequest(route, payload);
+      setState(authRole, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
       closeAuthModal();
       updateAuthButtons();
-      return;
-    } catch {
-      try {
-        const registerResponse = await apiRequest('/auth/register', payload);
-        setState(authMode, { ...registerResponse.user, token: registerResponse.token, loggedInAt: new Date().toISOString() });
-        closeAuthModal();
-        updateAuthButtons();
-      } catch (registerError) {
-        if (authErrorMessage) authErrorMessage.textContent = registerError.message;
-      }
+    } catch (error) {
+      if (authErrorMessage) authErrorMessage.textContent = error.message;
     }
   };
 
@@ -253,6 +273,9 @@
     openAuthModal('admin');
   });
 
+  authContactMethod?.addEventListener('change', updateContactPlaceholder);
+  authLoginModeButton?.addEventListener('click', () => setAuthAction('login'));
+  authSignupModeButton?.addEventListener('click', () => setAuthAction('signup'));
   authCancelButton?.addEventListener('click', closeAuthModal);
   authSubmitButton?.addEventListener('click', doAuthFlow);
 
@@ -421,11 +444,6 @@
     if (aiOutput) {
       aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
     }
-
-    if (aiOutput) {
-      aiOutput.textContent = `Verified ${promptText}. Includes strong location connectivity, visit-booking support, hidden-bid option, and monthly property-care coverage for absentee owners.`;
-    }
-    openAuthModal('customer');
   });
 
   updateMarketplaceStats();
