@@ -29,7 +29,49 @@ app.use(express.static(webRoot));
 const bids = [];
 const users = [];
 
-const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+const normalizeMobile = (value) => String(value || '').replace(/\D/g, '').replace(/^0+/, '');
+
+const resolveIdentifier = (payload = {}) => {
+  const email = String(payload.email || payload.identifier || '').trim().toLowerCase();
+  const mobile = normalizeMobile(payload.mobile || payload.identifier || '');
+
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { type: 'email', value: email };
+  }
+
+  if (mobile && mobile.length >= 10 && mobile.length <= 15) {
+    return { type: 'mobile', value: mobile };
+  }
+
+  return null;
+};
+
+const isSuspiciousProfile = ({ name = '', identifier }) => {
+  const cleanName = String(name).trim().toLowerCase();
+  const fakeNamePatterns = ['test', 'fake', 'demo user', 'asdf', 'qwerty'];
+  if (fakeNamePatterns.some((pattern) => cleanName.includes(pattern))) {
+    return true;
+  }
+
+  if (!identifier) return true;
+
+  if (identifier.type === 'email') {
+    const disposableDomains = ['mailinator.com', 'tempmail.com', '10minutemail.com'];
+    const domain = identifier.value.split('@')[1] || '';
+    if (disposableDomains.includes(domain)) return true;
+  }
+
+  if (identifier.type === 'mobile') {
+    const digits = identifier.value;
+    if (/^(\d)\1+$/.test(digits)) return true;
+    if (digits.length < 10) return true;
+  }
+
+  return false;
+};
+
+
+const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email, mobile: user.mobile, identifierType: user.identifierType }, JWT_SECRET, { expiresIn: '24h' });
 
 const authGuard = (req, res, next) => {
   const authHeader = req.headers.authorization || '';
@@ -61,13 +103,13 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password, role, otp } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const { name, password, role, otp } = req.body || {};
+  const identifier = resolveIdentifier(req.body || {});
   const cleanName = String(name || '').trim();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
-  if (!cleanName || !cleanEmail || !password || String(password).length < 6) {
-    res.status(400).json({ ok: false, message: 'Name, email and password (min 6) are required.' });
+  if (!cleanName || !identifier || !password || String(password).length < 6) {
+    res.status(400).json({ ok: false, message: 'Name, email/mobile and password (min 6) are required.' });
     return;
   }
 
@@ -76,7 +118,12 @@ app.post('/api/auth/register', async (req, res) => {
     return;
   }
 
-  const existing = users.find((user) => user.email === cleanEmail && user.role === cleanRole);
+  if (isSuspiciousProfile({ name: cleanName, identifier })) {
+    res.status(400).json({ ok: false, message: 'Suspicious/fake profile detected. Please enter genuine name and contact details.' });
+    return;
+  }
+
+  const existing = users.find((user) => user.identifierType === identifier.type && user.identifierValue === identifier.value && user.role === cleanRole);
   if (existing) {
     res.status(409).json({ ok: false, message: 'User already exists for this role. Please login.' });
     return;
@@ -86,7 +133,10 @@ app.post('/api/auth/register', async (req, res) => {
   const user = {
     id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: cleanName,
-    email: cleanEmail,
+    email: identifier.type === 'email' ? identifier.value : null,
+    mobile: identifier.type === 'mobile' ? identifier.value : null,
+    identifierType: identifier.type,
+    identifierValue: identifier.value,
     passwordHash: hashedPassword,
     role: cleanRole,
     verified: true,
@@ -95,22 +145,44 @@ app.post('/api/auth/register', async (req, res) => {
   users.push(user);
   const token = signToken(user);
 
-  res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
+  res.status(201).json({
+    ok: true,
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      mobile: user.mobile,
+      role: user.role,
+      verified: user.verified,
+      identifierType: user.identifierType,
+    },
+  });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password, role, otp } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const { password, role, otp } = req.body || {};
+  const identifier = resolveIdentifier(req.body || {});
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
+
+  if (!identifier || !password) {
+    res.status(400).json({ ok: false, message: 'Email/mobile and password are required.' });
+    return;
+  }
 
   if (String(otp || '') !== '123456') {
     res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
     return;
   }
 
-  const user = users.find((entry) => entry.email === cleanEmail && entry.role === cleanRole);
+  if (isSuspiciousProfile({ name: 'existing-user', identifier })) {
+    res.status(400).json({ ok: false, message: 'Suspicious/fake contact details detected. Use genuine email/mobile.' });
+    return;
+  }
+
+  const user = users.find((entry) => entry.identifierType === identifier.type && entry.identifierValue === identifier.value && entry.role === cleanRole);
   if (!user) {
-    res.status(404).json({ ok: false, message: 'User not found. Please register first.' });
+    res.status(404).json({ ok: false, message: 'User not found. Please signup first.' });
     return;
   }
 
@@ -121,7 +193,19 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = signToken(user);
-  res.json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
+  res.json({
+    ok: true,
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      mobile: user.mobile,
+      role: user.role,
+      verified: user.verified,
+      identifierType: user.identifierType,
+    },
+  });
 });
 
 app.get('/api/auth/me', authGuard, (req, res) => {
