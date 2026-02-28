@@ -29,7 +29,17 @@ app.use(express.static(webRoot));
 const bids = [];
 const users = [];
 
-const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+const signToken = (user) => jwt.sign(
+  {
+    id: user.id,
+    role: user.role,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+  },
+  JWT_SECRET,
+  { expiresIn: '24h' },
+);
 
 const authGuard = (req, res, next) => {
   const authHeader = req.headers.authorization || '';
@@ -47,12 +57,79 @@ const authGuard = (req, res, next) => {
   }
 };
 
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+const normalizeName = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+
+const looksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const looksLikePhone = (value) => /^\d{10}$/.test(value);
+
+const blockedEmailPatterns = [
+  /@example\.com$/i,
+  /@test\.com$/i,
+  /@mailinator\.com$/i,
+  /@tempmail/i,
+  /\bfake\b/i,
+];
+
+const validateGenuineProfile = ({ name, email, phone, password }) => {
+  if (!name || name.length < 3 || /[^a-zA-Z\s]/.test(name)) {
+    return 'Please enter a genuine full name (letters and spaces only).';
+  }
+
+  if (email) {
+    if (!looksLikeEmail(email)) {
+      return 'Please enter a valid email address.';
+    }
+    if (blockedEmailPatterns.some((pattern) => pattern.test(email))) {
+      return 'Disposable/test email addresses are not allowed. Please use a genuine email.';
+    }
+  }
+
+  if (phone && !looksLikePhone(phone)) {
+    return 'Please enter a valid 10-digit Indian mobile number.';
+  }
+
+  if (!email && !phone) {
+    return 'Provide at least one contact method: email or mobile number.';
+  }
+
+  if (!password || password.length < 6) {
+    return 'Password must contain at least 6 characters.';
+  }
+
+  if (/^(123456|password|qwerty|000000)$/i.test(password)) {
+    return 'Weak password detected. Please choose a stronger password.';
+  }
+
+  return null;
+};
+
+const findUserByIdentifier = ({ role, identifier, email, phone }) => {
+  const cleanIdentifier = String(identifier || '').trim().toLowerCase();
+  const normalizedPhoneIdentifier = normalizePhone(identifier);
+
+  return users.find((entry) => {
+    if (entry.role !== role) return false;
+
+    if (cleanIdentifier) {
+      if (looksLikeEmail(cleanIdentifier)) return entry.email === cleanIdentifier;
+      if (normalizedPhoneIdentifier) return entry.phone === normalizedPhoneIdentifier;
+      return false;
+    }
+
+    if (email && entry.email === email) return true;
+    if (phone && entry.phone === phone) return true;
+    return false;
+  });
+};
+
 app.get('/api', (_req, res) => {
   res.json({
     ok: true,
     service: 'PropertySetu API',
-    version: '1.1.0',
-    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers'],
+    version: '1.2.0',
+    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers', 'email-or-mobile-login', 'fake-profile-detection'],
   });
 });
 
@@ -61,24 +138,41 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password, role, otp } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
-  const cleanName = String(name || '').trim();
-  const cleanRole = role === 'admin' ? 'admin' : 'customer';
+  const {
+    name,
+    email,
+    phone,
+    password,
+    role,
+    otp,
+  } = req.body || {};
 
-  if (!cleanName || !cleanEmail || !password || String(password).length < 6) {
-    res.status(400).json({ ok: false, message: 'Name, email and password (min 6) are required.' });
-    return;
-  }
+  const cleanEmail = normalizeEmail(email);
+  const cleanPhone = normalizePhone(phone);
+  const cleanName = normalizeName(name);
+  const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
   if (String(otp || '') !== '123456') {
     res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
     return;
   }
 
-  const existing = users.find((user) => user.email === cleanEmail && user.role === cleanRole);
-  if (existing) {
-    res.status(409).json({ ok: false, message: 'User already exists for this role. Please login.' });
+  const validationError = validateGenuineProfile({
+    name: cleanName,
+    email: cleanEmail,
+    phone: cleanPhone,
+    password: String(password || ''),
+  });
+  if (validationError) {
+    res.status(400).json({ ok: false, message: validationError });
+    return;
+  }
+
+  const existingUser = users.find((user) => user.role === cleanRole
+    && ((cleanEmail && user.email === cleanEmail) || (cleanPhone && user.phone === cleanPhone)));
+
+  if (existingUser) {
+    res.status(409).json({ ok: false, message: 'Account already exists. Please login.' });
     return;
   }
 
@@ -86,7 +180,8 @@ app.post('/api/auth/register', async (req, res) => {
   const user = {
     id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: cleanName,
-    email: cleanEmail,
+    email: cleanEmail || null,
+    phone: cleanPhone || null,
     passwordHash: hashedPassword,
     role: cleanRole,
     verified: true,
@@ -95,12 +190,33 @@ app.post('/api/auth/register', async (req, res) => {
   users.push(user);
   const token = signToken(user);
 
-  res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
+  res.status(201).json({
+    ok: true,
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      verified: user.verified,
+    },
+  });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password, role, otp } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const {
+    identifier,
+    email,
+    phone,
+    password,
+    role,
+    otp,
+  } = req.body || {};
+
+  const cleanEmail = normalizeEmail(email);
+  const cleanPhone = normalizePhone(phone);
+  const cleanIdentifier = String(identifier || '').trim().toLowerCase();
   const cleanRole = role === 'admin' ? 'admin' : 'customer';
 
   if (String(otp || '') !== '123456') {
@@ -108,9 +224,20 @@ app.post('/api/auth/login', async (req, res) => {
     return;
   }
 
-  const user = users.find((entry) => entry.email === cleanEmail && entry.role === cleanRole);
+  if (!cleanIdentifier && !cleanEmail && !cleanPhone) {
+    res.status(400).json({ ok: false, message: 'Login requires email or mobile number.' });
+    return;
+  }
+
+  const user = findUserByIdentifier({
+    role: cleanRole,
+    identifier: cleanIdentifier,
+    email: cleanEmail,
+    phone: cleanPhone,
+  });
+
   if (!user) {
-    res.status(404).json({ ok: false, message: 'User not found. Please register first.' });
+    res.status(404).json({ ok: false, message: 'User not found. Please sign up first.' });
     return;
   }
 
@@ -121,7 +248,22 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = signToken(user);
-  res.json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
+  res.json({
+    ok: true,
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      verified: user.verified,
+    },
+  });
+});
+
+app.post('/api/auth/logout', (_req, res) => {
+  res.json({ ok: true, message: 'Logged out successfully.' });
 });
 
 app.get('/api/auth/me', authGuard, (req, res) => {

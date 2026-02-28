@@ -229,14 +229,20 @@
       <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
         <h3 id="authModalTitle">Login</h3>
         <p id="authModalHint">Secure login required.</p>
+        <select id="authActionSelect" aria-label="Choose authentication action">
+          <option value="login">Login</option>
+          <option value="signup">Signup</option>
+        </select>
         <input id="authNameInput" type="text" placeholder="Full Name" />
-        <input id="authEmailInput" type="email" placeholder="Email Address" />
+        <input id="authIdentifierInput" type="text" placeholder="Email or Mobile Number" />
+        <input id="authEmailInput" type="email" placeholder="Email Address (optional for signup)" />
+        <input id="authPhoneInput" type="tel" placeholder="Mobile Number (optional for signup)" />
         <input id="authPasswordInput" type="password" placeholder="Password (min 6 chars)" />
         <input id="authOtpInput" type="text" placeholder="Demo OTP (123456)" />
         <p id="authErrorMessage" class="auth-error" aria-live="polite"></p>
         <div class="auth-modal-actions">
           <button id="authCancelButton" type="button" class="outline-btn">Cancel</button>
-          <button id="authSubmitButton" type="button" class="solid-btn">Login / Register</button>
+          <button id="authSubmitButton" type="button" class="solid-btn">Continue</button>
         </div>
       </div>
     </div>

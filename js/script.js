@@ -127,8 +127,11 @@
   const authModal = document.getElementById('authModal');
   const authModalTitle = document.getElementById('authModalTitle');
   const authModalHint = document.getElementById('authModalHint');
+  const authActionSelect = document.getElementById('authActionSelect');
   const authNameInput = document.getElementById('authNameInput');
+  const authIdentifierInput = document.getElementById('authIdentifierInput');
   const authEmailInput = document.getElementById('authEmailInput');
+  const authPhoneInput = document.getElementById('authPhoneInput');
   const authPasswordInput = document.getElementById('authPasswordInput');
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
@@ -168,16 +171,19 @@
   const openAuthModal = (role) => {
     authMode = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
-    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Login' : 'Customer Secure Login';
-    authModalHint.textContent = 'Enter full details. First attempt auto-registers if account not found. Demo OTP: 123456';
+    authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
+    authModalHint.textContent = 'Use genuine details. Login supports Email or Mobile. Demo OTP: 123456';
     if (authErrorMessage) authErrorMessage.textContent = '';
+    if (authActionSelect) authActionSelect.value = 'login';
     if (authNameInput) authNameInput.value = '';
+    if (authIdentifierInput) authIdentifierInput.value = '';
     if (authEmailInput) authEmailInput.value = '';
+    if (authPhoneInput) authPhoneInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
     if (authOtpInput) authOtpInput.value = '123456';
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
-    authNameInput?.focus();
+    authIdentifierInput?.focus();
   };
 
   const closeAuthModal = () => {
@@ -200,44 +206,70 @@
     return data;
   };
 
+  const performLogout = async (role) => {
+    const state = getState(role);
+    if (state?.token) {
+      try {
+        await apiRequest('/auth/logout', null, state.token);
+      } catch {
+        // no-op for stateless logout
+      }
+    }
+    setState(role, null);
+    updateAuthButtons();
+  };
+
   const doAuthFlow = async () => {
+    const action = authActionSelect?.value || 'login';
     const name = authNameInput?.value.trim() || '';
+    const identifier = authIdentifierInput?.value.trim() || '';
     const email = authEmailInput?.value.trim().toLowerCase() || '';
+    const phone = (authPhoneInput?.value || '').replace(/\D/g, '');
     const password = authPasswordInput?.value || '';
     const otp = authOtpInput?.value.trim() || '';
 
-    if (!name || !email || password.length < 6 || !otp) {
-      if (authErrorMessage) authErrorMessage.textContent = 'Name, Email, Password(6+) and OTP are required.';
+    if (password.length < 6 || !otp) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Password (6+) and OTP are required.';
       return;
     }
-    openAuthModal('customer');
-  });
 
-    const payload = { name, email, password, otp, role: authMode };
+    if (action === 'signup' && (!name || (!email && !phone))) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Signup requires name + at least email or mobile number.';
+      return;
+    }
+
+    if (action === 'login' && !identifier && !email && !phone) {
+      if (authErrorMessage) authErrorMessage.textContent = 'Login requires email or mobile number.';
+      return;
+    }
+
+    const payload = {
+      role: authMode,
+      otp,
+      password,
+      ...(name ? { name } : {}),
+      ...(identifier ? { identifier } : {}),
+      ...(email ? { email } : {}),
+      ...(phone ? { phone } : {}),
+    };
 
     try {
-      const loginResponse = await apiRequest('/auth/login', payload);
-      setState(authMode, { ...loginResponse.user, token: loginResponse.token, loggedInAt: new Date().toISOString() });
+      const response = action === 'signup'
+        ? await apiRequest('/auth/register', payload)
+        : await apiRequest('/auth/login', payload);
+
+      setState(authMode, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
       closeAuthModal();
       updateAuthButtons();
-      return;
-    } catch {
-      try {
-        const registerResponse = await apiRequest('/auth/register', payload);
-        setState(authMode, { ...registerResponse.user, token: registerResponse.token, loggedInAt: new Date().toISOString() });
-        closeAuthModal();
-        updateAuthButtons();
-      } catch (registerError) {
-        if (authErrorMessage) authErrorMessage.textContent = registerError.message;
-      }
+    } catch (error) {
+      if (authErrorMessage) authErrorMessage.textContent = error.message;
     }
   };
 
   customerAuthButton?.addEventListener('click', () => {
     const current = getState('customer');
     if (current) {
-      setState('customer', null);
-      updateAuthButtons();
+      performLogout('customer');
       return;
     }
     openAuthModal('customer');
@@ -246,8 +278,7 @@
   adminAuthButton?.addEventListener('click', () => {
     const current = getState('admin');
     if (current) {
-      setState('admin', null);
-      updateAuthButtons();
+      performLogout('admin');
       return;
     }
     openAuthModal('admin');

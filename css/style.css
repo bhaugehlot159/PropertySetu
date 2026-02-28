@@ -164,6 +164,15 @@ body {
   border-radius: 16px;
   padding: 18px;
 }
+.auth-modal-card select {
+  width: 100%;
+  border: 1px solid #ccd9f7;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 8px 0 14px;
+  background: #fff;
+}
+
 .auth-modal-card input {
   width: 100%;
   border: 1px solid #ccd9f7;
