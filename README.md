@@ -61,6 +61,10 @@ Available in `/legal`:
 - Disclaimer
 - Service Agreement
 
+
+## Production Blueprint
+Detailed non-destructive production roadmap: `PRODUCTION_GRADE_BLUEPRINT.md`
+
 ## Codex PR workflow note
 If Codex shows this message:
 - `Codex does not currently support updating PRs that are updated outside of Codex.`
