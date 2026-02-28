@@ -83,3 +83,10 @@ Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.
 curl -X POST http://localhost:5000/api/auth/logout \
   -H "authorization: Bearer <token>"
 ```
+
+
+## Connected Demo Flow (All major folders linked)
+1. Add property from `add-property.html` **or** `seller-dashboard.html`.
+2. See same data on `dashboard.html` (user view).
+3. Approve/reject from `admin-dashboard.html` (admin view).
+4. Status updates sync via shared browser storage key: `propertySetu:listings`.

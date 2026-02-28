@@ -225,14 +225,6 @@
     if (authNameInput) authNameInput.style.display = authAction === 'signup' ? 'block' : 'none';
   };
 
-  const setAuthAction = (mode) => {
-    authAction = mode === 'signup' ? 'signup' : 'login';
-    authLoginTab?.classList.toggle('active', authAction === 'login');
-    authSignupTab?.classList.toggle('active', authAction === 'signup');
-    if (authSubmitButton) authSubmitButton.textContent = authAction === 'signup' ? 'Create Account' : 'Login';
-    if (authNameInput) authNameInput.style.display = authAction === 'signup' ? 'block' : 'none';
-  };
-
   const openAuthModal = (role) => {
     authMode = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
