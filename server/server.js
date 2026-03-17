@@ -54,12 +54,19 @@ const defaults = () => ({
   legalRequests: [],
   visits: [],
   bids: [],
+  reports: [],
+  tokenPayments: [],
+  insuranceTieups: [],
   notifications: [],
+  adminConfig: {
+    categories: ["House", "Flat", "Villa", "Plot", "Agriculture Land", "Commercial", "Warehouse", "Farm House", "PG / Hostel"],
+    cities: ["Udaipur", "Jaipur", "Jodhpur", "Ahmedabad", "Delhi", "Mumbai"],
+  },
   trustedAgents: [
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
     { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
   ],
-  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1 },
+  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1 },
 });
 
 let db = defaults();
@@ -78,6 +85,7 @@ const now = () => new Date().toISOString();
 const safeArr = (v) => (Array.isArray(v) ? v : []);
 const isUdaipur = (city) => txt(city || "Udaipur").toLowerCase().includes("udaipur");
 const userSafe = (u) => ({ id: u.id, name: u.name, email: u.email || "", mobile: u.mobile || "", role: u.role, verified: !!u.verified, subscriptionPlan: u.subscriptionPlan || "free-basic" });
+const blocked = (u) => !!u?.blocked;
 
 const nextId = (k) => {
   db.counters[k] = num(db.counters[k], 0) + 1;
@@ -107,7 +115,16 @@ const load = async () => {
       legalRequests: safeArr(raw.legalRequests),
       visits: safeArr(raw.visits),
       bids: safeArr(raw.bids),
+      reports: safeArr(raw.reports),
+      tokenPayments: safeArr(raw.tokenPayments),
+      insuranceTieups: safeArr(raw.insuranceTieups),
       notifications: safeArr(raw.notifications),
+      adminConfig: {
+        ...fresh.adminConfig,
+        ...(raw.adminConfig || {}),
+        categories: safeArr(raw?.adminConfig?.categories).length ? safeArr(raw.adminConfig.categories) : fresh.adminConfig.categories,
+        cities: safeArr(raw?.adminConfig?.cities).length ? safeArr(raw.adminConfig.cities) : fresh.adminConfig.cities,
+      },
       trustedAgents: safeArr(raw.trustedAgents).length ? safeArr(raw.trustedAgents) : fresh.trustedAgents,
       counters: { ...fresh.counters, ...(raw.counters || {}) },
     };
@@ -126,13 +143,28 @@ const authOpt = (req, _res, next) => {
   req.user = null;
   const t = tokenOf(req);
   if (!t) return next();
-  try { req.user = jwt.verify(t, JWT_SECRET); } catch { req.user = null; }
+  try {
+    const parsed = jwt.verify(t, JWT_SECRET);
+    const u = userById(parsed.id);
+    if (blocked(u)) return next();
+    req.user = parsed;
+  } catch {
+    req.user = null;
+  }
   next();
 };
 const auth = (req, res, next) => {
   const t = tokenOf(req);
   if (!t) return res.status(401).json({ ok: false, message: "Missing auth token." });
-  try { req.user = jwt.verify(t, JWT_SECRET); next(); } catch { res.status(401).json({ ok: false, message: "Invalid or expired token." }); }
+  try {
+    const parsed = jwt.verify(t, JWT_SECRET);
+    const u = userById(parsed.id);
+    if (blocked(u)) return res.status(403).json({ ok: false, message: "Your account is blocked by admin." });
+    req.user = parsed;
+    next();
+  } catch {
+    res.status(401).json({ ok: false, message: "Invalid or expired token." });
+  }
 };
 const admin = (req, res, next) => (req.user?.role === "admin" ? next() : res.status(403).json({ ok: false, message: "Admin access required." }));
 const userById = (id) => db.users.find((u) => u.id === id) || null;
@@ -142,7 +174,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(webRoot));
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.0.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.1.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "reports", "admin-config", "token-payments", "insurance"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -210,6 +242,7 @@ app.get("/api/properties", authOpt, (req, res) => {
   const locality = txt(req.query.locality).toLowerCase();
   const category = txt(req.query.category).toLowerCase();
   const purpose = txt(req.query.purpose || req.query.type).toLowerCase();
+  const verifiedOnly = String(req.query.verifiedOnly || "") === "1";
   const minPrice = num(req.query.minPrice, 0);
   const maxPrice = Number.isFinite(Number(req.query.maxPrice)) ? Number(req.query.maxPrice) : Number.MAX_SAFE_INTEGER;
 
@@ -223,6 +256,7 @@ app.get("/api/properties", authOpt, (req, res) => {
   if (locality) items = items.filter((p) => txt(p.location).toLowerCase().includes(locality));
   if (category && category !== "all") items = items.filter((p) => txt(p.category).toLowerCase() === category);
   if (purpose && purpose !== "all") items = items.filter((p) => txt(p.type).toLowerCase() === purpose);
+  if (verifiedOnly) items = items.filter((p) => !!p.verified);
   items = items.filter((p) => num(p.price, 0) >= minPrice && num(p.price, 0) <= maxPrice);
   const sort = txt(req.query.sort || "latest").toLowerCase();
   if (sort === "pricelow") items.sort((a, b) => num(a.price, 0) - num(b.price, 0));
@@ -255,14 +289,25 @@ app.post("/api/properties", auth, async (req, res) => {
     bedrooms: num(payload.bedrooms, 0),
     bathrooms: num(payload.bathrooms, 0),
     parking: txt(payload.parking),
+    garden: txt(payload.garden),
+    borewell: txt(payload.borewell),
+    roadWidth: num(payload.roadWidth, 0),
+    loanAvailable: txt(payload.loanAvailable),
+    readyToMove: txt(payload.readyToMove),
     landmark: txt(payload.landmark),
     media: payload.media || {},
     privateDocs: payload.privateDocs || {},
+    verification: payload.verification || {},
+    virtualTour: payload.virtualTour || {},
+    visitBooking: payload.visitBooking || {},
     aiReview: payload.aiReview || {},
+    aiDescription: txt(payload.aiDescription),
+    smartPricing: payload.smartPricing || {},
     status: owner.role === "admin" ? "Approved" : "Pending Approval",
     verified: owner.role === "admin",
     featured: false,
     featuredUntil: null,
+    listingExpiresAt: new Date(Date.now() + 45 * 86400000).toISOString(),
     ownerId: owner.id,
     ownerName: owner.name,
     ownerRole: owner.role,
@@ -348,7 +393,64 @@ app.get("/api/admin/properties", auth, admin, (req, res) => {
   res.json({ ok: true, total: items.length, items });
 });
 
-app.get("/api/admin/overview", auth, admin, (_req, res) => res.json({ ok: true, overview: { users: db.users.length, pending: db.properties.filter((p) => p.status === "Pending Approval").length, approved: db.properties.filter((p) => p.status === "Approved").length, featured: db.properties.filter((p) => p.featured).length, careRequests: db.careRequests.length, legalRequests: db.legalRequests.length, activeSubs: db.subscriptions.filter((s) => s.status === "active").length, totalBids: db.bids.length } }));
+app.get("/api/admin/overview", auth, admin, (_req, res) => res.json({ ok: true, overview: { users: db.users.length, blockedUsers: db.users.filter((u) => !!u.blocked).length, pending: db.properties.filter((p) => p.status === "Pending Approval").length, approved: db.properties.filter((p) => p.status === "Approved").length, featured: db.properties.filter((p) => p.featured).length, careRequests: db.careRequests.length, legalRequests: db.legalRequests.length, reports: db.reports.length, activeSubs: db.subscriptions.filter((s) => s.status === "active").length, totalBids: db.bids.length } }));
+
+app.get("/api/admin/config", auth, admin, (_req, res) => res.json({ ok: true, config: db.adminConfig }));
+app.get("/api/admin/config/categories", auth, admin, (_req, res) => res.json({ ok: true, items: db.adminConfig.categories }));
+app.post("/api/admin/config/categories", auth, admin, async (req, res) => {
+  const name = txt(req.body?.name);
+  if (!name) return res.status(400).json({ ok: false, message: "Category name required." });
+  if (!db.adminConfig.categories.some((x) => x.toLowerCase() === name.toLowerCase())) db.adminConfig.categories.push(name);
+  await save();
+  res.json({ ok: true, items: db.adminConfig.categories });
+});
+
+app.get("/api/admin/config/cities", auth, admin, (_req, res) => res.json({ ok: true, items: db.adminConfig.cities }));
+app.post("/api/admin/config/cities", auth, admin, async (req, res) => {
+  const city = txt(req.body?.city);
+  if (!city) return res.status(400).json({ ok: false, message: "City name required." });
+  if (!db.adminConfig.cities.some((x) => x.toLowerCase() === city.toLowerCase())) db.adminConfig.cities.push(city);
+  await save();
+  res.json({ ok: true, items: db.adminConfig.cities });
+});
+
+app.get("/api/admin/users", auth, admin, (_req, res) => {
+  const items = db.users.map((u) => ({ ...userSafe(u), blocked: !!u.blocked, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt || null }));
+  res.json({ ok: true, total: items.length, items });
+});
+app.post("/api/admin/users/:id/block", auth, admin, async (req, res) => {
+  const u = userById(req.params.id);
+  if (!u) return res.status(404).json({ ok: false, message: "User not found." });
+  u.blocked = true;
+  u.updatedAt = now();
+  await save();
+  res.json({ ok: true, message: "User blocked." });
+});
+app.post("/api/admin/users/:id/unblock", auth, admin, async (req, res) => {
+  const u = userById(req.params.id);
+  if (!u) return res.status(404).json({ ok: false, message: "User not found." });
+  u.blocked = false;
+  u.updatedAt = now();
+  await save();
+  res.json({ ok: true, message: "User unblocked." });
+});
+
+app.get("/api/admin/commission-analytics", auth, admin, (_req, res) => {
+  const paid = db.subscriptions.filter((s) => num(s.amount, 0) > 0);
+  const revenue = paid.reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const serviceFees = db.legalRequests.reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const estimatedCommission = Math.round(db.properties.filter((p) => p.status === "Approved").length * 2500);
+  res.json({
+    ok: true,
+    analytics: {
+      paidSubscriptions: paid.length,
+      subscriptionRevenue: revenue,
+      legalServiceRevenue: serviceFees,
+      estimatedCommission,
+      totalMonetized: revenue + serviceFees + estimatedCommission,
+    },
+  });
+});
 
 app.post("/api/reviews", auth, async (req, res) => {
   const propertyId = txt(req.body?.propertyId);
@@ -376,6 +478,12 @@ app.post("/api/chat/send", auth, async (req, res) => {
   const propertyId = txt(req.body?.propertyId);
   const message = txt(req.body?.message);
   if (!propertyId || !message) return res.status(400).json({ ok: false, message: "propertyId and message required." });
+  if (message.length > 500) return res.status(400).json({ ok: false, message: "Message too long. Max 500 chars." });
+  const spamWords = ["earn money fast", "click here", "crypto double", "free gift", "urgent transfer"];
+  if (spamWords.some((w) => message.toLowerCase().includes(w))) return res.status(400).json({ ok: false, message: "Message blocked by anti-spam filter." });
+  const oneMinuteAgo = Date.now() - 60 * 1000;
+  const recentCount = db.messages.filter((m) => m.senderId === req.user.id && new Date(m.createdAt).getTime() >= oneMinuteAgo).length;
+  if (recentCount >= 5) return res.status(429).json({ ok: false, message: "Too many messages. Please wait a minute." });
   const p = db.properties.find((x) => x.id === propertyId);
   if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
   const receiverId = txt(req.body?.receiverId || p.ownerId);
@@ -457,7 +565,72 @@ app.get("/api/insights/locality", (req, res) => {
   res.json({ ok: true, stats: { locality: name, totalListings: matched.length, approvedListings: matched.filter((p) => p.status === "Approved").length, verifiedListings: matched.filter((p) => p.verified).length, avgPrice, medianPrice }, nearby: { schools: [`${name} Public School`, `${name} Central School`], hospitals: [`${name} Hospital`, "Maharana Bhupal Hospital"], markets: [`${name} Market`, "City Main Bazaar"] }, trend });
 });
 
+app.get("/api/recommendations", (req, res) => {
+  const locality = txt(req.query.locality).toLowerCase();
+  const category = txt(req.query.category).toLowerCase();
+  const excludeId = txt(req.query.excludeId);
+  const limit = Math.max(1, Math.min(20, num(req.query.limit, 5)));
+  let items = db.properties.filter((p) => p.status === "Approved");
+  if (locality) items = items.filter((p) => txt(p.location).toLowerCase().includes(locality));
+  if (category && category !== "all") items = items.filter((p) => txt(p.category).toLowerCase() === category);
+  if (excludeId) items = items.filter((p) => p.id !== excludeId);
+  items.sort((a, b) => num(b.trustScore, 0) - num(a.trustScore, 0) || num(b.reviewCount, 0) - num(a.reviewCount, 0));
+  res.json({ ok: true, total: items.length, items: items.slice(0, limit) });
+});
+
 app.get("/api/agents", (_req, res) => res.json({ ok: true, total: db.trustedAgents.length, items: db.trustedAgents }));
+
+app.post("/api/reports", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const reason = txt(req.body?.reason);
+  if (!propertyId || !reason) return res.status(400).json({ ok: false, message: "propertyId and reason required." });
+  const p = db.properties.find((x) => x.id === propertyId);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const report = { id: nextId("report"), propertyId, propertyTitle: p.title, reportedBy: req.user.id, reportedByName: req.user.name, reason, status: "open", createdAt: now() };
+  db.reports.unshift(report);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Listing Report", `Report received for ${p.title}.`, "report"));
+  await save();
+  res.status(201).json({ ok: true, report });
+});
+app.get("/api/admin/reports", auth, admin, (_req, res) => {
+  res.json({ ok: true, total: db.reports.length, items: db.reports });
+});
+app.post("/api/admin/reports/:id/resolve", auth, admin, async (req, res) => {
+  const report = db.reports.find((r) => r.id === req.params.id);
+  if (!report) return res.status(404).json({ ok: false, message: "Report not found." });
+  report.status = "resolved";
+  report.resolvedAt = now();
+  await save();
+  res.json({ ok: true, report });
+});
+
+app.post("/api/token-payments/slot", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const amount = num(req.body?.amount, 0);
+  if (!propertyId || amount <= 0) return res.status(400).json({ ok: false, message: "propertyId and positive amount required." });
+  const p = db.properties.find((x) => x.id === propertyId);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const record = { id: nextId("token"), propertyId, propertyTitle: p.title, userId: req.user.id, userName: req.user.name, amount, status: "SlotBooked", createdAt: now() };
+  db.tokenPayments.unshift(record);
+  await save();
+  res.status(201).json({ ok: true, slot: record });
+});
+app.get("/api/token-payments/mine", auth, (req, res) => {
+  const items = req.user.role === "admin" ? db.tokenPayments : db.tokenPayments.filter((x) => x.userId === req.user.id);
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/insurance/tieups", (_req, res) => res.json({ ok: true, items: db.insuranceTieups }));
+app.post("/api/insurance/tieups", auth, async (req, res) => {
+  const company = txt(req.body?.company);
+  const contact = txt(req.body?.contact);
+  const notes = txt(req.body?.notes);
+  if (!company) return res.status(400).json({ ok: false, message: "Company name required." });
+  const record = { id: nextId("insurance"), company, contact, notes, userId: req.user.id, userName: req.user.name, createdAt: now() };
+  db.insuranceTieups.unshift(record);
+  await save();
+  res.status(201).json({ ok: true, tieup: record });
+});
 
 app.post("/api/sealed-bids", auth, async (req, res) => {
   const propertyId = txt(req.body?.propertyId);
@@ -476,7 +649,7 @@ app.get("/api/sealed-bids/mine", auth, (req, res) => {
 });
 app.get("/api/sealed-bids/summary", (_req, res) => {
   const map = new Map();
-  db.bids.forEach((b) => map.set(b.propertyId, { propertyId: b.propertyId, propertyTitle: b.propertyTitle, totalBids: num(map.get(b.propertyId)?.totalBids, 0) + 1 }));
+  db.bids.forEach((b) => map.set(b.propertyId, { propertyId: b.propertyId, propertyTitle: b.propertyTitle, totalBids: num(map.get(b.propertyId)?.totalBids, 0) + 1, status: b.status || "Submitted" }));
   res.json({ ok: true, items: [...map.values()] });
 });
 app.get("/api/sealed-bids/reveal", auth, admin, (req, res) => {
@@ -487,6 +660,26 @@ app.get("/api/sealed-bids/reveal", auth, admin, (req, res) => {
     return { propertyId, propertyTitle: sorted[0].propertyTitle, winnerBid: sorted[0], totalBids: sorted.length };
   });
   res.json({ ok: true, totalProperties: winners.length, winners });
+});
+app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const action = txt(req.body?.action).toLowerCase();
+  if (!propertyId || !["accept", "reject", "reveal"].includes(action)) return res.status(400).json({ ok: false, message: "propertyId and valid action required." });
+  const items = db.bids.filter((b) => b.propertyId === propertyId);
+  if (!items.length) return res.status(404).json({ ok: false, message: "No bids found for property." });
+  const sorted = [...items].sort((a, b) => b.amount - a.amount);
+  const winner = sorted[0];
+
+  if (action === "accept") {
+    items.forEach((b) => { b.status = b.id === winner.id ? "Accepted" : "Rejected"; b.updatedAt = now(); });
+  } else if (action === "reject") {
+    items.forEach((b) => { b.status = "Rejected"; b.updatedAt = now(); });
+  } else {
+    items.forEach((b) => { if (b.id === winner.id) b.status = "Revealed"; b.updatedAt = now(); });
+  }
+
+  await save();
+  res.json({ ok: true, action, propertyId, winnerBid: winner, totalBids: items.length, items });
 });
 
 app.get("/api/notifications", auth, (req, res) => {
@@ -501,7 +694,7 @@ app.post("/api/notifications/:id/read", auth, async (req, res) => {
   res.json({ ok: true, message: "Marked as read." });
 });
 
-app.get("/api/bootstrap", (_req, res) => res.json({ ok: true, plans, legalTemplates, localities: fallbackLocalities }));
+app.get("/api/bootstrap", (_req, res) => res.json({ ok: true, plans, legalTemplates, localities: fallbackLocalities, categories: db.adminConfig.categories, cities: db.adminConfig.cities }));
 app.get("/api/export", auth, admin, (_req, res) => res.json({ ok: true, exportedAt: now(), data: db }));
 app.use("/api", (_req, res) => res.status(404).json({ ok: false, message: "API route not found." }));
 app.get("*", (_req, res) => res.sendFile(path.join(webRoot, "index.html")));

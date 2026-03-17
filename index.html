@@ -16,6 +16,10 @@
         <a href="#categoryHub">Buy/Rent/Care</a>
         <a href="pages/structure-hub.html">Complete Model</a>
         <a href="pages/city-expansion.html">City Structure</a>
+        <a href="pages/premium-services.html">Premium Services</a>
+        <a href="pages/legal-help.html">Legal Help</a>
+        <a href="pages/trusted-agents.html">Trusted Agents</a>
+        <a href="pages/insurance-security.html">Insurance Slot</a>
         <a href="#localityPulse">Locality Pulse</a>
         <a href="folders/common/all-features.html">All Features</a>
         <a href="folders/customer/customer-features.html">Customer Folder</a>
@@ -64,6 +68,8 @@
             <option value="all">All</option>
             <option value="Buy">Buy</option>
             <option value="Rent">Rent</option>
+            <option value="Plot">Plot</option>
+            <option value="Commercial">Commercial</option>
             <option value="Sell">Sell</option>
             <option value="Lease">Lease</option>
           </select>
@@ -293,6 +299,13 @@
                 <option value="trust">Most Trusted</option>
               </select>
             </div>
+            <div class="field">
+              <label for="marketVerifiedOnly">Verified Only</label>
+              <select id="marketVerifiedOnly">
+                <option value="0">All</option>
+                <option value="1">Verified Listings Only</option>
+              </select>
+            </div>
           </div>
           <div class="filter-actions">
             <button id="saveSearchBtn" class="solid-btn" type="button">Save This Search</button>
@@ -329,6 +342,18 @@
           <h3>Recently Viewed</h3>
           <p>Recent localities aur listings track rahenge for faster follow-up.</p>
           <ul id="recentList" class="stack-list"></ul>
+        </article>
+
+        <article class="card">
+          <h3>EMI Calculator</h3>
+          <p>Loan amount, tenure, rate dalke monthly EMI nikaalo.</p>
+          <div style="display:grid;gap:8px;">
+            <input id="emiLoanAmount" type="number" min="0" placeholder="Loan Amount (₹)" />
+            <input id="emiRate" type="number" min="0" step="0.1" placeholder="Annual Interest (%)" />
+            <input id="emiTenureMonths" type="number" min="1" placeholder="Tenure (Months)" />
+            <button id="emiCalcBtn" class="solid-btn" type="button">Calculate EMI</button>
+            <p id="emiResult" class="tiny-note">EMI result yahan show hoga.</p>
+          </div>
         </article>
       </div>
     </section>
@@ -382,6 +407,7 @@
         <a href="legal/privacy.html">Privacy</a>
         <a href="legal/refund.html">Refund</a>
         <a href="legal/disclaimer.html">Disclaimer</a>
+        <a href="legal/service-agreement.html">Service Agreement</a>
       </div>
     </div>
   </footer>

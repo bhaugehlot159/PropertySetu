@@ -28,6 +28,31 @@ Contact on WhatsApp
 </button>
 </a>
 
+<div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+  <button id="bookInspectionBtn" style="padding:10px 20px; background:#0b3d91; color:white; border:none; border-radius:5px;">Book Inspection Slot</button>
+  <button id="tokenSlotBtn" style="padding:10px 20px; background:#1f7a45; color:white; border:none; border-radius:5px;">Book Token Payment Slot</button>
+  <button id="digitalRentBtn" style="padding:10px 20px; background:#6b4fb3; color:white; border:none; border-radius:5px;">Digital Rent Agreement</button>
+</div>
+
+<section style="max-width:700px;margin:28px auto 0;text-align:left;border:1px solid #d6e1f5;border-radius:10px;padding:14px;background:#f8fbff;">
+  <h3 style="margin:0 0 10px;">Rating & Review Matrix</h3>
+  <div style="display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr));">
+    <input id="reviewRating" type="number" min="1" max="5" placeholder="Overall Rating (1-5)" />
+    <input id="reviewPropertyAccuracy" type="number" min="1" max="5" placeholder="Property Accuracy (1-5)" />
+    <input id="reviewOwnerBehavior" type="number" min="1" max="5" placeholder="Owner Behavior (1-5)" />
+    <input id="reviewAgentService" type="number" min="1" max="5" placeholder="Agent Service (1-5)" />
+  </div>
+  <textarea id="reviewComment" placeholder="Review comment" style="width:100%;margin-top:8px;padding:8px;"></textarea>
+  <button id="submitReviewBtn" style="margin-top:8px;padding:8px 14px;background:#0b3d91;color:#fff;border:none;border-radius:5px;">Submit Review</button>
+  <div id="reviewSummary" style="margin-top:10px;color:#1d4068;"></div>
+  <ul id="reviewList" style="margin-top:8px;padding-left:18px;"></ul>
+</section>
+
+<section style="max-width:700px;margin:14px auto 0;text-align:left;border:1px solid #d6e1f5;border-radius:10px;padding:14px;background:#fff;">
+  <h3 style="margin:0 0 10px;">Recommended Similar Properties</h3>
+  <ul id="recommendedList" style="padding-left:18px;"></ul>
+</section>
+
 </section>
 
 <script src="js/live-api.js"></script>
@@ -44,6 +69,9 @@ Contact on WhatsApp
   const priceEl = document.getElementById('propertyPrice');
   const imageEl = document.getElementById('propertyImage');
   const whatsappEl = document.getElementById('whatsappLink');
+  const reviewSummary = document.getElementById('reviewSummary');
+  const reviewList = document.getElementById('reviewList');
+  const recommendedList = document.getElementById('recommendedList');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -88,6 +116,112 @@ Contact on WhatsApp
   findLive().then((item) => {
     if (item) setView(item);
   });
+
+  const showReviews = async (propertyId) => {
+    if (!propertyId || !live.request) return;
+    try {
+      const response = await live.request(`/reviews/${encodeURIComponent(propertyId)}`);
+      if (reviewSummary) {
+        reviewSummary.textContent = `Total Reviews: ${response.total || 0} | Average: ${Number(response.average || 0).toFixed(2)}`;
+      }
+      if (reviewList) {
+        reviewList.innerHTML = (response.items || [])
+          .slice(0, 8)
+          .map((item) => `<li><b>${item.userName}</b> - ${item.rating}/5 (Accuracy ${item.propertyAccuracy}, Owner ${item.ownerBehavior}, Agent ${item.agentService})<br>${item.comment || ''}</li>`)
+          .join('') || '<li>No reviews yet.</li>';
+      }
+    } catch {
+      if (reviewList) reviewList.innerHTML = '<li>Reviews unavailable.</li>';
+    }
+  };
+
+  const submitReviewBtn = document.getElementById('submitReviewBtn');
+  submitReviewBtn?.addEventListener('click', async () => {
+    if (!id) return window.alert('Property id not found.');
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return window.alert('Review submit ke liye login required.');
+    try {
+      await live.request('/reviews', {
+        method: 'POST',
+        token,
+        data: {
+          propertyId: id,
+          rating: Number(document.getElementById('reviewRating')?.value || 0),
+          propertyAccuracy: Number(document.getElementById('reviewPropertyAccuracy')?.value || 0),
+          ownerBehavior: Number(document.getElementById('reviewOwnerBehavior')?.value || 0),
+          agentService: Number(document.getElementById('reviewAgentService')?.value || 0),
+          comment: String(document.getElementById('reviewComment')?.value || '').trim(),
+        },
+      });
+      window.alert('Review submitted.');
+      showReviews(id);
+    } catch (error) {
+      window.alert(error.message || 'Review submit failed.');
+    }
+  });
+
+  document.getElementById('bookInspectionBtn')?.addEventListener('click', async () => {
+    if (!id) return;
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return window.alert('Inspection booking ke liye login required.');
+    try {
+      await live.request('/property-care/requests', {
+        method: 'POST',
+        token,
+        data: { planId: 'care-basic', propertyId: id, location: 'Udaipur', notes: 'Inspection booking from property details.' },
+      });
+      window.alert('Inspection booking request submitted.');
+    } catch (error) {
+      window.alert(error.message || 'Inspection booking failed.');
+    }
+  });
+
+  document.getElementById('tokenSlotBtn')?.addEventListener('click', async () => {
+    if (!id) return;
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return window.alert('Token payment slot ke liye login required.');
+    const amount = Number(window.prompt('Token amount enter karein (₹):', '11000') || 0);
+    if (!amount) return;
+    try {
+      await live.request('/token-payments/slot', { method: 'POST', token, data: { propertyId: id, amount } });
+      window.alert('Token payment slot booked.');
+    } catch (error) {
+      window.alert(error.message || 'Token slot booking failed.');
+    }
+  });
+
+  document.getElementById('digitalRentBtn')?.addEventListener('click', async () => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return window.alert('Digital rent agreement request ke liye login required.');
+    try {
+      await live.request('/legal/requests', {
+        method: 'POST',
+        token,
+        data: { templateId: 'rent-agreement', details: `Digital rent agreement request for property ${id || '-'}` },
+      });
+      window.alert('Digital rent agreement request submitted.');
+    } catch (error) {
+      window.alert(error.message || 'Digital rent agreement request failed.');
+    }
+  });
+
+  showReviews(id);
+
+  const loadRecommendations = async () => {
+    if (!live.request || !recommendedList) return;
+    try {
+      const loc = encodeURIComponent(String(locationEl?.innerText || 'Udaipur').replace('Location:', '').trim() || 'Udaipur');
+      const response = await live.request(`/recommendations?locality=${loc}&excludeId=${encodeURIComponent(id || '')}&limit=5`);
+      const items = response?.items || [];
+      recommendedList.innerHTML = items.length
+        ? items.map((item) => `<li><a href="property-details.html?id=${encodeURIComponent(item.id)}">${item.title}</a> - ₹${Number(item.price || 0).toLocaleString('en-IN')}</li>`).join('')
+        : '<li>No recommendation found right now.</li>';
+    } catch {
+      if (recommendedList) recommendedList.innerHTML = '<li>Recommendation unavailable.</li>';
+    }
+  };
+
+  loadRecommendations();
 })();
 </script>
 

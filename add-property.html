@@ -58,6 +58,41 @@
             <div class="form-group"><label for="price">Price (₹) *</label><input id="price" type="number" min="0" required /></div>
             <div class="form-group"><label for="negotiable">Negotiable</label><select id="negotiable"><option>No</option><option>Yes</option></select></div>
             <div class="form-group full"><label for="description">Description</label><textarea id="description"></textarea></div>
+            <div class="form-group"><label for="roadWidth">Road Width (ft)</label><input id="roadWidth" type="number" min="0" placeholder="e.g. 30" /></div>
+            <div class="form-group"><label for="loanAvailable">Loan Available</label><select id="loanAvailable"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group"><label for="readyToMove">Ready to Move</label><select id="readyToMove"><option>Yes</option><option>No</option><option>Under Construction</option></select></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Size & Interior Details</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="plotSize">Plot Size</label><input id="plotSize" placeholder="e.g. 2400 sq ft" /></div>
+            <div class="form-group"><label for="builtUpArea">Built-up Area</label><input id="builtUpArea" placeholder="e.g. 1600 sq ft" /></div>
+            <div class="form-group"><label for="carpetArea">Carpet Area</label><input id="carpetArea" placeholder="e.g. 1350 sq ft" /></div>
+            <div class="form-group"><label for="floors">Floors</label><input id="floors" placeholder="e.g. G+2" /></div>
+            <div class="form-group"><label for="facing">Facing</label><select id="facing"><option value="">Select</option><option>North</option><option>South</option><option>East</option><option>West</option><option>North-East</option><option>South-East</option><option>South-West</option><option>North-West</option></select></div>
+            <div class="form-group"><label for="furnished">Furnishing</label><select id="furnished"><option value="">Select</option><option>Furnished</option><option>Semi Furnished</option><option>Unfurnished</option></select></div>
+            <div class="form-group"><label for="bedrooms">Bedrooms</label><input id="bedrooms" type="number" min="0" /></div>
+            <div class="form-group"><label for="bathrooms">Bathrooms</label><input id="bathrooms" type="number" min="0" /></div>
+            <div class="form-group"><label for="parking">Parking</label><select id="parking"><option>No</option><option>Yes - 1</option><option>Yes - 2+</option></select></div>
+            <div class="form-group"><label for="garden">Garden</label><select id="garden"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group"><label for="borewell">Borewell</label><select id="borewell"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group full"><label for="landmark">Nearby Landmark</label><input id="landmark" placeholder="e.g. Near Celebration Mall / Sukher Chouraha" /></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Smart Pricing, AI & Compliance</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="localityInsight">Locality For Price Insight</label><input id="localityInsight" placeholder="e.g. Hiran Magri" /></div>
+            <div class="form-group"><label>&nbsp;</label><button type="button" class="btn alt" id="getPriceSuggestionBtn">Get Smart Pricing</button></div>
+            <div class="form-group full"><label for="priceSuggestionOutput">Smart Pricing Suggestion</label><textarea id="priceSuggestionOutput" readonly placeholder="Average, median and recommendation yahan aayega."></textarea></div>
+            <div class="form-group"><label>&nbsp;</label><button type="button" class="btn alt" id="generateAiDescriptionBtn">Generate AI Description</button></div>
+            <div class="form-group"><label for="virtualTourSlot">Virtual Tour Slot</label><input id="virtualTourSlot" type="datetime-local" /></div>
+            <div class="form-group"><label for="liveVisitSlot">Live Visit Slot</label><input id="liveVisitSlot" type="datetime-local" /></div>
+            <div class="form-group"><label for="ownerAadhaarPanStatus">Owner Aadhaar/PAN Verification</label><select id="ownerAadhaarPanStatus"><option>Pending</option><option>Submitted</option></select></div>
+            <div class="form-group"><label for="addressVerificationStatus">Address Verification</label><select id="addressVerificationStatus"><option>Pending</option><option>Submitted</option></select></div>
           </div>
         </section>
 

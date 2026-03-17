@@ -10,6 +10,9 @@
   const saveDraftBtn = document.getElementById('saveDraft');
   const clearDraftBtn = document.getElementById('clearDraft');
   const citySelect = document.getElementById('city');
+  const priceSuggestionOutput = document.getElementById('priceSuggestionOutput');
+  const getPriceSuggestionBtn = document.getElementById('getPriceSuggestionBtn');
+  const generateAiDescriptionBtn = document.getElementById('generateAiDescriptionBtn');
 
   const DRAFT_KEY = 'propertySetu:addPropertyDraft';
   const LISTINGS_KEY = 'propertySetu:listings';
@@ -66,7 +69,16 @@
       bedrooms: numberFrom(get('bedrooms'), 0),
       bathrooms: numberFrom(get('bathrooms'), 0),
       parking: get('parking'),
+      garden: get('garden'),
+      borewell: get('borewell'),
+      roadWidth: numberFrom(get('roadWidth'), 0),
+      loanAvailable: get('loanAvailable'),
+      readyToMove: get('readyToMove'),
       landmark: get('landmark'),
+      virtualTourSlot: get('virtualTourSlot'),
+      liveVisitSlot: get('liveVisitSlot'),
+      ownerAadhaarPanStatus: get('ownerAadhaarPanStatus'),
+      addressVerificationStatus: get('addressVerificationStatus'),
     };
   };
 
@@ -112,6 +124,68 @@
 
   const renderPayloadPreview = (payload) => {
     if (payloadPreview) payloadPreview.textContent = JSON.stringify(payload, null, 2);
+  };
+
+  const generateAiDescription = () => {
+    const values = getFormValues();
+    if (!values.title || !values.location || !values.price) {
+      showStatus('AI description ke liye title, location aur price bharna zaruri hai.', false);
+      return;
+    }
+
+    const description = [
+      `${values.title} in ${values.location}, Udaipur.`,
+      `${values.category || 'Property'} available for ${values.type || 'Buy'} at ₹${Number(values.price || 0).toLocaleString('en-IN')}.`,
+      values.plotSize ? `Plot size: ${values.plotSize}.` : '',
+      values.builtUpArea ? `Built-up area: ${values.builtUpArea}.` : '',
+      values.carpetArea ? `Carpet area: ${values.carpetArea}.` : '',
+      values.furnished ? `Furnishing: ${values.furnished}.` : '',
+      values.bedrooms ? `Bedrooms: ${values.bedrooms}.` : '',
+      values.bathrooms ? `Bathrooms: ${values.bathrooms}.` : '',
+      values.parking ? `Parking: ${values.parking}.` : '',
+      values.landmark ? `Nearby landmark: ${values.landmark}.` : '',
+      'Verified documentation flow enabled with PropertySetu private checks.',
+    ].filter(Boolean).join(' ');
+
+    const descriptionField = document.getElementById('description');
+    if (descriptionField) descriptionField.value = description;
+    showStatus('AI description generated and added in description field.', true);
+  };
+
+  const getSmartPricing = async () => {
+    const locality = text(document.getElementById('localityInsight')?.value) || text(document.getElementById('location')?.value) || 'Udaipur';
+    if (!live.request) {
+      if (priceSuggestionOutput) {
+        priceSuggestionOutput.value = 'Smart pricing live service unavailable. Server start karke dubara try karein.';
+      }
+      return;
+    }
+    try {
+      const response = await live.request(`/insights/locality?name=${encodeURIComponent(locality)}`);
+      const stats = response?.stats || {};
+      const avg = Number(stats.avgPrice || 0);
+      const med = Number(stats.medianPrice || 0);
+      const rec = Math.round((avg + med) / 2 || avg || med || 0);
+      if (priceSuggestionOutput) {
+        priceSuggestionOutput.value = [
+          `Locality: ${stats.locality || locality}`,
+          `Total Listings: ${stats.totalListings || 0}`,
+          `Average Price: ₹${avg.toLocaleString('en-IN')}`,
+          `Median Price: ₹${med.toLocaleString('en-IN')}`,
+          `Suggested Price Anchor: ₹${rec.toLocaleString('en-IN')}`,
+        ].join('\n');
+      }
+      const priceInput = document.getElementById('price');
+      if (priceInput && !Number(priceInput.value || 0) && rec > 0) {
+        priceInput.value = String(rec);
+      }
+      showStatus('Smart pricing suggestion loaded.', true);
+    } catch (error) {
+      if (priceSuggestionOutput) {
+        priceSuggestionOutput.value = `Smart pricing fetch failed: ${error.message}`;
+      }
+      showStatus(`Smart pricing fetch failed: ${error.message}`, false);
+    }
   };
 
   const saveDraft = () => {
@@ -174,6 +248,16 @@
         ownerIdProof: listFileNames(document.getElementById('ownerIdProof')?.files)[0] || null,
         addressProof: listFileNames(document.getElementById('addressProof')?.files)[0] || null,
       },
+      verification: {
+        ownerAadhaarPanStatus: values.ownerAadhaarPanStatus || 'Pending',
+        addressVerificationStatus: values.addressVerificationStatus || 'Pending',
+      },
+      virtualTour: {
+        slot: values.virtualTourSlot || null,
+      },
+      visitBooking: {
+        preferredSlot: values.liveVisitSlot || null,
+      },
       aiReview: {
         fraudRiskScore: aiSignals.riskScore,
         riskReasons: aiSignals.reasons,
@@ -219,6 +303,8 @@
   }
 
   saveDraftBtn?.addEventListener('click', saveDraft);
+  getPriceSuggestionBtn?.addEventListener('click', getSmartPricing);
+  generateAiDescriptionBtn?.addEventListener('click', generateAiDescription);
 
   clearDraftBtn?.addEventListener('click', () => {
     localStorage.removeItem(DRAFT_KEY);

@@ -112,6 +112,8 @@
             <span style="display:flex;gap:6px;align-items:center;">
               <input data-bid-input="${idx}" type="number" min="0" placeholder="Modify" />
               <button type="button" data-bid-action="modify" data-bid-index="${idx}">Modify</button>
+              <button type="button" data-bid-action="accept" data-bid-index="${idx}">Accept Highest</button>
+              <button type="button" data-bid-action="reject" data-bid-index="${idx}">Reject All</button>
               <button type="button" data-bid-action="reveal" data-bid-index="${idx}">${item.publicVisible ? 'Revealed' : 'Reveal'}</button>
             </span>
           </li>`).join('')
@@ -177,6 +179,11 @@
       const token = getAdminToken();
       if (token && live.request) {
         try {
+          await live.request('/sealed-bids/decision', {
+            method: 'POST',
+            token,
+            data: { propertyId: bidRows[idx].propertyId, action: 'reveal' },
+          });
           const response = await live.request('/sealed-bids/reveal', { token });
           const winner = (response?.winners || []).find((item) => item.propertyId === bidRows[idx].propertyId);
           if (winner) {
@@ -193,6 +200,33 @@
       bidRows[idx].publicVisible = true;
       const amount = Number(bidRows[idx].amount || 0).toLocaleString('en-IN');
       window.alert(`Bid reveal (local fallback): ₹${amount}`);
+      renderBids();
+      return;
+    }
+
+    if (action === 'accept' || action === 'reject') {
+      const token = getAdminToken();
+      if (token && live.request) {
+        try {
+          await live.request('/sealed-bids/decision', {
+            method: 'POST',
+            token,
+            data: { propertyId: bidRows[idx].propertyId, action },
+          });
+          window.alert(action === 'accept' ? 'Highest bid accepted.' : 'All bids rejected.');
+          await loadLiveData();
+          renderBids();
+          return;
+        } catch {
+          // fallback below
+        }
+      }
+      const localBids = readJson(bidKey, []);
+      localBids
+        .filter((b) => b.propertyId === bidRows[idx].propertyId)
+        .forEach((b) => { b.status = action === 'accept' ? 'Accepted' : 'Rejected'; });
+      saveJson(bidKey, localBids);
+      window.alert(action === 'accept' ? 'Highest bid accepted (local fallback).' : 'All bids rejected (local fallback).');
       renderBids();
     }
   });

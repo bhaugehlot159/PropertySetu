@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Insurance & Security Tie-up Slots</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .shell { padding: 34px 0 56px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(118deg, #0f456d, #2b6785); color: #eff8ff; padding: 20px; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; }
+    .field { display: grid; gap: 6px; margin-top: 8px; }
+    .field input, .field textarea { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    .muted { color: #3a5770; margin-top: 8px; }
+    .list { margin: 0; padding-left: 18px; }
+    @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="premium-services.html">Premium Services</a>
+        <a href="structure-hub.html">Structure</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Insurance / Security Tie-up Slots (Future Integration Live Module)</h1>
+        <p>Tenant damage protection, property insurance tie-up, security audit partner onboarding ke liye live slot.</p>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Submit Tie-up Interest</h2>
+          <div class="field">
+            <label for="companyName">Company Name</label>
+            <input id="companyName" placeholder="Insurance / Security company" />
+          </div>
+          <div class="field">
+            <label for="companyContact">Contact</label>
+            <input id="companyContact" placeholder="Phone / Email" />
+          </div>
+          <div class="field">
+            <label for="companyNotes">Notes</label>
+            <textarea id="companyNotes" rows="4" placeholder="Tie-up proposal details..."></textarea>
+          </div>
+          <button id="submitTieupBtn" class="solid-btn" type="button">Submit Tie-up Slot</button>
+          <p id="tieupStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Registered Tie-up Queue</h2>
+          <ul id="tieupList" class="list"></ul>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/live-api.js"></script>
+  <script>
+    (() => {
+      const live = window.PropertySetuLive || {};
+      const tieupList = document.getElementById('tieupList');
+      const tieupStatus = document.getElementById('tieupStatus');
+
+      const setStatus = (msg) => { if (tieupStatus) tieupStatus.textContent = msg; };
+
+      const render = (items) => {
+        tieupList.innerHTML = (items || []).map((item) => (
+          `<li><b>${item.company}</b> - ${item.contact || 'No contact'}<br>${item.notes || ''}</li>`
+        )).join('') || '<li>No tie-up records yet.</li>';
+      };
+
+      const load = async () => {
+        if (!live.request) return;
+        try {
+          const response = await live.request('/insurance/tieups');
+          render(response.items || []);
+        } catch (error) {
+          setStatus(`Load failed: ${error.message}`);
+        }
+      };
+
+      document.getElementById('submitTieupBtn')?.addEventListener('click', async () => {
+        const company = String(document.getElementById('companyName')?.value || '').trim();
+        const contact = String(document.getElementById('companyContact')?.value || '').trim();
+        const notes = String(document.getElementById('companyNotes')?.value || '').trim();
+        const token = live.getAnyToken ? live.getAnyToken() : '';
+        if (!company) return setStatus('Company name required.');
+        if (!token || !live.request) return setStatus('Login required for live tie-up submission.');
+        try {
+          await live.request('/insurance/tieups', {
+            method: 'POST',
+            token,
+            data: { company, contact, notes },
+          });
+          setStatus('Tie-up slot submitted.');
+          load();
+        } catch (error) {
+          setStatus(`Submit failed: ${error.message}`);
+        }
+      });
+
+      load();
+    })();
+  </script>
+</body>
+</html>

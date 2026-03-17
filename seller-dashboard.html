@@ -76,6 +76,7 @@ button:hover { background:#092f6d; }
 
 <div class="container">
 <h2>Your Properties</h2>
+<div id="sellerStats" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px;"></div>
 <div id="propertyList">
     <!-- Existing properties will show here -->
 </div>
@@ -87,6 +88,7 @@ button:hover { background:#092f6d; }
   const live = window.PropertySetuLive || {};
   const form = document.getElementById('addPropertyForm');
   const propertyList = document.getElementById('propertyList');
+  const sellerStats = document.getElementById('sellerStats');
   const LISTINGS_KEY = 'propertySetu:listings';
 
   const readJson = live.readJson || ((key, fallback) => {
@@ -118,10 +120,32 @@ button:hover { background:#092f6d; }
     propertyList.innerHTML = '';
     if (!items.length) {
       propertyList.innerHTML = '<p>No properties yet.</p>';
+      if (sellerStats) sellerStats.innerHTML = '';
       return;
     }
 
+    const approved = items.filter((x) => String(x.status || '').toLowerCase() === 'approved').length;
+    const featured = items.filter((x) => x.featured).length;
+    const expiring = items.filter((x) => {
+      const ts = Date.parse(x.featuredUntil || x.listingExpiresAt || '');
+      if (!Number.isFinite(ts)) return false;
+      const diffDays = Math.ceil((ts - Date.now()) / 86400000);
+      return diffDays >= 0 && diffDays <= 7;
+    }).length;
+    if (sellerStats) {
+      sellerStats.innerHTML = `
+        <div class="property-card"><b>Total Listings</b><br>${items.length}</div>
+        <div class="property-card"><b>Approved</b><br>${approved}</div>
+        <div class="property-card"><b>Featured</b><br>${featured}</div>
+        <div class="property-card"><b>Expiry Alerts (<=7d)</b><br>${expiring}</div>
+      `;
+    }
+
     items.forEach((property) => {
+      const featuredTs = Date.parse(property.featuredUntil || '');
+      const featuredText = Number.isFinite(featuredTs)
+        ? ` | Featured till: ${new Date(featuredTs).toLocaleDateString()}`
+        : '';
       const card = document.createElement('div');
       card.className = 'property-card';
       card.innerHTML = `
@@ -130,7 +154,8 @@ button:hover { background:#092f6d; }
         <p><b>Type:</b> ${property.type || property.purpose || '-'}</p>
         <p><b>Location:</b> ${property.location || property.locality || '-'}</p>
         <p><b>Price:</b> ₹${Number(property.price || 0).toLocaleString('en-IN')}</p>
-        <p><b>Status:</b> ${property.status || 'Pending Approval'}</p>
+        <p><b>Status:</b> ${property.status || 'Pending Approval'}${featuredText}</p>
+        <button type="button" data-action="boost" data-id="${property.id}">Boost Listing (Featured 7d)</button>
       `;
       propertyList.appendChild(card);
     });
@@ -227,6 +252,30 @@ button:hover { background:#092f6d; }
   });
 
   syncMineFromApi().finally(render);
+
+  propertyList.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-action');
+    const id = target.getAttribute('data-id');
+    if (action !== 'boost' || !id) return;
+
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return window.alert('Boost ke liye login required.');
+
+    try {
+      await live.request('/subscriptions/activate', {
+        method: 'POST',
+        token,
+        data: { planId: 'featured-7', propertyId: id },
+      });
+      await syncMineFromApi();
+      render();
+      window.alert('Listing boosted for 7 days.');
+    } catch (error) {
+      window.alert(error.message || 'Boost failed.');
+    }
+  });
 })();
 </script>
 <script src="js/udaipur-latest-map-data.js"></script>

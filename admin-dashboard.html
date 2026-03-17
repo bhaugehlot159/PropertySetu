@@ -36,6 +36,35 @@ button:hover { background:#092f6d; }
 </div>
 
 <div class="container">
+  <h2>Admin Controls: Category / City / User Block / Reports / Commission</h2>
+  <div id="adminAnalytics" class="backup-panel"></div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
+    <div class="property-card">
+      <h3>Category Management</h3>
+      <input id="newCategoryInput" placeholder="New category" style="padding:6px;width:100%;max-width:260px;" />
+      <button id="addCategoryBtn">Add Category</button>
+      <div id="categoryList"></div>
+    </div>
+    <div class="property-card">
+      <h3>City Management</h3>
+      <input id="newCityInput" placeholder="New city" style="padding:6px;width:100%;max-width:260px;" />
+      <button id="addCityBtn">Add City</button>
+      <div id="cityList"></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
+    <div class="property-card">
+      <h3>User Block Control</h3>
+      <div id="adminUserList"></div>
+    </div>
+    <div class="property-card">
+      <h3>Report Queue</h3>
+      <div id="adminReportList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
   <h2>Local Data Backup</h2>
   <div class="backup-panel">
     <button id="downloadLocalDataBtn">Download Local Data File (.json)</button>
@@ -64,6 +93,11 @@ button:hover { background:#092f6d; }
   const backupStatus = document.getElementById('backupStatus');
   const pendingDiv = document.getElementById('pendingProperties');
   const approvedDiv = document.getElementById('approvedProperties');
+  const adminAnalytics = document.getElementById('adminAnalytics');
+  const categoryList = document.getElementById('categoryList');
+  const cityList = document.getElementById('cityList');
+  const adminUserList = document.getElementById('adminUserList');
+  const adminReportList = document.getElementById('adminReportList');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -145,6 +179,59 @@ button:hover { background:#092f6d; }
     } catch (error) {
       if (backupStatus) backupStatus.textContent = `Live admin API unavailable: ${error.message}`;
       return getLocalListings();
+    }
+  };
+
+  const loadAdminControls = async () => {
+    const token = getAdminToken();
+    if (!token || !live.request) {
+      if (adminAnalytics) adminAnalytics.textContent = 'Admin controls ke liye admin login required.';
+      return;
+    }
+    try {
+      const [config, users, reports, commission] = await Promise.all([
+        live.request('/admin/config', { token }),
+        live.request('/admin/users', { token }),
+        live.request('/admin/reports', { token }),
+        live.request('/admin/commission-analytics', { token }),
+      ]);
+
+      if (adminAnalytics) {
+        const a = commission?.analytics || {};
+        adminAnalytics.innerHTML = `
+          <span><b>Paid Subs:</b> ${a.paidSubscriptions || 0}</span>
+          <span><b>Sub Revenue:</b> ₹${Number(a.subscriptionRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Legal Revenue:</b> ₹${Number(a.legalServiceRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Estimated Commission:</b> ₹${Number(a.estimatedCommission || 0).toLocaleString('en-IN')}</span>
+        `;
+      }
+
+      if (categoryList) {
+        categoryList.innerHTML = (config?.config?.categories || []).map((x) => `<span class="badge">${x}</span>`).join(' ');
+      }
+      if (cityList) {
+        cityList.innerHTML = (config?.config?.cities || []).map((x) => `<span class="badge">${x}</span>`).join(' ');
+      }
+
+      if (adminUserList) {
+        adminUserList.innerHTML = (users?.items || []).map((u) => `
+          <div style="margin-bottom:6px;">
+            <b>${u.name}</b> (${u.role}) ${u.blocked ? '<span class="badge">Blocked</span>' : ''}
+            <button data-user-action="${u.blocked ? 'unblock' : 'block'}" data-user-id="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>
+          </div>
+        `).join('') || '<p>No users found.</p>';
+      }
+
+      if (adminReportList) {
+        adminReportList.innerHTML = (reports?.items || []).map((r) => `
+          <div style="margin-bottom:8px;">
+            <b>${r.propertyTitle || r.propertyId}</b> - ${r.reason} (${r.status})
+            ${r.status !== 'resolved' ? `<button data-report-resolve="${r.id}">Resolve</button>` : ''}
+          </div>
+        `).join('') || '<p>No reports.</p>';
+      }
+    } catch (error) {
+      if (adminAnalytics) adminAnalytics.textContent = `Admin controls load failed: ${error.message}`;
     }
   };
 
@@ -252,7 +339,67 @@ button:hover { background:#092f6d; }
     if (action === 'feature' && id) await markFeatured(id);
   });
 
+  document.getElementById('addCategoryBtn')?.addEventListener('click', async () => {
+    const token = getAdminToken();
+    const name = String(document.getElementById('newCategoryInput')?.value || '').trim();
+    if (!name) return;
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request('/admin/config/categories', { method: 'POST', token, data: { name } });
+      document.getElementById('newCategoryInput').value = '';
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Category add failed.');
+    }
+  });
+
+  document.getElementById('addCityBtn')?.addEventListener('click', async () => {
+    const token = getAdminToken();
+    const city = String(document.getElementById('newCityInput')?.value || '').trim();
+    if (!city) return;
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request('/admin/config/cities', { method: 'POST', token, data: { city } });
+      document.getElementById('newCityInput').value = '';
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'City add failed.');
+    }
+  });
+
+  adminUserList?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-user-action');
+    const userId = target.getAttribute('data-user-id');
+    if (!action || !userId) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/users/${encodeURIComponent(userId)}/${action}`, { method: 'POST', token });
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'User action failed.');
+    }
+  });
+
+  adminReportList?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const reportId = target.getAttribute('data-report-resolve');
+    if (!reportId) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, { method: 'POST', token });
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Resolve failed.');
+    }
+  });
+
   render();
+  loadAdminControls();
 })();
 </script>
 

@@ -27,6 +27,11 @@
   const recentList = document.getElementById('recentList');
   const saveSearchBtn = document.getElementById('saveSearchBtn');
   const resetFiltersBtn = document.getElementById('resetFiltersBtn');
+  const emiLoanAmount = document.getElementById('emiLoanAmount');
+  const emiRate = document.getElementById('emiRate');
+  const emiTenureMonths = document.getElementById('emiTenureMonths');
+  const emiCalcBtn = document.getElementById('emiCalcBtn');
+  const emiResult = document.getElementById('emiResult');
 
   const quickLocality = document.getElementById('quickLocality');
   const quickPurpose = document.getElementById('quickPurpose');
@@ -41,6 +46,7 @@
   const marketMinPrice = document.getElementById('marketMinPrice');
   const marketMaxPrice = document.getElementById('marketMaxPrice');
   const marketSort = document.getElementById('marketSort');
+  const marketVerifiedOnly = document.getElementById('marketVerifiedOnly');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -208,6 +214,7 @@
     minPrice: numberFrom(marketMinPrice?.value, 0),
     maxPrice: numberFrom(marketMaxPrice?.value, Number.MAX_SAFE_INTEGER),
     sort: marketSort?.value || 'relevance',
+    verifiedOnly: String(marketVerifiedOnly?.value || '0') === '1',
   });
 
   const setFilters = (filters) => {
@@ -222,6 +229,7 @@
       marketMaxPrice.value = Number.isFinite(max) && max !== Number.MAX_SAFE_INTEGER ? String(max) : '';
     }
     if (marketSort) marketSort.value = filters.sort || 'relevance';
+    if (marketVerifiedOnly) marketVerifiedOnly.value = filters.verifiedOnly ? '1' : '0';
   };
 
   const getLocalityMap = () => {
@@ -344,6 +352,7 @@
     if (filters.purpose !== 'all') {
       filtered = filtered.filter((item) => String(item.purpose).toLowerCase() === String(filters.purpose).toLowerCase());
     }
+    if (filters.verifiedOnly) filtered = filtered.filter((item) => !!item.verified);
     filtered = filtered.filter((item) => item.price >= filters.minPrice && item.price <= filters.maxPrice);
 
     switch (filters.sort) {
@@ -374,6 +383,7 @@
     if (filters.purpose !== 'all') tags.push(`Purpose: ${filters.purpose}`);
     if (filters.minPrice) tags.push(`Min: ${formatPrice(filters.minPrice)}`);
     if (Number.isFinite(filters.maxPrice) && filters.maxPrice !== Number.MAX_SAFE_INTEGER) tags.push(`Max: ${formatPrice(filters.maxPrice)}`);
+    if (filters.verifiedOnly) tags.push('Verified Only');
     if (filters.sort !== 'relevance') tags.push(`Sort: ${filters.sort}`);
     activeFilterTags.innerHTML = tags.map((tag) => `<span class="tag-chip">${tag}</span>`).join('');
   };
@@ -409,6 +419,8 @@
               <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
               <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
               <button class="action-btn" data-action="details" data-id="${item.id}" type="button">View Details</button>
+              <button class="action-btn" data-action="map" data-id="${item.id}" type="button">Map</button>
+              <button class="action-btn" data-action="report" data-id="${item.id}" type="button">Report</button>
             </div>
           </div>
         </article>
@@ -497,15 +509,21 @@
   });
 
   quickSearchButton?.addEventListener('click', () => {
+    const quickValue = quickPurpose?.value || 'all';
     if (marketLocality) marketLocality.value = String(quickLocality?.value || '').trim();
-    if (marketPurpose) marketPurpose.value = quickPurpose?.value || 'all';
+    if (quickValue === 'Plot' || quickValue === 'Commercial') {
+      if (marketPurpose) marketPurpose.value = 'all';
+      if (marketCategory) marketCategory.value = quickValue;
+    } else {
+      if (marketPurpose) marketPurpose.value = quickValue;
+    }
     if (marketMaxPrice) marketMaxPrice.value = String(numberFrom(quickBudget?.value, 0) || '');
     if (quickSearchHint) quickSearchHint.textContent = 'Smart quick-search applied in Udaipur marketplace.';
     runPipeline();
     document.getElementById('marketplace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
-  [marketQuery, marketLocality, marketCategory, marketPurpose, marketMinPrice, marketMaxPrice, marketSort].forEach((field) => {
+  [marketQuery, marketLocality, marketCategory, marketPurpose, marketMinPrice, marketMaxPrice, marketSort, marketVerifiedOnly].forEach((field) => {
     field?.addEventListener('input', runPipeline);
     field?.addEventListener('change', runPipeline);
   });
@@ -521,6 +539,7 @@
       minPrice: 0,
       maxPrice: Number.MAX_SAFE_INTEGER,
       sort: 'relevance',
+      verifiedOnly: false,
     });
     if (quickLocality) quickLocality.value = '';
     if (quickBudget) quickBudget.value = '';
@@ -533,6 +552,20 @@
     writeJson(MARKET_STATE_KEY, state);
     renderCompare();
     runPipeline();
+  });
+
+  emiCalcBtn?.addEventListener('click', () => {
+    const principal = numberFrom(emiLoanAmount?.value, 0);
+    const annualRate = numberFrom(emiRate?.value, 0);
+    const months = numberFrom(emiTenureMonths?.value, 0);
+    if (!principal || !annualRate || !months) {
+      if (emiResult) emiResult.textContent = 'Valid loan amount, rate and tenure enter karein.';
+      return;
+    }
+    const r = annualRate / 12 / 100;
+    const factor = Math.pow(1 + r, months);
+    const emi = Math.round((principal * r * factor) / (factor - 1));
+    if (emiResult) emiResult.textContent = `Estimated EMI: ${formatPrice(emi)} / month`;
   });
 
   marketplaceRoot.addEventListener('click', async (event) => {
@@ -555,6 +588,30 @@
     if (action === 'details') {
       pushRecent(listingId);
       window.location.href = `property-details.html?id=${encodeURIComponent(listingId)}`;
+      return;
+    }
+
+    if (action === 'map') {
+      const item = listings.find((entry) => entry.id === listingId);
+      const query = encodeURIComponent(`${item?.locality || 'Udaipur'}, Udaipur`);
+      window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+      return;
+    }
+
+    if (action === 'report') {
+      const reason = window.prompt('Report reason likhein (fake listing / wrong price / spam):', '');
+      if (!reason) return;
+      const token = live.getAnyToken ? live.getAnyToken() : '';
+      if (token && live.request) {
+        live.request('/reports', { method: 'POST', token, data: { propertyId: listingId, reason } })
+          .then(() => window.alert('Report submitted successfully.'))
+          .catch((error) => window.alert(`Report failed: ${error.message}`));
+      } else {
+        const reports = readJson('propertySetu:localReports', []);
+        reports.unshift({ propertyId: listingId, reason, createdAt: new Date().toISOString() });
+        writeJson('propertySetu:localReports', reports);
+        window.alert('Report local queue me save ho gaya. Login ke baad live submit hoga.');
+      }
       return;
     }
 

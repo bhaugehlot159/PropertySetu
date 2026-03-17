@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Premium Service Slots</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .shell { padding: 34px 0 56px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(120deg, #0f466f, #2a6a8f); color: #eff8ff; padding: 20px; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.03rem; }
+    .field { display: grid; gap: 6px; margin-top: 8px; }
+    .field input, .field textarea, .field select { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    .muted { color: #3a5770; margin-top: 8px; }
+    @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="legal-help.html">Legal Help</a>
+        <a href="trusted-agents.html">Trusted Agents</a>
+        <a href="insurance-security.html">Insurance Slot</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Premium Ideas - Live Service Slots</h1>
+        <p>Schedule visit, inspection booking, token payment slot aur digital rent agreement request yahan se live trigger hote hain.</p>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Schedule Visit / Inspection</h2>
+          <div class="field">
+            <label for="visitPropertyId">Property ID</label>
+            <input id="visitPropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="visitDate">Preferred Date-Time</label>
+            <input id="visitDate" type="datetime-local" />
+          </div>
+          <button id="bookVisitBtn" class="solid-btn" type="button">Book Visit Slot</button>
+          <button id="bookInspectionBtn" class="outline-btn dark-outline" type="button">Book Inspection Slot</button>
+          <p id="visitStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Token Payment Slot</h2>
+          <div class="field">
+            <label for="tokenPropertyId">Property ID</label>
+            <input id="tokenPropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="tokenAmount">Token Amount (₹)</label>
+            <input id="tokenAmount" type="number" min="0" placeholder="e.g. 11000" />
+          </div>
+          <button id="bookTokenBtn" class="solid-btn" type="button">Book Token Slot</button>
+          <p id="tokenStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Digital Rent Agreement Slot</h2>
+          <div class="field">
+            <label for="rentAgreementDetails">Details</label>
+            <textarea id="rentAgreementDetails" rows="4" placeholder="Tenant, owner, duration details..."></textarea>
+          </div>
+          <button id="digitalRentBtn" class="solid-btn" type="button">Request Digital Rent Agreement</button>
+          <p id="legalStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Map + Verified-only Quick Action</h2>
+          <p class="muted">Marketplace me Verified-only filter aur map buttons live integrated hain.</p>
+          <a class="solid-btn" href="../index.html#marketplace">Open Marketplace</a>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/live-api.js"></script>
+  <script>
+    (() => {
+      const live = window.PropertySetuLive || {};
+      const token = () => (live.getAnyToken ? live.getAnyToken() : '');
+
+      const set = (id, msg) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = msg;
+      };
+
+      const requiresLogin = () => {
+        if (!token() || !live.request) return true;
+        return false;
+      };
+
+      document.getElementById('bookVisitBtn')?.addEventListener('click', async () => {
+        const propertyId = String(document.getElementById('visitPropertyId')?.value || '').trim();
+        const date = String(document.getElementById('visitDate')?.value || '').trim();
+        if (!propertyId || !date) return set('visitStatus', 'Property ID and date required.');
+        if (requiresLogin()) return set('visitStatus', 'Login required for live booking.');
+        try {
+          await live.request(`/properties/${encodeURIComponent(propertyId)}/visit`, {
+            method: 'POST',
+            token: token(),
+            data: { preferredAt: new Date(date).toISOString(), note: 'Visit booking from premium services.' },
+          });
+          set('visitStatus', 'Visit slot booked.');
+        } catch (error) {
+          set('visitStatus', `Booking failed: ${error.message}`);
+        }
+      });
+
+      document.getElementById('bookInspectionBtn')?.addEventListener('click', async () => {
+        const propertyId = String(document.getElementById('visitPropertyId')?.value || '').trim();
+        if (!propertyId) return set('visitStatus', 'Property ID required.');
+        if (requiresLogin()) return set('visitStatus', 'Login required for live booking.');
+        try {
+          await live.request('/property-care/requests', {
+            method: 'POST',
+            token: token(),
+            data: { planId: 'care-basic', propertyId, location: 'Udaipur', notes: 'Inspection booking from premium services.' },
+          });
+          set('visitStatus', 'Inspection booking submitted.');
+        } catch (error) {
+          set('visitStatus', `Inspection failed: ${error.message}`);
+        }
+      });
+
+      document.getElementById('bookTokenBtn')?.addEventListener('click', async () => {
+        const propertyId = String(document.getElementById('tokenPropertyId')?.value || '').trim();
+        const amount = Number(document.getElementById('tokenAmount')?.value || 0);
+        if (!propertyId || !amount) return set('tokenStatus', 'Property ID and amount required.');
+        if (requiresLogin()) return set('tokenStatus', 'Login required for live token slot.');
+        try {
+          await live.request('/token-payments/slot', {
+            method: 'POST',
+            token: token(),
+            data: { propertyId, amount },
+          });
+          set('tokenStatus', 'Token payment slot booked.');
+        } catch (error) {
+          set('tokenStatus', `Token booking failed: ${error.message}`);
+        }
+      });
+
+      document.getElementById('digitalRentBtn')?.addEventListener('click', async () => {
+        const details = String(document.getElementById('rentAgreementDetails')?.value || '').trim();
+        if (!details) return set('legalStatus', 'Details required.');
+        if (requiresLogin()) return set('legalStatus', 'Login required for digital agreement.');
+        try {
+          await live.request('/legal/requests', {
+            method: 'POST',
+            token: token(),
+            data: { templateId: 'rent-agreement', details },
+          });
+          set('legalStatus', 'Digital rent agreement request submitted.');
+        } catch (error) {
+          set('legalStatus', `Request failed: ${error.message}`);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
