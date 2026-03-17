@@ -1,5 +1,7 @@
 (() => {
   const API_BASE = `${window.location.origin}/api`;
+  const OTP_CODE = '123456';
+  const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
   const customerAuthButton = document.getElementById('customerAuthButton');
   const adminAuthButton = document.getElementById('adminAuthButton');
@@ -25,35 +27,146 @@
   let authMode = 'customer';
   let authAction = 'login';
 
-  const read = (k, f = null) => {
+  const setAuthError = (message) => {
+    if (authErrorMessage) authErrorMessage.textContent = message || '';
+  };
+
+  const read = (key, fallback = null) => {
     try {
-      const raw = localStorage.getItem(k);
-      return raw ? JSON.parse(raw) : f;
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
     } catch {
-      return f;
+      return fallback;
     }
   };
 
-  const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-
-  const getState = (role) => read(`propertysetu-${role}-session`, null);
-  const setState = (role, payload) => {
-    if (!payload) localStorage.removeItem(`propertysetu-${role}-session`);
-    else write(`propertysetu-${role}-session`, payload);
+  const write = (key, value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // storage can fail in strict browser settings
+    }
   };
 
-  const apiRequest = async (path, payload, token) => {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: payload ? 'POST' : 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      ...(payload ? { body: JSON.stringify(payload) } : {}),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Request failed');
-    return data;
+  const remove = (key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // no-op
+    }
+  };
+
+  const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+  const normalizeMobile = (value) => String(value || '').replace(/\D/g, '');
+  const isValidEmail = (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+  const getSessionKey = (role) => `propertysetu-${role}-session`;
+  const getUsersKey = (role) => `propertysetu-${role}-users`;
+
+  const getState = (role) => {
+    const state = read(getSessionKey(role), null);
+    if (!state) return null;
+    const ts = Date.parse(state.loggedInAt || '');
+    if (!Number.isFinite(ts) || Date.now() - ts > SESSION_TTL_MS) {
+      remove(getSessionKey(role));
+      return null;
+    }
+    return state;
+  };
+
+  const setState = (role, payload) => {
+    const key = getSessionKey(role);
+    if (!payload) {
+      remove(key);
+      return;
+    }
+    write(key, payload);
+  };
+
+  const getStoredUsers = (role) => read(getUsersKey(role), []);
+  const setStoredUsers = (role, users) => write(getUsersKey(role), users);
+
+  const findStoredUser = (users, email, mobile) => users.find((item) => (
+    (email && item.email === email) || (mobile && item.mobile === mobile)
+  ));
+
+  const shapeUser = (rawUser, role) => ({
+    id: rawUser.id || `local-${role}-${Date.now()}`,
+    name: rawUser.name || role,
+    email: rawUser.email || '',
+    mobile: rawUser.mobile || '',
+    role,
+  });
+
+  const localRegister = (role, payload) => {
+    const users = getStoredUsers(role);
+    const existing = findStoredUser(users, payload.email, payload.mobile);
+    if (existing) throw new Error('Account already exists. Login kijiye.');
+
+    const user = {
+      id: `local-${role}-${Date.now()}`,
+      name: payload.name,
+      email: payload.email,
+      mobile: payload.mobile,
+      password: payload.password,
+      role,
+      provider: 'local',
+      createdAt: new Date().toISOString(),
+    };
+
+    users.push(user);
+    setStoredUsers(role, users);
+    return {
+      user: shapeUser(user, role),
+      token: `local-${role}-${Date.now()}`,
+    };
+  };
+
+  const localLogin = (role, payload) => {
+    const users = getStoredUsers(role);
+    const user = findStoredUser(users, payload.email, payload.mobile);
+    if (!user) throw new Error('Account nahi mila. Signup kijiye.');
+    if (user.password !== payload.password) throw new Error('Password galat hai.');
+    return {
+      user: shapeUser(user, role),
+      token: `local-${role}-${Date.now()}`,
+    };
+  };
+
+  const apiRequest = async (path, payload, token, timeoutMs = 7000) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        method: payload ? 'POST' : 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        ...(payload ? { body: JSON.stringify(payload) } : {}),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `Request failed (${response.status})`);
+      return data;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const shouldFallbackToLocal = (error) => {
+    const msg = String(error?.message || '').toLowerCase();
+    return (
+      msg.includes('failed to fetch')
+      || msg.includes('network')
+      || msg.includes('abort')
+      || msg.includes('request failed (404)')
+      || msg.includes('request failed (405)')
+      || msg.includes('request failed (500)')
+      || msg.includes('request failed (502)')
+      || msg.includes('request failed (503)')
+      || msg.includes('request failed (504)')
+    );
   };
 
   const setAuthAction = (mode) => {
@@ -84,23 +197,23 @@
 
     if (customerBoardStatus) {
       customerBoardStatus.textContent = customer
-        ? `✅ Customer ${customer.name} logged in. Udaipur Add Property, Dashboard, Chat sab unlock hai.`
+        ? `Customer ${customer.name} logged in.`
         : 'Customer login ke baad Udaipur customer features unlock honge.';
     }
 
     if (adminBoardStatus) {
       adminBoardStatus.textContent = admin
-        ? `✅ Admin ${admin.name} logged in. Udaipur moderation, portals, chat oversight unlock hai.`
+        ? `Admin ${admin.name} logged in.`
         : 'Admin login ke baad Udaipur control features unlock honge.';
     }
 
     if (customerFeatureStatus) {
       if (admin && customer) {
-        customerFeatureStatus.textContent = `✅ Customer (${customer.name}) + Admin (${admin.name}) login active. Udaipur role features available.`;
+        customerFeatureStatus.textContent = `Customer (${customer.name}) + Admin (${admin.name}) active.`;
       } else if (admin) {
-        customerFeatureStatus.textContent = `✅ Admin ${admin.name} logged in. Udaipur admin board unlocked.`;
+        customerFeatureStatus.textContent = `Admin ${admin.name} active.`;
       } else if (customer) {
-        customerFeatureStatus.textContent = `✅ Customer ${customer.name} logged in. Udaipur customer board unlocked.`;
+        customerFeatureStatus.textContent = `Customer ${customer.name} active.`;
       } else {
         customerFeatureStatus.textContent = 'Please login as customer/admin to unlock Udaipur features.';
       }
@@ -126,14 +239,14 @@
   const openAuthModal = (role) => {
     authMode = role;
     if (!authModal) return;
-    authModalTitle.textContent = role === 'admin' ? 'Admin Login' : 'Customer Login';
-    authModalHint.textContent = 'Udaipur portal access: Email/mobile se login ya signup karein. OTP: 123456';
-    authNameInput.value = '';
-    authEmailInput.value = '';
-    authMobileInput.value = '';
-    authPasswordInput.value = '';
-    authOtpInput.value = '123456';
-    authErrorMessage.textContent = '';
+    if (authModalTitle) authModalTitle.textContent = role === 'admin' ? 'Admin Login' : 'Customer Login';
+    if (authModalHint) authModalHint.textContent = `Udaipur portal access. OTP: ${OTP_CODE}`;
+    if (authNameInput) authNameInput.value = '';
+    if (authEmailInput) authEmailInput.value = '';
+    if (authMobileInput) authMobileInput.value = '';
+    if (authPasswordInput) authPasswordInput.value = '';
+    if (authOtpInput) authOtpInput.value = OTP_CODE;
+    if (authErrorMessage) authErrorMessage.textContent = '';
     setAuthAction('login');
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');
@@ -145,34 +258,64 @@
   };
 
   const doAuthFlow = async () => {
-    const name = authNameInput?.value.trim() || '';
-    const email = authEmailInput?.value.trim().toLowerCase() || '';
-    const mobile = authMobileInput?.value.trim() || '';
-    const password = authPasswordInput?.value || '';
-    const otp = authOtpInput?.value.trim() || '';
+    const name = String(authNameInput?.value || '').trim();
+    const email = normalizeEmail(authEmailInput?.value);
+    const mobile = normalizeMobile(authMobileInput?.value);
+    const password = String(authPasswordInput?.value || '');
+    const otp = String(authOtpInput?.value || '').trim();
 
-    if (!email && !mobile) return (authErrorMessage.textContent = 'Email ya mobile dena zaruri hai.');
-    if (authAction === 'signup' && !name) return (authErrorMessage.textContent = 'Signup ke liye full name required hai.');
-    if (password.length < 6 || !otp) return (authErrorMessage.textContent = 'Password 6+ aur OTP required hai.');
+    setAuthError('');
+    if (!email && !mobile) return setAuthError('Email ya mobile dena zaruri hai.');
+    if (!isValidEmail(email)) return setAuthError('Valid email enter kijiye.');
+    if (mobile && mobile.length < 10) return setAuthError('Valid mobile number enter kijiye.');
+    if (authAction === 'signup' && !name) return setAuthError('Signup ke liye full name required hai.');
+    if (password.length < 6) return setAuthError('Password minimum 6 characters hona chahiye.');
+    if (otp !== OTP_CODE) return setAuthError(`OTP ${OTP_CODE} enter kijiye.`);
+
+    const payload = { name, email, mobile, password, otp, role: authMode };
+    const endpoint = authAction === 'signup' ? '/auth/register' : '/auth/login';
+
+    let response = null;
+    let provider = 'server';
 
     try {
-      const endpoint = authAction === 'signup' ? '/auth/register' : '/auth/login';
-      const response = await apiRequest(endpoint, { name, email, mobile, password, otp, role: authMode });
-      setState(authMode, { ...response.user, token: response.token, loggedInAt: new Date().toISOString() });
-      closeAuthModal();
-      updateAuthButtons();
+      response = await apiRequest(endpoint, payload);
     } catch (error) {
-      authErrorMessage.textContent = error.message;
+      if (!shouldFallbackToLocal(error)) {
+        setAuthError(error.message);
+        return;
+      }
+      try {
+        response = authAction === 'signup'
+          ? localRegister(authMode, payload)
+          : localLogin(authMode, payload);
+        provider = 'local';
+      } catch (localError) {
+        setAuthError(localError.message);
+        return;
+      }
     }
+
+    setState(authMode, {
+      ...shapeUser(response.user || {}, authMode),
+      token: response.token || `local-${authMode}-${Date.now()}`,
+      provider,
+      loggedInAt: new Date().toISOString(),
+    });
+
+    closeAuthModal();
+    updateAuthButtons();
   };
 
   const logoutRole = async (role) => {
     const current = getState(role);
     if (!current) return;
-    try {
-      await apiRequest('/auth/logout', { role }, current.token);
-    } catch {
-      // ignore and clear local state anyway
+    if (current.provider !== 'local') {
+      try {
+        await apiRequest('/auth/logout', { role }, current.token, 4000);
+      } catch {
+        // no-op, clear local state below
+      }
     }
     setState(role, null);
     updateAuthButtons();
@@ -205,6 +348,22 @@
 
   authModal?.addEventListener('click', (event) => {
     if (event.target === authModal) closeAuthModal();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (!authModal?.classList.contains('show')) return;
+    if (event.key === 'Escape') closeAuthModal();
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      doAuthFlow();
+    }
+  });
+
+  window.addEventListener('storage', (event) => {
+    if (!event.key) return;
+    if (event.key === getSessionKey('customer') || event.key === getSessionKey('admin')) {
+      updateAuthButtons();
+    }
   });
 
   updateAuthButtons();
