@@ -192,6 +192,9 @@ pm2 restart propertysetu-app
 sudo systemctl reload nginx
 ```
 
+Detailed operations runbook (backup + rollback script flow):
+`docs/PRODUCTION_OPERATIONS_RUNBOOK.md`
+
 ---
 
 If your live domain is different, replace `propertysetu.in` and `www.propertysetu.in` everywhere in this checklist and in `deploy/nginx/propertysetu.conf`.

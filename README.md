@@ -78,6 +78,11 @@ Production helper scripts:
 - `deploy/scripts/provision-ubuntu.sh`
 - `deploy/scripts/deploy.sh`
 - `deploy/scripts/verify-live.sh`
+- `deploy/scripts/backup.sh`
+- `deploy/scripts/rollback.sh`
+
+Operations runbook:
+- `docs/PRODUCTION_OPERATIONS_RUNBOOK.md`
 
 ## Codex PR workflow note
 If Codex shows this message:

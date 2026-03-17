@@ -29,6 +29,8 @@ chmod +x deploy/scripts/provision-ubuntu.sh
 chmod +x deploy/scripts/deploy.sh
 chmod +x deploy/scripts/preflight.sh
 chmod +x deploy/scripts/verify-live.sh
+chmod +x deploy/scripts/backup.sh
+chmod +x deploy/scripts/rollback.sh
 ```
 
 ## 4) Run preflight (recommended)
@@ -96,3 +98,9 @@ If you ran without `EMAIL`, run later:
 sudo certbot --nginx -d propertysetu.in -d www.propertysetu.in
 sudo certbot renew --dry-run
 ```
+
+## 10) Ops runbook
+
+For backup/rollback operations use:
+
+`docs/PRODUCTION_OPERATIONS_RUNBOOK.md`
