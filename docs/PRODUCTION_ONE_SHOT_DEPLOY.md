@@ -25,12 +25,7 @@ cd propertysetu
 ## 3) Make scripts executable
 
 ```bash
-chmod +x deploy/scripts/provision-ubuntu.sh
-chmod +x deploy/scripts/deploy.sh
-chmod +x deploy/scripts/preflight.sh
-chmod +x deploy/scripts/verify-live.sh
-chmod +x deploy/scripts/backup.sh
-chmod +x deploy/scripts/rollback.sh
+chmod +x deploy/scripts/*.sh
 ```
 
 ## 4) Run preflight (recommended)
@@ -104,3 +99,7 @@ sudo certbot renew --dry-run
 For backup/rollback operations use:
 
 `docs/PRODUCTION_OPERATIONS_RUNBOOK.md`
+
+For cron-based auto monitoring + backup schedule:
+
+`docs/PRODUCTION_AUTOMATION_SCHEDULE.md`

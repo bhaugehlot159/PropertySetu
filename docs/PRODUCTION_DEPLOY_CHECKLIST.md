@@ -195,6 +195,9 @@ sudo systemctl reload nginx
 Detailed operations runbook (backup + rollback script flow):
 `docs/PRODUCTION_OPERATIONS_RUNBOOK.md`
 
+Automation schedule guide (cron health-check + daily backup):
+`docs/PRODUCTION_AUTOMATION_SCHEDULE.md`
+
 ---
 
 If your live domain is different, replace `propertysetu.in` and `www.propertysetu.in` everywhere in this checklist and in `deploy/nginx/propertysetu.conf`.

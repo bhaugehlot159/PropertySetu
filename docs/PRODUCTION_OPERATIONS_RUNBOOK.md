@@ -4,6 +4,7 @@ This runbook covers production safety operations:
 - backup
 - verify
 - rollback
+- automation schedule
 
 ## 1) Script permissions
 
@@ -77,4 +78,16 @@ git pull --ff-only origin main
 
 ```bash
 sudo certbot renew --dry-run
+```
+
+## 8) Enable scheduled automation
+
+Use the dedicated schedule guide:
+
+`docs/PRODUCTION_AUTOMATION_SCHEDULE.md`
+
+Quick install command:
+
+```bash
+APP_DIR=/var/www/propertysetu DOMAIN=propertysetu.in APP_PORT=5000 ./deploy/scripts/install-ops-cron.sh
 ```

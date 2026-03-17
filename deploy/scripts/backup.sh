@@ -42,8 +42,14 @@ if [[ -f "${APP_DIR}/server/.env" ]]; then
 fi
 
 if [[ -f "/etc/nginx/sites-available/propertysetu.conf" ]]; then
-  sudo cp "/etc/nginx/sites-available/propertysetu.conf" "${BACKUP_DIR}/nginx.propertysetu.conf"
-  sudo chown "$USER:$USER" "${BACKUP_DIR}/nginx.propertysetu.conf"
+  if cp "/etc/nginx/sites-available/propertysetu.conf" "${BACKUP_DIR}/nginx.propertysetu.conf" 2>/dev/null; then
+    :
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo cp "/etc/nginx/sites-available/propertysetu.conf" "${BACKUP_DIR}/nginx.propertysetu.conf"
+    sudo chown "$USER:$USER" "${BACKUP_DIR}/nginx.propertysetu.conf"
+  else
+    echo "WARN: Nginx config exists but cannot be copied without sudo access. Skipping nginx config backup."
+  fi
 fi
 
 # 3) Metadata

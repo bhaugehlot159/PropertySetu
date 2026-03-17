@@ -80,9 +80,13 @@ Production helper scripts:
 - `deploy/scripts/verify-live.sh`
 - `deploy/scripts/backup.sh`
 - `deploy/scripts/rollback.sh`
+- `deploy/scripts/health-watch.sh`
+- `deploy/scripts/install-ops-cron.sh`
+- `deploy/scripts/uninstall-ops-cron.sh`
 
 Operations runbook:
 - `docs/PRODUCTION_OPERATIONS_RUNBOOK.md`
+- `docs/PRODUCTION_AUTOMATION_SCHEDULE.md`
 
 ## Codex PR workflow note
 If Codex shows this message:
