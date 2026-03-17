@@ -30,16 +30,65 @@ Contact on WhatsApp
 
 </section>
 
+<script src="js/live-api.js"></script>
 <script>
-const params = new URLSearchParams(window.location.search);
+(() => {
+  const live = window.PropertySetuLive || {};
+  const params = new URLSearchParams(window.location.search);
+  const hashId = String(window.location.hash || '').replace('#', '').trim();
+  const queryId = String(params.get('id') || '').trim();
+  const id = queryId || hashId;
 
-document.getElementById("propertyTitle").innerText = params.get("title");
-document.getElementById("propertyLocation").innerText = "Location: " + params.get("location");
-document.getElementById("propertyPrice").innerText = "Price: ₹" + params.get("price");
-document.getElementById("propertyImage").src = params.get("image");
+  const titleEl = document.getElementById('propertyTitle');
+  const locationEl = document.getElementById('propertyLocation');
+  const priceEl = document.getElementById('propertyPrice');
+  const imageEl = document.getElementById('propertyImage');
+  const whatsappEl = document.getElementById('whatsappLink');
 
-document.getElementById("whatsappLink").href =
-"https://wa.me/91XXXXXXXXXX?text=I am interested in " + params.get("title");
+  const readJson = live.readJson || ((key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+
+  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+  const setView = (item) => {
+    const title = item?.title || params.get('title') || 'Property Details';
+    const location = item?.location || item?.locality || params.get('location') || 'Udaipur';
+    const price = item?.price || params.get('price') || 0;
+    const image = item?.image || params.get('image') || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80';
+
+    titleEl.innerText = title;
+    locationEl.innerText = `Location: ${location}`;
+    priceEl.innerText = `Price: ${formatPrice(price)}`;
+    imageEl.src = image;
+    whatsappEl.href = `https://wa.me/91XXXXXXXXXX?text=I am interested in ${encodeURIComponent(title)}`;
+  };
+
+  const findLocal = () => {
+    if (!id) return null;
+    const listings = readJson('propertySetu:listings', []);
+    return listings.find((item) => item.id === id) || null;
+  };
+
+  const findLive = async () => {
+    if (!id || !live.request) return null;
+    try {
+      const response = await live.request('/properties?city=Udaipur');
+      return (response?.items || []).find((item) => item.id === id) || null;
+    } catch {
+      return null;
+    }
+  };
+
+  setView(findLocal());
+  findLive().then((item) => {
+    if (item) setView(item);
+  });
+})();
 </script>
 
 </body>

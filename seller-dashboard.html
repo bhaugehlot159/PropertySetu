@@ -81,73 +81,153 @@ button:hover { background:#092f6d; }
 </div>
 </div>
 
+<script src="js/live-api.js"></script>
 <script>
-const form = document.getElementById('addPropertyForm');
-const propertyList = document.getElementById('propertyList');
-const LISTINGS_KEY = 'propertySetu:listings';
+(() => {
+  const live = window.PropertySetuLive || {};
+  const form = document.getElementById('addPropertyForm');
+  const propertyList = document.getElementById('propertyList');
+  const LISTINGS_KEY = 'propertySetu:listings';
 
-const readJson = (key, fallback) => {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const writeJson = (key, value) => {
-  localStorage.setItem(key, JSON.stringify(value));
-};
-
-const render = () => {
-  const items = readJson(LISTINGS_KEY, []);
-  propertyList.innerHTML = '';
-  if (!items.length) {
-    propertyList.innerHTML = '<p>No properties yet.</p>';
-    return;
-  }
-
-  items.forEach((property) => {
-    const card = document.createElement('div');
-    card.className = 'property-card';
-    card.innerHTML = `
-      <h3>${property.title} ${property.featured ? '<span class="featured-badge">FEATURED</span>' : ''}</h3>
-      <p><b>Category:</b> ${property.category || '-'}</p>
-      <p><b>Location:</b> ${property.location || '-'}</p>
-      <p><b>Price:</b> ₹${Number(property.price || 0).toLocaleString('en-IN')}</p>
-      <p><b>Status:</b> ${property.status || 'Pending Approval'}</p>
-    `;
-    propertyList.prepend(card);
+  const readJson = live.readJson || ((key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
   });
-};
+  const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const normalizePurpose = live.normalizePurpose || ((value) => String(value || '').trim() || 'Buy');
 
-form.addEventListener('submit', (e) => {
-  e.preventDefault();
-
-  const property = {
-    id: `seller-${Date.now()}`,
-    title: document.getElementById('title').value,
-    category: document.getElementById('category').value,
-    location: document.getElementById('location').value,
-    price: Number(document.getElementById('price').value || 0),
-    description: document.getElementById('description').value,
-    featured: document.getElementById('featured').value === 'yes',
-    photosCount: document.getElementById('photos').files.length,
-    videoUploaded: document.getElementById('video').files.length > 0,
-    city: 'Udaipur',
-    status: 'Pending Approval',
-    createdAt: new Date().toISOString(),
+  const upsertLocal = (record) => {
+    const all = readJson(LISTINGS_KEY, []);
+    const next = [record, ...all.filter((item) => item.id !== record.id)];
+    writeJson(LISTINGS_KEY, next);
   };
 
-  const items = readJson(LISTINGS_KEY, []);
-  items.unshift(property);
-  writeJson(LISTINGS_KEY, items);
-  form.reset();
-  render();
-  alert('Property added and connected across dashboards ✅');
-});
+  const getSessionId = () => (live.getAnySession ? String(live.getAnySession()?.id || '') : '');
 
-render();
+  const render = () => {
+    const sessionId = getSessionId();
+    const items = readJson(LISTINGS_KEY, [])
+      .filter((item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur'))
+      .filter((item) => !sessionId || item.ownerId === sessionId)
+      .sort((a, b) => new Date(b.createdAt || b.listedAt || 0) - new Date(a.createdAt || a.listedAt || 0));
+
+    propertyList.innerHTML = '';
+    if (!items.length) {
+      propertyList.innerHTML = '<p>No properties yet.</p>';
+      return;
+    }
+
+    items.forEach((property) => {
+      const card = document.createElement('div');
+      card.className = 'property-card';
+      card.innerHTML = `
+        <h3>${property.title} ${property.featured ? '<span class="featured-badge">FEATURED</span>' : ''}</h3>
+        <p><b>Category:</b> ${property.category || '-'}</p>
+        <p><b>Type:</b> ${property.type || property.purpose || '-'}</p>
+        <p><b>Location:</b> ${property.location || property.locality || '-'}</p>
+        <p><b>Price:</b> ₹${Number(property.price || 0).toLocaleString('en-IN')}</p>
+        <p><b>Status:</b> ${property.status || 'Pending Approval'}</p>
+      `;
+      propertyList.appendChild(card);
+    });
+  };
+
+  const syncMineFromApi = async () => {
+    if (!live.request) return;
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token) return;
+    try {
+      const response = await live.request('/properties?city=Udaipur&mine=1', { token });
+      const apiItems = (response?.items || []).map((entry) => {
+        if (live.normalizeApiListing) return live.normalizeApiListing(entry);
+        return {
+          ...entry,
+          locality: entry.location || 'Udaipur',
+          purpose: normalizePurpose(entry.type),
+          listedAt: entry.createdAt || new Date().toISOString(),
+        };
+      }).filter(Boolean);
+      const merged = live.mergeById ? live.mergeById(apiItems, readJson(LISTINGS_KEY, [])) : [...apiItems, ...readJson(LISTINGS_KEY, [])];
+      writeJson(LISTINGS_KEY, merged);
+    } catch {
+      // fallback local data remains
+    }
+  };
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('title').value;
+    const category = document.getElementById('category').value;
+    const location = document.getElementById('location').value;
+    const price = Number(document.getElementById('price').value || 0);
+    const description = document.getElementById('description').value;
+    const featured = document.getElementById('featured').value === 'yes';
+    const photosCount = document.getElementById('photos').files.length;
+    const videoUploaded = document.getElementById('video').files.length > 0;
+
+    const localPayload = {
+      id: `seller-${Date.now()}`,
+      title,
+      category,
+      type: normalizePurpose(category),
+      location,
+      price,
+      description,
+      featured,
+      city: 'Udaipur',
+      status: 'Pending Approval',
+      createdAt: new Date().toISOString(),
+      media: { photosCount, videoUploaded },
+      aiReview: { fraudRiskScore: photosCount >= 5 ? 20 : 65 },
+      ownerId: getSessionId() || null,
+    };
+
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (token && live.request) {
+      try {
+        const response = await live.request('/properties', {
+          method: 'POST',
+          token,
+          data: {
+            title,
+            category,
+            type: normalizePurpose(category),
+            location,
+            price,
+            description,
+            city: 'Udaipur',
+            media: { photosCount, videoUploaded },
+            aiReview: { fraudRiskScore: photosCount >= 5 ? 20 : 65 },
+          },
+        });
+        const normalized = live.normalizeApiListing
+          ? live.normalizeApiListing(response?.property)
+          : { ...localPayload, ...(response?.property || {}) };
+        if (normalized) upsertLocal(normalized);
+        form.reset();
+        render();
+        window.alert('Property live API me submit ho gayi.');
+        return;
+      } catch (error) {
+        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+          window.alert(error.message || 'Submit failed.');
+          return;
+        }
+      }
+    }
+
+    upsertLocal(localPayload);
+    form.reset();
+    render();
+    window.alert('Live unavailable. Property local mode me save ho gayi.');
+  });
+
+  syncMineFromApi().finally(render);
+})();
 </script>
 <script src="js/udaipur-latest-map-data.js"></script>
 <script src="js/udaipur-official-data.js"></script>

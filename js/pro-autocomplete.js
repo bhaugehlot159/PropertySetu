@@ -61,7 +61,7 @@
       if (query) {
         matches = matches.filter((item) => item.toLowerCase().includes(query));
       }
-      const dynamicGroupLimit = fullMatchMode ? Number.MAX_SAFE_INTEGER : maxPerGroup;
+      const dynamicGroupLimit = fullMatchMode ? 120 : Math.max(maxPerGroup, 20);
       const previewLimit = query ? dynamicGroupLimit : Math.min(maxPerGroup, 5);
       matches = sortByRelevance(matches, query).slice(0, previewLimit);
       matches = matches.filter((item) => {

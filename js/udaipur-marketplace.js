@@ -1,4 +1,5 @@
 (() => {
+  const live = window.PropertySetuLive || {};
   const marketplaceRoot = document.getElementById('marketGrid');
   if (!marketplaceRoot) return;
 
@@ -41,16 +42,20 @@
   const marketMaxPrice = document.getElementById('marketMaxPrice');
   const marketSort = document.getElementById('marketSort');
 
-  const parseJson = (key, fallback) => {
+  const readJson = live.readJson || ((key, fallback) => {
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
     } catch {
       return fallback;
     }
-  };
+  });
 
-  const writeJson = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+  const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const numberFrom = live.numberFrom || ((value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  });
 
   const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`;
 
@@ -119,81 +124,32 @@
       listedAt: '2026-03-11T07:05:00.000Z',
       image: 'https://images.unsplash.com/photo-1505692952047-1a78307da8f2?auto=format&fit=crop&w=1200&q=80',
     },
-    {
-      id: 'seed-5',
-      title: 'Farm House Retreat at Badi Lake Road',
-      locality: 'Badi Lake Road',
-      category: 'Farm House',
-      purpose: 'Buy',
-      price: 14500000,
-      areaSqft: 5600,
-      beds: 4,
-      city: 'Udaipur',
-      verified: true,
-      premium: true,
-      trustScore: 90,
-      listedAt: '2026-03-10T15:30:00.000Z',
-      image: 'https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=1200&q=80',
-    },
-    {
-      id: 'seed-6',
-      title: 'Warehouse Space in Kaladwas RIICO',
-      locality: 'RIICO Kaladwas',
-      category: 'Warehouse',
-      purpose: 'Rent',
-      price: 110000,
-      areaSqft: 7200,
-      beds: 0,
-      city: 'Udaipur',
-      verified: false,
-      premium: false,
-      trustScore: 72,
-      listedAt: '2026-03-09T10:50:00.000Z',
-      image: 'https://images.unsplash.com/photo-1565610502821-03f8c73f869e?auto=format&fit=crop&w=1200&q=80',
-    },
   ];
 
-  const normalizePurpose = (value) => {
-    const base = String(value || '').trim().toLowerCase();
-    if (!base) return 'Buy';
-    if (base.startsWith('rent')) return 'Rent';
-    if (base.startsWith('sell')) return 'Sell';
-    if (base.startsWith('lease')) return 'Lease';
-    if (base.startsWith('buy')) return 'Buy';
-    return base.charAt(0).toUpperCase() + base.slice(1);
-  };
-
-  const numberFrom = (value, fallback = 0) => {
-    if (value === null || value === undefined || String(value).trim() === '') return fallback;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
+  const normalizePurpose = live.normalizePurpose || ((value) => String(value || '').trim() || 'Buy');
 
   const normalizeLocalEntry = (entry) => {
     if (!entry || typeof entry !== 'object') return null;
     const city = String(entry.city || 'Udaipur').trim() || 'Udaipur';
     if (!city.toLowerCase().includes('udaipur')) return null;
-
     const riskScore = numberFrom(entry?.aiReview?.fraudRiskScore, 45);
     const photosCount = numberFrom(entry?.media?.photosCount, 0);
-    const verified = entry.status === 'Approved' || riskScore <= 35;
-    const premium = photosCount >= 8;
-
     return {
       id: entry.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       title: entry.title || 'Untitled Listing',
-      locality: entry.location || 'Udaipur',
+      locality: entry.location || entry.locality || 'Udaipur',
       category: entry.category || 'House',
-      purpose: normalizePurpose(entry.type),
+      purpose: entry.purpose || normalizePurpose(entry.type),
       price: numberFrom(entry.price, 0),
-      areaSqft: numberFrom(entry.builtUpArea || entry.plotSize || entry.carpetArea, 0),
-      beds: numberFrom(entry.bedrooms, 0),
+      areaSqft: numberFrom(entry.builtUpArea || entry.plotSize || entry.carpetArea || entry.areaSqft, 0),
+      beds: numberFrom(entry.bedrooms || entry.beds, 0),
       city: 'Udaipur',
-      verified,
-      premium,
-      trustScore: Math.max(35, 100 - riskScore + (entry.status === 'Approved' ? 10 : 0)),
-      listedAt: entry.createdAt || new Date().toISOString(),
+      verified: Boolean(entry.verified || entry.status === 'Approved'),
+      premium: Boolean(entry.featured || photosCount >= 8),
+      trustScore: Math.max(35, numberFrom(entry.trustScore, 100 - riskScore)),
+      listedAt: entry.listedAt || entry.createdAt || new Date().toISOString(),
       image: entry.image || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
+      status: entry.status || 'Pending Approval',
     };
   };
 
@@ -201,9 +157,8 @@
     if (!entry || typeof entry !== 'object') return null;
     const locality = String(entry.location || '').trim();
     if (!locality) return null;
-
     return {
-      id: `legacy-${index}`,
+      id: entry.id || `legacy-${index}`,
       title: entry.title || 'Legacy Listing',
       locality,
       category: entry.category || 'House',
@@ -217,26 +172,33 @@
       trustScore: entry.featured ? 85 : 68,
       listedAt: entry.createdAt || '2026-03-01T09:00:00.000Z',
       image: entry.image || 'https://images.unsplash.com/photo-1513584684374-8bab748fbf90?auto=format&fit=crop&w=1200&q=80',
+      status: entry.status || 'Approved',
     };
   };
 
-  const localListings = parseJson(LISTINGS_KEY, []).map(normalizeLocalEntry).filter(Boolean);
-  const legacyListings = parseJson(LEGACY_PROPERTIES_KEY, []).map(normalizeLegacyEntry).filter(Boolean);
+  const buildListings = () => {
+    const localListings = readJson(LISTINGS_KEY, []).map(normalizeLocalEntry).filter(Boolean);
+    const legacyListings = readJson(LEGACY_PROPERTIES_KEY, []).map(normalizeLegacyEntry).filter(Boolean);
+    return [...localListings, ...legacyListings, ...seededListings]
+      .reduce((acc, item) => {
+        if (acc.some((known) => known.id === item.id || (
+          known.title === item.title
+          && known.locality === item.locality
+          && known.price === item.price
+        ))) {
+          return acc;
+        }
+        acc.push(item);
+        return acc;
+      }, [])
+      .filter((item) => String(item.city || '').toLowerCase().includes('udaipur'));
+  };
 
-  const deduped = [...localListings, ...legacyListings, ...seededListings].reduce((acc, item) => {
-    if (acc.some((known) => known.id === item.id || (known.title === item.title && known.locality === item.locality && known.price === item.price))) {
-      return acc;
-    }
-    acc.push(item);
-    return acc;
-  }, []);
-
-  let listings = deduped.filter((item) => item.city.toLowerCase().includes('udaipur'));
-
-  const state = parseJson(MARKET_STATE_KEY, { wishlist: [], compare: [], visits: [], bids: [] });
-  const savedSearches = parseJson(SAVED_SEARCH_KEY, []);
-  const recentlyViewed = parseJson(RECENTLY_VIEWED_KEY, []);
-  const rememberedFilters = parseJson(FILTER_STATE_KEY, null);
+  let listings = buildListings();
+  const state = readJson(MARKET_STATE_KEY, { wishlist: [], compare: [], visits: [], bids: [] });
+  const savedSearches = readJson(SAVED_SEARCH_KEY, []);
+  const recentlyViewed = readJson(RECENTLY_VIEWED_KEY, []);
+  const rememberedFilters = readJson(FILTER_STATE_KEY, null);
 
   const getFilters = () => ({
     query: String(marketQuery?.value || '').trim(),
@@ -244,7 +206,7 @@
     category: marketCategory?.value || 'all',
     purpose: marketPurpose?.value || 'all',
     minPrice: numberFrom(marketMinPrice?.value, 0),
-    maxPrice: numberFrom(marketMaxPrice?.value, Infinity),
+    maxPrice: numberFrom(marketMaxPrice?.value, Number.MAX_SAFE_INTEGER),
     sort: marketSort?.value || 'relevance',
   });
 
@@ -255,30 +217,27 @@
     if (marketCategory) marketCategory.value = filters.category || 'all';
     if (marketPurpose) marketPurpose.value = filters.purpose || 'all';
     if (marketMinPrice) marketMinPrice.value = filters.minPrice ? String(filters.minPrice) : '';
-    if (marketMaxPrice) marketMaxPrice.value = Number.isFinite(filters.maxPrice) ? String(filters.maxPrice) : '';
+    if (marketMaxPrice) {
+      const max = Number(filters.maxPrice);
+      marketMaxPrice.value = Number.isFinite(max) && max !== Number.MAX_SAFE_INTEGER ? String(max) : '';
+    }
     if (marketSort) marketSort.value = filters.sort || 'relevance';
   };
 
-  const activeLocalityMap = new Map();
-  listings.forEach((item) => {
-    activeLocalityMap.set(item.locality, (activeLocalityMap.get(item.locality) || 0) + 1);
-  });
-
-  const topLocalities = [...activeLocalityMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12)
-    .map(([name]) => name);
-
-  const fallbackLocalities = ['Hiran Magri Sector 4', 'Pratap Nagar', 'Bhuwana', 'Sukher', 'Fatehpura', 'Bedla Road'];
-  const displayLocalities = topLocalities.length ? topLocalities : fallbackLocalities;
+  const getLocalityMap = () => {
+    const map = new Map();
+    listings.forEach((item) => map.set(item.locality, (map.get(item.locality) || 0) + 1));
+    return map;
+  };
 
   const renderStats = () => {
     const prices = listings.map((item) => item.price).filter((price) => price > 0).sort((a, b) => a - b);
     const midpoint = Math.floor(prices.length / 2);
     const median = prices.length ? prices[midpoint] : 0;
     const verifiedCount = listings.filter((item) => item.verified).length;
+    const localityMap = getLocalityMap();
+    const topEntry = [...localityMap.entries()].sort((a, b) => b[1] - a[1])[0];
 
-    const topEntry = [...activeLocalityMap.entries()].sort((a, b) => b[1] - a[1])[0];
     if (statActiveListings) statActiveListings.textContent = `${listings.length}`;
     if (statVerifiedListings) statVerifiedListings.textContent = `${verifiedCount}`;
     if (statMedianPrice) statMedianPrice.textContent = formatPrice(median);
@@ -287,9 +246,33 @@
 
   const renderLocalityChips = () => {
     if (!localityChips) return;
-    localityChips.innerHTML = displayLocalities
+    const localityMap = getLocalityMap();
+    const topLocalities = [...localityMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([name]) => name);
+    const fallback = ['Hiran Magri Sector 4', 'Pratap Nagar', 'Bhuwana', 'Sukher', 'Fatehpura', 'Bedla Road'];
+    const display = topLocalities.length ? topLocalities : fallback;
+    localityChips.innerHTML = display
       .map((locality) => `<button type="button" class="chip-btn" data-locality="${locality}">${locality}</button>`)
       .join('');
+  };
+
+  const pushRecent = (listingId) => {
+    const listing = listings.find((item) => item.id === listingId);
+    if (!listing) return;
+    const payload = {
+      id: listing.id,
+      title: listing.title,
+      locality: listing.locality,
+      price: listing.price,
+      at: new Date().toISOString(),
+    };
+    const filtered = recentlyViewed.filter((item) => item.id !== listingId);
+    filtered.unshift(payload);
+    while (filtered.length > 8) filtered.pop();
+    writeJson(RECENTLY_VIEWED_KEY, filtered);
+    renderRecentlyViewed(filtered);
   };
 
   const toggleCompare = (listingId) => {
@@ -315,33 +298,13 @@
     renderListings(applyFilters(getFilters()));
   };
 
-  const pushRecent = (listingId) => {
-    const listing = listings.find((item) => item.id === listingId);
-    if (!listing) return;
-    const payload = {
-      id: listing.id,
-      title: listing.title,
-      locality: listing.locality,
-      price: listing.price,
-      at: new Date().toISOString(),
-    };
-
-    const filtered = recentlyViewed.filter((item) => item.id !== listingId);
-    filtered.unshift(payload);
-    while (filtered.length > 8) filtered.pop();
-    writeJson(RECENTLY_VIEWED_KEY, filtered);
-    renderRecentlyViewed(filtered);
-  };
-
   const renderCompare = () => {
     if (compareCount) compareCount.textContent = `${state.compare.length}`;
     if (!compareList) return;
-
     const rows = state.compare
       .map((id) => listings.find((item) => item.id === id))
       .filter(Boolean)
       .map((item) => `<li><strong>${item.title}</strong><br>${item.locality} • ${formatPrice(item.price)}</li>`);
-
     compareList.innerHTML = rows.length ? rows.join('') : '<li>No compare selection yet.</li>';
   };
 
@@ -357,12 +320,11 @@
               <button class="action-btn" data-action="applySaved" data-index="${index}" type="button">Apply</button>
               <button class="action-btn" data-action="deleteSaved" data-index="${index}" type="button">Delete</button>
             </div>
-          </li>`)
-        .join('')
+          </li>`).join('')
       : '<li>No saved searches yet.</li>';
   };
 
-  const renderRecentlyViewed = (items = parseJson(RECENTLY_VIEWED_KEY, [])) => {
+  const renderRecentlyViewed = (items = readJson(RECENTLY_VIEWED_KEY, [])) => {
     if (!recentList) return;
     recentList.innerHTML = items.length
       ? items.map((item) => `<li><strong>${item.title}</strong><br>${item.locality} • ${formatPrice(item.price)}</li>`).join('')
@@ -374,13 +336,8 @@
     const q = filters.query.toLowerCase();
     const loc = filters.locality.toLowerCase();
 
-    if (q) {
-      filtered = filtered.filter((item) =>
-        `${item.title} ${item.locality} ${item.category}`.toLowerCase().includes(q));
-    }
-    if (loc) {
-      filtered = filtered.filter((item) => item.locality.toLowerCase().includes(loc));
-    }
+    if (q) filtered = filtered.filter((item) => `${item.title} ${item.locality} ${item.category}`.toLowerCase().includes(q));
+    if (loc) filtered = filtered.filter((item) => item.locality.toLowerCase().includes(loc));
     if (filters.category !== 'all') {
       filtered = filtered.filter((item) => String(item.category).toLowerCase() === String(filters.category).toLowerCase());
     }
@@ -405,7 +362,6 @@
       default:
         filtered.sort((a, b) => (b.trustScore + (b.premium ? 8 : 0)) - (a.trustScore + (a.premium ? 8 : 0)));
     }
-
     return filtered;
   };
 
@@ -417,56 +373,50 @@
     if (filters.category !== 'all') tags.push(`Category: ${filters.category}`);
     if (filters.purpose !== 'all') tags.push(`Purpose: ${filters.purpose}`);
     if (filters.minPrice) tags.push(`Min: ${formatPrice(filters.minPrice)}`);
-    if (Number.isFinite(filters.maxPrice)) tags.push(`Max: ${formatPrice(filters.maxPrice)}`);
+    if (Number.isFinite(filters.maxPrice) && filters.maxPrice !== Number.MAX_SAFE_INTEGER) tags.push(`Max: ${formatPrice(filters.maxPrice)}`);
     if (filters.sort !== 'relevance') tags.push(`Sort: ${filters.sort}`);
-
     activeFilterTags.innerHTML = tags.map((tag) => `<span class="tag-chip">${tag}</span>`).join('');
   };
 
   const renderListings = (filtered) => {
-    marketplaceRoot.innerHTML = filtered
-      .map((item) => {
-        const inWishlist = state.wishlist.includes(item.id);
-        const inCompare = state.compare.includes(item.id);
-        return `
-          <article class="listing-card">
-            <div class="listing-media">
-              <img loading="lazy" src="${item.image}" alt="${item.title}" />
-              <div class="listing-badge-row">
-                ${item.verified ? '<span class="listing-badge verified">Verified</span>' : ''}
-                ${item.premium ? '<span class="listing-badge premium">Elite</span>' : ''}
-              </div>
+    marketplaceRoot.innerHTML = filtered.map((item) => {
+      const inWishlist = state.wishlist.includes(item.id);
+      const inCompare = state.compare.includes(item.id);
+      return `
+        <article class="listing-card">
+          <div class="listing-media">
+            <img loading="lazy" src="${item.image}" alt="${item.title}" />
+            <div class="listing-badge-row">
+              ${item.verified ? '<span class="listing-badge verified">Verified</span>' : ''}
+              ${item.premium ? '<span class="listing-badge premium">Elite</span>' : ''}
             </div>
-            <div class="listing-body">
-              <h3 class="listing-title">${item.title}</h3>
-              <p class="listing-locality">${item.locality}, Udaipur</p>
-              <div class="listing-meta">
-                <div class="listing-price">${formatPrice(item.price)}</div>
-                <span class="listing-purpose">${item.purpose}</span>
-              </div>
-              <ul class="listing-facts">
-                <li>${item.category}</li>
-                <li>${item.areaSqft ? `${item.areaSqft} sq.ft.` : 'Area N/A'}</li>
-                <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
-                <li>Trust ${Math.round(item.trustScore)}%</li>
-              </ul>
-              <div class="listing-actions">
-                <button class="action-btn" data-action="wishlist" data-id="${item.id}" type="button">${inWishlist ? 'Wishlisted' : 'Wishlist'}</button>
-                <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
-                <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
-                <button class="action-btn" data-action="details" data-id="${item.id}" type="button">View Details</button>
-              </div>
+          </div>
+          <div class="listing-body">
+            <h3 class="listing-title">${item.title}</h3>
+            <p class="listing-locality">${item.locality}, Udaipur</p>
+            <div class="listing-meta">
+              <div class="listing-price">${formatPrice(item.price)}</div>
+              <span class="listing-purpose">${item.purpose}</span>
             </div>
-          </article>`;
-      })
-      .join('');
+            <ul class="listing-facts">
+              <li>${item.category}</li>
+              <li>${item.areaSqft ? `${item.areaSqft} sq.ft.` : 'Area N/A'}</li>
+              <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
+              <li>Trust ${Math.round(item.trustScore)}%</li>
+            </ul>
+            <div class="listing-actions">
+              <button class="action-btn" data-action="wishlist" data-id="${item.id}" type="button">${inWishlist ? 'Wishlisted' : 'Wishlist'}</button>
+              <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
+              <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
+              <button class="action-btn" data-action="details" data-id="${item.id}" type="button">View Details</button>
+            </div>
+          </div>
+        </article>
+      `;
+    }).join('');
 
-    if (resultsMeta) {
-      resultsMeta.textContent = `${filtered.length} listing${filtered.length === 1 ? '' : 's'} matched in Udaipur`;
-    }
-    if (marketNoResults) {
-      marketNoResults.hidden = filtered.length !== 0;
-    }
+    if (resultsMeta) resultsMeta.textContent = `${filtered.length} listing${filtered.length === 1 ? '' : 's'} matched in Udaipur`;
+    if (marketNoResults) marketNoResults.hidden = filtered.length !== 0;
   };
 
   const runPipeline = () => {
@@ -480,14 +430,44 @@
   const saveCurrentSearch = () => {
     const filters = getFilters();
     const label = `${filters.locality || 'Udaipur'} • ${filters.category || 'all'} • ${filters.purpose || 'all'}`;
-    savedSearches.unshift({
-      label,
-      filters,
-      createdAt: new Date().toISOString(),
-    });
+    savedSearches.unshift({ label, filters, createdAt: new Date().toISOString() });
     while (savedSearches.length > 8) savedSearches.pop();
     writeJson(SAVED_SEARCH_KEY, savedSearches);
     renderSavedSearches();
+  };
+
+  const bookLiveVisit = async (listingId) => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return false;
+    try {
+      await live.request(`/properties/${encodeURIComponent(listingId)}/visit`, {
+        method: 'POST',
+        token,
+        data: {
+          preferredAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          note: 'Visit requested from marketplace',
+        },
+      });
+      return true;
+    } catch (error) {
+      if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+        window.alert(error.message || 'Visit request failed.');
+      }
+      return false;
+    }
+  };
+
+  const syncFromApi = async () => {
+    if (!live.syncLocalListingsFromApi) return;
+    try {
+      await live.syncLocalListingsFromApi();
+      listings = buildListings();
+      renderStats();
+      renderLocalityChips();
+      runPipeline();
+    } catch {
+      // fallback continues from local data
+    }
   };
 
   renderStats();
@@ -495,7 +475,6 @@
   renderCompare();
   renderSavedSearches();
   renderRecentlyViewed(recentlyViewed);
-
   if (rememberedFilters) setFilters(rememberedFilters);
   runPipeline();
 
@@ -534,10 +513,18 @@
   saveSearchBtn?.addEventListener('click', saveCurrentSearch);
 
   resetFiltersBtn?.addEventListener('click', () => {
-    setFilters({ query: '', locality: '', category: 'all', purpose: 'all', minPrice: 0, maxPrice: Infinity, sort: 'relevance' });
-    quickLocality && (quickLocality.value = '');
-    quickBudget && (quickBudget.value = '');
-    quickPurpose && (quickPurpose.value = 'all');
+    setFilters({
+      query: '',
+      locality: '',
+      category: 'all',
+      purpose: 'all',
+      minPrice: 0,
+      maxPrice: Number.MAX_SAFE_INTEGER,
+      sort: 'relevance',
+    });
+    if (quickLocality) quickLocality.value = '';
+    if (quickBudget) quickBudget.value = '';
+    if (quickPurpose) quickPurpose.value = 'all';
     runPipeline();
   });
 
@@ -548,7 +535,7 @@
     runPipeline();
   });
 
-  marketplaceRoot.addEventListener('click', (event) => {
+  marketplaceRoot.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const action = target.getAttribute('data-action');
@@ -565,40 +552,43 @@
       return;
     }
 
-    if (action === 'visit' || action === 'details') {
+    if (action === 'details') {
+      pushRecent(listingId);
+      window.location.href = `property-details.html?id=${encodeURIComponent(listingId)}`;
+      return;
+    }
+
+    if (action === 'visit') {
       pushRecent(listingId);
       state.visits.unshift({ listingId, at: new Date().toISOString() });
-      state.visits = state.visits.slice(0, 25);
+      state.visits = state.visits.slice(0, 30);
       writeJson(MARKET_STATE_KEY, state);
-      if (action === 'details') {
-        window.location.href = `property-details.html#${listingId}`;
-      } else {
-        window.alert('Visit request added. Team aapko callback karegi.');
-      }
+      const liveDone = await bookLiveVisit(listingId);
+      if (liveDone) window.alert('Visit request live submit ho gayi.');
+      else window.alert('Visit request local queue me save ho gayi. Login se live submit hoga.');
       return;
     }
   });
 
-  [savedSearchList].forEach((list) => {
-    list?.addEventListener('click', (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const action = target.getAttribute('data-action');
-      const index = Number(target.getAttribute('data-index'));
-      if (!action || Number.isNaN(index)) return;
-      if (!savedSearches[index]) return;
+  savedSearchList?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-action');
+    const index = Number(target.getAttribute('data-index'));
+    if (!action || Number.isNaN(index) || !savedSearches[index]) return;
 
-      if (action === 'applySaved') {
-        setFilters(savedSearches[index].filters);
-        runPipeline();
-        return;
-      }
+    if (action === 'applySaved') {
+      setFilters(savedSearches[index].filters);
+      runPipeline();
+      return;
+    }
 
-      if (action === 'deleteSaved') {
-        savedSearches.splice(index, 1);
-        writeJson(SAVED_SEARCH_KEY, savedSearches);
-        renderSavedSearches();
-      }
-    });
+    if (action === 'deleteSaved') {
+      savedSearches.splice(index, 1);
+      writeJson(SAVED_SEARCH_KEY, savedSearches);
+      renderSavedSearches();
+    }
   });
+
+  syncFromApi();
 })();

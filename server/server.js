@@ -1,251 +1,516 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import cors from "cors";
+import dotenv from "dotenv";
+import express from "express";
+import fs from "fs";
+import fsp from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
-const JWT_SECRET = process.env.JWT_SECRET || 'propertysetu-dev-secret';
+const JWT_SECRET = process.env.JWT_SECRET || "propertysetu-dev-secret";
+const OTP = "123456";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const webRoot = path.join(__dirname, '..');
+const webRoot = path.join(__dirname, "..");
+const dbDir = path.join(webRoot, "database");
+const dbFile = path.join(dbDir, "live-data.json");
+
+const plans = [
+  { id: "free-basic", name: "Free Basic Listing", amount: 0, cycleDays: 30, type: "listing" },
+  { id: "featured-7", name: "Featured Listing - 7 Days", amount: 299, cycleDays: 7, type: "featured" },
+  { id: "featured-30", name: "Featured Listing - 30 Days", amount: 999, cycleDays: 30, type: "featured" },
+  { id: "care-basic", name: "Property Care Basic Visit", amount: 1500, cycleDays: 30, type: "care" },
+  { id: "care-plus", name: "Property Care Plus", amount: 3000, cycleDays: 30, type: "care" },
+  { id: "care-full", name: "Property Care Full Maintenance", amount: 5000, cycleDays: 30, type: "care" },
+  { id: "agent-pro", name: "Trusted Agent Membership", amount: 1999, cycleDays: 30, type: "agent" },
+];
+
+const legalTemplates = [
+  { id: "sale-agreement", name: "Sale Agreement Draft", fee: 999 },
+  { id: "rent-agreement", name: "Rent Agreement Template", fee: 499 },
+  { id: "stamp-duty-guide", name: "Stamp Duty Guidance", fee: 299 },
+  { id: "lawyer-connect", name: "Local Lawyer Connect", fee: 1499 },
+];
+
+const fallbackLocalities = ["Hiran Magri", "Pratap Nagar", "Bhuwana", "Sukher", "Fatehpura", "Ambamata", "Savina", "Bedla"];
+
+const seededProperties = [
+  { id: "prop-seed-1", title: "Premium Lake-view Villa", city: "Udaipur", type: "Buy", category: "Villa", location: "Ambamata", price: 32000000, status: "Approved", verified: true, featured: true, featuredUntil: new Date(Date.now() + 14 * 86400000).toISOString(), ownerId: "seed-owner-1", ownerName: "PropertySetu Verified Owner", trustScore: 96, reviewCount: 0, averageRating: 0, createdAt: "2026-03-14T09:00:00.000Z", updatedAt: "2026-03-14T09:00:00.000Z" },
+  { id: "prop-seed-2", title: "2BHK Family Flat in Pratap Nagar", city: "Udaipur", type: "Rent", category: "Flat", location: "Pratap Nagar", price: 19500, status: "Approved", verified: true, featured: false, featuredUntil: null, ownerId: "seed-owner-2", ownerName: "PropertySetu Owner", trustScore: 88, reviewCount: 0, averageRating: 0, createdAt: "2026-03-13T11:20:00.000Z", updatedAt: "2026-03-13T11:20:00.000Z" },
+];
+
+const defaults = () => ({
+  users: [],
+  properties: seededProperties,
+  reviews: [],
+  messages: [],
+  subscriptions: [],
+  careRequests: [],
+  legalRequests: [],
+  visits: [],
+  bids: [],
+  notifications: [],
+  trustedAgents: [
+    { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
+    { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
+  ],
+  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1 },
+});
+
+let db = defaults();
+let writeQ = Promise.resolve();
+
+const txt = (v) => String(v || "").trim();
+const email = (v) => txt(v).toLowerCase();
+const phone = (v) => String(v || "").replace(/\D/g, "");
+const num = (v, f = 0) => (Number.isFinite(Number(v)) ? Number(v) : f);
+const role = (v) => {
+  const r = txt(v).toLowerCase();
+  if (r === "admin" || r === "seller" || r === "agent") return r;
+  return "customer";
+};
+const now = () => new Date().toISOString();
+const safeArr = (v) => (Array.isArray(v) ? v : []);
+const isUdaipur = (city) => txt(city || "Udaipur").toLowerCase().includes("udaipur");
+const userSafe = (u) => ({ id: u.id, name: u.name, email: u.email || "", mobile: u.mobile || "", role: u.role, verified: !!u.verified, subscriptionPlan: u.subscriptionPlan || "free-basic" });
+
+const nextId = (k) => {
+  db.counters[k] = num(db.counters[k], 0) + 1;
+  return `${k}-${db.counters[k]}`;
+};
+
+const save = async () => {
+  writeQ = writeQ.then(() => fsp.writeFile(dbFile, JSON.stringify(db, null, 2), "utf8"));
+  return writeQ;
+};
+
+const load = async () => {
+  if (!fs.existsSync(dbDir)) await fsp.mkdir(dbDir, { recursive: true });
+  if (!fs.existsSync(dbFile)) await fsp.writeFile(dbFile, JSON.stringify(defaults(), null, 2), "utf8");
+  try {
+    const raw = JSON.parse(await fsp.readFile(dbFile, "utf8"));
+    const fresh = defaults();
+    db = {
+      ...fresh,
+      ...raw,
+      users: safeArr(raw.users),
+      properties: safeArr(raw.properties),
+      reviews: safeArr(raw.reviews),
+      messages: safeArr(raw.messages),
+      subscriptions: safeArr(raw.subscriptions),
+      careRequests: safeArr(raw.careRequests),
+      legalRequests: safeArr(raw.legalRequests),
+      visits: safeArr(raw.visits),
+      bids: safeArr(raw.bids),
+      notifications: safeArr(raw.notifications),
+      trustedAgents: safeArr(raw.trustedAgents).length ? safeArr(raw.trustedAgents) : fresh.trustedAgents,
+      counters: { ...fresh.counters, ...(raw.counters || {}) },
+    };
+  } catch {
+    db = defaults();
+    await save();
+  }
+};
+
+const sign = (u) => jwt.sign({ id: u.id, role: u.role, name: u.name, email: u.email || "", mobile: u.mobile || "" }, JWT_SECRET, { expiresIn: "24h" });
+const tokenOf = (req) => {
+  const h = String(req.headers.authorization || "");
+  return h.startsWith("Bearer ") ? h.slice(7).trim() : "";
+};
+const authOpt = (req, _res, next) => {
+  req.user = null;
+  const t = tokenOf(req);
+  if (!t) return next();
+  try { req.user = jwt.verify(t, JWT_SECRET); } catch { req.user = null; }
+  next();
+};
+const auth = (req, res, next) => {
+  const t = tokenOf(req);
+  if (!t) return res.status(401).json({ ok: false, message: "Missing auth token." });
+  try { req.user = jwt.verify(t, JWT_SECRET); next(); } catch { res.status(401).json({ ok: false, message: "Invalid or expired token." }); }
+};
+const admin = (req, res, next) => (req.user?.role === "admin" ? next() : res.status(403).json({ ok: false, message: "Admin access required." }));
+const userById = (id) => db.users.find((u) => u.id === id) || null;
+const pushNoti = (userId, title, message, type = "general") => db.notifications.unshift({ id: nextId("notification"), userId, title, message, type, isRead: false, createdAt: now() });
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  next();
-});
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(webRoot));
 
-const bids = [];
-const users = [];
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.0.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights"] }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 
-const disposableDomains = new Set([
-  'mailinator.com',
-  'tempmail.com',
-  '10minutemail.com',
-  'guerrillamail.com',
-  'yopmail.com',
-]);
+app.post("/api/auth/register", async (req, res) => {
+  const r = role(req.body?.role);
+  const n = txt(req.body?.name);
+  const e = email(req.body?.email);
+  const m = phone(req.body?.mobile);
+  const p = String(req.body?.password || "");
+  const o = String(req.body?.otp || "");
+  if (!n) return res.status(400).json({ ok: false, message: "Full name required." });
+  if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
+  if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ ok: false, message: "Valid email required." });
+  if (m && !/^\d{10}$/.test(m)) return res.status(400).json({ ok: false, message: "Mobile must be 10 digits." });
+  if (p.length < 6) return res.status(400).json({ ok: false, message: "Password minimum 6 characters required." });
+  if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
+  const exists = db.users.find((u) => u.role === r && ((e && u.email === e) || (m && u.mobile === m)));
+  if (exists) return res.status(409).json({ ok: false, message: "Account already exists. Please login." });
+  const u = { id: nextId("user"), role: r, name: n, email: e || "", mobile: m || "", passwordHash: await bcrypt.hash(p, 10), verified: true, subscriptionPlan: "free-basic", createdAt: now(), updatedAt: now(), lastLoginAt: null };
+  db.users.push(u);
+  pushNoti(u.id, "Welcome to PropertySetu", "Your account is ready.", "auth");
+  await save();
+  res.status(201).json({ ok: true, token: sign(u), user: userSafe(u) });
+});
 
-const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+app.post("/api/auth/login", async (req, res) => {
+  const r = role(req.body?.role);
+  const e = email(req.body?.email);
+  const m = phone(req.body?.mobile);
+  const p = String(req.body?.password || "");
+  const o = String(req.body?.otp || "");
+  if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
+  if (!p) return res.status(400).json({ ok: false, message: "Password required." });
+  if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
+  const cred = m || e;
+  const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
+  if (!u) return res.status(404).json({ ok: false, message: "User not found. Please signup first." });
+  if (!(await bcrypt.compare(p, u.passwordHash))) return res.status(401).json({ ok: false, message: "Invalid credentials." });
+  u.lastLoginAt = now();
+  u.updatedAt = now();
+  await save();
+  res.json({ ok: true, token: sign(u), user: userSafe(u) });
+});
 
-const signToken = (user) => jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email, phone: user.phone }, JWT_SECRET, { expiresIn: '24h' });
+app.post("/api/auth/logout", auth, (_req, res) => res.json({ ok: true, message: "Logged out successfully." }));
+app.get("/api/auth/me", auth, (req, res) => {
+  const u = userById(req.user.id);
+  if (!u) return res.status(404).json({ ok: false, message: "User not found." });
+  res.json({ ok: true, user: userSafe(u) });
+});
 
-const authGuard = (req, res, next) => {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!token) {
-    res.status(401).json({ ok: false, message: 'Missing auth token.' });
-    return;
-  }
+app.get("/api/search/suggestions", (req, res) => {
+  const q = txt(req.query.q).toLowerCase();
+  const dynamic = db.properties.map((p) => txt(p.location)).filter(Boolean);
+  const merged = [...new Set([...dynamic, ...fallbackLocalities])];
+  const items = q ? merged.filter((x) => x.toLowerCase().includes(q)).slice(0, 80) : merged.slice(0, 80);
+  res.json({ ok: true, items });
+});
 
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ ok: false, message: 'Invalid or expired token.' });
-  }
-};
+app.get("/api/properties", authOpt, (req, res) => {
+  let items = [...db.properties];
+  const mine = String(req.query.mine || "") === "1";
+  const city = txt(req.query.city || "Udaipur");
+  const status = txt(req.query.status);
+  const q = txt(req.query.q).toLowerCase();
+  const locality = txt(req.query.locality).toLowerCase();
+  const category = txt(req.query.category).toLowerCase();
+  const purpose = txt(req.query.purpose || req.query.type).toLowerCase();
+  const minPrice = num(req.query.minPrice, 0);
+  const maxPrice = Number.isFinite(Number(req.query.maxPrice)) ? Number(req.query.maxPrice) : Number.MAX_SAFE_INTEGER;
 
-const findUserByIdentifier = (identifierType, identifierValue, role) => {
-  if (identifierType === 'mobile') {
-    return users.find((entry) => entry.phone === identifierValue && entry.role === role);
-  }
-  return users.find((entry) => entry.email === identifierValue && entry.role === role);
-};
+  if (city) items = items.filter((p) => txt(p.city).toLowerCase().includes(city.toLowerCase()));
+  if (mine) {
+    if (!req.user?.id) return res.status(401).json({ ok: false, message: "Login required for mine filter." });
+    items = items.filter((p) => p.ownerId === req.user.id);
+  } else if (status && req.user?.role === "admin") items = items.filter((p) => txt(p.status).toLowerCase() === status.toLowerCase());
+  else items = items.filter((p) => p.status === "Approved");
+  if (q) items = items.filter((p) => `${p.title} ${p.location} ${p.category}`.toLowerCase().includes(q));
+  if (locality) items = items.filter((p) => txt(p.location).toLowerCase().includes(locality));
+  if (category && category !== "all") items = items.filter((p) => txt(p.category).toLowerCase() === category);
+  if (purpose && purpose !== "all") items = items.filter((p) => txt(p.type).toLowerCase() === purpose);
+  items = items.filter((p) => num(p.price, 0) >= minPrice && num(p.price, 0) <= maxPrice);
+  const sort = txt(req.query.sort || "latest").toLowerCase();
+  if (sort === "pricelow") items.sort((a, b) => num(a.price, 0) - num(b.price, 0));
+  else if (sort === "pricehigh") items.sort((a, b) => num(b.price, 0) - num(a.price, 0));
+  else if (sort === "trust") items.sort((a, b) => num(b.trustScore, 0) - num(a.trustScore, 0));
+  else items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
 
-const detectFakeSignup = ({ name, email, phone, password }) => {
-  const reasons = [];
-  if (/\b(test|fake|spam|demo user)\b/i.test(name)) reasons.push('Suspicious name pattern detected.');
-
-  const domain = email.includes('@') ? email.split('@')[1] : '';
-  if (domain && disposableDomains.has(domain)) reasons.push('Disposable email domains are not allowed.');
-
-  if (phone && /^(\d)\1{9}$/.test(phone)) reasons.push('Invalid mobile number pattern detected.');
-
-  if (/^(123456|1234567|password|qwerty)/i.test(password)) reasons.push('Password is too weak for a genuine account.');
-
-  const duplicateCount = users.filter((entry) => (email && entry.email === email) || (phone && entry.phone === phone)).length;
-  if (duplicateCount >= 2) reasons.push('Too many accounts detected with same identifier.');
-
-  return {
-    isFake: reasons.length > 0,
-    reasons,
+app.post("/api/properties", auth, async (req, res) => {
+  const owner = userById(req.user.id);
+  if (!owner) return res.status(401).json({ ok: false, message: "User not found for session." });
+  const payload = req.body || {};
+  const property = {
+    id: nextId("property"),
+    title: txt(payload.title) || "Untitled Property",
+    city: isUdaipur(payload.city) ? "Udaipur" : txt(payload.city || "Udaipur"),
+    type: txt(payload.type) || "Buy",
+    category: txt(payload.category) || "House",
+    location: txt(payload.location) || "Udaipur",
+    price: num(payload.price, 0),
+    negotiable: txt(payload.negotiable || "No"),
+    description: txt(payload.description),
+    plotSize: txt(payload.plotSize),
+    builtUpArea: txt(payload.builtUpArea),
+    carpetArea: txt(payload.carpetArea),
+    floors: txt(payload.floors),
+    facing: txt(payload.facing),
+    furnished: txt(payload.furnished),
+    bedrooms: num(payload.bedrooms, 0),
+    bathrooms: num(payload.bathrooms, 0),
+    parking: txt(payload.parking),
+    landmark: txt(payload.landmark),
+    media: payload.media || {},
+    privateDocs: payload.privateDocs || {},
+    aiReview: payload.aiReview || {},
+    status: owner.role === "admin" ? "Approved" : "Pending Approval",
+    verified: owner.role === "admin",
+    featured: false,
+    featuredUntil: null,
+    ownerId: owner.id,
+    ownerName: owner.name,
+    ownerRole: owner.role,
+    trustScore: Math.max(40, 100 - num(payload?.aiReview?.fraudRiskScore, 45)),
+    reviewCount: 0,
+    averageRating: 0,
+    createdAt: now(),
+    updatedAt: now(),
   };
-};
+  if (!isUdaipur(property.city)) return res.status(400).json({ ok: false, message: "Only Udaipur listings are allowed." });
+  if (!property.title || !property.location || property.price <= 0) return res.status(400).json({ ok: false, message: "Title, location and valid price required." });
+  db.properties.unshift(property);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Listing Approval Required", `${property.title} submitted by ${owner.name}.`, "approval"));
+  await save();
+  res.status(201).json({ ok: true, property });
+});
 
-app.get('/api', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'PropertySetu API',
-    version: '1.2.0',
-    features: ['static-site', 'auth', 'sealed-bid-demo', 'health', 'security-headers'],
+app.patch("/api/properties/:id", auth, async (req, res) => {
+  const p = db.properties.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const isOwner = p.ownerId === req.user.id;
+  const isAdminUser = req.user.role === "admin";
+  if (!isOwner && !isAdminUser) return res.status(403).json({ ok: false, message: "Not authorized." });
+  Object.assign(p, req.body || {});
+  p.updatedAt = now();
+  if (!isAdminUser) { p.status = "Pending Approval"; p.verified = false; }
+  await save();
+  res.json({ ok: true, property: p });
+});
+
+app.delete("/api/properties/:id", auth, async (req, res) => {
+  const i = db.properties.findIndex((x) => x.id === req.params.id);
+  if (i < 0) return res.status(404).json({ ok: false, message: "Property not found." });
+  const p = db.properties[i];
+  if (p.ownerId !== req.user.id && req.user.role !== "admin") return res.status(403).json({ ok: false, message: "Not authorized." });
+  db.properties.splice(i, 1);
+  await save();
+  res.json({ ok: true, message: "Property deleted." });
+});
+
+app.post("/api/properties/:id/approve", auth, admin, async (req, res) => {
+  const p = db.properties.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const st = txt(req.body?.status || "Approved");
+  p.status = st.toLowerCase() === "rejected" ? "Rejected" : "Approved";
+  p.verified = p.status === "Approved";
+  p.updatedAt = now();
+  if (p.ownerId) pushNoti(p.ownerId, `Listing ${p.status}`, `${p.title} marked as ${p.status}.`, "approval");
+  await save();
+  res.json({ ok: true, property: p });
+});
+
+app.post("/api/properties/:id/feature", auth, admin, async (req, res) => {
+  const p = db.properties.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const days = Math.max(1, num(req.body?.days, 7));
+  p.featured = true;
+  p.featuredUntil = new Date(Date.now() + days * 86400000).toISOString();
+  p.updatedAt = now();
+  await save();
+  res.json({ ok: true, property: p });
+});
+
+app.post("/api/properties/:id/visit", auth, async (req, res) => {
+  const p = db.properties.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const v = { id: nextId("visit"), propertyId: p.id, propertyTitle: p.title, customerId: req.user.id, customerName: req.user.name, preferredAt: req.body?.preferredAt || now(), note: txt(req.body?.note), status: "Scheduled", createdAt: now() };
+  db.visits.unshift(v);
+  if (p.ownerId) pushNoti(p.ownerId, "New Visit Request", `${req.user.name} requested visit for ${p.title}.`, "visit");
+  await save();
+  res.status(201).json({ ok: true, visit: v });
+});
+
+app.get("/api/visits", auth, (req, res) => {
+  const items = db.visits.filter((v) => req.user.role === "admin" || v.customerId === req.user.id || db.properties.some((p) => p.id === v.propertyId && p.ownerId === req.user.id));
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/admin/properties", auth, admin, (req, res) => {
+  const st = txt(req.query.status).toLowerCase();
+  const items = st ? db.properties.filter((p) => txt(p.status).toLowerCase() === st) : [...db.properties];
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/admin/overview", auth, admin, (_req, res) => res.json({ ok: true, overview: { users: db.users.length, pending: db.properties.filter((p) => p.status === "Pending Approval").length, approved: db.properties.filter((p) => p.status === "Approved").length, featured: db.properties.filter((p) => p.featured).length, careRequests: db.careRequests.length, legalRequests: db.legalRequests.length, activeSubs: db.subscriptions.filter((s) => s.status === "active").length, totalBids: db.bids.length } }));
+
+app.post("/api/reviews", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const p = db.properties.find((x) => x.id === propertyId);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  if (db.reviews.some((r) => r.propertyId === propertyId && r.userId === req.user.id)) return res.status(409).json({ ok: false, message: "You already reviewed this property." });
+  const rating = Math.min(5, Math.max(1, num(req.body?.rating, 0)));
+  if (!rating) return res.status(400).json({ ok: false, message: "Rating between 1-5 required." });
+  const r = { id: nextId("review"), propertyId, userId: req.user.id, userName: req.user.name, rating, propertyAccuracy: Math.min(5, Math.max(1, num(req.body?.propertyAccuracy, rating))), ownerBehavior: Math.min(5, Math.max(1, num(req.body?.ownerBehavior, rating))), agentService: Math.min(5, Math.max(1, num(req.body?.agentService, rating))), comment: txt(req.body?.comment), createdAt: now() };
+  db.reviews.unshift(r);
+  const all = db.reviews.filter((x) => x.propertyId === propertyId);
+  p.reviewCount = all.length;
+  p.averageRating = Number((all.reduce((s, x) => s + x.rating, 0) / all.length).toFixed(2));
+  await save();
+  res.status(201).json({ ok: true, review: r });
+});
+
+app.get("/api/reviews/:propertyId", (req, res) => {
+  const items = db.reviews.filter((r) => r.propertyId === req.params.propertyId);
+  const average = items.length ? Number((items.reduce((s, x) => s + x.rating, 0) / items.length).toFixed(2)) : 0;
+  res.json({ ok: true, total: items.length, average, items });
+});
+
+app.post("/api/chat/send", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const message = txt(req.body?.message);
+  if (!propertyId || !message) return res.status(400).json({ ok: false, message: "propertyId and message required." });
+  const p = db.properties.find((x) => x.id === propertyId);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const receiverId = txt(req.body?.receiverId || p.ownerId);
+  const receiver = userById(receiverId);
+  if (!receiver) return res.status(404).json({ ok: false, message: "Receiver not found." });
+  const m = { id: nextId("message"), propertyId, senderId: req.user.id, senderName: req.user.name, receiverId: receiver.id, receiverName: receiver.name, message, createdAt: now() };
+  db.messages.push(m);
+  pushNoti(receiver.id, "New Message", `New chat on ${p.title}.`, "chat");
+  await save();
+  res.status(201).json({ ok: true, record: m });
+});
+
+app.get("/api/chat/:propertyId", auth, (req, res) => {
+  const isAdmin = req.user.role === "admin";
+  const items = db.messages.filter((m) => m.propertyId === req.params.propertyId).filter((m) => isAdmin || m.senderId === req.user.id || m.receiverId === req.user.id).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/subscriptions/plans", (_req, res) => res.json({ ok: true, items: plans }));
+app.post("/api/subscriptions/activate", auth, async (req, res) => {
+  const planId = txt(req.body?.planId);
+  const pl = plans.find((p) => p.id === planId);
+  if (!pl) return res.status(404).json({ ok: false, message: "Plan not found." });
+  const targetPropertyId = txt(req.body?.propertyId);
+  const sub = { id: nextId("subscription"), userId: req.user.id, userName: req.user.name, planId: pl.id, planName: pl.name, amount: pl.amount, type: pl.type, targetPropertyId: targetPropertyId || null, status: "active", startDate: now(), endDate: new Date(Date.now() + pl.cycleDays * 86400000).toISOString(), createdAt: now() };
+  db.subscriptions.unshift(sub);
+  const u = userById(req.user.id);
+  if (u && pl.type !== "care") u.subscriptionPlan = pl.id;
+  if (pl.type === "featured" && targetPropertyId) {
+    const p = db.properties.find((x) => x.id === targetPropertyId);
+    if (p) { p.featured = true; p.featuredUntil = sub.endDate; p.updatedAt = now(); }
+  }
+  pushNoti(req.user.id, "Subscription Activated", `${pl.name} activated successfully.`, "subscription");
+  await save();
+  res.status(201).json({ ok: true, subscription: sub });
+});
+app.get("/api/subscriptions/me", auth, (req, res) => {
+  const items = db.subscriptions.filter((s) => s.userId === req.user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.post("/api/property-care/requests", auth, async (req, res) => {
+  const planId = txt(req.body?.planId || req.body?.plan || "care-basic");
+  const pl = plans.find((p) => p.id === planId) || { id: planId, name: planId, amount: 0 };
+  const r = { id: nextId("care"), userId: req.user.id, userName: req.user.name, planId: pl.id, planName: pl.name, amount: pl.amount, propertyId: txt(req.body?.propertyId), location: txt(req.body?.location || "Udaipur"), preferredDate: req.body?.preferredDate || "", notes: txt(req.body?.notes), status: "Requested", createdAt: now() };
+  db.careRequests.unshift(r);
+  await save();
+  res.status(201).json({ ok: true, request: r });
+});
+app.get("/api/property-care/requests", auth, (req, res) => {
+  const items = req.user.role === "admin" ? [...db.careRequests] : db.careRequests.filter((r) => r.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/legal/templates", (_req, res) => res.json({ ok: true, items: legalTemplates }));
+app.post("/api/legal/requests", auth, async (req, res) => {
+  const templateId = txt(req.body?.templateId);
+  const t = legalTemplates.find((x) => x.id === templateId) || { id: templateId, name: txt(req.body?.templateName || "Custom Legal Help"), fee: num(req.body?.amount, 0) };
+  const r = { id: nextId("legal"), userId: req.user.id, userName: req.user.name, templateId: t.id, templateName: t.name, amount: t.fee, details: txt(req.body?.details), status: "Requested", createdAt: now() };
+  db.legalRequests.unshift(r);
+  await save();
+  res.status(201).json({ ok: true, request: r });
+});
+app.get("/api/legal/requests", auth, (req, res) => {
+  const items = req.user.role === "admin" ? [...db.legalRequests] : db.legalRequests.filter((r) => r.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/insights/locality", (req, res) => {
+  const name = txt(req.query.name || "Udaipur");
+  const matched = db.properties.filter((p) => txt(p.location).toLowerCase().includes(name.toLowerCase()));
+  const prices = matched.map((p) => num(p.price, 0)).filter((x) => x > 0).sort((a, b) => a - b);
+  const avgPrice = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+  const medianPrice = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
+  const trendBase = avgPrice || 4000;
+  const trend = [5, 4, 3, 2, 1, 0].map((offset) => ({ monthOffset: offset, avgRate: Math.max(1500, Math.round(trendBase * (1 + (offset - 2) * 0.015))) }));
+  res.json({ ok: true, stats: { locality: name, totalListings: matched.length, approvedListings: matched.filter((p) => p.status === "Approved").length, verifiedListings: matched.filter((p) => p.verified).length, avgPrice, medianPrice }, nearby: { schools: [`${name} Public School`, `${name} Central School`], hospitals: [`${name} Hospital`, "Maharana Bhupal Hospital"], markets: [`${name} Market`, "City Main Bazaar"] }, trend });
+});
+
+app.get("/api/agents", (_req, res) => res.json({ ok: true, total: db.trustedAgents.length, items: db.trustedAgents }));
+
+app.post("/api/sealed-bids", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const p = db.properties.find((x) => x.id === propertyId);
+  if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  const amount = num(req.body?.amount, 0);
+  if (amount <= 0) return res.status(400).json({ ok: false, message: "Valid positive bid amount required." });
+  const b = { id: nextId("bid"), propertyId, propertyTitle: p.title, amount, bidderId: req.user.id, bidderName: req.user.name, bidderRole: req.user.role, status: "Submitted", createdAt: now() };
+  db.bids.push(b);
+  await save();
+  res.status(201).json({ ok: true, bidId: b.id });
+});
+app.get("/api/sealed-bids/mine", auth, (req, res) => {
+  const items = db.bids.filter((b) => b.bidderId === req.user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+app.get("/api/sealed-bids/summary", (_req, res) => {
+  const map = new Map();
+  db.bids.forEach((b) => map.set(b.propertyId, { propertyId: b.propertyId, propertyTitle: b.propertyTitle, totalBids: num(map.get(b.propertyId)?.totalBids, 0) + 1 }));
+  res.json({ ok: true, items: [...map.values()] });
+});
+app.get("/api/sealed-bids/reveal", auth, admin, (req, res) => {
+  const grouped = new Map();
+  db.bids.forEach((b) => grouped.set(b.propertyId, [...(grouped.get(b.propertyId) || []), b]));
+  const winners = [...grouped.entries()].map(([propertyId, bids]) => {
+    const sorted = [...bids].sort((a, b) => b.amount - a.amount);
+    return { propertyId, propertyTitle: sorted[0].propertyTitle, winnerBid: sorted[0], totalBids: sorted.length };
   });
+  res.json({ ok: true, totalProperties: winners.length, winners });
 });
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()) });
+app.get("/api/notifications", auth, (req, res) => {
+  const items = db.notifications.filter((n) => n.userId === req.user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+app.post("/api/notifications/:id/read", auth, async (req, res) => {
+  const n = db.notifications.find((x) => x.id === req.params.id && x.userId === req.user.id);
+  if (!n) return res.status(404).json({ ok: false, message: "Notification not found." });
+  n.isRead = true;
+  await save();
+  res.json({ ok: true, message: "Marked as read." });
 });
 
-app.post('/api/auth/register', async (req, res) => {
-  const { name, email, mobile, password, role, otp } = req.body || {};
-  const cleanEmail = normalizeEmail(email);
-  const cleanMobile = normalizePhone(mobile);
-  const cleanName = String(name || '').trim();
-  const cleanRole = role === 'admin' ? 'admin' : 'customer';
-  const cleanIdentifier = normalizeIdentifier(identifier || email || phone);
-  const parsedPhone = sanitizePhone(phone || identifier);
-  const parsedEmail = (email || (looksLikeEmail(cleanIdentifier) ? cleanIdentifier : ''));
+app.get("/api/bootstrap", (_req, res) => res.json({ ok: true, plans, legalTemplates, localities: fallbackLocalities }));
+app.get("/api/export", auth, admin, (_req, res) => res.json({ ok: true, exportedAt: now(), data: db }));
+app.use("/api", (_req, res) => res.status(404).json({ ok: false, message: "API route not found." }));
+app.get("*", (_req, res) => res.sendFile(path.join(webRoot, "index.html")));
 
-  if (!cleanName || (!cleanEmail && !cleanMobile) || !password || String(password).length < 6) {
-    res.status(400).json({ ok: false, message: 'Name, password (min 6), and either email or mobile are required.' });
-    return;
-  }
-
-  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    res.status(400).json({ ok: false, message: 'Please enter a valid email address.' });
-    return;
-  }
-
-  if (cleanMobile && !/^\d{10}$/.test(cleanMobile)) {
-    res.status(400).json({ ok: false, message: 'Mobile number must be exactly 10 digits.' });
-    return;
-  }
-
-  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    res.status(400).json({ ok: false, message: 'Please enter a valid email address.' });
-    return;
-  }
-
-  const fakeCheck = detectFakeSignup({ name: cleanName, email: cleanEmail, phone: cleanMobile, password: String(password) });
-  if (fakeCheck.isFake) {
-    res.status(422).json({ ok: false, message: `Signup blocked: ${fakeCheck.reasons.join(' ')}` });
-    return;
-  }
-
-  const existing = users.find((user) => user.role === cleanRole && ((cleanEmail && user.email === cleanEmail) || (cleanMobile && user.phone === cleanMobile)));
-  if (existing) {
-    res.status(409).json({ ok: false, message: 'Account already exists for this role. Please login.' });
-    return;
-  }
-
-  const hashedPassword = await bcrypt.hash(String(password), 10);
-  const user = {
-    id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    name: cleanName,
-    email: cleanEmail || null,
-    phone: cleanMobile || null,
-    passwordHash: hashedPassword,
-    role: cleanRole,
-    verified: true,
-    createdAt: new Date().toISOString(),
-  };
-  users.push(user);
-  const token = signToken(user);
-
-  res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, verified: user.verified } });
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  const { email, mobile, password, role, otp } = req.body || {};
-  const cleanEmail = normalizeEmail(email);
-  const cleanMobile = normalizePhone(mobile);
-  const cleanRole = role === 'admin' ? 'admin' : 'customer';
-
-  if (!cleanIdentifier || !password) {
-    res.status(400).json({ ok: false, message: 'Email/Mobile and password are required.' });
-    return;
-  }
-
-  if (String(otp || '') !== '123456') {
-    res.status(400).json({ ok: false, message: 'Invalid OTP. Use demo OTP 123456.' });
-    return;
-  }
-
-  if (!cleanEmail && !cleanMobile) {
-    res.status(400).json({ ok: false, message: 'Please enter email or mobile to login.' });
-    return;
-  }
-
-  const identifierType = cleanMobile ? 'mobile' : 'email';
-  const identifierValue = cleanMobile || cleanEmail;
-  const user = findUserByIdentifier(identifierType, identifierValue, cleanRole);
-
-  if (!user) {
-    res.status(404).json({ ok: false, message: 'User not found. Please signup first.' });
-    return;
-  }
-
-  const validPassword = await bcrypt.compare(String(password || ''), user.passwordHash);
-  if (!validPassword) {
-    res.status(401).json({ ok: false, message: 'Invalid credentials.' });
-    return;
-  }
-
-  const token = signToken(user);
-  res.json({ ok: true, token, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, verified: user.verified } });
-});
-
-app.post('/api/auth/logout', authGuard, (_req, res) => {
-  res.json({ ok: true, message: 'Logged out successfully. Please clear token on client.' });
-});
-
-app.get('/api/auth/me', authGuard, (req, res) => {
-  res.json({ ok: true, user: req.user });
-});
-
-app.post('/api/sealed-bids', authGuard, (req, res) => {
-  const { propertyId, propertyTitle, amount } = req.body || {};
-  const parsedAmount = Number(amount);
-
-  if (!propertyId || !propertyTitle || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
-    res.status(400).json({ ok: false, message: 'Invalid bid payload.' });
-    return;
-  }
-
-  bids.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    propertyId,
-    propertyTitle,
-    amount: parsedAmount,
-    bidderId: req.user.id,
-    bidderName: req.user.name,
-    createdAt: new Date().toISOString(),
-  });
-
-  res.status(201).json({ ok: true, message: 'Bid submitted successfully.' });
-});
-
-app.get('/api/sealed-bids/reveal', authGuard, (req, res) => {
-  if (req.user.role !== 'admin') {
-    res.status(403).json({ ok: false, message: 'Only admin can reveal bids.' });
-    return;
-  }
-
-  const winnersByProperty = {};
-  for (const bid of bids) {
-    if (!winnersByProperty[bid.propertyId] || bid.amount > winnersByProperty[bid.propertyId].amount) {
-      winnersByProperty[bid.propertyId] = bid;
-    }
-  }
-
-  res.json({ ok: true, totalBids: bids.length, winners: Object.values(winnersByProperty) });
-});
-
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(webRoot, 'index.html'));
-});
+await load();
+if (!db.users.some((u) => u.role === "admin")) {
+  db.users.push({ id: nextId("user"), role: "admin", name: "PropertySetu Admin", email: "admin@propertysetu.in", mobile: "9999999999", passwordHash: await bcrypt.hash(process.env.DEFAULT_ADMIN_PASSWORD || "Admin@123", 10), verified: true, subscriptionPlan: "agent-pro", createdAt: now(), updatedAt: now(), lastLoginAt: null });
+  await save();
+}
 
 app.listen(PORT, () => {
   console.log(`PropertySetu server running on http://localhost:${PORT}`);

@@ -1,75 +1,129 @@
-// Demo auction data
-let auctions = [
-    {id:1, title:"Luxury Villa Hiran Magri", bids:[], endTime: Date.now()+60000}, // 60 sec demo
-    {id:2, title:"Farmhouse Ambamata", bids:[], endTime: Date.now()+120000} // 2 min demo
-];
+(() => {
+  const live = window.PropertySetuLive || {};
+  const auctionDiv = document.getElementById('auctionList');
+  if (!auctionDiv) return;
 
-const auctionDiv = document.getElementById('auctionList');
-
-function renderAuctions(){
-    auctionDiv.innerHTML = "";
-    auctions.forEach(a => {
-        const card = document.createElement('div');
-        card.className = 'auction-card';
-        card.id = 'auction-'+a.id;
-
-        // Timer calculation
-        let remaining = Math.max(0, a.endTime - Date.now());
-        let sec = Math.floor(remaining/1000);
-
-        card.innerHTML = `
-            <h3>${a.title}</h3>
-            <p><b>Timer:</b> <span class="timer" id="timer-${a.id}">${sec}s</span></p>
-            <input type="number" placeholder="Enter bid amount" id="bidInput-${a.id}" />
-            <button onclick="placeBid(${a.id})">Place Bid 🔒</button>
-            <div id="bids-${a.id}"></div>
-        `;
-        auctionDiv.appendChild(card);
-    });
-}
-
-function placeBid(id){
-    const input = document.getElementById('bidInput-'+id);
-    let value = parseInt(input.value);
-    if(isNaN(value) || value <= 0){
-        alert("Enter valid bid");
-        return;
+  const readJson = live.readJson || ((key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
     }
-    let auction = auctions.find(a=>a.id===id);
-    auction.bids.push({bidder:"DemoUser", amount:value, time:Date.now()});
-    input.value="";
-    alert("Bid placed! 🔒 (Hidden from others)");
-    updateBidsUI(id);
-}
+  });
+  const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+  const getToken = () => (live.getAnyToken ? live.getAnyToken() : '');
 
-function updateBidsUI(id){
-    const bidsDiv = document.getElementById('bids-'+id);
-    bidsDiv.innerHTML = "<p>Bids: "+auctions.find(a=>a.id===id).bids.length+" bids placed (Hidden Amounts)</p>";
-}
+  const LOCAL_BID_KEY = 'propertySetu:sealedBids';
 
-// Timer check & auto winner
-setInterval(()=>{
-    let now = Date.now();
-    auctions.forEach(a=>{
-        if(a.endTime <= now && !a.winner){
-            if(a.bids.length>0){
-                // auto highest bid winner
-                let highest = a.bids.reduce((prev,curr)=>curr.amount>prev.amount?curr:prev,{amount:0});
-                a.winner = highest;
-                const card = document.getElementById('auction-'+a.id);
-                card.innerHTML += `<p>🏆 Winner: ${highest.bidder} - ₹${highest.amount}</p>`;
-                alert(`Auction Ended: ${a.title} - Winner: ${highest.bidder} - ₹${highest.amount}`);
-            } else {
-                a.winner = null;
-            }
-        } else {
-            // update timer
-            let remaining = Math.max(0, a.endTime - now);
-            let sec = Math.floor(remaining/1000);
-            const timerEl = document.getElementById('timer-'+a.id);
-            if(timerEl) timerEl.innerText = sec+"s";
+  let listings = [];
+
+  const buildLocalAuctions = () => {
+    const fromLocal = readJson('propertySetu:listings', [])
+      .filter((item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur'))
+      .slice(0, 6)
+      .map((item, idx) => ({
+        id: item.id || `local-auction-${idx + 1}`,
+        title: item.title || 'Udaipur Property',
+        location: item.location || item.locality || 'Udaipur',
+        price: Number(item.price || 0),
+      }));
+
+    if (fromLocal.length) return fromLocal;
+    return [
+      { id: 'demo-1', title: 'Luxury Villa Hiran Magri', location: 'Hiran Magri', price: 32000000 },
+      { id: 'demo-2', title: 'Farmhouse Ambamata', location: 'Ambamata', price: 14500000 },
+    ];
+  };
+
+  const fetchLiveAuctions = async () => {
+    if (!live.request) return buildLocalAuctions();
+    try {
+      const response = await live.request('/properties?city=Udaipur');
+      const items = (response?.items || []).slice(0, 20).map((item) => ({
+        id: item.id,
+        title: item.title || 'Udaipur Property',
+        location: item.location || 'Udaipur',
+        price: Number(item.price || 0),
+      }));
+      return items.length ? items : buildLocalAuctions();
+    } catch {
+      return buildLocalAuctions();
+    }
+  };
+
+  const getLocalBids = () => readJson(LOCAL_BID_KEY, []);
+
+  const countBids = (propertyId) => getLocalBids().filter((item) => item.propertyId === propertyId).length;
+
+  const placeBid = async (propertyId) => {
+    const input = document.getElementById(`bidInput-${propertyId}`);
+    const amount = Number(input?.value || 0);
+    if (!amount || amount <= 0) {
+      window.alert('Valid bid amount enter karein.');
+      return;
+    }
+
+    const token = getToken();
+    if (token && live.request) {
+      try {
+        await live.request('/sealed-bids', {
+          method: 'POST',
+          token,
+          data: { propertyId, amount },
+        });
+      } catch (error) {
+        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+          window.alert(error.message || 'Bid submit failed.');
+          return;
         }
-    });
-},1000);
+      }
+    }
 
-renderAuctions();
+    const localBids = getLocalBids();
+    localBids.push({
+      propertyId,
+      amount,
+      bidder: (live.getAnySession ? live.getAnySession()?.name : '') || 'LocalUser',
+      publicVisible: false,
+      createdAt: new Date().toISOString(),
+    });
+    writeJson(LOCAL_BID_KEY, localBids);
+    if (input) input.value = '';
+    renderAuctions();
+    window.alert('Sealed bid placed successfully.');
+  };
+
+  const getSummaryRow = (propertyId) => {
+    const localCount = countBids(propertyId);
+    return `${localCount} sealed bid(s) placed`;
+  };
+
+  const renderAuctions = () => {
+    auctionDiv.innerHTML = listings.map((item) => `
+      <div class="auction-card">
+        <h3>${item.title}</h3>
+        <p><b>Location:</b> ${item.location}, Udaipur</p>
+        <p><b>Price:</b> ${formatPrice(item.price)}</p>
+        <p><b>Status:</b> Bids hidden (admin-only reveal)</p>
+        <input type="number" placeholder="Enter sealed bid amount" id="bidInput-${item.id}" />
+        <button type="button" data-bid-property="${item.id}">Place Bid 🔒</button>
+        <div id="bids-${item.id}"><p>${getSummaryRow(item.id)}</p></div>
+      </div>
+    `).join('');
+  };
+
+  auctionDiv.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const propertyId = target.getAttribute('data-bid-property');
+    if (!propertyId) return;
+    placeBid(propertyId);
+  });
+
+  fetchLiveAuctions().then((items) => {
+    listings = items;
+    renderAuctions();
+  });
+})();

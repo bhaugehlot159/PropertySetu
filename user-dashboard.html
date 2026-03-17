@@ -49,58 +49,238 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
 <button onclick="sendMessage()">Send</button>
 </div>
 
+<script src="js/live-api.js"></script>
 <script>
-// Wishlist demo
-let wishlistData = [
-    {id:1, title:"Luxury Villa Hiran Magri"},
-    {id:2, title:"Farmhouse Ambamata"}
-];
+(() => {
+  const live = window.PropertySetuLive || {};
+  const wishlistDiv = document.getElementById('wishlist');
+  const visitForm = document.getElementById('visitForm');
+  const visitList = document.getElementById('visitList');
+  const propertySelect = document.getElementById('propertySelect');
+  const visitDate = document.getElementById('visitDate');
+  const chatBox = document.getElementById('chatBox');
+  const chatInput = document.getElementById('chatInput');
 
-const wishlistDiv = document.getElementById('wishlist');
-wishlistData.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'property-card';
-    card.innerHTML = `
-        <span>${p.title}</span>
-        <button onclick="removeWishlist(${p.id}, this)">Remove ❌</button>
-    `;
-    wishlistDiv.appendChild(card);
-});
+  const readJson = live.readJson || ((key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+  const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
-function removeWishlist(id, btn){
-    btn.parentElement.remove();
-    alert("Removed from wishlist ✅");
-}
+  const MARKET_STATE_KEY = 'propertysetu-marketplace-state';
+  const VISIT_KEY = 'propertySetu:userVisits';
+  const CHAT_KEY = 'propertySetu:userChat';
 
-// Visit Booking demo
-const visitForm = document.getElementById('visitForm');
-const visitList = document.getElementById('visitList');
+  let listings = [];
+  let activePropertyId = '';
 
-visitForm.addEventListener('submit', function(e){
-    e.preventDefault();
-    const property = document.getElementById('propertySelect').value;
-    const date = document.getElementById('visitDate').value;
-    if(!property || !date) return alert("Select property & date");
+  const getWishlistIds = () => readJson(MARKET_STATE_KEY, { wishlist: [] }).wishlist || [];
 
-    const div = document.createElement('div');
-    div.className = 'property-card';
-    div.innerHTML = `<b>${property}</b> booked for <b>${new Date(date).toLocaleString()}</b>`;
-    visitList.appendChild(div);
+  const normalizeListing = (item) => ({
+    id: item.id,
+    title: item.title || 'Untitled',
+    location: item.location || item.locality || 'Udaipur',
+    price: Number(item.price || 0),
+    city: item.city || 'Udaipur',
+  });
 
-    visitForm.reset();
-});
+  const renderWishlist = () => {
+    const ids = getWishlistIds();
+    const wishItems = ids
+      .map((id) => listings.find((item) => item.id === id))
+      .filter(Boolean);
 
-// Chat demo (Front-end only)
-const chatBox = document.getElementById('chatBox');
-function sendMessage(){
-    const msg = document.getElementById('chatInput').value.trim();
-    if(!msg) return;
-    const p = document.createElement('p');
-    p.innerHTML = `<b>You:</b> ${msg}`;
-    chatBox.appendChild(p);
-    document.getElementById('chatInput').value = '';
+    wishlistDiv.innerHTML = '';
+    if (!wishItems.length) {
+      wishlistDiv.innerHTML = '<p>No saved properties in wishlist yet.</p>';
+      return;
+    }
+
+    wishItems.forEach((item) => {
+      const card = document.createElement('div');
+      card.className = 'property-card';
+      card.innerHTML = `
+        <span><b>${item.title}</b><br>${item.location} • ${formatPrice(item.price)}</span>
+        <button data-remove-id="${item.id}" type="button">Remove ❌</button>
+      `;
+      wishlistDiv.appendChild(card);
+    });
+  };
+
+  const renderPropertySelect = () => {
+    propertySelect.innerHTML = '<option value="">Select Property</option>';
+    listings.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = `${item.title} (${item.location})`;
+      propertySelect.appendChild(option);
+    });
+  };
+
+  const renderVisits = () => {
+    const visits = readJson(VISIT_KEY, []);
+    visitList.innerHTML = visits.length
+      ? visits.map((item) => `<div class="property-card"><b>${item.title}</b> booked for <b>${new Date(item.date).toLocaleString()}</b></div>`).join('')
+      : '<p>No visits booked yet.</p>';
+  };
+
+  const renderChat = (items) => {
+    chatBox.innerHTML = items.length
+      ? items.map((item) => `<p><b>${item.sender || 'You'}:</b> ${item.message}</p>`).join('')
+      : '<p>No chat messages yet.</p>';
     chatBox.scrollTop = chatBox.scrollHeight;
-}
+  };
+
+  const loadChat = async (propertyId) => {
+    if (!propertyId) {
+      renderChat([]);
+      return;
+    }
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (token && live.request) {
+      try {
+        const response = await live.request(`/chat/${encodeURIComponent(propertyId)}`, { token });
+        const liveItems = (response?.items || []).map((item) => ({
+          sender: item.senderName || 'User',
+          message: item.message || '',
+        }));
+        writeJson(`${CHAT_KEY}:${propertyId}`, liveItems);
+        renderChat(liveItems);
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+    renderChat(readJson(`${CHAT_KEY}:${propertyId}`, []));
+  };
+
+  const sendMessage = async () => {
+    const msg = String(chatInput?.value || '').trim();
+    if (!msg) return;
+    const propertyId = propertySelect?.value || activePropertyId;
+    if (!propertyId) {
+      window.alert('Message bhejne se pehle property select karein.');
+      return;
+    }
+
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    let sentLive = false;
+    if (token && live.request) {
+      try {
+        await live.request('/chat/send', {
+          method: 'POST',
+          token,
+          data: { propertyId, message: msg },
+        });
+        sentLive = true;
+      } catch (error) {
+        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+          window.alert(error.message || 'Message send failed.');
+          return;
+        }
+      }
+    }
+
+    const key = `${CHAT_KEY}:${propertyId}`;
+    const localItems = readJson(key, []);
+    localItems.push({ sender: 'You', message: msg, at: new Date().toISOString(), source: sentLive ? 'live' : 'local' });
+    writeJson(key, localItems);
+    chatInput.value = '';
+    renderChat(localItems);
+  };
+
+  const bookVisit = async (propertyId, dateValue) => {
+    const listing = listings.find((item) => item.id === propertyId);
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (token && live.request) {
+      try {
+        await live.request(`/properties/${encodeURIComponent(propertyId)}/visit`, {
+          method: 'POST',
+          token,
+          data: {
+            preferredAt: new Date(dateValue).toISOString(),
+            note: 'Booked from user dashboard',
+          },
+        });
+      } catch (error) {
+        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+          window.alert(error.message || 'Visit booking failed.');
+          return false;
+        }
+      }
+    }
+
+    const visits = readJson(VISIT_KEY, []);
+    visits.unshift({
+      propertyId,
+      title: listing?.title || propertyId,
+      date: dateValue,
+      createdAt: new Date().toISOString(),
+    });
+    writeJson(VISIT_KEY, visits.slice(0, 50));
+    return true;
+  };
+
+  const loadListings = async () => {
+    if (live.syncLocalListingsFromApi) {
+      try {
+        await live.syncLocalListingsFromApi();
+      } catch {
+        // keep local data
+      }
+    }
+    listings = readJson('propertySetu:listings', [])
+      .filter((item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur'))
+      .map(normalizeListing);
+  };
+
+  wishlistDiv.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const id = target.getAttribute('data-remove-id');
+    if (!id) return;
+    const marketState = readJson(MARKET_STATE_KEY, { wishlist: [], compare: [], visits: [] });
+    marketState.wishlist = (marketState.wishlist || []).filter((item) => item !== id);
+    writeJson(MARKET_STATE_KEY, marketState);
+    renderWishlist();
+  });
+
+  propertySelect.addEventListener('change', () => {
+    activePropertyId = propertySelect.value;
+    loadChat(activePropertyId);
+  });
+
+  visitForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const propertyId = propertySelect.value;
+    const date = visitDate.value;
+    if (!propertyId || !date) {
+      window.alert('Select property and date/time.');
+      return;
+    }
+    const ok = await bookVisit(propertyId, date);
+    if (!ok) return;
+    renderVisits();
+    window.alert('Visit booked successfully.');
+    visitForm.reset();
+    propertySelect.value = propertyId;
+  });
+
+  window.sendMessage = sendMessage;
+
+  loadListings().then(() => {
+    renderPropertySelect();
+    renderWishlist();
+    renderVisits();
+    activePropertyId = propertySelect.value;
+    loadChat(activePropertyId);
+  });
+})();
 </script>
 
 </body>

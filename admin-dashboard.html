@@ -43,149 +43,217 @@ button:hover { background:#092f6d; }
   </div>
 </div>
 
+<script src="js/live-api.js"></script>
 <script>
-const LISTINGS_KEY = 'propertySetu:listings';
-const BASE_BACKUP_KEYS = [
-  'propertySetu:listings',
-  'propertySetu:addPropertyDraft',
-  'propertySetu:notifications',
-  'propertySetu:notified',
-  'propertysetu-marketplace-state',
-  'propertysetu-customer-session',
-  'propertysetu-admin-session',
-  'properties',
-  'favorites',
-];
-const backupStatus = document.getElementById('backupStatus');
+(() => {
+  const live = window.PropertySetuLive || {};
+  const LISTINGS_KEY = 'propertySetu:listings';
+  const BASE_BACKUP_KEYS = [
+    'propertySetu:listings',
+    'propertySetu:addPropertyDraft',
+    'propertySetu:notifications',
+    'propertySetu:notified',
+    'propertysetu-marketplace-state',
+    'propertysetu-customer-session',
+    'propertysetu-admin-session',
+    'propertysetu-seller-session',
+    'properties',
+    'favorites',
+  ];
 
-const readJson = (key, fallback) => {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const writeJson = (key, value) => {
-  localStorage.setItem(key, JSON.stringify(value));
-};
-
-const isUdaipurListing = (item) => {
-  const city = String(item?.city || 'Udaipur').trim().toLowerCase();
-  return city.includes('udaipur');
-};
-
-const safeParse = (value) => {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-};
-
-const getBackupKeys = () => {
-  const keys = new Set(BASE_BACKUP_KEYS);
-
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (!key) continue;
-    const normalized = key.toLowerCase();
-    if (normalized.includes('propertysetu') || key === 'properties' || key === 'favorites') {
-      keys.add(key);
-    }
-  }
-
-  return [...keys];
-};
-
-const downloadLocalData = () => {
-  const storageData = {};
-  const keys = getBackupKeys();
-
-  keys.forEach((key) => {
-    const value = localStorage.getItem(key);
-    if (value !== null) {
-      storageData[key] = safeParse(value);
-    }
-  });
-
-  if (!Object.keys(storageData).length) {
-    if (backupStatus) backupStatus.textContent = 'Backup skipped: local data nahi mila.';
-    return;
-  }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `propertysetu-local-data-${timestamp}.json`;
-  const payload = {
-    app: 'PropertySetu',
-    exportedAt: new Date().toISOString(),
-    storage: storageData,
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-
-  if (backupStatus) backupStatus.textContent = `Backup saved: ${fileName}`;
-};
-
-const updateStatus = (id, status) => {
-  const listings = readJson(LISTINGS_KEY, []);
-  const updated = listings.map((item) => item.id === id ? { ...item, status, city: 'Udaipur' } : item);
-  writeJson(LISTINGS_KEY, updated);
-  render();
-};
-
-const render = () => {
-  const listings = readJson(LISTINGS_KEY, []).filter(isUdaipurListing);
-  const pending = listings.filter((item) => (item.status || 'Pending Approval') !== 'Approved');
-  const approved = listings.filter((item) => item.status === 'Approved');
-
+  const backupStatus = document.getElementById('backupStatus');
   const pendingDiv = document.getElementById('pendingProperties');
   const approvedDiv = document.getElementById('approvedProperties');
 
-  pendingDiv.innerHTML = pending.length ? '' : '<p>No pending properties.</p>';
-  approvedDiv.innerHTML = approved.length ? '' : '<p>No approved properties yet.</p>';
+  const readJson = live.readJson || ((key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+  const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
 
-  pending.forEach((prop) => {
-    const card = document.createElement('div');
-    card.className = 'property-card';
-    card.innerHTML = `
-      <h3>${prop.title || 'Untitled'}</h3>
-      <p><b>Owner city:</b> Udaipur</p>
-      <p><b>Category:</b> ${prop.category || '-'}</p>
-      <p><b>Price:</b> ₹${Number(prop.price || 0).toLocaleString('en-IN')}</p>
-      <button onclick="updateStatus('${prop.id}','Approved')">Approve ✅</button>
-      <button onclick="updateStatus('${prop.id}','Rejected')">Reject ❌</button>
-    `;
-    pendingDiv.appendChild(card);
+  const isUdaipurListing = (item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur');
+  const normalizeApi = (item) => (live.normalizeApiListing ? live.normalizeApiListing(item) : item);
+  const getAdminToken = () => (live.getToken ? live.getToken('admin') : '');
+  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+  const safeParse = (value) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+
+  const getBackupKeys = () => {
+    const keys = new Set(BASE_BACKUP_KEYS);
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key) continue;
+      const normalized = key.toLowerCase();
+      if (normalized.includes('propertysetu') || key === 'properties' || key === 'favorites') keys.add(key);
+    }
+    return [...keys];
+  };
+
+  const downloadLocalData = () => {
+    const storageData = {};
+    getBackupKeys().forEach((key) => {
+      const value = localStorage.getItem(key);
+      if (value !== null) storageData[key] = safeParse(value);
+    });
+    if (!Object.keys(storageData).length) {
+      if (backupStatus) backupStatus.textContent = 'Backup skipped: local data nahi mila.';
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `propertysetu-local-data-${timestamp}.json`;
+    const payload = { app: 'PropertySetu', exportedAt: new Date().toISOString(), storage: storageData };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    if (backupStatus) backupStatus.textContent = `Backup saved: ${fileName}`;
+  };
+
+  const getLocalListings = () => readJson(LISTINGS_KEY, []).filter(isUdaipurListing);
+
+  const syncLocalListings = (items) => {
+    const normalized = items.map(normalizeApi).filter(Boolean);
+    const existing = readJson(LISTINGS_KEY, []);
+    const merged = live.mergeById ? live.mergeById(normalized, existing) : [...normalized, ...existing];
+    writeJson(LISTINGS_KEY, merged);
+  };
+
+  const fetchListings = async () => {
+    const token = getAdminToken();
+    if (!token || !live.request) return getLocalListings();
+    try {
+      const response = await live.request('/admin/properties', { token });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      syncLocalListings(items);
+      return items.map(normalizeApi).filter(isUdaipurListing);
+    } catch (error) {
+      if (backupStatus) backupStatus.textContent = `Live admin API unavailable: ${error.message}`;
+      return getLocalListings();
+    }
+  };
+
+  const updateStatus = async (id, status) => {
+    const token = getAdminToken();
+    let apiUpdated = false;
+    if (token && live.request) {
+      try {
+        await live.request(`/properties/${encodeURIComponent(id)}/approve`, {
+          method: 'POST',
+          token,
+          data: { status },
+        });
+        apiUpdated = true;
+      } catch (error) {
+        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+          window.alert(error.message || 'Status update failed.');
+          return;
+        }
+      }
+    }
+
+    const listings = getLocalListings();
+    const updated = listings.map((item) => (item.id === id ? { ...item, status, verified: status === 'Approved' } : item));
+    writeJson(LISTINGS_KEY, updated);
+    if (apiUpdated && backupStatus) backupStatus.textContent = `Listing ${id} updated live + local.`;
+    await render();
+  };
+
+  const markFeatured = async (id) => {
+    const token = getAdminToken();
+    if (!token || !live.request) {
+      window.alert('Live feature mark ke liye admin login required.');
+      return;
+    }
+    try {
+      await live.request(`/properties/${encodeURIComponent(id)}/feature`, {
+        method: 'POST',
+        token,
+        data: { days: 30 },
+      });
+      await render();
+    } catch (error) {
+      window.alert(error.message || 'Feature update failed.');
+    }
+  };
+
+  const renderList = (items, type) => {
+    const div = type === 'pending' ? pendingDiv : approvedDiv;
+    if (!div) return;
+    if (!items.length) {
+      div.innerHTML = type === 'pending' ? '<p>No pending properties.</p>' : '<p>No approved properties yet.</p>';
+      return;
+    }
+
+    div.innerHTML = '';
+    items.forEach((prop) => {
+      const card = document.createElement('div');
+      card.className = 'property-card';
+      card.innerHTML = `
+        <h3>
+          ${prop.title || 'Untitled'}
+          ${type === 'approved' ? '<span class="badge">Approved</span>' : ''}
+          ${prop.featured ? '<span class="badge">Featured</span>' : ''}
+        </h3>
+        <p><b>City:</b> Udaipur</p>
+        <p><b>Category:</b> ${prop.category || '-'}</p>
+        <p><b>Location:</b> ${prop.location || prop.locality || '-'}</p>
+        <p><b>Price:</b> ${formatPrice(prop.price)}</p>
+        <p><b>Status:</b> ${prop.status || 'Pending Approval'}</p>
+        <div>
+          ${type === 'pending' ? `<button data-action="approve" data-id="${prop.id}">Approve ✅</button><button data-action="reject" data-id="${prop.id}">Reject ❌</button>` : ''}
+          <button data-action="feature" data-id="${prop.id}">Mark Featured ⭐</button>
+        </div>
+      `;
+      div.appendChild(card);
+    });
+  };
+
+  const render = async () => {
+    const listings = await fetchListings();
+    const pending = listings.filter((item) => String(item.status || 'Pending Approval').toLowerCase() !== 'approved');
+    const approved = listings.filter((item) => String(item.status || '').toLowerCase() === 'approved');
+    renderList(pending, 'pending');
+    renderList(approved, 'approved');
+  };
+
+  document.getElementById('downloadLocalDataBtn')?.addEventListener('click', downloadLocalData);
+  pendingDiv?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-action');
+    const id = target.getAttribute('data-id');
+    if (!action || !id) return;
+    if (action === 'approve') await updateStatus(id, 'Approved');
+    if (action === 'reject') await updateStatus(id, 'Rejected');
+    if (action === 'feature') await markFeatured(id);
   });
 
-  approved.forEach((prop) => {
-    const card = document.createElement('div');
-    card.className = 'property-card';
-    card.innerHTML = `
-      <h3>${prop.title || 'Untitled'} <span class="badge">Approved</span></h3>
-      <p><b>City:</b> Udaipur</p>
-      <p><b>Category:</b> ${prop.category || '-'}</p>
-      <p><b>Location:</b> ${prop.location || '-'}</p>
-      <p><b>Price:</b> ₹${Number(prop.price || 0).toLocaleString('en-IN')}</p>
-    `;
-    approvedDiv.appendChild(card);
+  approvedDiv?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-action');
+    const id = target.getAttribute('data-id');
+    if (action === 'feature' && id) await markFeatured(id);
   });
-};
 
-document.getElementById('downloadLocalDataBtn')?.addEventListener('click', downloadLocalData);
-window.downloadLocalData = downloadLocalData;
-window.updateStatus = updateStatus;
-render();
+  render();
+})();
 </script>
 
 </body>
