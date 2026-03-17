@@ -9,9 +9,6 @@
   const RECENTLY_VIEWED_KEY = 'propertySetu:recentlyViewed';
   const FILTER_STATE_KEY = 'propertySetu:marketFilters';
 
-  const heroLocationSuggestions = document.getElementById('heroLocationSuggestions');
-  const marketLocalitySuggestions = document.getElementById('marketLocalitySuggestions');
-
   const statActiveListings = document.getElementById('statActiveListings');
   const statVerifiedListings = document.getElementById('statVerifiedListings');
   const statMedianPrice = document.getElementById('statMedianPrice');
@@ -274,11 +271,6 @@
 
   const fallbackLocalities = ['Hiran Magri Sector 4', 'Pratap Nagar', 'Bhuwana', 'Sukher', 'Fatehpura', 'Bedla Road'];
   const displayLocalities = topLocalities.length ? topLocalities : fallbackLocalities;
-
-  const allLocations = window.PROPERTYSETU_LOCATIONS || [];
-  const datalistMarkup = allLocations.map((loc) => `<option value="${loc}"></option>`).join('');
-  if (heroLocationSuggestions) heroLocationSuggestions.innerHTML = datalistMarkup;
-  if (marketLocalitySuggestions) marketLocalitySuggestions.innerHTML = datalistMarkup;
 
   const renderStats = () => {
     const prices = listings.map((item) => item.price).filter((price) => price > 0).sort((a, b) => a - b);

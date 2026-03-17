@@ -7,7 +7,6 @@ const statusArea = document.getElementById('statusArea');
 const payloadPreview = document.getElementById('payloadPreview');
 const saveDraftBtn = document.getElementById('saveDraft');
 const clearDraftBtn = document.getElementById('clearDraft');
-const locationSuggestions = document.getElementById('propertyLocationSuggestions');
 const citySelect = document.getElementById('city');
 
 const DRAFT_KEY = 'propertySetu:addPropertyDraft';
@@ -128,12 +127,6 @@ const loadDraft = () => {
   showStatus('Saved draft restored. Re-upload files before submitting.', true);
 };
 
-const connectLocations = () => {
-  if (!locationSuggestions) return;
-  const locations = window.PROPERTYSETU_LOCATIONS || [];
-  locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
-};
-
 citySelect?.addEventListener('change', forceUdaipurCity);
 
 const saveListing = (payload) => {
@@ -215,6 +208,5 @@ form?.addEventListener('submit', (event) => {
   localStorage.removeItem(DRAFT_KEY);
 });
 
-connectLocations();
 forceUdaipurCity();
 loadDraft();

@@ -53,8 +53,7 @@
           <h2>Instant Udaipur Search</h2>
           <p>City fixed: <strong>Udaipur</strong> (non-Udaipur listings auto excluded).</p>
           <label for="quickLocality">Locality</label>
-          <input id="quickLocality" list="heroLocationSuggestions" placeholder="e.g. Hiran Magri Sector 4" />
-          <datalist id="heroLocationSuggestions"></datalist>
+          <input id="quickLocality" placeholder="e.g. Hiran Magri Sector 4" autocomplete="off" />
 
           <label for="quickPurpose">Purpose</label>
           <select id="quickPurpose">
@@ -126,8 +125,7 @@
             </div>
             <div class="field">
               <label for="marketLocality">Locality</label>
-              <input id="marketLocality" list="marketLocalitySuggestions" placeholder="All Udaipur localities" />
-              <datalist id="marketLocalitySuggestions"></datalist>
+              <input id="marketLocality" placeholder="All Udaipur localities" autocomplete="off" />
             </div>
             <div class="field">
               <label for="marketCategory">Category</label>
@@ -285,6 +283,7 @@
   </div>
 
   <script src="js/location.js"></script>
+  <script src="js/pro-autocomplete.js"></script>
   <script src="js/udaipur-marketplace.js"></script>
   <script src="js/home-auth.js"></script>
 </body>

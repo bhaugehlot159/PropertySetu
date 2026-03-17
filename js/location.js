@@ -130,12 +130,74 @@ const udaipurExpandedLocations = [
   'Old Sabji Mandi Road', 'Udaipur Smart City Office Area'
 ];
 
-const baseUdaipurLocations = [...new Set([
+const normalizedUnique = (items) => [...new Set(
+  (items || [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean),
+)];
+
+const districtNodes = [
+  'Udaipur, Rajasthan',
+  'Udaipur District Headquarters',
+  'Girwa (Udaipur District)',
+];
+
+const fortsAndPalaces = normalizedUnique(
+  [...udaipurTransitAndLandmarks, ...udaipurExpandedLocations].filter((name) =>
+    /(fort|palace|ghat|jagdish|city palace|monsoon|mata|temple|lake|sagar|haveli|chowk)/i.test(name)),
+);
+
+const transitAndServices = normalizedUnique(
+  udaipurTransitAndLandmarks.filter((name) =>
+    /(station|bus|airport|road|market|hospital|college|court|collectorate|riico|sez|town hall)/i.test(name)),
+);
+
+const baseUdaipurLocations = normalizedUnique([
+  ...districtNodes,
   ...udaipurUrbanLocations,
   ...udaipurRuralLocations,
   ...udaipurTransitAndLandmarks,
   ...udaipurExpandedLocations,
-])];
+]);
+
+window.PROPERTYSETU_LOCATION_GROUPS = [
+  {
+    id: 'districts',
+    title: 'DISTRICTS',
+    icon: '📍',
+    items: districtNodes,
+  },
+  {
+    id: 'forts',
+    title: 'FORTS & PALACES',
+    icon: '🏰',
+    items: fortsAndPalaces,
+  },
+  {
+    id: 'urban',
+    title: 'URBAN LOCALITIES',
+    icon: '🏙️',
+    items: normalizedUnique(udaipurUrbanLocations),
+  },
+  {
+    id: 'rural',
+    title: 'RURAL & TEHSIL',
+    icon: '🌾',
+    items: normalizedUnique(udaipurRuralLocations),
+  },
+  {
+    id: 'transit',
+    title: 'TRANSIT & SERVICES',
+    icon: '🚉',
+    items: transitAndServices,
+  },
+  {
+    id: 'more',
+    title: 'MORE UDAIPUR AREAS',
+    icon: '📌',
+    items: normalizedUnique(udaipurExpandedLocations),
+  },
+];
 
 const udaipurSearchAliases = baseUdaipurLocations.flatMap((location) => {
   const normalized = String(location || '').trim();
