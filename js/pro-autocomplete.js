@@ -49,17 +49,21 @@
 
   const buildMatches = (groups, rawQuery, maxPerGroup = 8, maxTotal = 64) => {
     const query = String(rawQuery || '').trim().toLowerCase();
+    const fullMatchMode = query.length >= 3;
+    const effectiveTotalLimit = fullMatchMode ? Number.MAX_SAFE_INTEGER : maxTotal;
     const seen = new Set();
     const bucket = [];
     let total = 0;
 
     groups.forEach((group) => {
-      if (total >= maxTotal) return;
+      if (total >= effectiveTotalLimit) return;
       let matches = group.items;
       if (query) {
         matches = matches.filter((item) => item.toLowerCase().includes(query));
       }
-      matches = sortByRelevance(matches, query).slice(0, query ? maxPerGroup : Math.min(maxPerGroup, 5));
+      const dynamicGroupLimit = fullMatchMode ? Number.MAX_SAFE_INTEGER : maxPerGroup;
+      const previewLimit = query ? dynamicGroupLimit : Math.min(maxPerGroup, 5);
+      matches = sortByRelevance(matches, query).slice(0, previewLimit);
       matches = matches.filter((item) => {
         const key = item.toLowerCase();
         if (seen.has(key)) return false;
@@ -236,8 +240,8 @@
 
   const init = () => {
     attachAutocomplete('quickLocality', { maxPerGroup: 7, maxTotal: 56 });
-    attachAutocomplete('marketLocality', { maxPerGroup: 9, maxTotal: 72 });
-    attachAutocomplete('location', { maxPerGroup: 8, maxTotal: 64 });
+    attachAutocomplete('marketLocality', { maxPerGroup: 12, maxTotal: 160 });
+    attachAutocomplete('location', { maxPerGroup: 14, maxTotal: 220 });
   };
 
   if (document.readyState === 'loading') {

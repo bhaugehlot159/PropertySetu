@@ -130,6 +130,21 @@ const udaipurExpandedLocations = [
   'Old Sabji Mandi Road', 'Udaipur Smart City Office Area'
 ];
 
+const udaipurSupplementalLocations = [
+  'Sector 3 Hiran Magri', 'Sector 4 Hiran Magri', 'Sector 5 Hiran Magri', 'Sector 6 Hiran Magri',
+  'Sector 8 Hiran Magri', 'Sector 9 Hiran Magri', 'Sector 11 Hiran Magri', 'Sector 14 Hiran Magri',
+  'Mewar Colony', 'Roop Sagar Road', 'Mahaveer Colony Park', 'Gayariyawas',
+  'R.K. Circle', 'Baleecha', 'Aayaad', 'Thoor', 'Bedla Village Road',
+  'Purohiton Ki Madri', 'Dakan Kotra Road', 'Moti Magri Road', 'Rani Road Udaipur',
+  'Saheliyon Ki Bari Road', 'Chetak Marg Udaipur', 'Madhav Vihar', 'Shanti Nagar Udaipur',
+  'Titardi Main Road', 'Sector 14 Main Road', 'Sukhadia Circle Area', 'MBS Hospital Road',
+  'Bapu Bazar', 'Ghantaghar Udaipur', 'Mochiwada', 'Sindhi Bazar Udaipur',
+  'Bhinder Ki Haveli Area', 'Rampura Chouraha', 'Jeevan Tara Circle', 'Shastri Nagar Main Road',
+  'Arawali Vatika Road', 'Neemuch Kheda', 'Goverdhan Sagar', 'Balaji Nagar Udaipur',
+  'Keshav Nagar Udaipur', 'Machla Magra', 'Nohra Udaipur', 'RTO Office Road Udaipur',
+  'Paras Tiraha', 'Ravji Ka Hata Main Road', 'Court Circle Udaipur', 'Mukherjee Chowk',
+];
+
 const normalizedUnique = (items) => [...new Set(
   (items || [])
     .map((item) => String(item || '').trim())
@@ -142,6 +157,14 @@ const fromMultiline = (rawText) => normalizedUnique(
     .map((item) => item.trim())
     .filter(Boolean),
 );
+
+const officialUdaipurData = window.PROPERTYSETU_OFFICIAL_UDAIPUR || {};
+const officialUdaipurSubDistricts = normalizedUnique(officialUdaipurData.subDistricts || []);
+const officialUdaipurAreaNames = normalizedUnique(officialUdaipurData.areaNames || []);
+const officialUdaipurLocations = normalizedUnique([
+  ...officialUdaipurSubDistricts,
+  ...officialUdaipurAreaNames,
+]);
 
 const udaipurGoogleMapsUrbanCoverage = fromMultiline(`
 Alkapuri
@@ -357,12 +380,16 @@ const mergedUrbanLocations = normalizedUnique([
 const mergedRuralLocations = normalizedUnique([
   ...udaipurRuralLocations,
   ...udaipurGoogleMapsRuralCoverage,
+  ...officialUdaipurSubDistricts,
+  ...officialUdaipurAreaNames,
 ]);
 
 const mergedExpandedLocations = normalizedUnique([
   ...udaipurExpandedLocations,
+  ...udaipurSupplementalLocations,
   ...udaipurGoogleMapsUrbanCoverage,
   ...udaipurGoogleMapsRuralCoverage,
+  ...officialUdaipurLocations,
 ]);
 
 const districtNodes = [
@@ -388,6 +415,7 @@ const baseUdaipurLocations = normalizedUnique([
   ...mergedRuralLocations,
   ...udaipurTransitAndLandmarks,
   ...mergedExpandedLocations,
+  ...officialUdaipurLocations,
 ]);
 
 window.PROPERTYSETU_LOCATION_GROUPS = [
@@ -414,6 +442,12 @@ window.PROPERTYSETU_LOCATION_GROUPS = [
     title: 'RURAL & TEHSIL',
     icon: '🌾',
     items: mergedRuralLocations,
+  },
+  {
+    id: 'official',
+    title: 'OFFICIAL CENSUS UDAIPUR',
+    icon: '🧾',
+    items: officialUdaipurLocations,
   },
   {
     id: 'transit',
