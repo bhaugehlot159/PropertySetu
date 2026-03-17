@@ -232,6 +232,13 @@ a {
   font-size: 1.02rem;
 }
 
+.hero-tagline {
+  margin: 0 0 8px;
+  color: #ffd989;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
 .hero-badges {
   margin: 18px 0 22px;
   display: flex;
@@ -319,6 +326,56 @@ a {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.hub-row {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.hub-row.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.hub-box {
+  background: #ffffff;
+  border: 1px solid #cbdef0;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 8px 22px rgba(8, 54, 88, 0.08);
+}
+
+.hub-box.compact {
+  padding: 12px;
+}
+
+.hub-box h3 {
+  margin: 0 0 7px;
+  color: #114a71;
+}
+
+.hub-box p {
+  margin: 0 0 8px;
+  color: #3a5770;
+}
+
+.mini-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  color: #35536d;
+}
+
+.mini-list li {
+  margin: 4px 0;
+}
+
+.link-row {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .stat-card {
@@ -1007,7 +1064,9 @@ footer {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stat-grid {
+  .stat-grid,
+  .hub-row,
+  .hub-row.four {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1032,6 +1091,8 @@ footer {
   .filter-grid,
   .listing-grid,
   .stat-grid,
+  .hub-row,
+  .hub-row.four,
   .split-grid,
   .role-grid,
   .dashboard-grid {

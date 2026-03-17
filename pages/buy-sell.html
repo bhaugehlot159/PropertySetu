@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Buy / Sell</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .shell { padding: 34px 0 54px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(118deg, #0f456d, #276c96); color: #eff8ff; padding: 20px; min-height: auto; }
+    .hero h1 { margin: 0 0 8px; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; box-shadow: 0 8px 22px rgba(8,54,88,.09); }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.05rem; }
+    .cardx p { margin: 0 0 10px; color: #3a5770; }
+    .chipset { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+    .chipset span { border: 1px solid #cadeee; border-radius: 999px; padding: 5px 9px; color: #355570; font-size: .78rem; background: #f7fbff; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="rent.html">Rent</a>
+        <a href="property-care-plans.html">Property Care</a>
+        <a href="structure-hub.html">Platform Structure</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Buy / Sell Property in Udaipur</h1>
+        <p>Professional category-wise journey for Makan Sale, Jamin Sale, Commercial, Farmhouse/Vadi, and premium verified inventory.</p>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Residential Buy / Sell</h2>
+          <p>House, Flat, Villa, Plot with verified-first display and smart locality targeting.</p>
+          <div class="chipset">
+            <span>House</span><span>Flat</span><span>Villa</span><span>Plot</span>
+          </div>
+          <div class="actions">
+            <a class="solid-btn" href="../index.html?purpose=Buy&category=House#marketplace">Explore Buy</a>
+            <a class="outline-btn dark-outline" href="../add-property.html">Post Listing</a>
+          </div>
+        </article>
+
+        <article class="cardx">
+          <h2>Land / Agriculture / Vadi</h2>
+          <p>Plot, agricultural land, farm house, vadi and land-led investor inventory.</p>
+          <div class="chipset">
+            <span>Plot</span><span>Agriculture Land</span><span>Farm House</span><span>Vadi</span>
+          </div>
+          <div class="actions">
+            <a class="solid-btn" href="../index.html?purpose=Sell&category=Plot#marketplace">View Land Deals</a>
+            <a class="outline-btn dark-outline" href="../list-property.html">Quick List</a>
+          </div>
+        </article>
+
+        <article class="cardx">
+          <h2>Commercial & Warehouse</h2>
+          <p>Shops, offices, showroom, warehouse and institutional assets.</p>
+          <div class="chipset">
+            <span>Commercial</span><span>Shop</span><span>Office</span><span>Warehouse</span>
+          </div>
+          <div class="actions">
+            <a class="solid-btn" href="../index.html?purpose=Lease&category=Commercial#marketplace">Open Commercial</a>
+            <a class="outline-btn dark-outline" href="../seller-dashboard.html">Seller Dashboard</a>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

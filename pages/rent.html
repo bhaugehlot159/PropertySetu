@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Rent</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .shell { padding: 34px 0 54px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(118deg, #10496f, #3a7f9c); color: #eff8ff; padding: 20px; min-height: auto; }
+    .hero h1 { margin: 0 0 8px; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; box-shadow: 0 8px 22px rgba(8,54,88,.09); }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.05rem; }
+    .cardx ul { margin: 0 0 10px; padding-left: 18px; color: #36536d; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="buy-sell.html">Buy/Sell</a>
+        <a href="property-care-plans.html">Property Care</a>
+        <a href="structure-hub.html">Platform Structure</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Rent Property in Udaipur</h1>
+        <p>House for rent, shop for rent, office space, PG and flat rental inventory with visit-booking and secure contact workflow.</p>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Residential Rent</h2>
+          <ul>
+            <li>House for Rent</li>
+            <li>Flat for Rent</li>
+            <li>PG / Hostel</li>
+            <li>Furnished / Semi / Unfurnished filter model</li>
+          </ul>
+          <div class="actions">
+            <a class="solid-btn" href="../index.html?purpose=Rent&category=House#marketplace">Explore Residential Rent</a>
+            <a class="outline-btn dark-outline" href="../dashboard.html">Open Dashboard</a>
+          </div>
+        </article>
+
+        <article class="cardx">
+          <h2>Commercial Rent / Lease</h2>
+          <ul>
+            <li>Shop for Rent</li>
+            <li>Office Space</li>
+            <li>Showroom / Warehouse</li>
+            <li>Lease-ready business properties</li>
+          </ul>
+          <div class="actions">
+            <a class="solid-btn" href="../index.html?purpose=Lease&category=Commercial#marketplace">Explore Commercial Rent</a>
+            <a class="outline-btn dark-outline" href="../add-property.html">Post Rent Property</a>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
