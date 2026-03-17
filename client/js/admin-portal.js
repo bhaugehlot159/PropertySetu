@@ -1,52 +1,38 @@
-const bidKey = 'propertySetu:sealedBids';
+(() => {
+  const bidKey = 'propertySetu:sealedBids';
 
-const verification = [
-  { id: 'P-109', label: 'Villa - Hiran Magri' },
-  { id: 'P-145', label: 'Farm House - Badi' },
-];
+  const verificationQueue = document.getElementById('verificationQueue');
+  const reportQueue = document.getElementById('reportQueue');
+  const bidQueue = document.getElementById('bidQueue');
+  if (!verificationQueue || !reportQueue || !bidQueue) return;
 
-const reports = [
-  { id: 'R-28', label: 'Suspicious price on listing P-145' },
-  { id: 'R-31', label: 'Duplicate photo complaint P-109' },
-];
+  const parseJson = (key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
-const row = (left, right = '<button type="button">Resolve</button>') => `<li><span>${left}</span>${right}</li>`;
-const row = (left, right = '<button>Resolve</button>') => `<li><span>${left}</span>${right}</li>`;
+  const saveJson = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 
-document.getElementById('verificationQueue').innerHTML = verification
-  .map((item) => row(`${item.id} · ${item.label}`, '<button type="button">Approve</button>'))
-  .join('');
+  const verification = [
+    { id: 'P-109', label: 'Villa - Hiran Magri', risk: 'Low' },
+    { id: 'P-145', label: 'Farm House - Badi', risk: 'Medium' },
+    { id: 'P-163', label: 'Commercial - Sukher', risk: 'High' },
+  ];
 
-document.getElementById('reportQueue').innerHTML = reports
-  .map((item) => row(`${item.id} · ${item.label}`))
-  .join('');
+  const reports = [
+    { id: 'R-28', label: 'Suspicious pricing complaint on listing P-145' },
+    { id: 'R-31', label: 'Possible duplicate media on listing P-163' },
+    { id: 'R-36', label: 'Ownership proof re-check request' },
+  ];
 
-const renderBids = () => {
-  const bids = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  document.getElementById('bidQueue').innerHTML = bids.length
-    ? bids
-      .map((item, idx) => `
-        <li>
-          <span>${item.propertyId} · ₹${item.amount} (${item.bidder})</span>
-          <span>
-            <input id="m-${idx}" type="number" placeholder="Modify" />
-            <button type="button" onclick="modifyBid(${idx})">Modify</button>
-            <button type="button" onclick="revealBid(${idx})">Reveal</button>
-          </span>
-        </li>`)
-if (JSON.parse(localStorage.getItem(bidKey) || '[]').length === 0) {
-  localStorage.setItem(
-    bidKey,
-    JSON.stringify([{ propertyId: 'P-145', amount: 4500000, bidder: 'buyer-22', publicVisible: false, modifiedByAdmin: null }]),
-  );
-}
-const ensureSeedBids = () => {
-  const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  if (current.length) return;
-
-  localStorage.setItem(
-    bidKey,
-    JSON.stringify([
+  const ensureSeedBids = () => {
+    const bids = parseJson(bidKey, []);
+    if (bids.length) return;
+    saveJson(bidKey, [
       {
         propertyId: 'P-145',
         amount: 4500000,
@@ -55,62 +41,67 @@ const ensureSeedBids = () => {
         modifiedByAdmin: null,
         createdAt: new Date().toISOString(),
       },
-    ]),
-  );
-};
+    ]);
+  };
 
-const renderBids = () => {
-  const current = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  document.getElementById('bidQueue').innerHTML = current.length
-    ? current
-      .map(
-        (item, idx) => `
-      <li>
-        <span>${item.propertyId} · ₹${item.amount} (${item.bidder})</span>
-        <span>
-          <input id="m-${idx}" type="number" placeholder="Modify" />
-          <button onclick="modifyBid(${idx})">Modify</button>
-          <button onclick="revealBid(${idx})">Reveal</button>
-        </span>
-      </li>`,
-      )
-      .join('')
-    : '<li><span>No bids yet from customers.</span></li>';
-};
+  const renderQueue = () => {
+    verificationQueue.innerHTML = verification
+      .map((item) => `<li><span>${item.id} • ${item.label} (${item.risk})</span><button type="button">Approve</button></li>`)
+      .join('');
 
-window.modifyBid = (idx) => {
-  const bids = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  const nextValue = Number(document.getElementById(`m-${idx}`).value);
-  if (!nextValue) return;
-  bids[idx].modifiedByAdmin = nextValue;
-  bids[idx].amount = nextValue;
-  localStorage.setItem(bidKey, JSON.stringify(bids));
-  const all = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  const nextVal = Number(document.getElementById(`m-${idx}`).value);
-  if (!nextVal) return;
+    reportQueue.innerHTML = reports
+      .map((item) => `<li><span>${item.id} • ${item.label}</span><button type="button">Resolve</button></li>`)
+      .join('');
+  };
 
-  all[idx].modifiedByAdmin = nextVal;
-  all[idx].amount = nextVal;
-  localStorage.setItem(bidKey, JSON.stringify(all));
+  const renderBids = () => {
+    const bids = parseJson(bidKey, []);
+    bidQueue.innerHTML = bids.length
+      ? bids
+        .map((item, idx) => `
+          <li>
+            <span>${item.propertyId} • ₹${Number(item.amount).toLocaleString('en-IN')} (${item.bidder})</span>
+            <span style="display:flex;gap:6px;align-items:center;">
+              <input data-bid-input="${idx}" type="number" min="0" placeholder="Modify" />
+              <button type="button" data-bid-action="modify" data-bid-index="${idx}">Modify</button>
+              <button type="button" data-bid-action="reveal" data-bid-index="${idx}">${item.publicVisible ? 'Revealed' : 'Reveal'}</button>
+            </span>
+          </li>`)
+        .join('')
+      : '<li><span>No bids yet from customers.</span></li>';
+  };
+
+  bidQueue.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    const action = target.getAttribute('data-bid-action');
+    const idx = Number(target.getAttribute('data-bid-index'));
+    if (!action || Number.isNaN(idx)) return;
+
+    const bids = parseJson(bidKey, []);
+    if (!bids[idx]) return;
+
+    if (action === 'modify') {
+      const input = bidQueue.querySelector(`[data-bid-input="${idx}"]`);
+      const nextValue = Number(input?.value || 0);
+      if (!nextValue || nextValue <= 0) return;
+      bids[idx].modifiedByAdmin = nextValue;
+      bids[idx].amount = nextValue;
+      saveJson(bidKey, bids);
+      renderBids();
+      return;
+    }
+
+    if (action === 'reveal') {
+      bids[idx].publicVisible = true;
+      saveJson(bidKey, bids);
+      window.alert(`Bid for ${bids[idx].propertyId} revealed as ₹${Number(bids[idx].amount).toLocaleString('en-IN')}`);
+      renderBids();
+    }
+  });
+
+  ensureSeedBids();
+  renderQueue();
   renderBids();
-};
-
-window.revealBid = (idx) => {
-  const bids = JSON.parse(localStorage.getItem(bidKey) || '[]');
-  bids[idx].publicVisible = true;
-  localStorage.setItem(bidKey, JSON.stringify(bids));
-  alert(`Bid for ${bids[idx].propertyId} revealed as ₹${bids[idx].amount}`);
-  renderBids();
-};
-
-if (JSON.parse(localStorage.getItem(bidKey) || '[]').length === 0) {
-  localStorage.setItem(
-    bidKey,
-    JSON.stringify([
-      { propertyId: 'P-145', amount: 4500000, bidder: 'buyer-22', publicVisible: false, modifiedByAdmin: null },
-    ]),
-  );
-}
-
-ensureSeedBids();
-renderBids();
+})();

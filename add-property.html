@@ -25,6 +25,7 @@
     .status-box.ok { background: #ecf8ee; border: 1px solid #b8e6c0; color: #1b6a2a; }
     .status-box.err { background: #fff1f1; border: 1px solid #f1c8c8; color: #8d1e1e; }
     .payload { background: #f7faff; border: 1px solid #d9e6ff; border-radius: 8px; padding: 10px; font-size: 0.85rem; overflow: auto; max-height: 280px; }
+    .city-lock-note { margin: -2px 0 12px; color: #26567b; font-size: 0.88rem; font-weight: 600; }
     @media (max-width: 760px) { .form-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -46,9 +47,10 @@
       <form id="addPropertyForm">
         <section class="panel">
           <h2>Basic Information</h2>
+          <p class="city-lock-note">This portal is configured for Udaipur only. City is auto-locked to maintain clean local marketplace data.</p>
           <div class="form-grid">
             <div class="form-group"><label for="title">Property Title *</label><input id="title" required /></div>
-            <div class="form-group"><label for="city">City *</label><select id="city" required><option>Udaipur</option><option>Jaipur</option><option>Jodhpur</option><option>Ahmedabad</option><option>Delhi</option><option>Mumbai</option></select></div>
+            <div class="form-group"><label for="city">City *</label><select id="city" required><option value="Udaipur" selected>Udaipur (Only)</option></select></div>
             <div class="form-group"><label for="type">Type *</label><select id="type" required><option value="">Select</option><option>Buy</option><option>Sell</option><option>Rent</option><option>Lease</option><option>Girvi</option></select></div>
             <div class="form-group"><label for="category">Category *</label><select id="category" required><option value="">Select</option><option>House</option><option>Flat</option><option>Villa</option><option>Plot</option><option>Agriculture Land</option><option>Commercial</option><option>Farm House</option><option>PG / Hostel</option><option>Warehouse</option></select></div>
 

@@ -8,6 +8,7 @@ const payloadPreview = document.getElementById('payloadPreview');
 const saveDraftBtn = document.getElementById('saveDraft');
 const clearDraftBtn = document.getElementById('clearDraft');
 const locationSuggestions = document.getElementById('propertyLocationSuggestions');
+const citySelect = document.getElementById('city');
 
 const DRAFT_KEY = 'propertySetu:addPropertyDraft';
 const LISTINGS_KEY = 'propertySetu:listings';
@@ -32,11 +33,17 @@ const writeJson = (key, value) => {
 
 const listFileNames = (fileList) => Array.from(fileList || []).map((file) => file.name);
 
+const forceUdaipurCity = () => {
+  if (!citySelect) return;
+  citySelect.value = 'Udaipur';
+  citySelect.disabled = true;
+};
+
 const getFormValues = () => {
   const get = (id) => (document.getElementById(id)?.value || '').trim();
   return {
     title: get('title'),
-    city: get('city'),
+    city: 'Udaipur',
     type: get('type'),
     category: get('category'),
     location: get('location'),
@@ -117,6 +124,7 @@ const loadDraft = () => {
       element.value = String(value);
     }
   });
+  forceUdaipurCity();
   showStatus('Saved draft restored. Re-upload files before submitting.', true);
 };
 
@@ -125,6 +133,8 @@ const connectLocations = () => {
   const locations = window.PROPERTYSETU_LOCATIONS || [];
   locationSuggestions.innerHTML = locations.map((loc) => `<option value="${loc}"></option>`).join('');
 };
+
+citySelect?.addEventListener('change', forceUdaipurCity);
 
 const saveListing = (payload) => {
   const listings = readJson(LISTINGS_KEY, []);
@@ -206,4 +216,5 @@ form?.addEventListener('submit', (event) => {
 });
 
 connectLocations();
+forceUdaipurCity();
 loadDraft();

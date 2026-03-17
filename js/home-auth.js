@@ -84,25 +84,25 @@
 
     if (customerBoardStatus) {
       customerBoardStatus.textContent = customer
-        ? `✅ Customer ${customer.name} logged in. Add Property, Dashboard, Chat sab unlock hai.`
-        : 'Customer login ke baad sabhi features open honge.';
+        ? `✅ Customer ${customer.name} logged in. Udaipur Add Property, Dashboard, Chat sab unlock hai.`
+        : 'Customer login ke baad Udaipur customer features unlock honge.';
     }
 
     if (adminBoardStatus) {
       adminBoardStatus.textContent = admin
-        ? `✅ Admin ${admin.name} logged in. Moderation, portals, chat oversight unlock hai.`
-        : 'Admin login ke baad moderation aur control features open honge.';
+        ? `✅ Admin ${admin.name} logged in. Udaipur moderation, portals, chat oversight unlock hai.`
+        : 'Admin login ke baad Udaipur control features unlock honge.';
     }
 
     if (customerFeatureStatus) {
       if (admin && customer) {
-        customerFeatureStatus.textContent = `✅ Customer (${customer.name}) + Admin (${admin.name}) dono login hain. Sabhi role features available.`;
+        customerFeatureStatus.textContent = `✅ Customer (${customer.name}) + Admin (${admin.name}) login active. Udaipur role features available.`;
       } else if (admin) {
-        customerFeatureStatus.textContent = `✅ Admin ${admin.name} logged in. Admin board unlocked.`;
+        customerFeatureStatus.textContent = `✅ Admin ${admin.name} logged in. Udaipur admin board unlocked.`;
       } else if (customer) {
-        customerFeatureStatus.textContent = `✅ Customer ${customer.name} logged in. Customer board unlocked.`;
+        customerFeatureStatus.textContent = `✅ Customer ${customer.name} logged in. Udaipur customer board unlocked.`;
       } else {
-        customerFeatureStatus.textContent = 'Please login as customer/admin to unlock features.';
+        customerFeatureStatus.textContent = 'Please login as customer/admin to unlock Udaipur features.';
       }
     }
   };
@@ -127,7 +127,7 @@
     authMode = role;
     if (!authModal) return;
     authModalTitle.textContent = role === 'admin' ? 'Admin Login' : 'Customer Login';
-    authModalHint.textContent = 'Email/mobile se login ya signup karein. OTP: 123456';
+    authModalHint.textContent = 'Udaipur portal access: Email/mobile se login ya signup karein. OTP: 123456';
     authNameInput.value = '';
     authEmailInput.value = '';
     authMobileInput.value = '';

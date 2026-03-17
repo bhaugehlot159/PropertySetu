@@ -1,102 +1,291 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PropertySetu | Home</title>
-    <link rel="stylesheet" href="css/style.css" />
-    <style>
-      .mini-home { padding: 28px 0 46px; }
-      .mini-card { background:#fff; border:1px solid #d6e3ff; border-radius:12px; padding:18px; margin-bottom:14px; }
-      .mini-card h2, .mini-card h3 { margin-top:0; color:#0b2f6b; }
-      .home-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-      .role-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-      .role-board { border:1px solid #dce7ff; border-radius:10px; padding:12px; background:#f8fbff; }
-      .feature-list { margin:10px 0 0; padding-left:16px; }
-      .feature-list li { margin-bottom:8px; }
-      .feature-link.locked { pointer-events:none; opacity:.55; text-decoration:line-through; }
-      .board-status { margin:8px 0 0; font-size:.9rem; color:#24436c; }
-      @media (max-width:800px){ .role-grid{grid-template-columns:1fr;} }
-    </style>
-  </head>
-  <body>
-    <header class="topbar">
-      <div class="container topbar-inner">
-        <a class="brand" href="index.html">🏡 PropertySetu</a>
-        <nav>
-          <a href="folders/common/all-features.html">All Features (Folder)</a>
-          <a href="folders/customer/customer-features.html">Customer Folder</a>
-          <a href="folders/admin/admin-features.html">Admin Folder</a>
-        </nav>
-        <div class="auth-actions">
-          <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
-          <button id="adminAuthButton" class="solid-btn" type="button">Admin Login</button>
-          <span id="sessionBadge" class="session-badge">Guest Mode</span>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu Udaipur | Verified Real Estate Marketplace</title>
+  <meta name="description" content="PropertySetu Udaipur: verified local listings, smart filters, comparison, visits, sealed bids, and trusted owner marketplace in one platform." />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html">PropertySetu Udaipur</a>
+      <nav class="main-nav">
+        <a href="#marketplace">Marketplace</a>
+        <a href="#localityPulse">Locality Pulse</a>
+        <a href="folders/common/all-features.html">All Features</a>
+        <a href="folders/customer/customer-features.html">Customer Folder</a>
+        <a href="folders/admin/admin-features.html">Admin Folder</a>
+      </nav>
+      <div class="auth-actions">
+        <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
+        <button id="adminAuthButton" class="solid-btn" type="button">Admin Login</button>
+        <span id="sessionBadge" class="session-badge">Guest Mode</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero hero-market">
+      <div class="hero-gradient"></div>
+      <div class="hero-pattern"></div>
+      <div class="container hero-layout">
+        <div class="hero-copy reveal-up">
+          <p class="eyebrow">Only Udaipur. Hyperlocal. Verified.</p>
+          <h1>OLX style se aage: Udaipur ka most trusted property command center.</h1>
+          <p class="hero-subline">
+            Buy, rent, resale, commercial, farm house, plot. Smart ranking, price intelligence, fraud signals, sealed bids,
+            and role-based dashboards - sab ek jagah.
+          </p>
+          <div class="hero-badges">
+            <span>Verified Owners</span>
+            <span>Udaipur Localities Mapped</span>
+            <span>AI Risk Signals</span>
+          </div>
+          <div class="hero-cta">
+            <a class="solid-btn" href="add-property.html">Post Property in Udaipur</a>
+            <a class="outline-btn light-outline" href="#marketplace">Explore Listings</a>
+          </div>
+        </div>
+
+        <aside class="hero-widget reveal-up-delay">
+          <h2>Instant Udaipur Search</h2>
+          <p>City fixed: <strong>Udaipur</strong> (non-Udaipur listings auto excluded).</p>
+          <label for="quickLocality">Locality</label>
+          <input id="quickLocality" list="heroLocationSuggestions" placeholder="e.g. Hiran Magri Sector 4" />
+          <datalist id="heroLocationSuggestions"></datalist>
+
+          <label for="quickPurpose">Purpose</label>
+          <select id="quickPurpose">
+            <option value="all">All</option>
+            <option value="Buy">Buy</option>
+            <option value="Rent">Rent</option>
+            <option value="Sell">Sell</option>
+            <option value="Lease">Lease</option>
+          </select>
+
+          <label for="quickBudget">Max Budget (INR)</label>
+          <input id="quickBudget" type="number" min="0" step="50000" placeholder="e.g. 6500000" />
+
+          <button id="quickSearchButton" class="solid-btn full-width" type="button">Search Udaipur Listings</button>
+          <p class="tiny-note" id="quickSearchHint">Top localities: Bhuwana, Hiran Magri, Pratap Nagar, Sukher.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Live Udaipur Market Snapshot</h2>
+          <p class="section-note">Real-time view from your local listing data + curated verified inventory.</p>
+        </div>
+        <div class="stat-grid">
+          <article class="stat-card">
+            <p>Active Listings</p>
+            <h3 id="statActiveListings">0</h3>
+          </article>
+          <article class="stat-card">
+            <p>Verified Listings</p>
+            <h3 id="statVerifiedListings">0</h3>
+          </article>
+          <article class="stat-card">
+            <p>Median Price</p>
+            <h3 id="statMedianPrice">₹0</h3>
+          </article>
+          <article class="stat-card">
+            <p>Top Demand Locality</p>
+            <h3 id="statTopLocality">-</h3>
+          </article>
         </div>
       </div>
-    </header>
+    </section>
 
-    <main class="mini-home">
-      <section class="container mini-card">
-        <h2>PropertySetu Home (Compact)</h2>
-        <p>Compulsory home summary + login controls only. Sabhi major features niche role-wise login ke baad unlock hote hain.</p>
-        <div class="home-actions">
-          <a class="solid-btn" href="folders/common/all-features.html">Open All Folders</a>
+    <section id="localityPulse" class="section soft-bg">
+      <div class="container">
+        <div class="section-header">
+          <h2>Udaipur Locality Pulse</h2>
+          <p class="section-note">One-tap locality filters for faster discovery and better lead matching.</p>
         </div>
-      </section>
+        <div id="localityChips" class="chip-row"></div>
+      </div>
+    </section>
 
-      <section class="container mini-card" id="postLoginFeatures">
-        <h3>Top Board: Customer Login / Admin Login Features</h3>
+    <section id="marketplace" class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Udaipur Marketplace</h2>
+          <p class="section-note">Advanced filters, sort, compare, wishlist, and saved searches - OLX-style se stronger workflow.</p>
+        </div>
+
+        <div class="filter-board">
+          <div class="filter-grid">
+            <div class="field">
+              <label for="marketQuery">Search</label>
+              <input id="marketQuery" type="text" placeholder="Search title/locality/category" />
+            </div>
+            <div class="field">
+              <label for="marketLocality">Locality</label>
+              <input id="marketLocality" list="marketLocalitySuggestions" placeholder="All Udaipur localities" />
+              <datalist id="marketLocalitySuggestions"></datalist>
+            </div>
+            <div class="field">
+              <label for="marketCategory">Category</label>
+              <select id="marketCategory">
+                <option value="all">All Categories</option>
+                <option value="House">House</option>
+                <option value="Flat">Flat</option>
+                <option value="Villa">Villa</option>
+                <option value="Plot">Plot</option>
+                <option value="Commercial">Commercial</option>
+                <option value="Farm House">Farm House</option>
+                <option value="Warehouse">Warehouse</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketPurpose">Purpose</label>
+              <select id="marketPurpose">
+                <option value="all">All</option>
+                <option value="Buy">Buy</option>
+                <option value="Rent">Rent</option>
+                <option value="Sell">Sell</option>
+                <option value="Lease">Lease</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketMinPrice">Min Price</label>
+              <input id="marketMinPrice" type="number" min="0" step="50000" placeholder="0" />
+            </div>
+            <div class="field">
+              <label for="marketMaxPrice">Max Price</label>
+              <input id="marketMaxPrice" type="number" min="0" step="50000" placeholder="No Limit" />
+            </div>
+            <div class="field">
+              <label for="marketSort">Sort By</label>
+              <select id="marketSort">
+                <option value="relevance">Relevance</option>
+                <option value="latest">Latest</option>
+                <option value="priceLow">Price: Low to High</option>
+                <option value="priceHigh">Price: High to Low</option>
+                <option value="trust">Most Trusted</option>
+              </select>
+            </div>
+          </div>
+          <div class="filter-actions">
+            <button id="saveSearchBtn" class="solid-btn" type="button">Save This Search</button>
+            <button id="resetFiltersBtn" class="outline-btn dark-outline" type="button">Reset Filters</button>
+          </div>
+          <div id="activeFilterTags" class="active-filter-tags"></div>
+          <p id="resultsMeta" class="results-meta">0 listings found</p>
+        </div>
+
+        <div id="marketGrid" class="listing-grid"></div>
+        <div id="marketNoResults" class="empty-state" hidden>
+          <h3>No listings matched your filters</h3>
+          <p>Filter relax karo ya locality chip use karke fresh results dekho.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft-bg">
+      <div class="container split-grid">
+        <article class="card">
+          <h3>Compare Board (<span id="compareCount">0</span>/3)</h3>
+          <p>Best 3 shortlisted listings side-by-side compare karo before final call.</p>
+          <ul id="compareList" class="stack-list"></ul>
+          <button id="clearCompareBtn" class="outline-btn dark-outline" type="button">Clear Compare</button>
+        </article>
+
+        <article class="card">
+          <h3>Saved Searches</h3>
+          <p>Aapke high-intent filters yahan saved rehte hain for quick revisit.</p>
+          <ul id="savedSearchList" class="stack-list"></ul>
+        </article>
+
+        <article class="card">
+          <h3>Recently Viewed</h3>
+          <p>Recent localities aur listings track rahenge for faster follow-up.</p>
+          <ul id="recentList" class="stack-list"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Role-based Feature Boards</h2>
+          <p class="section-note">Purane sabhi features intact hain; login ke baad auto unlock hote hain.</p>
+        </div>
         <div class="role-grid">
           <article class="role-board">
-            <h4>Customer Features (Login Required)</h4>
+            <h3>Customer Features (Login Required)</h3>
             <ul class="feature-list">
               <li><a class="feature-link locked" data-lock-role="customer" href="add-property.html">Add Property</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="dashboard.html">Customer Dashboard</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="client/pages/customer-portal.html">Customer Portal</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="user-dashboard.html">Chat</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="property-care.html">Property Care</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="area-insights.html">Area Insights</a></li>
             </ul>
             <p class="board-status" id="customerBoardStatus">Customer login ke baad sabhi features open honge.</p>
           </article>
 
           <article class="role-board">
-            <h4>Admin Features (Login Required)</h4>
+            <h3>Admin Features (Login Required)</h3>
             <ul class="feature-list">
               <li><a class="feature-link locked" data-lock-role="admin" href="admin-dashboard.html">Admin Dashboard</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="client/pages/admin-portal.html">Admin Portal</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="seller-dashboard.html">Seller Listings Monitor</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="dashboard.html">Marketplace Snapshot</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="user-dashboard.html">Chat Oversight</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="auction.html">Sealed Bid Control</a></li>
             </ul>
             <p class="board-status" id="adminBoardStatus">Admin login ke baad moderation aur control features open honge.</p>
           </article>
         </div>
         <p id="customerFeatureStatus" class="feature-status">Please login as customer/admin to unlock features.</p>
-      </section>
-    </main>
+      </div>
+    </section>
+  </main>
 
-    <div id="authModal" class="auth-modal" aria-hidden="true">
-      <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
-        <h3 id="authModalTitle">Login</h3>
-        <p id="authModalHint">Secure login required.</p>
-        <div class="auth-mode-switch" role="tablist" aria-label="Authentication mode">
-          <button id="authLoginTab" type="button" class="outline-btn auth-tab active">Login</button>
-          <button id="authSignupTab" type="button" class="outline-btn auth-tab">Signup</button>
-        </div>
-        <input id="authNameInput" type="text" placeholder="Full Name" />
-        <input id="authEmailInput" type="email" placeholder="Email Address (optional if mobile used)" />
-        <input id="authMobileInput" type="tel" placeholder="Mobile Number (10 digits, optional if email used)" />
-        <input id="authPasswordInput" type="password" placeholder="Password (min 6 chars)" />
-        <input id="authOtpInput" type="text" placeholder="Demo OTP (123456)" />
-        <p id="authErrorMessage" class="auth-error" aria-live="polite"></p>
-        <div class="auth-modal-actions">
-          <button id="authCancelButton" type="button" class="outline-btn">Cancel</button>
-          <button id="authSubmitButton" type="button" class="solid-btn">Continue</button>
-        </div>
+  <footer>
+    <div class="container footer-row">
+      <div>
+        <h3>PropertySetu Udaipur</h3>
+        <p>Focused local marketplace for Udaipur only. Better trust, better matching, better conversion.</p>
+      </div>
+      <div class="footer-links">
+        <a href="legal/terms.html">Terms</a>
+        <a href="legal/privacy.html">Privacy</a>
+        <a href="legal/refund.html">Refund</a>
+        <a href="legal/disclaimer.html">Disclaimer</a>
       </div>
     </div>
+  </footer>
 
-    <script src="js/home-auth.js"></script>
-  </body>
+  <div id="authModal" class="auth-modal" aria-hidden="true">
+    <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+      <h3 id="authModalTitle">Login</h3>
+      <p id="authModalHint">Secure login required.</p>
+      <div class="auth-mode-switch" role="tablist" aria-label="Authentication mode">
+        <button id="authLoginTab" type="button" class="outline-btn auth-tab active">Login</button>
+        <button id="authSignupTab" type="button" class="outline-btn auth-tab">Signup</button>
+      </div>
+      <input id="authNameInput" type="text" placeholder="Full Name" />
+      <input id="authEmailInput" type="email" placeholder="Email Address (optional if mobile used)" />
+      <input id="authMobileInput" type="tel" placeholder="Mobile Number (10 digits, optional if email used)" />
+      <input id="authPasswordInput" type="password" placeholder="Password (min 6 chars)" />
+      <input id="authOtpInput" type="text" placeholder="Demo OTP (123456)" />
+      <p id="authErrorMessage" class="auth-error" aria-live="polite"></p>
+      <div class="auth-modal-actions">
+        <button id="authCancelButton" type="button" class="outline-btn dark-outline">Cancel</button>
+        <button id="authSubmitButton" type="button" class="solid-btn">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/location.js"></script>
+  <script src="js/udaipur-marketplace.js"></script>
+  <script src="js/home-auth.js"></script>
+</body>
 </html>
