@@ -59,7 +59,9 @@
       if (query) {
         matches = matches.filter((item) => item.toLowerCase().includes(query));
       }
-      matches = sortByRelevance(matches, query).slice(0, query ? maxPerGroup : Math.min(maxPerGroup, 5));
+      const dynamicGroupLimit = query.length >= 3 ? Math.max(maxPerGroup, 20) : maxPerGroup;
+      const previewLimit = query ? dynamicGroupLimit : Math.min(maxPerGroup, 5);
+      matches = sortByRelevance(matches, query).slice(0, previewLimit);
       matches = matches.filter((item) => {
         const key = item.toLowerCase();
         if (seen.has(key)) return false;
@@ -230,8 +232,8 @@
 
   const init = () => {
     attachAutocomplete('quickLocality', { maxPerGroup: 7, maxTotal: 56 });
-    attachAutocomplete('marketLocality', { maxPerGroup: 9, maxTotal: 72 });
-    attachAutocomplete('location', { maxPerGroup: 8, maxTotal: 64 });
+    attachAutocomplete('marketLocality', { maxPerGroup: 12, maxTotal: 160 });
+    attachAutocomplete('location', { maxPerGroup: 14, maxTotal: 220 });
   };
 
   if (document.readyState === 'loading') {
