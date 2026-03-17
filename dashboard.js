@@ -6,6 +6,7 @@
     'propertySetu:listings',
     'propertySetu:addPropertyDraft',
     'propertySetu:notifications',
+    'propertySetu:notified',
     'propertysetu-marketplace-state',
     'propertysetu-customer-session',
     'propertysetu-admin-session',

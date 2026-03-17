@@ -320,6 +320,9 @@ button:hover { background:#092f6d; }
   };
 
   document.getElementById('downloadLocalDataBtn')?.addEventListener('click', downloadLocalData);
+  window.downloadLocalData = downloadLocalData;
+  window.updateStatus = updateStatus;
+
   pendingDiv?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
