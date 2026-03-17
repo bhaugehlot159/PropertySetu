@@ -166,6 +166,17 @@ const officialUdaipurLocations = normalizedUnique([
   ...officialUdaipurAreaNames,
 ]);
 
+const latestUdaipurData = window.PROPERTYSETU_LATEST_UDAIPUR || {};
+const latestUdaipurMapNames = normalizedUnique(latestUdaipurData.names || []);
+const latestUdaipurByType = latestUdaipurData.byPlaceType || {};
+const latestUdaipurVillageNames = normalizedUnique(latestUdaipurByType.village || []);
+const latestUdaipurHamletNames = normalizedUnique(latestUdaipurByType.hamlet || []);
+const latestUdaipurTownNames = normalizedUnique(latestUdaipurByType.town || []);
+const latestUdaipurNeighbourhoodNames = normalizedUnique([
+  ...(latestUdaipurByType.neighbourhood || []),
+  ...(latestUdaipurByType.square || []),
+]);
+
 const udaipurGoogleMapsUrbanCoverage = fromMultiline(`
 Alkapuri
 Ambamata
@@ -375,6 +386,8 @@ Yeroora
 const mergedUrbanLocations = normalizedUnique([
   ...udaipurUrbanLocations,
   ...udaipurGoogleMapsUrbanCoverage,
+  ...latestUdaipurTownNames,
+  ...latestUdaipurNeighbourhoodNames,
 ]);
 
 const mergedRuralLocations = normalizedUnique([
@@ -382,6 +395,8 @@ const mergedRuralLocations = normalizedUnique([
   ...udaipurGoogleMapsRuralCoverage,
   ...officialUdaipurSubDistricts,
   ...officialUdaipurAreaNames,
+  ...latestUdaipurVillageNames,
+  ...latestUdaipurHamletNames,
 ]);
 
 const mergedExpandedLocations = normalizedUnique([
@@ -390,6 +405,7 @@ const mergedExpandedLocations = normalizedUnique([
   ...udaipurGoogleMapsUrbanCoverage,
   ...udaipurGoogleMapsRuralCoverage,
   ...officialUdaipurLocations,
+  ...latestUdaipurMapNames,
 ]);
 
 const districtNodes = [
@@ -416,6 +432,7 @@ const baseUdaipurLocations = normalizedUnique([
   ...udaipurTransitAndLandmarks,
   ...mergedExpandedLocations,
   ...officialUdaipurLocations,
+  ...latestUdaipurMapNames,
 ]);
 
 window.PROPERTYSETU_LOCATION_GROUPS = [
@@ -448,6 +465,12 @@ window.PROPERTYSETU_LOCATION_GROUPS = [
     title: 'OFFICIAL CENSUS UDAIPUR',
     icon: '🧾',
     items: officialUdaipurLocations,
+  },
+  {
+    id: 'latest',
+    title: 'LATEST MAP NAMES',
+    icon: '🛰️',
+    items: latestUdaipurMapNames,
   },
   {
     id: 'transit',
