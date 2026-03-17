@@ -6,6 +6,8 @@ This checklist is for direct live deployment with:
 - Nginx reverse proxy
 - SSL (Let's Encrypt)
 
+Quick one-command setup guide: `docs/PRODUCTION_ONE_SHOT_DEPLOY.md`
+
 Use this on an Ubuntu server (22.04/24.04 recommended).
 
 ## 0) Pre-check
