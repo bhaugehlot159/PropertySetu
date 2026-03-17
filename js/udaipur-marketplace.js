@@ -275,7 +275,7 @@
   const fallbackLocalities = ['Hiran Magri Sector 4', 'Pratap Nagar', 'Bhuwana', 'Sukher', 'Fatehpura', 'Bedla Road'];
   const displayLocalities = topLocalities.length ? topLocalities : fallbackLocalities;
 
-  const allLocations = (window.PROPERTYSETU_LOCATIONS || []).slice(0, 220);
+  const allLocations = window.PROPERTYSETU_LOCATIONS || [];
   const datalistMarkup = allLocations.map((loc) => `<option value="${loc}"></option>`).join('');
   if (heroLocationSuggestions) heroLocationSuggestions.innerHTML = datalistMarkup;
   if (marketLocalitySuggestions) marketLocalitySuggestions.innerHTML = datalistMarkup;
