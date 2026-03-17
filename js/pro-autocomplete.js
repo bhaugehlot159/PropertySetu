@@ -83,16 +83,22 @@
     if (!input) return;
 
     input.setAttribute('autocomplete', 'off');
-    input.removeAttribute('list');
+    const existingPanel = document.getElementById(`${inputId}-ps-ac-panel`);
+    if (existingPanel) existingPanel.remove();
 
-    const parent = input.parentElement;
-    if (!parent) return;
-    parent.classList.add('ps-ac-wrap');
+    const originalParent = input.parentElement;
+    if (!originalParent) return;
+
+    const anchor = document.createElement('div');
+    anchor.className = 'ps-ac-wrap';
+    originalParent.insertBefore(anchor, input);
+    anchor.appendChild(input);
 
     const panel = document.createElement('div');
+    panel.id = `${inputId}-ps-ac-panel`;
     panel.className = 'ps-autocomplete-panel';
     panel.hidden = true;
-    parent.appendChild(panel);
+    anchor.appendChild(panel);
 
     const groups = normalizeGroups();
     const maxPerGroup = opts.maxPerGroup || 8;
@@ -223,7 +229,7 @@
 
     document.addEventListener('click', (event) => {
       if (!(event.target instanceof Node)) return;
-      if (parent.contains(event.target)) return;
+      if (anchor.contains(event.target)) return;
       closePanel();
     });
   };
@@ -240,3 +246,4 @@
     init();
   }
 })();
+
