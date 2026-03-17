@@ -73,6 +73,12 @@ Domain + PM2 + Nginx + SSL checklist: `docs/PRODUCTION_DEPLOY_CHECKLIST.md`
 ## One-Shot Server Provision
 Fast single-command VPS setup: `docs/PRODUCTION_ONE_SHOT_DEPLOY.md`
 
+Production helper scripts:
+- `deploy/scripts/preflight.sh`
+- `deploy/scripts/provision-ubuntu.sh`
+- `deploy/scripts/deploy.sh`
+- `deploy/scripts/verify-live.sh`
+
 ## Codex PR workflow note
 If Codex shows this message:
 - `Codex does not currently support updating PRs that are updated outside of Codex.`

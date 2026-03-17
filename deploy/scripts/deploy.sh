@@ -4,6 +4,9 @@ set -euo pipefail
 APP_DIR="/var/www/propertysetu"
 BRANCH="${1:-main}"
 APP_NAME="propertysetu-app"
+APP_PORT="${APP_PORT:-5000}"
+DOMAIN="${DOMAIN:-propertysetu.in}"
+CHECK_HTTPS="${CHECK_HTTPS:-1}"
 
 echo "Deploying ${APP_NAME} from branch ${BRANCH}..."
 
@@ -26,11 +29,15 @@ pm2 save
 
 sudo systemctl reload nginx
 
-if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
+if curl -fsS "http://127.0.0.1:${APP_PORT}/api/health" >/dev/null; then
   echo "Health check passed: /api/health"
 else
   echo "ERROR: Health check failed."
   exit 1
+fi
+
+if [[ -x "./deploy/scripts/verify-live.sh" ]]; then
+  DOMAIN="${DOMAIN}" APP_PORT="${APP_PORT}" APP_NAME="${APP_NAME}" CHECK_HTTPS="${CHECK_HTTPS}" ./deploy/scripts/verify-live.sh
 fi
 
 echo "Deploy complete."

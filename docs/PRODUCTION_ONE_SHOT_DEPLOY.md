@@ -27,9 +27,22 @@ cd propertysetu
 ```bash
 chmod +x deploy/scripts/provision-ubuntu.sh
 chmod +x deploy/scripts/deploy.sh
+chmod +x deploy/scripts/preflight.sh
+chmod +x deploy/scripts/verify-live.sh
 ```
 
-## 4) Run one-shot provision command
+## 4) Run preflight (recommended)
+
+```bash
+DOMAIN=propertysetu.in \
+WWW_DOMAIN=www.propertysetu.in \
+APP_DIR=/var/www/propertysetu \
+BRANCH=main \
+APP_PORT=5000 \
+./deploy/scripts/preflight.sh
+```
+
+## 5) Run one-shot provision command
 
 ```bash
 DOMAIN=propertysetu.in \
@@ -52,28 +65,30 @@ What this command does:
 - starts app with PM2
 - provisions SSL with certbot (if `EMAIL` provided)
 
-## 5) Verify
+## 6) Verify
 
 ```bash
 pm2 status
 curl -fsS http://127.0.0.1:5000/api/health
 curl -I https://propertysetu.in
+DOMAIN=propertysetu.in APP_PORT=5000 ./deploy/scripts/verify-live.sh
 ```
 
-## 6) Future deploys (code updates only)
+## 7) Future deploys (code updates only)
 
 ```bash
 cd /var/www/propertysetu
 ./deploy/scripts/deploy.sh main
 ```
 
-## 7) Optional env variables
+## 8) Optional env variables
 
 - `REPO_URL` default: `https://github.com/bhaugehlot159/PropertySetu.git`
 - `ENABLE_UFW` default: `1`
 - `JWT_SECRET` (if omitted, script auto-generates only on first `.env` creation)
+- `CHECK_HTTPS` default: `1` (set `0` to skip HTTPS check when certificate is not issued yet)
 
-## 8) If SSL was skipped
+## 9) If SSL was skipped
 
 If you ran without `EMAIL`, run later:
 
