@@ -136,14 +136,244 @@ const normalizedUnique = (items) => [...new Set(
     .filter(Boolean),
 )];
 
+const fromMultiline = (rawText) => normalizedUnique(
+  String(rawText || '')
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean),
+);
+
+const udaipurGoogleMapsUrbanCoverage = fromMultiline(`
+Alkapuri
+Ambamata
+Ambavgarh
+Ashok Nagar Udaipur
+A-Block Hiran Magri
+Ahar Main Road
+Ayad River Side
+Ayad Main Market
+Badi Road Udaipur
+Bapu Bazaar
+Brahmpuri
+Brahmpole Road
+Chetak Circle
+Chitrakoot Nagar Udaipur
+Court Circle Udaipur
+Dhan Mandi
+Delhi Gate Udaipur
+Durga Nursery Road
+Fatehpura Circle
+Gariyawas Udaipur
+Goverdhan Vilas
+Govardhan Vilas
+Haridas Ji Ki Magri
+Hathipole
+Jagdish Chowk
+Jeevan Tara
+Kalaji Goraji
+Kishanpole Udaipur
+Lake City Mall Road
+Lal Ghat
+Madhuban Udaipur
+Malla Talai
+Mansarovar Colony Udaipur
+Meera Nagar Udaipur
+Moti Chohatta
+Nada Khada
+New Bhupalpura
+Old City Udaipur
+Panchwati Udaipur
+Polo Ground
+Pulla Bhuwana
+Ravji Ka Hata
+Residency Road
+Reti Stand
+RNT Road
+Rupnagar Udaipur
+Saheli Marg
+Sardarpura Udaipur
+Savina
+Shakti Nagar Udaipur
+Shastri Circle
+Shobhagpura
+Sukhadiya Circle
+Sukher
+Surajpole
+Tekri Udaipur
+Thokar Chouraha
+Town Hall Udaipur
+Udaipole
+University Road
+Urban Square Road
+Zinc Park Area
+`);
+
+const udaipurGoogleMapsRuralCoverage = fromMultiline(`
+Aabankad
+Adkalia
+Ahar
+Akal
+Akodara
+Ambasa
+Ambashavgarh
+Amba Talai
+Amloi
+Amod
+Anandpura
+Anyelkalan
+Ar
+Asmara
+Bada
+Bajaya
+Balicha
+Bambora
+Banad
+Baran
+Bari
+Barniya
+Bassiya
+Bedla
+Beechri
+Beelakalan
+Beyana
+Bhallo Ki Kui
+Bhalon Ka Gurha
+Bhalon Ka Guda
+Bhanda
+Bhatewar
+Bhoinda Kalan
+Bhojon Ki Patiya
+Bhutala
+Biliya
+Birad
+Bor Ka Khera
+Bori
+Bormata
+Bujra
+Chakuda
+Chansda
+Chirwa
+Dada
+Dakan Kotada
+Dakan Kotra
+Dara
+Deimata
+Delwara
+Dhamdama
+Dhanet
+Dhinkli
+Dholi Magri
+Dholi Ghati
+Dholiya
+Dhol Ki Pati
+Dudli
+Eklingpura
+Gadriya Ka Gurha
+Garnala Kotra
+Ghasiyar
+Gopalpura
+Gordhan Vilas
+Gurli
+Kaliwas
+Kantun
+Kaya
+Kayampura
+Kelwas
+Khajoori
+Kharwa
+Kherad
+Kheroda
+Kiwara
+Lakhawali
+Lalpur
+Limbali
+Liyo Ka Gurha
+Lohra
+Losesra
+Madri
+Mahuda
+Makad Dev
+Mandwa
+Manna Ka Gurha
+Masaron Ki Obri
+Matasara
+Matasula
+Morwaniya
+Nai
+Nala
+Namri
+Nandeshma
+Nandwel
+Nar
+Nela
+Nokha
+Pachar
+Pacholi
+Padarda
+Paduna
+Pai
+Pala
+Pali
+Pandrwa
+Pari
+Parola
+Peepli
+Phoota Talab
+Piparda
+Purohito Ka Gurha
+Raisinghpura
+Rama
+Rampura
+Raniya
+Ratanpura
+Salaron Ki Madri
+Salera Khurd
+Saredi
+Satmala
+Savina Khera
+Seesarma
+Shahgarh
+Shobhagpura
+Sisarma
+Sisvi
+Siyakhedi
+Sunderpura
+Surana
+Titardi
+Ubeshwar Ji
+Umarda
+Undri
+Uniyara
+Vallabh
+Varda
+Yeroora
+`);
+
+const mergedUrbanLocations = normalizedUnique([
+  ...udaipurUrbanLocations,
+  ...udaipurGoogleMapsUrbanCoverage,
+]);
+
+const mergedRuralLocations = normalizedUnique([
+  ...udaipurRuralLocations,
+  ...udaipurGoogleMapsRuralCoverage,
+]);
+
+const mergedExpandedLocations = normalizedUnique([
+  ...udaipurExpandedLocations,
+  ...udaipurGoogleMapsUrbanCoverage,
+  ...udaipurGoogleMapsRuralCoverage,
+]);
+
 const districtNodes = [
   'Udaipur, Rajasthan',
+  'Udaipur District, Rajasthan',
   'Udaipur District Headquarters',
   'Girwa (Udaipur District)',
 ];
 
 const fortsAndPalaces = normalizedUnique(
-  [...udaipurTransitAndLandmarks, ...udaipurExpandedLocations].filter((name) =>
+  [...udaipurTransitAndLandmarks, ...mergedExpandedLocations].filter((name) =>
     /(fort|palace|ghat|jagdish|city palace|monsoon|mata|temple|lake|sagar|haveli|chowk)/i.test(name)),
 );
 
@@ -154,10 +384,10 @@ const transitAndServices = normalizedUnique(
 
 const baseUdaipurLocations = normalizedUnique([
   ...districtNodes,
-  ...udaipurUrbanLocations,
-  ...udaipurRuralLocations,
+  ...mergedUrbanLocations,
+  ...mergedRuralLocations,
   ...udaipurTransitAndLandmarks,
-  ...udaipurExpandedLocations,
+  ...mergedExpandedLocations,
 ]);
 
 window.PROPERTYSETU_LOCATION_GROUPS = [
@@ -177,13 +407,13 @@ window.PROPERTYSETU_LOCATION_GROUPS = [
     id: 'urban',
     title: 'URBAN LOCALITIES',
     icon: '🏙️',
-    items: normalizedUnique(udaipurUrbanLocations),
+    items: mergedUrbanLocations,
   },
   {
     id: 'rural',
     title: 'RURAL & TEHSIL',
     icon: '🌾',
-    items: normalizedUnique(udaipurRuralLocations),
+    items: mergedRuralLocations,
   },
   {
     id: 'transit',
@@ -195,17 +425,30 @@ window.PROPERTYSETU_LOCATION_GROUPS = [
     id: 'more',
     title: 'MORE UDAIPUR AREAS',
     icon: '📌',
-    items: normalizedUnique(udaipurExpandedLocations),
+    items: mergedExpandedLocations,
   },
 ];
 
 const udaipurSearchAliases = baseUdaipurLocations.flatMap((location) => {
   const normalized = String(location || '').trim();
   if (!normalized) return [];
-  if (/\budaipur\b/i.test(normalized)) {
-    return [normalized];
+  const aliases = new Set([normalized]);
+  if (!/\budaipur\b/i.test(normalized)) {
+    aliases.add(`${normalized}, Udaipur`);
+    aliases.add(`${normalized}, Udaipur, Rajasthan`);
+  } else if (!/\brajasthan\b/i.test(normalized)) {
+    aliases.add(`${normalized}, Rajasthan`);
   }
-  return [normalized, `${normalized}, Udaipur`];
+
+  if (/\bvillage\b/i.test(normalized)) {
+    aliases.add(normalized.replace(/\bvillage\b/ig, '').replace(/\s{2,}/g, ' ').trim());
+  }
+
+  if (normalized.includes(',')) {
+    aliases.add(normalized.replace(/,\s*/g, ' '));
+  }
+
+  return [...aliases].filter(Boolean);
 });
 
 window.PROPERTYSETU_LOCATIONS = [...new Set(udaipurSearchAliases)]
