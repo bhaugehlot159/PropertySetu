@@ -14,7 +14,7 @@
 
 body.ps-pro-surface {
   font-family: "Sora", "Manrope", "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  color: #dceefd;
+  color: var(--ps-ink);
   background:
     radial-gradient(1200px 500px at 100% -10%, rgba(94, 171, 219, 0.16), rgba(94, 171, 219, 0)),
     radial-gradient(900px 420px at -8% -10%, rgba(61, 143, 192, 0.14), rgba(61, 143, 192, 0)),
@@ -25,8 +25,8 @@ body.ps-pro-surface .container {
   width: min(1200px, 94vw);
 }
 
-body.ps-pro-surface main a {
-  color: #bfe1fb;
+body.ps-pro-surface :where(main a) {
+  color: #145d90;
 }
 
 /* Keep CTA buttons readable; do not let generic link color override them */
@@ -124,12 +124,10 @@ body.ps-pro-surface .soft-bg {
   background: linear-gradient(180deg, rgba(44, 106, 145, 0.48), rgba(20, 79, 116, 0.52));
 }
 
-body.ps-pro-surface h1,
-body.ps-pro-surface h2,
-body.ps-pro-surface h3 {
-  color: #ecf8ff;
+body.ps-pro-surface :where(h1, h2, h3) {
+  color: #104469;
   letter-spacing: 0.1px;
-  text-shadow: 0 2px 10px rgba(4, 20, 34, 0.34);
+  text-shadow: none;
 }
 
 /* Dark navy sections use light heading text for readability */
@@ -179,7 +177,28 @@ body.ps-pro-surface .listing-card h2,
 body.ps-pro-surface .listing-card h3,
 body.ps-pro-surface .stat-card h1,
 body.ps-pro-surface .stat-card h2,
-body.ps-pro-surface .stat-card h3 {
+body.ps-pro-surface .stat-card h3,
+body.ps-pro-surface .folder-card h1,
+body.ps-pro-surface .folder-card h2,
+body.ps-pro-surface .folder-card h3,
+body.ps-pro-surface .city h1,
+body.ps-pro-surface .city h2,
+body.ps-pro-surface .city h3,
+body.ps-pro-surface .plan h1,
+body.ps-pro-surface .plan h2,
+body.ps-pro-surface .plan h3,
+body.ps-pro-surface .feature h1,
+body.ps-pro-surface .feature h2,
+body.ps-pro-surface .feature h3,
+body.ps-pro-surface .deploy-card h1,
+body.ps-pro-surface .deploy-card h2,
+body.ps-pro-surface .deploy-card h3,
+body.ps-pro-surface .hub-card h1,
+body.ps-pro-surface .hub-card h2,
+body.ps-pro-surface .hub-card h3,
+body.ps-pro-surface .cardx h1,
+body.ps-pro-surface .cardx h2,
+body.ps-pro-surface .cardx h3 {
   color: #104469;
   text-shadow: none;
 }
@@ -212,7 +231,33 @@ body.ps-pro-surface .stat-card p,
 body.ps-pro-surface .stat-card li,
 body.ps-pro-surface .stat-card label,
 body.ps-pro-surface .stat-card span,
-body.ps-pro-surface .stat-card strong {
+body.ps-pro-surface .stat-card strong,
+body.ps-pro-surface .folder-card p,
+body.ps-pro-surface .folder-card li,
+body.ps-pro-surface .folder-card label,
+body.ps-pro-surface .city p,
+body.ps-pro-surface .city li,
+body.ps-pro-surface .city label,
+body.ps-pro-surface .plan p,
+body.ps-pro-surface .plan li,
+body.ps-pro-surface .plan label,
+body.ps-pro-surface .feature p,
+body.ps-pro-surface .feature li,
+body.ps-pro-surface .feature label,
+body.ps-pro-surface .deploy-card p,
+body.ps-pro-surface .deploy-card li,
+body.ps-pro-surface .deploy-card label,
+body.ps-pro-surface .hub-card p,
+body.ps-pro-surface .hub-card li,
+body.ps-pro-surface .hub-card label,
+body.ps-pro-surface .cardx p,
+body.ps-pro-surface .cardx li,
+body.ps-pro-surface .cardx label,
+body.ps-pro-surface .item,
+body.ps-pro-surface .url,
+body.ps-pro-surface .deploy-code,
+body.ps-pro-surface .board-status,
+body.ps-pro-surface .feature-status {
   color: #355470;
 }
 
@@ -224,7 +269,14 @@ body.ps-pro-surface .role-board a,
 body.ps-pro-surface .hero-widget a,
 body.ps-pro-surface .filter-board a,
 body.ps-pro-surface .listing-card a,
-body.ps-pro-surface .stat-card a {
+body.ps-pro-surface .stat-card a,
+body.ps-pro-surface .folder-card a,
+body.ps-pro-surface .city a,
+body.ps-pro-surface .plan a,
+body.ps-pro-surface .feature a,
+body.ps-pro-surface .deploy-card a,
+body.ps-pro-surface .hub-card a,
+body.ps-pro-surface .cardx a {
   color: #155a8a;
 }
 
@@ -255,6 +307,10 @@ body.ps-pro-surface .eyebrow {
   color: #e2f2ff;
 }
 
+body.ps-pro-surface .hero p {
+  color: #deefff;
+}
+
 body.ps-pro-surface .hero-widget h2 {
   color: #113f63;
   text-shadow: none;
@@ -282,7 +338,13 @@ body.ps-pro-surface .role-board,
 body.ps-pro-surface .filter-board,
 body.ps-pro-surface .marketplace-panel,
 body.ps-pro-surface .stat-box,
-body.ps-pro-surface .stat-card {
+body.ps-pro-surface .stat-card,
+body.ps-pro-surface .city,
+body.ps-pro-surface .plan,
+body.ps-pro-surface .feature,
+body.ps-pro-surface .deploy-card,
+body.ps-pro-surface .hub-card,
+body.ps-pro-surface .cardx {
   background: #f9fcff;
   border: 1px solid #c7dcef;
   box-shadow: 0 8px 22px rgba(7, 44, 70, 0.08);
@@ -374,6 +436,8 @@ body.ps-pro-surface th {
 .pro-hero h1,
 .pro-hero h2 {
   margin: 0 0 10px;
+  color: #f3f9ff;
+  text-shadow: 0 2px 10px rgba(4, 22, 34, 0.35);
 }
 
 .pro-hero p {
