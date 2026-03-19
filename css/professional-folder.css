@@ -380,7 +380,7 @@ body.ps-pro-surface textarea:focus {
   border-color: #5b9cc8;
 }
 
-body.ps-pro-surface button,
+body.ps-pro-surface button:not(.ps-ac-item),
 body.ps-pro-surface .btn {
   border-radius: 10px;
   border: 1px solid #0b3f66;
@@ -389,9 +389,45 @@ body.ps-pro-surface .btn {
   font-weight: 700;
 }
 
-body.ps-pro-surface button:hover,
+body.ps-pro-surface button:not(.ps-ac-item):hover,
 body.ps-pro-surface .btn:hover {
   background: linear-gradient(180deg, #1470ab, #0f5585);
+}
+
+/* Autocomplete uses button elements; keep them card-style readable instead of navy CTA styling */
+body.ps-pro-surface .ps-autocomplete-panel {
+  border: 1px solid #9fc1dd;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 16px 28px rgba(10, 46, 72, 0.24);
+}
+
+body.ps-pro-surface .ps-ac-group-title {
+  color: #edf7ff;
+  background: linear-gradient(90deg, #1f5f90, #2a6fa2);
+}
+
+body.ps-pro-surface .ps-ac-item {
+  border: 0;
+  border-bottom: 1px solid #e4eef7;
+  background: #ffffff;
+  color: #173c57;
+  text-shadow: none;
+  font-weight: 600;
+}
+
+body.ps-pro-surface .ps-ac-item:hover,
+body.ps-pro-surface .ps-ac-item.active {
+  background: #ebf4ff;
+  color: #0f456d;
+}
+
+body.ps-pro-surface .ps-ac-highlight {
+  background: rgba(87, 142, 191, 0.2);
+  color: #0d4f7d;
+  border-radius: 4px;
+  font-weight: 800;
+  padding: 0 2px;
 }
 
 body.ps-pro-surface table {
