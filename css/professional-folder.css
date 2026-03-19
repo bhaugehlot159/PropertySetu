@@ -1,20 +1,24 @@
 :root {
-  --ps-bg: #f4f9fd;
+  --ps-bg: #082d47;
   --ps-ink: #17344d;
   --ps-muted: #49657d;
   --ps-line: #c8ddef;
   --ps-primary: #0f4d7a;
   --ps-primary-2: #1f6a9a;
   --ps-accent: #f2be42;
+  --ps-navy-900: #072a42;
+  --ps-navy-800: #0b3f62;
+  --ps-navy-700: #0f5078;
+  --ps-navy-600: #1a638d;
 }
 
 body.ps-pro-surface {
   font-family: "Sora", "Manrope", "Plus Jakarta Sans", "Segoe UI", sans-serif;
   color: var(--ps-ink);
   background:
-    radial-gradient(1200px 500px at 100% -10%, rgba(64, 152, 201, 0.18), rgba(64, 152, 201, 0)),
-    radial-gradient(900px 420px at -8% -10%, rgba(25, 110, 160, 0.16), rgba(25, 110, 160, 0)),
-    linear-gradient(180deg, #082e4a 0%, #0f456b 36%, #174f77 100%);
+    radial-gradient(1200px 500px at 100% -10%, rgba(94, 171, 219, 0.16), rgba(94, 171, 219, 0)),
+    radial-gradient(900px 420px at -8% -10%, rgba(61, 143, 192, 0.14), rgba(61, 143, 192, 0)),
+    linear-gradient(180deg, var(--ps-navy-900) 0%, var(--ps-navy-800) 42%, var(--ps-navy-700) 100%);
 }
 
 body.ps-pro-surface .container {
@@ -30,7 +34,7 @@ body.ps-pro-surface > header {
   position: relative;
   z-index: 3;
   border-bottom: 1px solid rgba(166, 199, 225, 0.58);
-  background: linear-gradient(94deg, rgba(5, 40, 67, 0.96), rgba(14, 79, 118, 0.93));
+  background: linear-gradient(94deg, rgba(6, 38, 61, 0.97), rgba(12, 79, 116, 0.96));
   color: #e9f5ff;
   backdrop-filter: blur(10px);
 }
@@ -65,11 +69,75 @@ body.ps-pro-surface .section {
   z-index: 1;
 }
 
+body.ps-pro-surface .section {
+  background: linear-gradient(180deg, rgba(7, 47, 74, 0.55), rgba(11, 66, 102, 0.5));
+  border-top: 1px solid rgba(155, 194, 222, 0.18);
+}
+
+body.ps-pro-surface .soft-bg {
+  background: linear-gradient(180deg, rgba(44, 106, 145, 0.48), rgba(20, 79, 116, 0.52));
+}
+
 body.ps-pro-surface h1,
 body.ps-pro-surface h2,
 body.ps-pro-surface h3 {
   color: #104469;
   letter-spacing: 0.1px;
+}
+
+/* Dark navy sections use light heading text for readability */
+body.ps-pro-surface .section-header h2,
+body.ps-pro-surface .section-header h3 {
+  color: #ecf8ff;
+  text-shadow: 0 2px 10px rgba(4, 20, 34, 0.34);
+}
+
+body.ps-pro-surface .section-note,
+body.ps-pro-surface .section-intro {
+  color: #c9e1f2;
+}
+
+body.ps-pro-surface .tiny-note {
+  color: #c3dbef;
+}
+
+body.ps-pro-surface .results-meta {
+  color: #d1e7f8;
+}
+
+/* Keep white-card/form text dark so it remains readable */
+body.ps-pro-surface .card h1,
+body.ps-pro-surface .card h2,
+body.ps-pro-surface .card h3,
+body.ps-pro-surface .panel h1,
+body.ps-pro-surface .panel h2,
+body.ps-pro-surface .panel h3,
+body.ps-pro-surface .mini h1,
+body.ps-pro-surface .mini h2,
+body.ps-pro-surface .mini h3,
+body.ps-pro-surface .hub-box h1,
+body.ps-pro-surface .hub-box h2,
+body.ps-pro-surface .hub-box h3,
+body.ps-pro-surface .role-board h1,
+body.ps-pro-surface .role-board h2,
+body.ps-pro-surface .role-board h3,
+body.ps-pro-surface .hero-widget h1,
+body.ps-pro-surface .hero-widget h2,
+body.ps-pro-surface .hero-widget h3,
+body.ps-pro-surface .filter-board h1,
+body.ps-pro-surface .filter-board h2,
+body.ps-pro-surface .filter-board h3,
+body.ps-pro-surface .listing-card h1,
+body.ps-pro-surface .listing-card h2,
+body.ps-pro-surface .listing-card h3 {
+  color: #104469;
+  text-shadow: none;
+}
+
+body.ps-pro-surface .filter-board .tiny-note,
+body.ps-pro-surface .filter-board .results-meta,
+body.ps-pro-surface .hero-widget .tiny-note {
+  color: #486680;
 }
 
 body.ps-pro-surface .hero-copy h1,
@@ -105,8 +173,18 @@ body.ps-pro-surface .property-card,
 body.ps-pro-surface .container > .card {
   border: 1px solid var(--ps-line);
   border-radius: 14px;
-  background: #ffffff;
+  background: #f9fcff;
   box-shadow: 0 10px 26px rgba(7, 44, 70, 0.08);
+}
+
+body.ps-pro-surface .hub-box,
+body.ps-pro-surface .role-board,
+body.ps-pro-surface .filter-board,
+body.ps-pro-surface .marketplace-panel,
+body.ps-pro-surface .stat-box {
+  background: #f9fcff;
+  border: 1px solid #c7dcef;
+  box-shadow: 0 8px 22px rgba(7, 44, 70, 0.08);
 }
 
 body.ps-pro-surface input,
