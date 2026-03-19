@@ -12,26 +12,27 @@ body.ps-pro-surface {
   font-family: "Sora", "Manrope", "Plus Jakarta Sans", "Segoe UI", sans-serif;
   color: var(--ps-ink);
   background:
-    radial-gradient(1200px 500px at 100% -10%, rgba(43, 132, 178, 0.14), rgba(43, 132, 178, 0)),
-    radial-gradient(900px 420px at -8% -10%, rgba(12, 92, 135, 0.11), rgba(12, 92, 135, 0)),
-    var(--ps-bg);
+    radial-gradient(1200px 500px at 100% -10%, rgba(64, 152, 201, 0.18), rgba(64, 152, 201, 0)),
+    radial-gradient(900px 420px at -8% -10%, rgba(25, 110, 160, 0.16), rgba(25, 110, 160, 0)),
+    linear-gradient(180deg, #082e4a 0%, #0f456b 36%, #174f77 100%);
 }
 
 body.ps-pro-surface .container {
   width: min(1200px, 94vw);
 }
 
-body.ps-pro-surface a {
-  color: #165683;
+body.ps-pro-surface main a {
+  color: #145d90;
 }
 
 body.ps-pro-surface .topbar,
 body.ps-pro-surface > header {
   position: relative;
   z-index: 3;
-  border-bottom: 1px solid rgba(126, 168, 198, 0.55);
-  background: linear-gradient(95deg, #093c63, #145a86);
+  border-bottom: 1px solid rgba(166, 199, 225, 0.58);
+  background: linear-gradient(94deg, rgba(5, 40, 67, 0.96), rgba(14, 79, 118, 0.93));
   color: #e9f5ff;
+  backdrop-filter: blur(10px);
 }
 
 body.ps-pro-surface .topbar .brand,
@@ -39,15 +40,22 @@ body.ps-pro-surface > header {
   letter-spacing: 0.2px;
 }
 
+body.ps-pro-surface .topbar .brand {
+  color: #f4fbff;
+  text-shadow: 0 1px 1px rgba(2, 14, 24, 0.35);
+}
+
+body.ps-pro-surface .main-nav a,
 body.ps-pro-surface .topbar nav a,
-body.ps-pro-surface > div a {
-  color: #d9ecfb;
+body.ps-pro-surface .auth-actions a {
+  color: #e3f2ff;
   text-decoration: none;
   font-weight: 700;
 }
 
+body.ps-pro-surface .main-nav a:hover,
 body.ps-pro-surface .topbar nav a:hover,
-body.ps-pro-surface > div a:hover {
+body.ps-pro-surface .auth-actions a:hover {
   color: #ffffff;
 }
 
@@ -62,6 +70,31 @@ body.ps-pro-surface h2,
 body.ps-pro-surface h3 {
   color: #104469;
   letter-spacing: 0.1px;
+}
+
+body.ps-pro-surface .hero-copy h1,
+body.ps-pro-surface .hero h1,
+body.ps-pro-surface .hero h2,
+body.ps-pro-surface .hero h3 {
+  color: #f3f9ff;
+  text-shadow: 0 2px 10px rgba(4, 22, 34, 0.35);
+}
+
+body.ps-pro-surface .hero-subline,
+body.ps-pro-surface .hero-tagline,
+body.ps-pro-surface .hero-badges span,
+body.ps-pro-surface .eyebrow {
+  color: #e2f2ff;
+}
+
+body.ps-pro-surface .hero-widget h2 {
+  color: #113f63;
+  text-shadow: none;
+}
+
+body.ps-pro-surface .hero-widget p,
+body.ps-pro-surface .hero-widget label {
+  color: #2f516c;
 }
 
 body.ps-pro-surface .card,
@@ -265,7 +298,7 @@ body.ps-pro-surface th {
 .ps-global-footer {
   margin: 24px auto 0;
   border-top: 1px solid rgba(155, 189, 214, 0.75);
-  background: linear-gradient(180deg, #082f4c, #0f4d7a);
+  background: linear-gradient(180deg, #072c46, #0a3d61);
   color: #d9ecfb;
 }
 
@@ -293,7 +326,7 @@ body.ps-pro-surface th {
 .ps-global-footer a {
   display: inline-block;
   margin: 2px 8px 2px 0;
-  color: #d5ebfb;
+  color: #e8f4ff;
   text-decoration: none;
   font-size: 0.86rem;
   font-weight: 700;
@@ -301,6 +334,7 @@ body.ps-pro-surface th {
 
 .ps-global-footer a:hover {
   color: #ffffff;
+  text-decoration: underline;
 }
 
 .ps-footer-badge {
@@ -313,6 +347,31 @@ body.ps-pro-surface th {
   color: #e8f5ff;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+body.ps-pro-surface footer {
+  border-top: 1px solid rgba(171, 201, 226, 0.55);
+  background: linear-gradient(180deg, #072b44, #0d436a);
+  color: #ddefef;
+}
+
+body.ps-pro-surface .footer-row h3 {
+  color: #f4fbff;
+}
+
+body.ps-pro-surface .footer-row p {
+  color: #d3e8fa;
+}
+
+body.ps-pro-surface .footer-links a {
+  color: #e9f5ff;
+  border-color: rgba(202, 225, 243, 0.48);
+  background: rgba(224, 240, 255, 0.08);
+}
+
+body.ps-pro-surface .footer-links a:hover {
+  background: rgba(242, 250, 255, 0.18);
+  color: #ffffff;
 }
 
 @media (max-width: 1020px) {

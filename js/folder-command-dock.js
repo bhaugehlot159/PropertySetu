@@ -199,7 +199,8 @@
   normalizeSelectOptions('category');
   injectPhotoStripIfMissing();
 
-  if (!document.querySelector('.ps-global-footer')) {
+  var hasNativeFooter = !!document.querySelector('footer:not(.ps-global-footer)');
+  if (!hasNativeFooter && !document.querySelector('.ps-global-footer')) {
     var footer = document.createElement('footer');
     footer.className = 'ps-global-footer';
     footer.innerHTML =
