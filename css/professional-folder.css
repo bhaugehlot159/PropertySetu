@@ -14,7 +14,7 @@
 
 body.ps-pro-surface {
   font-family: "Sora", "Manrope", "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  color: var(--ps-ink);
+  color: #dceefd;
   background:
     radial-gradient(1200px 500px at 100% -10%, rgba(94, 171, 219, 0.16), rgba(94, 171, 219, 0)),
     radial-gradient(900px 420px at -8% -10%, rgba(61, 143, 192, 0.14), rgba(61, 143, 192, 0)),
@@ -26,7 +26,7 @@ body.ps-pro-surface .container {
 }
 
 body.ps-pro-surface main a {
-  color: #145d90;
+  color: #bfe1fb;
 }
 
 body.ps-pro-surface .topbar,
@@ -81,8 +81,9 @@ body.ps-pro-surface .soft-bg {
 body.ps-pro-surface h1,
 body.ps-pro-surface h2,
 body.ps-pro-surface h3 {
-  color: #104469;
+  color: #ecf8ff;
   letter-spacing: 0.1px;
+  text-shadow: 0 2px 10px rgba(4, 20, 34, 0.34);
 }
 
 /* Dark navy sections use light heading text for readability */
@@ -95,6 +96,12 @@ body.ps-pro-surface .section-header h3 {
 body.ps-pro-surface .section-note,
 body.ps-pro-surface .section-intro {
   color: #c9e1f2;
+}
+
+body.ps-pro-surface .section p,
+body.ps-pro-surface .section li,
+body.ps-pro-surface .section label {
+  color: #cfe4f5;
 }
 
 body.ps-pro-surface .tiny-note {
@@ -132,6 +139,44 @@ body.ps-pro-surface .listing-card h2,
 body.ps-pro-surface .listing-card h3 {
   color: #104469;
   text-shadow: none;
+}
+
+body.ps-pro-surface .card p,
+body.ps-pro-surface .card li,
+body.ps-pro-surface .card label,
+body.ps-pro-surface .panel p,
+body.ps-pro-surface .panel li,
+body.ps-pro-surface .panel label,
+body.ps-pro-surface .mini p,
+body.ps-pro-surface .mini li,
+body.ps-pro-surface .mini label,
+body.ps-pro-surface .hub-box p,
+body.ps-pro-surface .hub-box li,
+body.ps-pro-surface .hub-box label,
+body.ps-pro-surface .role-board p,
+body.ps-pro-surface .role-board li,
+body.ps-pro-surface .role-board label,
+body.ps-pro-surface .hero-widget p,
+body.ps-pro-surface .hero-widget li,
+body.ps-pro-surface .hero-widget label,
+body.ps-pro-surface .filter-board p,
+body.ps-pro-surface .filter-board li,
+body.ps-pro-surface .filter-board label,
+body.ps-pro-surface .listing-card p,
+body.ps-pro-surface .listing-card li,
+body.ps-pro-surface .listing-card label {
+  color: #355470;
+}
+
+body.ps-pro-surface .card a,
+body.ps-pro-surface .panel a,
+body.ps-pro-surface .mini a,
+body.ps-pro-surface .hub-box a,
+body.ps-pro-surface .role-board a,
+body.ps-pro-surface .hero-widget a,
+body.ps-pro-surface .filter-board a,
+body.ps-pro-surface .listing-card a {
+  color: #155a8a;
 }
 
 body.ps-pro-surface .filter-board .tiny-note,
