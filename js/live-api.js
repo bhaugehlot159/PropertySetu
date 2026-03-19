@@ -40,6 +40,11 @@
     if (raw.startsWith('rent')) return 'Rent';
     if (raw.startsWith('sell')) return 'Sell';
     if (raw.startsWith('lease')) return 'Lease';
+    if (raw.startsWith('resale')) return 'Resale';
+    if (raw.includes('girvi') || raw.includes('mortgage')) return 'Mortgage (Girvi)';
+    if (raw.includes('property care')) return 'Property Care';
+    if (raw.includes('home maintenance')) return 'Home Maintenance';
+    if (raw.includes('home watch')) return 'Home Watch';
     if (raw.startsWith('buy')) return 'Buy';
     return raw.charAt(0).toUpperCase() + raw.slice(1);
   };

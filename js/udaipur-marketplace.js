@@ -64,6 +64,23 @@
   });
 
   const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`;
+  const PURPOSE_CATEGORY_MAP = {
+    House: 'House',
+    Flat: 'Flat',
+    Villa: 'Villa',
+    Plot: 'Plot',
+    'Farm House': 'Farm House',
+    Vadi: 'Vadi',
+    'Agriculture Land': 'Agriculture Land',
+    Commercial: 'Commercial',
+    Shop: 'Shop',
+    Office: 'Office',
+    Warehouse: 'Warehouse',
+    'PG/Hostel': 'PG/Hostel',
+    'Property Care': 'Property Care',
+    'Home Maintenance': 'Property Care',
+    'Home Watch': 'Property Care',
+  };
 
   const seededListings = [
     {
@@ -350,7 +367,12 @@
       filtered = filtered.filter((item) => String(item.category).toLowerCase() === String(filters.category).toLowerCase());
     }
     if (filters.purpose !== 'all') {
-      filtered = filtered.filter((item) => String(item.purpose).toLowerCase() === String(filters.purpose).toLowerCase());
+      const mappedCategory = PURPOSE_CATEGORY_MAP[filters.purpose];
+      if (mappedCategory) {
+        filtered = filtered.filter((item) => String(item.category).toLowerCase() === String(mappedCategory).toLowerCase());
+      } else {
+        filtered = filtered.filter((item) => String(item.purpose).toLowerCase() === String(filters.purpose).toLowerCase());
+      }
     }
     if (filters.verifiedOnly) filtered = filtered.filter((item) => !!item.verified);
     filtered = filtered.filter((item) => item.price >= filters.minPrice && item.price <= filters.maxPrice);
@@ -511,11 +533,13 @@
   quickSearchButton?.addEventListener('click', () => {
     const quickValue = quickPurpose?.value || 'all';
     if (marketLocality) marketLocality.value = String(quickLocality?.value || '').trim();
-    if (quickValue === 'Plot' || quickValue === 'Commercial') {
+    const mappedCategory = PURPOSE_CATEGORY_MAP[quickValue];
+    if (mappedCategory) {
       if (marketPurpose) marketPurpose.value = 'all';
-      if (marketCategory) marketCategory.value = quickValue;
+      if (marketCategory) marketCategory.value = mappedCategory;
     } else {
       if (marketPurpose) marketPurpose.value = quickValue;
+      if (marketCategory) marketCategory.value = 'all';
     }
     if (marketMaxPrice) marketMaxPrice.value = String(numberFrom(quickBudget?.value, 0) || '');
     if (quickSearchHint) quickSearchHint.textContent = 'Smart quick-search applied in Udaipur marketplace.';
