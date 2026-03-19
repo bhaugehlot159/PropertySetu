@@ -4,7 +4,8 @@
   var path = (window.location && window.location.pathname) || '';
   document.body.classList.add('ps-pro-surface');
   var prefix = '';
-  if (path.indexOf('/folders/') !== -1) prefix = '../../';
+  if (path.indexOf('/client/pages/') !== -1) prefix = '../../';
+  else if (path.indexOf('/folders/') !== -1) prefix = '../../';
   else if (path.indexOf('/pages/') !== -1 || path.indexOf('/legal/') !== -1) prefix = '../';
 
   var links = [
@@ -55,6 +56,30 @@
     } else {
       host.insertBefore(banner, host.firstChild);
     }
+  }
+
+  if (!document.querySelector('.ps-global-footer')) {
+    var footer = document.createElement('footer');
+    footer.className = 'ps-global-footer';
+    footer.innerHTML =
+      '<div class="ps-global-footer-inner">' +
+      '<section><h4>PropertySetu Udaipur</h4><p>Udaipur-focused verified property + care platform. Legacy data preserved, professional upgrade live.</p><span class="ps-footer-badge">Verified by PropertySetu</span></section>' +
+      '<section><h4>Core Links</h4>' +
+      '<a href="' + prefix + 'index.html">Home</a>' +
+      '<a href="' + prefix + 'pages/buy-sell.html">Buy/Sell</a>' +
+      '<a href="' + prefix + 'pages/rent.html">Rent</a>' +
+      '<a href="' + prefix + 'pages/property-care-plans.html">Property Care</a>' +
+      '<a href="' + prefix + 'admin-dashboard.html">Admin Dashboard</a>' +
+      '</section>' +
+      '<section><h4>Legal & Trust</h4>' +
+      '<a href="' + prefix + 'legal/terms.html">Terms</a>' +
+      '<a href="' + prefix + 'legal/privacy.html">Privacy</a>' +
+      '<a href="' + prefix + 'legal/refund.html">Refund</a>' +
+      '<a href="' + prefix + 'legal/disclaimer.html">Disclaimer</a>' +
+      '<a href="' + prefix + 'legal/service-agreement.html">Service Agreement</a>' +
+      '</section>' +
+      '</div>';
+    document.body.appendChild(footer);
   }
 
   var dock = document.createElement('div');

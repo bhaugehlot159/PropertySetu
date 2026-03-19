@@ -1,3 +1,131 @@
+:root {
+  --ps-bg: #f4f9fd;
+  --ps-ink: #17344d;
+  --ps-muted: #49657d;
+  --ps-line: #c8ddef;
+  --ps-primary: #0f4d7a;
+  --ps-primary-2: #1f6a9a;
+  --ps-accent: #f2be42;
+}
+
+body.ps-pro-surface {
+  font-family: "Sora", "Manrope", "Plus Jakarta Sans", "Segoe UI", sans-serif;
+  color: var(--ps-ink);
+  background:
+    radial-gradient(1200px 500px at 100% -10%, rgba(43, 132, 178, 0.14), rgba(43, 132, 178, 0)),
+    radial-gradient(900px 420px at -8% -10%, rgba(12, 92, 135, 0.11), rgba(12, 92, 135, 0)),
+    var(--ps-bg);
+}
+
+body.ps-pro-surface .container {
+  width: min(1200px, 94vw);
+}
+
+body.ps-pro-surface a {
+  color: #165683;
+}
+
+body.ps-pro-surface .topbar,
+body.ps-pro-surface > header {
+  position: relative;
+  z-index: 3;
+  border-bottom: 1px solid rgba(126, 168, 198, 0.55);
+  background: linear-gradient(95deg, #093c63, #145a86);
+  color: #e9f5ff;
+}
+
+body.ps-pro-surface .topbar .brand,
+body.ps-pro-surface > header {
+  letter-spacing: 0.2px;
+}
+
+body.ps-pro-surface .topbar nav a,
+body.ps-pro-surface > div a {
+  color: #d9ecfb;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+body.ps-pro-surface .topbar nav a:hover,
+body.ps-pro-surface > div a:hover {
+  color: #ffffff;
+}
+
+body.ps-pro-surface main,
+body.ps-pro-surface .section {
+  position: relative;
+  z-index: 1;
+}
+
+body.ps-pro-surface h1,
+body.ps-pro-surface h2,
+body.ps-pro-surface h3 {
+  color: #104469;
+  letter-spacing: 0.1px;
+}
+
+body.ps-pro-surface .card,
+body.ps-pro-surface .panel,
+body.ps-pro-surface .mini,
+body.ps-pro-surface .area-card,
+body.ps-pro-surface .property-card,
+body.ps-pro-surface .container > .card {
+  border: 1px solid var(--ps-line);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(7, 44, 70, 0.08);
+}
+
+body.ps-pro-surface input,
+body.ps-pro-surface select,
+body.ps-pro-surface textarea {
+  border: 1px solid #b7cee4;
+  border-radius: 10px;
+  background: #fbfdff;
+  color: #163850;
+}
+
+body.ps-pro-surface input:focus,
+body.ps-pro-surface select:focus,
+body.ps-pro-surface textarea:focus {
+  outline: 2px solid rgba(27, 109, 160, 0.25);
+  border-color: #5b9cc8;
+}
+
+body.ps-pro-surface button,
+body.ps-pro-surface .btn {
+  border-radius: 10px;
+  border: 1px solid #0b3f66;
+  background: linear-gradient(180deg, #126195, #0d4b76);
+  color: #eef8ff;
+  font-weight: 700;
+}
+
+body.ps-pro-surface button:hover,
+body.ps-pro-surface .btn:hover {
+  background: linear-gradient(180deg, #1470ab, #0f5585);
+}
+
+body.ps-pro-surface table {
+  width: 100%;
+  border-collapse: collapse;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+body.ps-pro-surface th,
+body.ps-pro-surface td {
+  border: 1px solid #d4e4f2;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+body.ps-pro-surface th {
+  background: #ebf5fd;
+  color: #194f76;
+}
+
 .pro-shell {
   padding: 34px 0 56px;
 }
@@ -134,6 +262,59 @@
   color: #2a4d6a;
 }
 
+.ps-global-footer {
+  margin: 24px auto 0;
+  border-top: 1px solid rgba(155, 189, 214, 0.75);
+  background: linear-gradient(180deg, #082f4c, #0f4d7a);
+  color: #d9ecfb;
+}
+
+.ps-global-footer-inner {
+  width: min(1200px, 94vw);
+  margin: 0 auto;
+  padding: 16px 0 20px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.2fr 1fr 1fr;
+}
+
+.ps-global-footer h4 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  color: #f4fbff;
+}
+
+.ps-global-footer p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #c7def0;
+}
+
+.ps-global-footer a {
+  display: inline-block;
+  margin: 2px 8px 2px 0;
+  color: #d5ebfb;
+  text-decoration: none;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.ps-global-footer a:hover {
+  color: #ffffff;
+}
+
+.ps-footer-badge {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(193, 223, 245, 0.55);
+  background: rgba(202, 227, 246, 0.12);
+  color: #e8f5ff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 @media (max-width: 1020px) {
   .udaipur-gallery,
   .folder-grid {
@@ -145,6 +326,10 @@
   .udaipur-gallery,
   .folder-grid,
   .grid-two {
+    grid-template-columns: 1fr;
+  }
+
+  .ps-global-footer-inner {
     grid-template-columns: 1fr;
   }
 }
