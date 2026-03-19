@@ -29,6 +29,27 @@ body.ps-pro-surface main a {
   color: #bfe1fb;
 }
 
+/* Keep CTA buttons readable; do not let generic link color override them */
+body.ps-pro-surface a.solid-btn,
+body.ps-pro-surface button.solid-btn {
+  color: #23180b;
+}
+
+body.ps-pro-surface a.outline-btn,
+body.ps-pro-surface button.outline-btn {
+  color: #eef8ff;
+}
+
+body.ps-pro-surface a.light-outline,
+body.ps-pro-surface button.light-outline {
+  color: #f4fbff;
+}
+
+body.ps-pro-surface a.dark-outline,
+body.ps-pro-surface button.dark-outline {
+  color: #0e4063;
+}
+
 body.ps-pro-surface .topbar,
 body.ps-pro-surface > header {
   position: relative;
