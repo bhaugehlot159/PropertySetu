@@ -97,7 +97,7 @@
       premium: true,
       trustScore: 96,
       listedAt: '2026-03-14T09:00:00.000Z',
-      image: 'https://images.unsplash.com/photo-1613977257593-487ecd136cc3?auto=format&fit=crop&w=1200&q=80',
+      image: 'https://cdn.pixabay.com/photo/2018/08/17/11/01/india-3612588_1280.jpg',
     },
     {
       id: 'seed-2',
@@ -113,7 +113,7 @@
       premium: false,
       trustScore: 88,
       listedAt: '2026-03-13T11:20:00.000Z',
-      image: 'https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=1200&q=80',
+      image: 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg',
     },
     {
       id: 'seed-3',
@@ -129,7 +129,7 @@
       premium: true,
       trustScore: 92,
       listedAt: '2026-03-12T13:40:00.000Z',
-      image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=80',
+      image: 'https://cdn.pixabay.com/photo/2020/12/11/22/05/udaipur-5824034_1280.jpg',
     },
     {
       id: 'seed-4',
@@ -145,7 +145,7 @@
       premium: false,
       trustScore: 74,
       listedAt: '2026-03-11T07:05:00.000Z',
-      image: 'https://images.unsplash.com/photo-1505692952047-1a78307da8f2?auto=format&fit=crop&w=1200&q=80',
+      image: 'https://cdn.pixabay.com/photo/2018/03/15/21/46/city-palace-3229617_640.jpg',
     },
   ];
 
@@ -171,7 +171,7 @@
       premium: Boolean(entry.featured || photosCount >= 8),
       trustScore: Math.max(35, numberFrom(entry.trustScore, 100 - riskScore)),
       listedAt: entry.listedAt || entry.createdAt || new Date().toISOString(),
-      image: entry.image || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
+      image: entry.image || 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg',
       status: entry.status || 'Pending Approval',
     };
   };
@@ -194,7 +194,7 @@
       premium: Boolean(entry.featured),
       trustScore: entry.featured ? 85 : 68,
       listedAt: entry.createdAt || '2026-03-01T09:00:00.000Z',
-      image: entry.image || 'https://images.unsplash.com/photo-1513584684374-8bab748fbf90?auto=format&fit=crop&w=1200&q=80',
+      image: entry.image || 'https://cdn.pixabay.com/photo/2020/12/11/22/05/udaipur-5824034_1280.jpg',
       status: entry.status || 'Approved',
     };
   };

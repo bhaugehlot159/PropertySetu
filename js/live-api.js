@@ -145,7 +145,7 @@
       listedAt: createdAt,
       createdAt,
       updatedAt: text(entry.updatedAt, createdAt),
-      image: text(entry.image, 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'),
+      image: text(entry.image, 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg'),
       ownerId: text(entry.ownerId),
       ownerName: text(entry.ownerName),
       reviewCount: numberFrom(entry.reviewCount, 0),
