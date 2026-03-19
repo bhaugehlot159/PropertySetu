@@ -32,22 +32,47 @@ body.ps-pro-surface main a {
 /* Keep CTA buttons readable; do not let generic link color override them */
 body.ps-pro-surface a.solid-btn,
 body.ps-pro-surface button.solid-btn {
+  background: linear-gradient(180deg, #f8c95e, #f2be42);
+  border-color: #e6b452;
+  box-shadow: 0 8px 18px rgba(209, 154, 47, 0.35);
   color: #23180b;
 }
 
 body.ps-pro-surface a.outline-btn,
 body.ps-pro-surface button.outline-btn {
+  background: transparent;
+  border-color: rgba(205, 228, 247, 0.65);
   color: #eef8ff;
 }
 
 body.ps-pro-surface a.light-outline,
 body.ps-pro-surface button.light-outline {
+  background: transparent;
+  border-color: rgba(222, 239, 255, 0.6);
   color: #f4fbff;
 }
 
 body.ps-pro-surface a.dark-outline,
 body.ps-pro-surface button.dark-outline {
+  background: #f2f8ff;
+  border-color: #97b8d4;
   color: #0e4063;
+}
+
+body.ps-pro-surface a.solid-btn:hover,
+body.ps-pro-surface button.solid-btn:hover {
+  background: linear-gradient(180deg, #ffd77c, #efb63d);
+}
+
+body.ps-pro-surface a.outline-btn:hover,
+body.ps-pro-surface button.outline-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+body.ps-pro-surface a.dark-outline:hover,
+body.ps-pro-surface button.dark-outline:hover {
+  background: #e8f3fc;
+  color: #0d3f62;
 }
 
 body.ps-pro-surface .topbar,
@@ -203,6 +228,12 @@ body.ps-pro-surface .stat-card a {
   color: #155a8a;
 }
 
+body.ps-pro-surface .feature-link.locked {
+  opacity: 0.82;
+  color: #5e7a94;
+  text-decoration: line-through;
+}
+
 body.ps-pro-surface .filter-board .tiny-note,
 body.ps-pro-surface .filter-board .results-meta,
 body.ps-pro-surface .hero-widget .tiny-note {
@@ -255,6 +286,20 @@ body.ps-pro-surface .stat-card {
   background: #f9fcff;
   border: 1px solid #c7dcef;
   box-shadow: 0 8px 22px rgba(7, 44, 70, 0.08);
+}
+
+body.ps-pro-surface .empty-state {
+  background: #f9fcff;
+  border: 1px dashed #b7cde0;
+}
+
+body.ps-pro-surface .empty-state h3 {
+  color: #11486f;
+  text-shadow: none;
+}
+
+body.ps-pro-surface .empty-state p {
+  color: #4f6c85;
 }
 
 body.ps-pro-surface input,
