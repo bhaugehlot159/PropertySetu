@@ -396,38 +396,82 @@ body.ps-pro-surface .btn:hover {
 
 /* Autocomplete uses button elements; keep them card-style readable instead of navy CTA styling */
 body.ps-pro-surface .ps-autocomplete-panel {
-  border: 1px solid #9fc1dd;
-  border-radius: 12px;
+  top: calc(100% + 8px);
+  border: 1px solid #5b86b3;
+  border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 16px 28px rgba(10, 46, 72, 0.24);
+  box-shadow: 0 18px 32px rgba(8, 39, 62, 0.28);
+  max-height: 370px;
+  overflow: auto;
+  padding: 0;
 }
 
 body.ps-pro-surface .ps-ac-group-title {
-  color: #edf7ff;
-  background: linear-gradient(90deg, #1f5f90, #2a6fa2);
+  color: #f4f8ff;
+  background: linear-gradient(90deg, #5b76d6, #7044aa);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.81rem;
+  letter-spacing: 0.05em;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 body.ps-pro-surface .ps-ac-item {
   border: 0;
-  border-bottom: 1px solid #e4eef7;
+  border-bottom: 1px solid #e5edf6;
   background: #ffffff;
-  color: #173c57;
+  color: #1a4160;
   text-shadow: none;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 1.01rem;
+  line-height: 1.35;
+  padding: 12px 14px;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
 body.ps-pro-surface .ps-ac-item:hover,
 body.ps-pro-surface .ps-ac-item.active {
-  background: #ebf4ff;
-  color: #0f456d;
+  background: linear-gradient(90deg, #0f5a89, #1e6a9c);
+  color: #f4fbff;
 }
 
 body.ps-pro-surface .ps-ac-highlight {
-  background: rgba(87, 142, 191, 0.2);
-  color: #0d4f7d;
+  background: rgba(123, 85, 186, 0.16);
+  color: #6f46ae;
   border-radius: 4px;
   font-weight: 800;
   padding: 0 2px;
+}
+
+body.ps-pro-surface .ps-ac-item:hover .ps-ac-highlight,
+body.ps-pro-surface .ps-ac-item.active .ps-ac-highlight {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffd36b;
+}
+
+body.ps-pro-surface .ps-ac-empty {
+  background: #ffffff;
+  color: #355571;
+  padding: 12px 14px;
+}
+
+body.ps-pro-surface .ps-ac-empty strong {
+  color: #123f64;
+}
+
+body.ps-pro-surface .ps-autocomplete-panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+body.ps-pro-surface .ps-autocomplete-panel::-webkit-scrollbar-track {
+  background: #edf3fa;
+  border-left: 1px solid #d8e4f1;
+}
+
+body.ps-pro-surface .ps-autocomplete-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #6e87dc, #4f6fc8);
+  border-radius: 999px;
+  border: 2px solid #edf3fa;
 }
 
 body.ps-pro-surface table {
