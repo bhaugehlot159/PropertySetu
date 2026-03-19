@@ -98,12 +98,6 @@ body.ps-pro-surface .section-intro {
   color: #c9e1f2;
 }
 
-body.ps-pro-surface .section p,
-body.ps-pro-surface .section li,
-body.ps-pro-surface .section label {
-  color: #cfe4f5;
-}
-
 body.ps-pro-surface .tiny-note {
   color: #c3dbef;
 }
@@ -136,7 +130,10 @@ body.ps-pro-surface .filter-board h2,
 body.ps-pro-surface .filter-board h3,
 body.ps-pro-surface .listing-card h1,
 body.ps-pro-surface .listing-card h2,
-body.ps-pro-surface .listing-card h3 {
+body.ps-pro-surface .listing-card h3,
+body.ps-pro-surface .stat-card h1,
+body.ps-pro-surface .stat-card h2,
+body.ps-pro-surface .stat-card h3 {
   color: #104469;
   text-shadow: none;
 }
@@ -164,7 +161,12 @@ body.ps-pro-surface .filter-board li,
 body.ps-pro-surface .filter-board label,
 body.ps-pro-surface .listing-card p,
 body.ps-pro-surface .listing-card li,
-body.ps-pro-surface .listing-card label {
+body.ps-pro-surface .listing-card label,
+body.ps-pro-surface .stat-card p,
+body.ps-pro-surface .stat-card li,
+body.ps-pro-surface .stat-card label,
+body.ps-pro-surface .stat-card span,
+body.ps-pro-surface .stat-card strong {
   color: #355470;
 }
 
@@ -175,7 +177,8 @@ body.ps-pro-surface .hub-box a,
 body.ps-pro-surface .role-board a,
 body.ps-pro-surface .hero-widget a,
 body.ps-pro-surface .filter-board a,
-body.ps-pro-surface .listing-card a {
+body.ps-pro-surface .listing-card a,
+body.ps-pro-surface .stat-card a {
   color: #155a8a;
 }
 
@@ -226,7 +229,8 @@ body.ps-pro-surface .hub-box,
 body.ps-pro-surface .role-board,
 body.ps-pro-surface .filter-board,
 body.ps-pro-surface .marketplace-panel,
-body.ps-pro-surface .stat-box {
+body.ps-pro-surface .stat-box,
+body.ps-pro-surface .stat-card {
   background: #f9fcff;
   border: 1px solid #c7dcef;
   box-shadow: 0 8px 22px rgba(7, 44, 70, 0.08);
