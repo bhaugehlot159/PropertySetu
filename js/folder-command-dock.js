@@ -18,6 +18,7 @@
     { href: prefix + 'pages/rent.html', label: 'Rent' },
     { href: prefix + 'pages/property-care-plans.html', label: 'Property Care' },
     { href: prefix + 'pages/structure-hub.html', label: 'Structure Hub' },
+    { href: prefix + 'pages/production-deploy-checklist.html', label: 'Deploy Checklist' },
     { href: prefix + 'admin-dashboard.html', label: 'Admin Dashboard' },
   ];
 
@@ -209,6 +210,7 @@
       '<a href="' + prefix + 'pages/buy-sell.html">Buy/Sell</a>' +
       '<a href="' + prefix + 'pages/rent.html">Rent</a>' +
       '<a href="' + prefix + 'pages/property-care-plans.html">Property Care</a>' +
+      '<a href="' + prefix + 'pages/production-deploy-checklist.html">Deploy Checklist</a>' +
       '<a href="' + prefix + 'admin-dashboard.html">Admin Dashboard</a>' +
       '</section>' +
       '<section><h4>Legal & Trust</h4>' +
