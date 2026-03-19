@@ -58,6 +58,32 @@
   });
 
   const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    writeJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
   const numberFrom = live.numberFrom || ((value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -320,6 +346,13 @@
     if (index >= 0) state.wishlist.splice(index, 1);
     else state.wishlist.push(listingId);
     writeJson(MARKET_STATE_KEY, state);
+    const listing = listings.find((item) => item.id === listingId);
+    pushNotification(
+      `${listing?.title || 'Listing'} ${index >= 0 ? 'removed from' : 'added to'} wishlist.`,
+      ['customer'],
+      index >= 0 ? 'Wishlist Updated' : 'Wishlist Added',
+      'info',
+    );
     renderListings(applyFilters(getFilters()));
   };
 
@@ -467,6 +500,12 @@
     savedSearches.unshift({ label, filters, createdAt: new Date().toISOString() });
     while (savedSearches.length > 8) savedSearches.pop();
     writeJson(SAVED_SEARCH_KEY, savedSearches);
+    pushNotification(
+      `Saved search created: ${label}.`,
+      ['customer'],
+      'Search Saved',
+      'info',
+    );
     renderSavedSearches();
   };
 
@@ -626,15 +665,30 @@
       const reason = window.prompt('Report reason likhein (fake listing / wrong price / spam):', '');
       if (!reason) return;
       const token = live.getAnyToken ? live.getAnyToken() : '';
+      const listing = listings.find((entry) => entry.id === listingId);
       if (token && live.request) {
         live.request('/reports', { method: 'POST', token, data: { propertyId: listingId, reason } })
-          .then(() => window.alert('Report submitted successfully.'))
+          .then(() => {
+            window.alert('Report submitted successfully.');
+            pushNotification(
+              `Report submitted for ${listing?.title || listingId}.`,
+              ['admin', 'customer'],
+              'Report Submitted',
+              'warn',
+            );
+          })
           .catch((error) => window.alert(`Report failed: ${error.message}`));
       } else {
         const reports = readJson('propertySetu:localReports', []);
         reports.unshift({ propertyId: listingId, reason, createdAt: new Date().toISOString() });
         writeJson('propertySetu:localReports', reports);
         window.alert('Report local queue me save ho gaya. Login ke baad live submit hoga.');
+        pushNotification(
+          `Report queued locally for ${listing?.title || listingId}.`,
+          ['admin', 'customer'],
+          'Report Queued',
+          'warn',
+        );
       }
       return;
     }
@@ -645,8 +699,24 @@
       state.visits = state.visits.slice(0, 30);
       writeJson(MARKET_STATE_KEY, state);
       const liveDone = await bookLiveVisit(listingId);
-      if (liveDone) window.alert('Visit request live submit ho gayi.');
-      else window.alert('Visit request local queue me save ho gayi. Login se live submit hoga.');
+      const listing = listings.find((entry) => entry.id === listingId);
+      if (liveDone) {
+        window.alert('Visit request live submit ho gayi.');
+        pushNotification(
+          `Visit request submitted for ${listing?.title || listingId}.`,
+          ['customer', 'admin'],
+          'Visit Requested',
+          'success',
+        );
+      } else {
+        window.alert('Visit request local queue me save ho gayi. Login se live submit hoga.');
+        pushNotification(
+          `Visit request queued for ${listing?.title || listingId}.`,
+          ['customer', 'admin'],
+          'Visit Queued',
+          'info',
+        );
+      }
       return;
     }
   });

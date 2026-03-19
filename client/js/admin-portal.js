@@ -16,6 +16,32 @@
     }
   });
   const saveJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    saveJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
 
   const getAdminToken = () => (live.getToken ? live.getToken('admin') : '');
 
@@ -149,6 +175,12 @@
     await loadLiveData();
     renderQueue();
     renderBids();
+    pushNotification(
+      `Admin approved verification for property ${propertyId}.`,
+      ['admin', 'seller'],
+      'Verification Approved',
+      'success',
+    );
   });
 
   bidQueue.addEventListener('click', async (event) => {
@@ -172,6 +204,12 @@
       bidRows[idx].amount = nextValue;
       bidRows[idx].modifiedByAdmin = nextValue;
       renderBids();
+      pushNotification(
+        `Admin modified bid for ${bidRows[idx].propertyId} to ₹${Number(nextValue).toLocaleString('en-IN')}.`,
+        ['admin', 'customer'],
+        'Bid Modified',
+        'warn',
+      );
       return;
     }
 
@@ -190,6 +228,12 @@
             window.alert(`Winner: ${winner.winnerBid.bidderName} - ₹${Number(winner.winnerBid.amount || 0).toLocaleString('en-IN')}`);
             bidRows[idx].publicVisible = true;
             renderBids();
+            pushNotification(
+              `Winning bid revealed for ${bidRows[idx].propertyId}.`,
+              ['admin', 'customer', 'seller'],
+              'Bid Revealed',
+              'success',
+            );
             return;
           }
         } catch {
@@ -201,6 +245,12 @@
       const amount = Number(bidRows[idx].amount || 0).toLocaleString('en-IN');
       window.alert(`Bid reveal (local fallback): ₹${amount}`);
       renderBids();
+      pushNotification(
+        `Bid revealed (local fallback) for ${bidRows[idx].propertyId}.`,
+        ['admin', 'customer', 'seller'],
+        'Bid Revealed',
+        'warn',
+      );
       return;
     }
 
@@ -216,6 +266,14 @@
           window.alert(action === 'accept' ? 'Highest bid accepted.' : 'All bids rejected.');
           await loadLiveData();
           renderBids();
+          pushNotification(
+            action === 'accept'
+              ? `Admin accepted highest bid for ${bidRows[idx].propertyId}.`
+              : `Admin rejected all bids for ${bidRows[idx].propertyId}.`,
+            ['admin', 'customer', 'seller'],
+            action === 'accept' ? 'Bid Accepted' : 'Bids Rejected',
+            action === 'accept' ? 'success' : 'warn',
+          );
           return;
         } catch {
           // fallback below
@@ -228,6 +286,14 @@
       saveJson(bidKey, localBids);
       window.alert(action === 'accept' ? 'Highest bid accepted (local fallback).' : 'All bids rejected (local fallback).');
       renderBids();
+      pushNotification(
+        action === 'accept'
+          ? `Bid accepted (local fallback) for ${bidRows[idx].propertyId}.`
+          : `All bids rejected (local fallback) for ${bidRows[idx].propertyId}.`,
+        ['admin', 'customer', 'seller'],
+        action === 'accept' ? 'Bid Accepted' : 'Bids Rejected',
+        'warn',
+      );
     }
   });
 

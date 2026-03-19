@@ -411,8 +411,36 @@
     if (sealedBidCount) sealedBidCount.textContent = `${marketplaceState.bids.length}`;
   };
 
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJsonStorage('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    writeJsonStorage('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
+
   const notify = (message) => {
     if (marketplaceMessage) marketplaceMessage.textContent = message;
+    pushNotification(message, ['customer', 'admin'], 'Marketplace Activity', 'info');
   };
 
   const ensureCustomerSession = () => {

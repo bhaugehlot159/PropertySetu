@@ -29,6 +29,33 @@
     localStorage.setItem(key, JSON.stringify(value));
   });
 
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    writeJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
+
   const isUdaipurListing = (item) => {
     const city = String(item?.city || 'Udaipur').trim().toLowerCase();
     return city.includes('udaipur');
@@ -103,6 +130,12 @@
     URL.revokeObjectURL(url);
 
     if (backupStatus) backupStatus.textContent = `Backup saved: ${fileName}`;
+    pushNotification(
+      `Local data backup downloaded: ${fileName}`,
+      ['customer', 'seller', 'admin'],
+      'Backup Downloaded',
+      'info',
+    );
   };
 
   const syncApiListings = async () => {
@@ -181,6 +214,12 @@
     const next = allListings.filter((item) => item.id !== id);
     writeJson(LISTINGS_KEY, next);
     if (apiDeleted && backupStatus) backupStatus.textContent = 'Listing deleted from live API and local cache.';
+    pushNotification(
+      `Listing ${id} deleted ${apiDeleted ? 'from live and local cache' : 'from local cache'}.`,
+      ['customer', 'seller', 'admin'],
+      'Listing Deleted',
+      apiDeleted ? 'warn' : 'info',
+    );
     return true;
   };
 

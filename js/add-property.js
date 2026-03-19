@@ -30,6 +30,33 @@
     localStorage.setItem(key, JSON.stringify(value));
   });
 
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    writeJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
+
   const text = (value) => String(value || '').trim();
   const numberFrom = (value, fallback = 0) => {
     const parsed = Number(value);
@@ -192,6 +219,12 @@
     const draft = getFormValues();
     writeJson(DRAFT_KEY, draft);
     showStatus('Draft saved successfully.', true);
+    pushNotification(
+      `Draft saved for "${draft.title || 'Untitled Property'}" in Udaipur.`,
+      ['customer', 'seller'],
+      'Draft Saved',
+      'info',
+    );
   };
 
   const loadDraft = () => {
@@ -313,6 +346,12 @@
     if (videoPreview) videoPreview.innerHTML = '';
     if (payloadPreview) payloadPreview.textContent = 'No submission yet.';
     showStatus('Draft cleared.', true);
+    pushNotification(
+      'Add Property draft cleared by user.',
+      ['customer', 'seller'],
+      'Draft Cleared',
+      'info',
+    );
     forceUdaipurCity();
   });
 
@@ -336,14 +375,32 @@
 
       if (normalized) upsertLocalListing(normalized);
       showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}.`, true);
+      pushNotification(
+        `New property "${payload.title}" submitted live in Udaipur. Status: ${liveProperty?.status || 'Pending Approval'}.`,
+        ['customer', 'seller', 'admin'],
+        'Listing Submitted',
+        'success',
+      );
     } catch (error) {
       const normalized = normalizeLocalListing(payload);
       upsertLocalListing(normalized);
       const canFallback = live.shouldFallbackToLocal ? live.shouldFallbackToLocal(error) : true;
       if (canFallback) {
         showStatus(`Live submit unavailable. Local backup me save kar diya: ${error.message}`, false);
+        pushNotification(
+          `Listing "${payload.title}" local backup queue me save hui. Live sync pending.`,
+          ['customer', 'seller', 'admin'],
+          'Listing Queued',
+          'warn',
+        );
       } else {
         showStatus(error.message || 'Submission failed.', false);
+        pushNotification(
+          `Listing "${payload.title}" submit failed: ${error.message || 'Unknown error'}.`,
+          ['customer', 'seller', 'admin'],
+          'Listing Submit Failed',
+          'error',
+        );
       }
     }
 

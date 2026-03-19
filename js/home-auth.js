@@ -56,6 +56,33 @@
     }
   };
 
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = read('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    write('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
+
   const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
   const normalizeMobile = (value) => String(value || '').replace(/\D/g, '');
   const isValidEmail = (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -303,6 +330,13 @@
       loggedInAt: new Date().toISOString(),
     });
 
+    pushNotification(
+      `${authMode === 'admin' ? 'Admin' : 'Customer'} ${shapeUser(response.user || {}, authMode).name} logged in successfully.`,
+      [authMode, 'admin'],
+      'Login Successful',
+      'success',
+    );
+
     closeAuthModal();
     updateAuthButtons();
   };
@@ -318,6 +352,12 @@
       }
     }
     setState(role, null);
+    pushNotification(
+      `${role === 'admin' ? 'Admin' : 'Customer'} ${current.name || ''} logged out.`,
+      [role, 'admin'],
+      'Logout Update',
+      'info',
+    );
     updateAuthButtons();
   };
 

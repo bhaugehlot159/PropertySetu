@@ -109,6 +109,32 @@ button:hover { background:#092f6d; }
     }
   });
   const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    writeJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
 
   const isUdaipurListing = (item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur');
   const normalizeApi = (item) => (live.normalizeApiListing ? live.normalizeApiListing(item) : item);
@@ -158,6 +184,12 @@ button:hover { background:#092f6d; }
     anchor.remove();
     URL.revokeObjectURL(url);
     if (backupStatus) backupStatus.textContent = `Backup saved: ${fileName}`;
+    pushNotification(
+      `Admin downloaded local backup: ${fileName}`,
+      ['admin'],
+      'Backup Downloaded',
+      'info',
+    );
   };
 
   const getLocalListings = () => readJson(LISTINGS_KEY, []).filter(isUdaipurListing);
@@ -259,6 +291,12 @@ button:hover { background:#092f6d; }
     const updated = listings.map((item) => (item.id === id ? { ...item, status, verified: status === 'Approved' } : item));
     writeJson(LISTINGS_KEY, updated);
     if (apiUpdated && backupStatus) backupStatus.textContent = `Listing ${id} updated live + local.`;
+    pushNotification(
+      `Admin changed listing ${id} status to ${status}.`,
+      ['admin', 'customer', 'seller'],
+      'Listing Status Updated',
+      status === 'Approved' ? 'success' : 'warn',
+    );
     await render();
   };
 
@@ -274,6 +312,12 @@ button:hover { background:#092f6d; }
         token,
         data: { days: 30 },
       });
+      pushNotification(
+        `Admin marked listing ${id} as featured.`,
+        ['admin', 'customer', 'seller'],
+        'Featured Listing',
+        'success',
+      );
       await render();
     } catch (error) {
       window.alert(error.message || 'Feature update failed.');
@@ -351,6 +395,12 @@ button:hover { background:#092f6d; }
     try {
       await live.request('/admin/config/categories', { method: 'POST', token, data: { name } });
       document.getElementById('newCategoryInput').value = '';
+      pushNotification(
+        `Admin added category: ${name}.`,
+        ['admin'],
+        'Category Added',
+        'info',
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Category add failed.');
@@ -365,6 +415,12 @@ button:hover { background:#092f6d; }
     try {
       await live.request('/admin/config/cities', { method: 'POST', token, data: { city } });
       document.getElementById('newCityInput').value = '';
+      pushNotification(
+        `Admin added city route config: ${city}.`,
+        ['admin'],
+        'City Added',
+        'info',
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'City add failed.');
@@ -381,6 +437,12 @@ button:hover { background:#092f6d; }
     if (!token || !live.request) return window.alert('Admin login required.');
     try {
       await live.request(`/admin/users/${encodeURIComponent(userId)}/${action}`, { method: 'POST', token });
+      pushNotification(
+        `Admin ${action} user ${userId}.`,
+        ['admin'],
+        'User Moderation',
+        'warn',
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'User action failed.');
@@ -396,6 +458,12 @@ button:hover { background:#092f6d; }
     if (!token || !live.request) return window.alert('Admin login required.');
     try {
       await live.request(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, { method: 'POST', token });
+      pushNotification(
+        `Admin resolved report ${reportId}.`,
+        ['admin', 'customer', 'seller'],
+        'Report Resolved',
+        'success',
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Resolve failed.');

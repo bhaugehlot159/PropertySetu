@@ -85,6 +85,164 @@
     }
   ];
 
+  var NOTIFICATION_KEY = 'propertySetu:notifications';
+  var NOTIFICATION_PREF_KEY = 'propertySetu:notificationPrefs';
+
+  function readJsonLocal(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function writeJsonLocal(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (_error) {
+      // storage can fail under strict browser policies
+    }
+  }
+
+  function getActiveRole() {
+    if (readJsonLocal('propertysetu-admin-session', null)) return 'admin';
+    if (readJsonLocal('propertysetu-seller-session', null)) return 'seller';
+    if (readJsonLocal('propertysetu-customer-session', null)) return 'customer';
+    return 'guest';
+  }
+
+  function normalizeAudience(input) {
+    if (Array.isArray(input) && input.length) {
+      return input.map(function (item) { return String(item || '').toLowerCase(); });
+    }
+    if (typeof input === 'string' && input.trim()) {
+      return [input.trim().toLowerCase()];
+    }
+    return ['all'];
+  }
+
+  function toNotificationEntry(payload) {
+    var message = String(payload && payload.message ? payload.message : '').trim();
+    if (!message) return null;
+    return {
+      id: (payload && payload.id) || ('n-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7)),
+      title: String(payload && payload.title ? payload.title : 'PropertySetu Update').trim(),
+      message: message,
+      type: String(payload && payload.type ? payload.type : 'info').trim(),
+      audience: normalizeAudience(payload && (payload.audience || payload.role)),
+      link: String(payload && payload.link ? payload.link : '').trim(),
+      createdAt: (payload && payload.createdAt) || new Date().toISOString(),
+      readBy: (payload && payload.readBy && typeof payload.readBy === 'object') ? payload.readBy : {},
+    };
+  }
+
+  function listNotificationsRaw() {
+    var list = readJsonLocal(NOTIFICATION_KEY, []);
+    if (!Array.isArray(list)) return [];
+    return list.filter(function (item) {
+      return item && typeof item === 'object' && String(item.message || '').trim();
+    });
+  }
+
+  function emitNotification(payload) {
+    var entry = toNotificationEntry(payload || {});
+    if (!entry) return null;
+    var list = listNotificationsRaw();
+    list.unshift(entry);
+    if (list.length > 400) list = list.slice(0, 400);
+    writeJsonLocal(NOTIFICATION_KEY, list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch (_error) {
+      // no-op
+    }
+    return entry;
+  }
+
+  function listNotificationsForRole(role) {
+    var targetRole = String(role || getActiveRole()).toLowerCase();
+    return listNotificationsRaw().filter(function (item) {
+      var audience = Array.isArray(item.audience) ? item.audience : ['all'];
+      return audience.indexOf('all') !== -1 || audience.indexOf(targetRole) !== -1;
+    });
+  }
+
+  function getUnreadCount(role) {
+    var targetRole = String(role || getActiveRole()).toLowerCase();
+    return listNotificationsForRole(targetRole).filter(function (item) {
+      return !(item.readBy && item.readBy[targetRole]);
+    }).length;
+  }
+
+  function markAllNotificationsRead(role) {
+    var targetRole = String(role || getActiveRole()).toLowerCase();
+    var list = listNotificationsRaw();
+    var changed = false;
+    for (var idx = 0; idx < list.length; idx += 1) {
+      var item = list[idx];
+      var audience = Array.isArray(item.audience) ? item.audience : ['all'];
+      if (audience.indexOf('all') === -1 && audience.indexOf(targetRole) === -1) continue;
+      item.readBy = item.readBy || {};
+      if (!item.readBy[targetRole]) {
+        item.readBy[targetRole] = true;
+        changed = true;
+      }
+    }
+    if (changed) {
+      writeJsonLocal(NOTIFICATION_KEY, list);
+      try {
+        localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+      } catch (_error) {
+        // no-op
+      }
+    }
+  }
+
+  function clearNotificationsForRole(role) {
+    var targetRole = String(role || getActiveRole()).toLowerCase();
+    var next = listNotificationsRaw().filter(function (item) {
+      var audience = Array.isArray(item.audience) ? item.audience : ['all'];
+      return !(audience.indexOf('all') !== -1 || audience.indexOf(targetRole) !== -1);
+    });
+    writeJsonLocal(NOTIFICATION_KEY, next);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch (_error) {
+      // no-op
+    }
+  }
+
+  var service = window.PropertySetuNotify || {};
+  service.emit = function (payload) { return emitNotification(payload || {}); };
+  service.list = function (role) { return listNotificationsForRole(role); };
+  service.unreadCount = function (role) { return getUnreadCount(role); };
+  service.markAllRead = function (role) { markAllNotificationsRead(role); };
+  service.clearForRole = function (role) { clearNotificationsForRole(role); };
+  service.getRole = function () { return getActiveRole(); };
+  window.PropertySetuNotify = service;
+
+  if (!listNotificationsRaw().length) {
+    emitNotification({
+      title: 'Notification Service Active',
+      message: 'PropertySetu unified notifications are now live for all users.',
+      audience: ['all'],
+      type: 'success',
+    });
+    emitNotification({
+      title: 'Customer Alerts',
+      message: 'Wishlist, visit, bid, and listing updates will appear here.',
+      audience: ['customer'],
+      type: 'info',
+    });
+    emitNotification({
+      title: 'Admin Alerts',
+      message: 'Approval, report, and moderation updates will appear here.',
+      audience: ['admin'],
+      type: 'info',
+    });
+  }
+
   var style = document.createElement('style');
   style.textContent = [
     '.ps-dock{position:fixed;right:16px;bottom:16px;z-index:1500;font-family:Manrope,Segoe UI,sans-serif;}',
@@ -92,9 +250,24 @@
     '.ps-dock-panel{margin-top:8px;width:min(320px,86vw);background:#fff;border:1px solid #c9deef;border-radius:14px;box-shadow:0 14px 32px rgba(6,45,74,.2);padding:10px;display:none;}',
     '.ps-dock.open .ps-dock-panel{display:block;}',
     '.ps-dock-title{font-size:13px;font-weight:800;color:#10476f;margin:0 0 8px;}',
+    '.ps-dock-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}',
+    '.ps-dock-role{font-size:11px;font-weight:700;color:#3e6785;background:#edf6ff;border:1px solid #cfe2f2;padding:2px 8px;border-radius:999px;}',
     '.ps-dock-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}',
     '.ps-dock-link{display:block;text-decoration:none;border:1px solid #cfe2f3;border-radius:10px;padding:7px 8px;font-size:12px;font-weight:700;color:#174c73;background:#f4faff;}',
     '.ps-dock-link:hover{background:#e8f4ff;}',
+    '.ps-dock-unread{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 6px;border-radius:999px;background:#f3bf45;color:#1f1b0b;font-size:11px;font-weight:800;margin-left:6px;}',
+    '.ps-notify-box{margin-top:10px;border-top:1px solid #d6e7f5;padding-top:9px;}',
+    '.ps-notify-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;}',
+    '.ps-notify-head strong{font-size:12px;color:#12466e;}',
+    '.ps-notify-actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.ps-notify-btn{border:1px solid #c6ddef;background:#f4faff;color:#1a4f77;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;}',
+    '.ps-notify-btn:hover{background:#e7f3ff;}',
+    '.ps-notify-list{margin:0;padding:0;list-style:none;display:grid;gap:6px;max-height:220px;overflow:auto;}',
+    '.ps-notify-item{border:1px solid #d4e6f5;border-radius:10px;background:#fbfdff;padding:7px 8px;}',
+    '.ps-notify-item.unread{border-color:#a9cdec;background:#eef7ff;}',
+    '.ps-notify-item strong{display:block;font-size:11.5px;color:#11476f;margin-bottom:2px;}',
+    '.ps-notify-item p{margin:0;color:#33566f;font-size:11.5px;line-height:1.35;}',
+    '.ps-notify-item small{display:block;margin-top:3px;color:#64819a;font-size:10px;}',
     '.ps-page-banner{margin:16px auto 14px;max-width:min(1200px,94vw);border:1px solid #bfd8eb;border-radius:16px;padding:18px;background:linear-gradient(110deg,rgba(7,44,74,.9),rgba(39,117,152,.8)),url(https://images.unsplash.com/photo-1587474260584-136574528ed5?auto=format&fit=crop&w=1600&q=80);background-size:cover;background-position:center;box-shadow:0 14px 32px rgba(8,45,73,.2);color:#edf8ff;}',
     '.ps-page-banner h1{margin:0 0 6px;font-size:clamp(1.05rem,2.4vw,1.45rem);line-height:1.2;}',
     '.ps-page-banner p{margin:0;color:#d7ebf8;font-size:.92rem;}',
@@ -174,6 +347,54 @@
     }
   }
 
+  function formatNotificationTime(iso) {
+    var ts = Date.parse(String(iso || ''));
+    if (!Number.isFinite(ts)) return 'just now';
+    var diffMs = Date.now() - ts;
+    var diffMin = Math.max(1, Math.floor(diffMs / 60000));
+    if (diffMin < 60) return diffMin + 'm ago';
+    var diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return diffHr + 'h ago';
+    var diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 30) return diffDay + 'd ago';
+    return new Date(ts).toLocaleDateString('en-IN');
+  }
+
+  function getNotificationPrefs() {
+    var prefs = readJsonLocal(NOTIFICATION_PREF_KEY, { browser: false });
+    if (!prefs || typeof prefs !== 'object') return { browser: false };
+    return { browser: Boolean(prefs.browser) };
+  }
+
+  function saveNotificationPrefs(nextPrefs) {
+    writeJsonLocal(NOTIFICATION_PREF_KEY, {
+      browser: Boolean(nextPrefs && nextPrefs.browser),
+    });
+  }
+
+  function tryBrowserNotification(entry) {
+    if (!entry) return;
+    var prefs = getNotificationPrefs();
+    if (!prefs.browser) return;
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification(entry.title || 'PropertySetu', { body: entry.message || '' });
+      } catch (_error) {
+        // ignore browser restrictions
+      }
+    }
+  }
+
+  var baseEmit = service.emit;
+  service.emit = function (payload) {
+    var created = baseEmit(payload || {});
+    tryBrowserNotification(created);
+    window.dispatchEvent(new CustomEvent('propertysetu:notifications:update', { detail: { notification: created } }));
+    return created;
+  };
+  window.PropertySetuNotify = service;
+
   var hasProfessionalHero = !!document.querySelector('.pro-hero');
   var hasLegacyHero = !!document.querySelector('.hero');
   var isHomePath = /(?:^|\/)index\.html$/i.test(path);
@@ -236,8 +457,30 @@
 
   var panel = document.createElement('div');
   panel.className = 'ps-dock-panel';
-  panel.innerHTML = '<p class="ps-dock-title">PropertySetu Folder Navigation</p><div class="ps-dock-grid"></div>';
+  panel.innerHTML =
+    '<div class="ps-dock-title-row">' +
+    '<p class="ps-dock-title">PropertySetu Folder Navigation</p>' +
+    '<span class="ps-dock-role" id="psNotifyRole">role: guest</span>' +
+    '</div>' +
+    '<div class="ps-dock-grid"></div>' +
+    '<section class="ps-notify-box">' +
+    '<div class="ps-notify-head">' +
+    '<strong id="psNotifyHeading">Notifications</strong>' +
+    '<div class="ps-notify-actions">' +
+    '<button type="button" class="ps-notify-btn" id="psEnableBrowser">Browser Off</button>' +
+    '<button type="button" class="ps-notify-btn" id="psMarkAllRead">Mark Read</button>' +
+    '<button type="button" class="ps-notify-btn" id="psClearRole">Clear</button>' +
+    '</div>' +
+    '</div>' +
+    '<ul class="ps-notify-list" id="psNotifyList"></ul>' +
+    '</section>';
   var grid = panel.querySelector('.ps-dock-grid');
+  var notifyRole = panel.querySelector('#psNotifyRole');
+  var notifyHeading = panel.querySelector('#psNotifyHeading');
+  var notifyList = panel.querySelector('#psNotifyList');
+  var enableBrowserBtn = panel.querySelector('#psEnableBrowser');
+  var markReadBtn = panel.querySelector('#psMarkAllRead');
+  var clearRoleBtn = panel.querySelector('#psClearRole');
 
   for (var i = 0; i < links.length; i += 1) {
     var a = document.createElement('a');
@@ -247,11 +490,100 @@
     grid.appendChild(a);
   }
 
+  function updateToggleBadge() {
+    var unread = getUnreadCount(getActiveRole());
+    if (unread > 0) {
+      button.innerHTML = 'Command Dock <span class="ps-dock-unread">' + unread + '</span>';
+    } else {
+      button.textContent = 'Command Dock';
+    }
+  }
+
+  function renderNotificationFeed() {
+    var role = getActiveRole();
+    var unread = getUnreadCount(role);
+    var rows = listNotificationsForRole(role).slice(0, 10);
+    if (notifyRole) notifyRole.textContent = 'role: ' + role;
+    if (notifyHeading) notifyHeading.textContent = 'Notifications (' + unread + ' unread)';
+    if (notifyList) {
+      notifyList.innerHTML = rows.length
+        ? rows.map(function (item) {
+          var isRead = item.readBy && item.readBy[role];
+          var classes = isRead ? 'ps-notify-item' : 'ps-notify-item unread';
+          var title = String(item.title || 'PropertySetu Update');
+          var message = String(item.message || '');
+          var audience = Array.isArray(item.audience) ? item.audience.join(', ') : 'all';
+          return '<li class="' + classes + '"><strong>' + title + '</strong><p>' + message + '</p><small>' + formatNotificationTime(item.createdAt) + ' • for: ' + audience + '</small></li>';
+        }).join('')
+        : '<li class="ps-notify-item"><strong>No notifications</strong><p>New updates yahan show honge.</p></li>';
+    }
+    updateToggleBadge();
+    var prefs = getNotificationPrefs();
+    if (enableBrowserBtn) enableBrowserBtn.textContent = prefs.browser ? 'Browser On' : 'Browser Off';
+  }
+
+  if (enableBrowserBtn) {
+    enableBrowserBtn.addEventListener('click', function () {
+      if (!('Notification' in window)) {
+        enableBrowserBtn.textContent = 'Not Supported';
+        return;
+      }
+      var prefs = getNotificationPrefs();
+      if (prefs.browser) {
+        saveNotificationPrefs({ browser: false });
+        renderNotificationFeed();
+        return;
+      }
+      if (Notification.permission === 'granted') {
+        saveNotificationPrefs({ browser: true });
+        renderNotificationFeed();
+        return;
+      }
+      Notification.requestPermission().then(function (permission) {
+        saveNotificationPrefs({ browser: permission === 'granted' });
+        renderNotificationFeed();
+      });
+    });
+  }
+
+  if (markReadBtn) {
+    markReadBtn.addEventListener('click', function () {
+      markAllNotificationsRead(getActiveRole());
+      renderNotificationFeed();
+    });
+  }
+
+  if (clearRoleBtn) {
+    clearRoleBtn.addEventListener('click', function () {
+      clearNotificationsForRole(getActiveRole());
+      renderNotificationFeed();
+    });
+  }
+
   button.addEventListener('click', function () {
     dock.classList.toggle('open');
+    renderNotificationFeed();
+  });
+
+  window.addEventListener('storage', function (event) {
+    if (!event || !event.key) return;
+    if (
+      event.key === NOTIFICATION_KEY
+      || event.key === 'propertySetu:notifications:ping'
+      || event.key === 'propertysetu-customer-session'
+      || event.key === 'propertysetu-admin-session'
+      || event.key === 'propertysetu-seller-session'
+    ) {
+      renderNotificationFeed();
+    }
+  });
+
+  window.addEventListener('propertysetu:notifications:update', function () {
+    renderNotificationFeed();
   });
 
   dock.appendChild(button);
   dock.appendChild(panel);
   document.body.appendChild(dock);
+  renderNotificationFeed();
 })();

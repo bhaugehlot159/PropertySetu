@@ -22,6 +22,32 @@
     }
   });
   const saveJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    saveJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
 
   const elements = {
     wishCount: document.getElementById('wishCount'),
@@ -102,6 +128,7 @@
   elements.saveDemo?.addEventListener('click', () => {
     state.wishlist += 1;
     addLog('Property saved to wishlist.');
+    pushNotification('Customer portal: property added to wishlist.', ['customer'], 'Wishlist Added', 'info');
     persist();
   });
 
@@ -112,12 +139,14 @@
     marketState.visits.unshift({ propertyId: 'udaipur-quick', at: new Date().toISOString() });
     saveJson(marketStateKey, marketState);
     addLog('Visit request submitted from customer portal.');
+    pushNotification('Customer portal: quick visit request submitted.', ['customer', 'admin'], 'Visit Requested', 'success');
     persist();
   });
 
   elements.verifiedSearch?.addEventListener('click', () => {
     state.verifiedSearches += 1;
     addLog('Verified-only locality search executed.');
+    pushNotification('Customer ran verified-only search in portal.', ['customer'], 'Verified Search', 'info');
     persist();
   });
 
@@ -145,6 +174,12 @@
 
     state.bids += 1;
     addLog(`Sealed bid submitted for ${propertyId} at ₹${amount.toLocaleString('en-IN')}.`);
+    pushNotification(
+      `Sealed bid submitted for ${propertyId} at ₹${amount.toLocaleString('en-IN')}.`,
+      ['customer', 'admin'],
+      'Sealed Bid Placed',
+      'success',
+    );
     if (elements.bidProperty) elements.bidProperty.value = '';
     if (elements.bidAmount) elements.bidAmount.value = '';
     persist();
@@ -153,6 +188,7 @@
   elements.clearPortal?.addEventListener('click', () => {
     state = { ...defaultState };
     addLog('Portal counters reset by user.');
+    pushNotification('Customer portal counters reset.', ['customer'], 'Portal Reset', 'info');
     persist();
   });
 
