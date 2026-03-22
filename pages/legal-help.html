@@ -93,6 +93,24 @@
       const legalDetails = document.getElementById('legalDetails');
       const submitBtn = document.getElementById('submitLegalRequestBtn');
       const legalStatus = document.getElementById('legalStatus');
+      const LOCAL_LEGAL_REQ_KEY = 'propertySetu:legalRequests';
+      const FALLBACK_TEMPLATES = [
+        { id: 'sale-agreement', name: 'Sale Agreement Draft', fee: 999 },
+        { id: 'rent-agreement', name: 'Rent Agreement Template', fee: 499 },
+        { id: 'stamp-duty-guide', name: 'Stamp Duty Guidance', fee: 299 },
+        { id: 'lawyer-connect', name: 'Local Lawyer Connect', fee: 1499 },
+      ];
+      const readJson = live.readJson || ((key, fallback) => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch {
+          return fallback;
+        }
+      });
+      const writeJson = live.writeJson || ((key, value) => {
+        localStorage.setItem(key, JSON.stringify(value));
+      });
 
       const setStatus = (msg) => {
         if (legalStatus) legalStatus.textContent = msg;
@@ -105,19 +123,53 @@
       };
 
       const loadTemplates = async () => {
-        if (!live.request) return;
+        if (!live.request) {
+          renderTemplates(FALLBACK_TEMPLATES);
+          setStatus('Live API unavailable. Local legal templates loaded.');
+          return;
+        }
         try {
           const response = await live.request('/legal/templates');
-          renderTemplates(response.items || []);
+          renderTemplates(response.items || FALLBACK_TEMPLATES);
         } catch (error) {
-          setStatus(`Templates load failed: ${error.message}`);
+          renderTemplates(FALLBACK_TEMPLATES);
+          setStatus(`Live template fetch failed. Local templates loaded: ${error.message}`);
         }
       };
 
+      const saveLocalRequest = ({ templateIdValue, details }) => {
+        const templates = readJson('propertySetu:legalTemplatesCache', FALLBACK_TEMPLATES);
+        const all = readJson(LOCAL_LEGAL_REQ_KEY, []);
+        const match = (Array.isArray(templates) ? templates : FALLBACK_TEMPLATES).find((item) => item.id === templateIdValue)
+          || FALLBACK_TEMPLATES.find((item) => item.id === templateIdValue);
+        const record = {
+          id: `legal-local-${Date.now()}`,
+          templateId: templateIdValue,
+          templateName: match?.name || templateIdValue,
+          amount: Number(match?.fee || 0),
+          details: String(details || '').trim(),
+          status: 'Pending Live Sync',
+          source: 'local-fallback',
+          createdAt: new Date().toISOString(),
+        };
+        const merged = [record, ...(Array.isArray(all) ? all : [])].slice(0, 200);
+        writeJson(LOCAL_LEGAL_REQ_KEY, merged);
+        return record;
+      };
+
       submitBtn?.addEventListener('click', async () => {
+        const templateIdValue = String(templateId?.value || '').trim();
+        const details = String(legalDetails?.value || '').trim();
+        if (!details) {
+          setStatus('Please enter requirement details before submit.');
+          return;
+        }
+
         const token = live.getAnyToken ? live.getAnyToken() : '';
         if (!token || !live.request) {
-          setStatus('Legal request submit karne ke liye login required.');
+          const localRecord = saveLocalRequest({ templateIdValue, details });
+          setStatus(`Login/live unavailable. Local request saved: ${localRecord.templateName}.`);
+          if (legalDetails) legalDetails.value = '';
           return;
         }
         try {
@@ -125,17 +177,20 @@
             method: 'POST',
             token,
             data: {
-              templateId: String(templateId?.value || '').trim(),
-              details: String(legalDetails?.value || '').trim(),
+              templateId: templateIdValue,
+              details,
             },
           });
           setStatus('Legal request submitted successfully.');
           if (legalDetails) legalDetails.value = '';
         } catch (error) {
-          setStatus(`Submit failed: ${error.message}`);
+          const localRecord = saveLocalRequest({ templateIdValue, details });
+          setStatus(`Live submit failed. Local request saved (${localRecord.templateName}): ${error.message}`);
+          if (legalDetails) legalDetails.value = '';
         }
       });
 
+      writeJson('propertySetu:legalTemplatesCache', FALLBACK_TEMPLATES);
       loadTemplates();
     })();
   </script>

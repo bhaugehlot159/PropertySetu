@@ -24,6 +24,19 @@
 
   const DRAFT_KEY = 'propertySetu:addPropertyDraft';
   const LISTINGS_KEY = 'propertySetu:listings';
+  const OFFLINE_LOCALITY_PRICE_MODEL = {
+    'hiran magri': 6200000,
+    pratap: 5400000,
+    bhuwana: 6900000,
+    sukher: 7600000,
+    ambamata: 8800000,
+    savina: 5100000,
+    bedla: 5800000,
+    '100 feet': 8300000,
+    'fatehpura': 7000000,
+    'old city': 6500000,
+    udaipur: 6000000,
+  };
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -69,6 +82,62 @@
   const numberFrom = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const medianOf = (arr) => {
+    const values = (arr || []).map((x) => numberFrom(x, 0)).filter((x) => x > 0).sort((a, b) => a - b);
+    if (!values.length) return 0;
+    const mid = Math.floor(values.length / 2);
+    if (values.length % 2 === 0) return Math.round((values[mid - 1] + values[mid]) / 2);
+    return values[mid];
+  };
+
+  const getOfflinePriceBase = (locality) => {
+    const q = text(locality).toLowerCase();
+    const hit = Object.entries(OFFLINE_LOCALITY_PRICE_MODEL).find(([key]) => q.includes(key));
+    return numberFrom(hit?.[1], OFFLINE_LOCALITY_PRICE_MODEL.udaipur);
+  };
+
+  const getLocalSmartPricingStats = (localityInput) => {
+    const locality = text(localityInput) || 'Udaipur';
+    const all = readJson(LISTINGS_KEY, []);
+    const udaipurListings = (Array.isArray(all) ? all : []).filter((item) =>
+      String(item?.city || 'Udaipur').toLowerCase().includes('udaipur')
+    );
+    const q = locality.toLowerCase();
+    const matches = udaipurListings.filter((item) =>
+      `${item?.location || ''} ${item?.locality || ''}`.toLowerCase().includes(q)
+    );
+    const sourceSet = matches.length ? matches : udaipurListings;
+    const prices = sourceSet.map((item) => numberFrom(item?.price, 0)).filter((value) => value > 0);
+    const avgFromData = prices.length ? Math.round(prices.reduce((sum, value) => sum + value, 0) / prices.length) : 0;
+    const medianFromData = medianOf(prices);
+    const fallbackBase = getOfflinePriceBase(locality);
+    const avgPrice = avgFromData || fallbackBase;
+    const medianPrice = medianFromData || avgPrice;
+    return {
+      locality,
+      totalListings: matches.length || sourceSet.length || 0,
+      avgPrice,
+      medianPrice,
+      source: prices.length ? 'local-listing-model' : 'udaipur-baseline-model',
+    };
+  };
+
+  const buildSmartPricingMessage = (stats, sourceText) => {
+    const avg = numberFrom(stats?.avgPrice, 0);
+    const med = numberFrom(stats?.medianPrice, 0);
+    const rec = Math.round((avg + med) / 2 || avg || med || 0);
+    return {
+      rec,
+      text: [
+        `Locality: ${stats?.locality || 'Udaipur'}`,
+        `Is area me average price ₹${avg.toLocaleString('en-IN')} hai.`,
+        `Median price: ₹${med.toLocaleString('en-IN')}`,
+        `Suggested price anchor: ₹${rec.toLocaleString('en-IN')}`,
+        `Data source: ${sourceText}`,
+        `Total matched listings: ${numberFrom(stats?.totalListings, 0)}`,
+      ].join('\n'),
+    };
   };
 
   const showStatus = (message, ok = true) => {
@@ -282,37 +351,49 @@
 
   const getSmartPricing = async () => {
     const locality = text(document.getElementById('localityInsight')?.value) || text(document.getElementById('location')?.value) || 'Udaipur';
-    if (!live.request) {
-      if (priceSuggestionOutput) {
-        priceSuggestionOutput.value = 'Smart pricing live service unavailable. Server start karke dubara try karein.';
+    const setSuggestion = (stats, sourceText, statusMsg, ok = true) => {
+      const compiled = buildSmartPricingMessage(stats, sourceText);
+      if (priceSuggestionOutput) priceSuggestionOutput.value = compiled.text;
+      const priceInput = document.getElementById('price');
+      if (priceInput && !Number(priceInput.value || 0) && compiled.rec > 0) {
+        priceInput.value = String(compiled.rec);
       }
+      showStatus(statusMsg, ok);
+    };
+
+    if (!live.request) {
+      const offlineStats = getLocalSmartPricingStats(locality);
+      setSuggestion(
+        offlineStats,
+        offlineStats.source === 'local-listing-model' ? 'Local listing data (offline mode)' : 'Udaipur baseline smart model (offline mode)',
+        'Smart pricing suggestion loaded (offline mode).',
+        true
+      );
       return;
     }
+
     try {
       const response = await live.request(`/insights/locality?name=${encodeURIComponent(locality)}`);
       const stats = response?.stats || {};
-      const avg = Number(stats.avgPrice || 0);
-      const med = Number(stats.medianPrice || 0);
-      const rec = Math.round((avg + med) / 2 || avg || med || 0);
-      if (priceSuggestionOutput) {
-        priceSuggestionOutput.value = [
-          `Locality: ${stats.locality || locality}`,
-          `Total Listings: ${stats.totalListings || 0}`,
-          `Average Price: ₹${avg.toLocaleString('en-IN')}`,
-          `Median Price: ₹${med.toLocaleString('en-IN')}`,
-          `Suggested Price Anchor: ₹${rec.toLocaleString('en-IN')}`,
-        ].join('\n');
-      }
-      const priceInput = document.getElementById('price');
-      if (priceInput && !Number(priceInput.value || 0) && rec > 0) {
-        priceInput.value = String(rec);
-      }
-      showStatus('Smart pricing suggestion loaded.', true);
+      setSuggestion(
+        {
+          locality: stats.locality || locality,
+          totalListings: stats.totalListings || 0,
+          avgPrice: stats.avgPrice || 0,
+          medianPrice: stats.medianPrice || 0,
+        },
+        'Live locality insights API',
+        'Smart pricing suggestion loaded (live mode).',
+        true
+      );
     } catch (error) {
-      if (priceSuggestionOutput) {
-        priceSuggestionOutput.value = `Smart pricing fetch failed: ${error.message}`;
-      }
-      showStatus(`Smart pricing fetch failed: ${error.message}`, false);
+      const offlineStats = getLocalSmartPricingStats(locality);
+      setSuggestion(
+        offlineStats,
+        offlineStats.source === 'local-listing-model' ? 'Local listing data fallback' : 'Udaipur baseline smart model fallback',
+        `Live fetch failed, fallback loaded: ${error.message}`,
+        false
+      );
     }
   };
 
