@@ -13,6 +13,12 @@ h2 { color:#0b3d91; margin-bottom:15px; }
 select { padding:8px; width:100%; margin-bottom:20px; border-radius:4px; border:1px solid #ccc; }
 .area-card { padding:15px; border:1px solid #ddd; margin-bottom:10px; border-radius:6px; background:#fdfdfd; }
 .area-card p { margin:5px 0; }
+.area-path { display:inline-block; margin: 0 0 14px; padding: 8px 12px; border-radius: 999px; border: 1px solid #c6d9ef; background: #eef6ff; color: #124a74; font-weight: 700; }
+.quick-grid { display:grid; gap:10px; grid-template-columns: repeat(4, minmax(0,1fr)); margin-bottom:14px; }
+.quick-card { border:1px solid #d5e4f5; background:#f8fbff; border-radius:10px; padding:10px; }
+.quick-card b { color:#0b3d91; }
+.source-note { margin: 6px 0 14px; color:#31516b; font-size:.9rem; }
+@media (max-width: 900px) { .quick-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
@@ -22,6 +28,7 @@ select { padding:8px; width:100%; margin-bottom:20px; border-radius:4px; border:
 
 <div class="container">
     <h2>Select Area to View Insights</h2>
+    <p id="areaPath" class="area-path">Udaipur > Select Area</p>
     <select id="areaSelect">
         <option value="">-- Select Area --</option>
         <option value="Hiran Magri">Hiran Magri</option>
@@ -33,6 +40,14 @@ select { padding:8px; width:100%; margin-bottom:20px; border-radius:4px; border:
         <option value="Fatehpura">Fatehpura</option>
         <!-- Add more wards/areas here -->
     </select>
+
+    <div id="areaQuickStats" class="quick-grid">
+        <article class="quick-card"><p><b>Average Price</b></p><p id="quickAvgPrice">-</p></article>
+        <article class="quick-card"><p><b>Nearby Schools</b></p><p id="quickSchoolCount">-</p></article>
+        <article class="quick-card"><p><b>Nearby Hospitals</b></p><p id="quickHospitalCount">-</p></article>
+        <article class="quick-card"><p><b>Nearby Markets</b></p><p id="quickMarketCount">-</p></article>
+    </div>
+    <p id="areaSourceNote" class="source-note">Example: Udaipur > Hiran Magri. Live/local data source yahan show hoga.</p>
 
     <div id="areaDetails">
         <p>Please select an area to see insights.</p>

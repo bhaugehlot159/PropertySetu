@@ -516,7 +516,20 @@ app.post("/api/reviews", auth, async (req, res) => {
 app.get("/api/reviews/:propertyId", (req, res) => {
   const items = db.reviews.filter((r) => r.propertyId === req.params.propertyId);
   const average = items.length ? Number((items.reduce((s, x) => s + x.rating, 0) / items.length).toFixed(2)) : 0;
-  res.json({ ok: true, total: items.length, average, items });
+  const propertyAccuracyAvg = items.length ? Number((items.reduce((s, x) => s + num(x.propertyAccuracy, 0), 0) / items.length).toFixed(2)) : 0;
+  const ownerBehaviorAvg = items.length ? Number((items.reduce((s, x) => s + num(x.ownerBehavior, 0), 0) / items.length).toFixed(2)) : 0;
+  const agentServiceAvg = items.length ? Number((items.reduce((s, x) => s + num(x.agentService, 0), 0) / items.length).toFixed(2)) : 0;
+  res.json({
+    ok: true,
+    total: items.length,
+    average,
+    matrix: {
+      propertyAccuracy: propertyAccuracyAvg,
+      ownerBehavior: ownerBehaviorAvg,
+      agentService: agentServiceAvg,
+    },
+    items,
+  });
 });
 
 app.post("/api/chat/send", auth, async (req, res) => {

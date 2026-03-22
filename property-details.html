@@ -48,7 +48,13 @@ Contact on WhatsApp
   </div>
   <textarea id="reviewComment" placeholder="Review comment" style="width:100%;margin-top:8px;padding:8px;"></textarea>
   <button id="submitReviewBtn" style="margin-top:8px;padding:8px 14px;background:#0b3d91;color:#fff;border:none;border-radius:5px;">Submit Review</button>
+  <p id="reviewStatus" style="margin-top:8px;color:#1d4068;"></p>
   <div id="reviewSummary" style="margin-top:10px;color:#1d4068;"></div>
+  <div style="display:grid;gap:8px;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:10px;">
+    <div style="border:1px solid #d6e1f5;border-radius:8px;padding:8px;background:#fff;"><b>Property Accuracy</b><p id="reviewAvgAccuracy" style="margin:6px 0 0;">0.00/5</p></div>
+    <div style="border:1px solid #d6e1f5;border-radius:8px;padding:8px;background:#fff;"><b>Owner Behavior</b><p id="reviewAvgOwner" style="margin:6px 0 0;">0.00/5</p></div>
+    <div style="border:1px solid #d6e1f5;border-radius:8px;padding:8px;background:#fff;"><b>Agent Service</b><p id="reviewAvgAgent" style="margin:6px 0 0;">0.00/5</p></div>
+  </div>
   <ul id="reviewList" style="margin-top:8px;padding-left:18px;"></ul>
 </section>
 
@@ -75,9 +81,14 @@ Contact on WhatsApp
   const whatsappEl = document.getElementById('whatsappLink');
   const reviewSummary = document.getElementById('reviewSummary');
   const reviewList = document.getElementById('reviewList');
+  const reviewStatus = document.getElementById('reviewStatus');
+  const reviewAvgAccuracy = document.getElementById('reviewAvgAccuracy');
+  const reviewAvgOwner = document.getElementById('reviewAvgOwner');
+  const reviewAvgAgent = document.getElementById('reviewAvgAgent');
   const recommendedList = document.getElementById('recommendedList');
   const callMaskStatus = document.getElementById('callMaskStatus');
   const CALL_MASK_KEY = 'propertySetu:callMaskRequestsLocal';
+  const REVIEW_KEY = 'propertySetu:propertyReviewsLocal';
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -90,6 +101,54 @@ Contact on WhatsApp
   const writeJson = live.writeJson || ((key, value) => {
     localStorage.setItem(key, JSON.stringify(value));
   });
+  const reviewKey = (propertyId) => `${REVIEW_KEY}:${propertyId}`;
+  const safeNumber = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const setReviewStatus = (message, isError = false) => {
+    if (!reviewStatus) return;
+    reviewStatus.style.color = isError ? '#8d1e1e' : '#1d4068';
+    reviewStatus.textContent = message;
+  };
+  const toFixedRating = (value) => `${safeNumber(value).toFixed(2)}/5`;
+  const calcMatrix = (items) => {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+      return {
+        average: 0,
+        matrix: { propertyAccuracy: 0, ownerBehavior: 0, agentService: 0 },
+      };
+    }
+    const sum = (picker) => list.reduce((acc, item) => acc + safeNumber(picker(item)), 0);
+    return {
+      average: sum((item) => item.rating) / list.length,
+      matrix: {
+        propertyAccuracy: sum((item) => item.propertyAccuracy) / list.length,
+        ownerBehavior: sum((item) => item.ownerBehavior) / list.length,
+        agentService: sum((item) => item.agentService) / list.length,
+      },
+    };
+  };
+  const renderReviewSection = ({ total, average, matrix, items, source }) => {
+    if (reviewSummary) {
+      reviewSummary.textContent = `Total Reviews: ${total || 0} | Average: ${safeNumber(average).toFixed(2)} | Source: ${source}`;
+    }
+    if (reviewAvgAccuracy) reviewAvgAccuracy.textContent = toFixedRating(matrix?.propertyAccuracy || 0);
+    if (reviewAvgOwner) reviewAvgOwner.textContent = toFixedRating(matrix?.ownerBehavior || 0);
+    if (reviewAvgAgent) reviewAvgAgent.textContent = toFixedRating(matrix?.agentService || 0);
+    if (reviewList) {
+      reviewList.innerHTML = (items || [])
+        .slice(0, 8)
+        .map((item) => `<li><b>${item.userName || 'Buyer'}</b> - ${safeNumber(item.rating).toFixed(1)}/5 (Accuracy ${safeNumber(item.propertyAccuracy).toFixed(1)}, Owner ${safeNumber(item.ownerBehavior).toFixed(1)}, Agent ${safeNumber(item.agentService).toFixed(1)})<br>${item.comment || ''}</li>`)
+        .join('') || '<li>No reviews yet.</li>';
+    }
+  };
+  const saveLocalReview = (propertyId, review) => {
+    const all = readJson(reviewKey(propertyId), []);
+    all.unshift(review);
+    writeJson(reviewKey(propertyId), all.slice(0, 200));
+  };
 
   const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
   const setView = (item) => {
@@ -127,45 +186,84 @@ Contact on WhatsApp
   });
 
   const showReviews = async (propertyId) => {
-    if (!propertyId || !live.request) return;
+    if (!propertyId) return;
     try {
+      if (!live.request) throw new Error('Live API unavailable');
       const response = await live.request(`/reviews/${encodeURIComponent(propertyId)}`);
-      if (reviewSummary) {
-        reviewSummary.textContent = `Total Reviews: ${response.total || 0} | Average: ${Number(response.average || 0).toFixed(2)}`;
-      }
-      if (reviewList) {
-        reviewList.innerHTML = (response.items || [])
-          .slice(0, 8)
-          .map((item) => `<li><b>${item.userName}</b> - ${item.rating}/5 (Accuracy ${item.propertyAccuracy}, Owner ${item.ownerBehavior}, Agent ${item.agentService})<br>${item.comment || ''}</li>`)
-          .join('') || '<li>No reviews yet.</li>';
-      }
+      const liveItems = Array.isArray(response?.items) ? response.items : [];
+      writeJson(reviewKey(propertyId), liveItems);
+      renderReviewSection({
+        total: response.total || liveItems.length,
+        average: response.average || 0,
+        matrix: response.matrix || {},
+        items: liveItems,
+        source: 'Live',
+      });
     } catch {
-      if (reviewList) reviewList.innerHTML = '<li>Reviews unavailable.</li>';
+      const localItems = readJson(reviewKey(propertyId), []);
+      const computed = calcMatrix(localItems);
+      renderReviewSection({
+        total: localItems.length,
+        average: computed.average,
+        matrix: computed.matrix,
+        items: localItems,
+        source: 'Local Fallback',
+      });
     }
   };
 
   const submitReviewBtn = document.getElementById('submitReviewBtn');
   submitReviewBtn?.addEventListener('click', async () => {
     if (!id) return window.alert('Property id not found.');
+    const rating = Number(document.getElementById('reviewRating')?.value || 0);
+    const propertyAccuracy = Number(document.getElementById('reviewPropertyAccuracy')?.value || 0);
+    const ownerBehavior = Number(document.getElementById('reviewOwnerBehavior')?.value || 0);
+    const agentService = Number(document.getElementById('reviewAgentService')?.value || 0);
+    const comment = String(document.getElementById('reviewComment')?.value || '').trim();
+    const values = [rating, propertyAccuracy, ownerBehavior, agentService];
+    if (values.some((v) => !Number.isFinite(v) || v < 1 || v > 5)) {
+      setReviewStatus('Buyer rating submit karne ke liye sabhi matrix fields me 1-5 value deni hogi.', true);
+      return;
+    }
+
+    const localRecord = {
+      id: `review-local-${Date.now()}`,
+      propertyId: id,
+      userName: 'Local Buyer',
+      rating,
+      propertyAccuracy,
+      ownerBehavior,
+      agentService,
+      comment,
+      createdAt: new Date().toISOString(),
+      source: 'local-fallback',
+    };
     const token = live.getAnyToken ? live.getAnyToken() : '';
-    if (!token || !live.request) return window.alert('Review submit ke liye login required.');
+    if (!token || !live.request) {
+      saveLocalReview(id, localRecord);
+      setReviewStatus('Login/live unavailable. Buyer review local mode me save ho gaya.');
+      showReviews(id);
+      return;
+    }
     try {
       await live.request('/reviews', {
         method: 'POST',
         token,
         data: {
           propertyId: id,
-          rating: Number(document.getElementById('reviewRating')?.value || 0),
-          propertyAccuracy: Number(document.getElementById('reviewPropertyAccuracy')?.value || 0),
-          ownerBehavior: Number(document.getElementById('reviewOwnerBehavior')?.value || 0),
-          agentService: Number(document.getElementById('reviewAgentService')?.value || 0),
-          comment: String(document.getElementById('reviewComment')?.value || '').trim(),
+          rating,
+          propertyAccuracy,
+          ownerBehavior,
+          agentService,
+          comment,
         },
       });
-      window.alert('Review submitted.');
+      setReviewStatus('Buyer review submitted successfully (live).');
       showReviews(id);
     } catch (error) {
-      window.alert(error.message || 'Review submit failed.');
+      saveLocalReview(id, localRecord);
+      setReviewStatus(`Live review failed. Local review saved: ${error.message || 'Unknown error'}`, true);
+      showReviews(id);
     }
   });
 
