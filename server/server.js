@@ -70,6 +70,7 @@ const defaults = () => ({
   properties: seededProperties,
   reviews: [],
   messages: [],
+  agentReviews: [],
   subscriptions: [],
   careRequests: [],
   legalRequests: [],
@@ -78,6 +79,7 @@ const defaults = () => ({
   reports: [],
   tokenPayments: [],
   insuranceTieups: [],
+  callMaskRequests: [],
   notifications: [],
   adminConfig: {
     categories: ["House", "Flat", "Villa", "Plot", "Agriculture Land", "Commercial", "Warehouse", "Farm House", "PG / Hostel"],
@@ -87,7 +89,7 @@ const defaults = () => ({
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
     { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
   ],
-  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1 },
+  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, agentReview: 1, callMask: 1 },
 });
 
 let db = defaults();
@@ -107,10 +109,30 @@ const safeArr = (v) => (Array.isArray(v) ? v : []);
 const isUdaipur = (city) => txt(city || "Udaipur").toLowerCase().includes("udaipur");
 const userSafe = (u) => ({ id: u.id, name: u.name, email: u.email || "", mobile: u.mobile || "", role: u.role, verified: !!u.verified, subscriptionPlan: u.subscriptionPlan || "free-basic" });
 const blocked = (u) => !!u?.blocked;
+const directPhonePattern = /\+?\d[\d\s\-()]{8,}\d/;
+const directEmailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const hasDirectContact = (message) => directPhonePattern.test(message) || directEmailPattern.test(message);
 
 const nextId = (k) => {
   db.counters[k] = num(db.counters[k], 0) + 1;
   return `${k}-${db.counters[k]}`;
+};
+
+const agentWithMetrics = (agent) => {
+  const baseCount = Math.max(0, num(agent.reviewCount, 0));
+  const baseRating = Math.max(0, num(agent.rating, 0));
+  const liveItems = db.agentReviews.filter((item) => item.agentId === agent.id);
+  const liveCount = liveItems.length;
+  const liveSum = liveItems.reduce((sum, item) => sum + num(item.rating, 0), 0);
+  const totalCount = baseCount + liveCount;
+  const weightedRating = totalCount ? ((baseRating * baseCount) + liveSum) / totalCount : 0;
+  return {
+    ...agent,
+    rating: Number(weightedRating.toFixed(2)),
+    reviewCount: totalCount,
+    commissionTransparency: agent.transparentCommission ? `Disclosed upfront (${agent.transparentCommission})` : "Disclosed upfront",
+    contactPolicy: "No direct phone shown. Use in-app chat and call masking.",
+  };
 };
 
 const save = async () => {
@@ -131,6 +153,7 @@ const load = async () => {
       properties: safeArr(raw.properties),
       reviews: safeArr(raw.reviews),
       messages: safeArr(raw.messages),
+      agentReviews: safeArr(raw.agentReviews),
       subscriptions: safeArr(raw.subscriptions),
       careRequests: safeArr(raw.careRequests),
       legalRequests: safeArr(raw.legalRequests),
@@ -139,6 +162,7 @@ const load = async () => {
       reports: safeArr(raw.reports),
       tokenPayments: safeArr(raw.tokenPayments),
       insuranceTieups: safeArr(raw.insuranceTieups),
+      callMaskRequests: safeArr(raw.callMaskRequests),
       notifications: safeArr(raw.notifications),
       adminConfig: {
         ...fresh.adminConfig,
@@ -195,7 +219,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(webRoot));
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.1.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "reports", "admin-config", "token-payments", "insurance"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "reports", "admin-config", "token-payments", "insurance", "trusted-agents", "agent-ratings", "call-masking"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -500,7 +524,10 @@ app.post("/api/chat/send", auth, async (req, res) => {
   const message = txt(req.body?.message);
   if (!propertyId || !message) return res.status(400).json({ ok: false, message: "propertyId and message required." });
   if (message.length > 500) return res.status(400).json({ ok: false, message: "Message too long. Max 500 chars." });
-  const spamWords = ["earn money fast", "click here", "crypto double", "free gift", "urgent transfer"];
+  if (hasDirectContact(message)) {
+    return res.status(400).json({ ok: false, message: "Direct phone/email sharing blocked. Use in-app chat or call masking." });
+  }
+  const spamWords = ["earn money fast", "click here", "crypto double", "free gift", "urgent transfer", "loan approved instant", "guaranteed return"];
   if (spamWords.some((w) => message.toLowerCase().includes(w))) return res.status(400).json({ ok: false, message: "Message blocked by anti-spam filter." });
   const oneMinuteAgo = Date.now() - 60 * 1000;
   const recentCount = db.messages.filter((m) => m.senderId === req.user.id && new Date(m.createdAt).getTime() >= oneMinuteAgo).length;
@@ -599,7 +626,98 @@ app.get("/api/recommendations", (req, res) => {
   res.json({ ok: true, total: items.length, items: items.slice(0, limit) });
 });
 
-app.get("/api/agents", (_req, res) => res.json({ ok: true, total: db.trustedAgents.length, items: db.trustedAgents }));
+app.get("/api/agents", (_req, res) => {
+  const items = db.trustedAgents.map(agentWithMetrics);
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/agents/:id/reviews", (req, res) => {
+  const agentId = txt(req.params.id);
+  const items = db.agentReviews
+    .filter((item) => item.agentId === agentId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const average = items.length ? Number((items.reduce((sum, item) => sum + num(item.rating, 0), 0) / items.length).toFixed(2)) : 0;
+  res.json({ ok: true, total: items.length, average, items });
+});
+
+app.post("/api/agents/:id/reviews", auth, async (req, res) => {
+  const agentId = txt(req.params.id);
+  const agent = db.trustedAgents.find((item) => item.id === agentId);
+  if (!agent) return res.status(404).json({ ok: false, message: "Agent not found." });
+  if (db.agentReviews.some((item) => item.agentId === agentId && item.userId === req.user.id)) {
+    return res.status(409).json({ ok: false, message: "You already reviewed this agent." });
+  }
+  const rating = Math.min(5, Math.max(1, num(req.body?.rating, 0)));
+  if (!rating) return res.status(400).json({ ok: false, message: "Rating between 1-5 required." });
+  const review = {
+    id: nextId("agentReview"),
+    agentId,
+    userId: req.user.id,
+    userName: req.user.name,
+    rating,
+    comment: txt(req.body?.comment),
+    createdAt: now(),
+  };
+  db.agentReviews.unshift(review);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "Agent Review Submitted", `${req.user.name} rated ${agent.name}.`, "review"));
+  await save();
+  res.status(201).json({ ok: true, review, agent: agentWithMetrics(agent) });
+});
+
+app.post("/api/call-mask/request", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const agentId = txt(req.body?.agentId);
+  const reason = txt(req.body?.reason || "Call request via masked communication flow");
+  if (!propertyId && !agentId) {
+    return res.status(400).json({ ok: false, message: "propertyId or agentId required for call masking." });
+  }
+
+  let propertyTitle = "";
+  let ownerId = "";
+  if (propertyId) {
+    const p = db.properties.find((item) => item.id === propertyId);
+    if (!p) return res.status(404).json({ ok: false, message: "Property not found for call mask request." });
+    propertyTitle = p.title;
+    ownerId = p.ownerId || "";
+  }
+  if (agentId && !db.trustedAgents.some((item) => item.id === agentId)) {
+    return res.status(404).json({ ok: false, message: "Agent not found for call mask request." });
+  }
+
+  const id = nextId("callMask");
+  const serial = String(num(String(id).split("-")[1], 0)).padStart(4, "0").slice(-4);
+  const record = {
+    id,
+    userId: req.user.id,
+    userName: req.user.name,
+    propertyId: propertyId || null,
+    propertyTitle: propertyTitle || null,
+    agentId: agentId || null,
+    reason,
+    maskedNumber: `+91-98XXXX${serial}`,
+    accessToken: `MASK-${serial}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+    status: "active",
+    expiresAt: new Date(Date.now() + 30 * 60000).toISOString(),
+    createdAt: now(),
+  };
+  db.callMaskRequests.unshift(record);
+  if (ownerId) pushNoti(ownerId, "Masked Call Request", `${req.user.name} requested masked call for ${propertyTitle}.`, "call-mask");
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "Masked Call Request", `${req.user.name} created a masked call request.`, "call-mask"));
+  await save();
+  res.status(201).json({
+    ok: true,
+    request: record,
+    policy: "No direct public phone display. Calls routed through masked relay token.",
+  });
+});
+
+app.get("/api/call-mask/mine", auth, (req, res) => {
+  const items = req.user.role === "admin"
+    ? [...db.callMaskRequests]
+    : db.callMaskRequests.filter((item) => item.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
 
 app.post("/api/reports", auth, async (req, res) => {
   const propertyId = txt(req.body?.propertyId);

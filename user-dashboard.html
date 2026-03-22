@@ -50,9 +50,16 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
 
 <div class="container">
 <h2>Chat with Owner / Seller</h2>
+<p id="communicationPolicy">Direct phone/email sharing blocked hai. Sirf in-app chat + masked call flow allowed hai.</p>
 <div class="chat-box" id="chatBox"></div>
 <input type="text" id="chatInput" placeholder="Type message">
 <button onclick="sendMessage()">Send</button>
+</div>
+
+<div class="container">
+<h2>Call Masking Requests</h2>
+<button id="refreshCallMaskBtn" type="button">Refresh Call Masks</button>
+<div id="callMaskList"></div>
 </div>
 
 <script src="js/live-api.js"></script>
@@ -67,6 +74,8 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
   const visitDate = document.getElementById('visitDate');
   const chatBox = document.getElementById('chatBox');
   const chatInput = document.getElementById('chatInput');
+  const callMaskList = document.getElementById('callMaskList');
+  const refreshCallMaskBtn = document.getElementById('refreshCallMaskBtn');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -83,6 +92,10 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
   const VISIT_KEY = 'propertySetu:userVisits';
   const VIDEO_VISIT_KEY = 'propertySetu:videoVisits';
   const CHAT_KEY = 'propertySetu:userChat';
+  const CALL_MASK_KEY = 'propertySetu:callMaskRequestsLocal';
+  const spamWords = ['earn money fast', 'click here', 'crypto double', 'free gift', 'urgent transfer', 'loan approved instant'];
+  const directPhonePattern = /\+?\d[\d\s\-()]{8,}\d/;
+  const directEmailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
   let listings = [];
   let activePropertyId = '';
@@ -144,6 +157,28 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
       : '<p>No live video visit requests yet.</p>';
   };
 
+  const renderCallMasks = (items) => {
+    callMaskList.innerHTML = items.length
+      ? items.map((item) => `<div class="property-card"><span><b>${item.propertyTitle || item.agentId || 'Masked Call'}</b><br>Masked Number: ${item.maskedNumber || 'Pending'}<br>Expires: ${item.expiresAt ? new Date(item.expiresAt).toLocaleString() : 'N/A'}</span></div>`).join('')
+      : '<p>No call masking request yet.</p>';
+  };
+
+  const loadCallMasks = async () => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (token && live.request) {
+      try {
+        const response = await live.request('/call-mask/mine', { token });
+        const items = Array.isArray(response?.items) ? response.items : [];
+        writeJson(CALL_MASK_KEY, items);
+        renderCallMasks(items);
+        return;
+      } catch {
+        // fallback
+      }
+    }
+    renderCallMasks(readJson(CALL_MASK_KEY, []));
+  };
+
   const renderChat = (items) => {
     chatBox.innerHTML = items.length
       ? items.map((item) => `<p><b>${item.sender || 'You'}:</b> ${item.message}</p>`).join('')
@@ -177,6 +212,14 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
   const sendMessage = async () => {
     const msg = String(chatInput?.value || '').trim();
     if (!msg) return;
+    if (directPhonePattern.test(msg) || directEmailPattern.test(msg)) {
+      window.alert('Direct phone/email sharing blocked. Please use in-app chat or call masking.');
+      return;
+    }
+    if (spamWords.some((word) => msg.toLowerCase().includes(word))) {
+      window.alert('Message blocked by anti-spam filter.');
+      return;
+    }
     const propertyId = propertySelect?.value || activePropertyId;
     if (!propertyId) {
       window.alert('Message bhejne se pehle property select karein.');
@@ -270,6 +313,10 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     loadChat(activePropertyId);
   });
 
+  refreshCallMaskBtn?.addEventListener('click', () => {
+    loadCallMasks();
+  });
+
   visitForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const propertyId = propertySelect.value;
@@ -293,6 +340,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     renderWishlist();
     renderVisits();
     renderVideoVisits();
+    loadCallMasks();
     activePropertyId = propertySelect.value;
     loadChat(activePropertyId);
   });

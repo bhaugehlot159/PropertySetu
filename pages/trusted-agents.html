@@ -13,6 +13,12 @@
     .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; }
     .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.03rem; }
     .meta { color: #3a5770; margin: 4px 0; }
+    .policy { font-size: .9rem; color: #1f4a6f; background: #eff7ff; border: 1px solid #c9dff2; border-radius: 8px; padding: 8px; margin: 8px 0; }
+    .row { display: grid; gap: 6px; margin-top: 8px; }
+    .row input { width: 100%; padding: 8px; border: 1px solid #c6dbee; border-radius: 8px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .mini-reviews { margin: 8px 0 0; padding-left: 18px; color: #2f4e68; }
+    .status-line { margin-top: 12px; padding: 10px 12px; border: 1px solid #c6dbee; border-radius: 10px; color: #1f4a6f; background: #f5fbff; }
     @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -52,6 +58,7 @@
       </section>
 
       <section id="agentGrid" class="grid"></section>
+      <p id="agentStatus" class="status-line">Trusted Agent Program live hai: verified local agents + rating system + commission transparency + call masking.</p>
     </div>
   </main>
 
@@ -60,12 +67,36 @@
     (() => {
       const live = window.PropertySetuLive || {};
       const agentGrid = document.getElementById('agentGrid');
+      const agentStatus = document.getElementById('agentStatus');
       if (!agentGrid) return;
 
       const fallback = [
-        { name: 'Udaipur Prime Realty', area: 'Hiran Magri', rating: 4.6, reviewCount: 12, transparentCommission: '1.5%', verified: true },
-        { name: 'Mewar Property Desk', area: 'Pratap Nagar', rating: 4.4, reviewCount: 9, transparentCommission: '2%', verified: true },
+        { id: 'agent-1', name: 'Udaipur Prime Realty', area: 'Hiran Magri', rating: 4.6, reviewCount: 12, transparentCommission: '1.5%', verified: true, contactPolicy: 'No direct phone shown. Use in-app chat and call masking.' },
+        { id: 'agent-2', name: 'Mewar Property Desk', area: 'Pratap Nagar', rating: 4.4, reviewCount: 9, transparentCommission: '2%', verified: true, contactPolicy: 'No direct phone shown. Use in-app chat and call masking.' },
       ];
+      const AGENT_LOCAL_REVIEWS_KEY = 'propertySetu:agentReviewsLocal';
+      const CALL_MASK_KEY = 'propertySetu:callMaskRequestsLocal';
+      const reviewMap = {};
+
+      const readJson = live.readJson || ((key, fallbackValue) => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallbackValue;
+        } catch {
+          return fallbackValue;
+        }
+      });
+      const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+
+      const setStatus = (msg) => {
+        if (agentStatus) agentStatus.textContent = msg;
+      };
+
+      const toReviewSnippet = (agentId) => {
+        const items = reviewMap[agentId] || [];
+        if (!items.length) return '<li>No agent ratings yet.</li>';
+        return items.slice(0, 2).map((item) => `<li><b>${item.userName || 'User'}</b>: ${Number(item.rating || 0).toFixed(1)}/5 ${item.comment ? `- ${item.comment}` : ''}</li>`).join('');
+      };
 
       const render = (items) => {
         agentGrid.innerHTML = (items || []).map((item) => `
@@ -75,22 +106,155 @@
             <p class="meta"><b>Rating:</b> ${Number(item.rating || 0).toFixed(1)} / 5 (${item.reviewCount || 0} reviews)</p>
             <p class="meta"><b>Commission:</b> ${item.transparentCommission || 'N/A'}</p>
             <p class="meta"><b>Status:</b> ${item.verified ? 'Verified Agent' : 'Pending'}</p>
+            <p class="policy"><b>Communication:</b> ${item.contactPolicy || 'No direct phone shown. Use in-app chat and call masking.'}</p>
+            <p class="meta"><b>Commission Transparency:</b> ${item.commissionTransparency || `Disclosed upfront (${item.transparentCommission || 'N/A'})`}</p>
+            <div class="actions">
+              <button type="button" class="outline-btn dark-outline" data-agent-chat="${item.id}">In-app Chat</button>
+              <button type="button" class="solid-btn" data-agent-mask="${item.id}">Request Call Mask</button>
+            </div>
+            <div class="row">
+              <input type="number" min="1" max="5" step="1" placeholder="Rate agent (1-5)" data-agent-rating="${item.id}" />
+              <input type="text" maxlength="160" placeholder="Short review comment" data-agent-comment="${item.id}" />
+              <button type="button" class="solid-btn" data-agent-rate="${item.id}">Submit Agent Rating</button>
+            </div>
+            <ul class="mini-reviews">${toReviewSnippet(item.id)}</ul>
           </article>
         `).join('') || '<article class="cardx"><p>No agent record available.</p></article>';
       };
 
+      const loadAgentReviews = async (agentId) => {
+        if (!agentId) return [];
+        if (live.request) {
+          try {
+            const response = await live.request(`/agents/${encodeURIComponent(agentId)}/reviews`);
+            const items = Array.isArray(response?.items) ? response.items : [];
+            reviewMap[agentId] = items;
+            return items;
+          } catch {
+            // fallback below
+          }
+        }
+        const localItems = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((item) => item.agentId === agentId);
+        reviewMap[agentId] = localItems;
+        return localItems;
+      };
+
+      const submitLocalAgentReview = (agentId, rating, comment) => {
+        const all = readJson(AGENT_LOCAL_REVIEWS_KEY, []);
+        all.unshift({
+          id: `agent-local-${Date.now()}`,
+          agentId,
+          rating,
+          comment,
+          userName: 'Local User',
+          createdAt: new Date().toISOString(),
+          source: 'local-fallback',
+        });
+        writeJson(AGENT_LOCAL_REVIEWS_KEY, all.slice(0, 200));
+      };
+
+      const createLocalCallMask = (agentId) => {
+        const all = readJson(CALL_MASK_KEY, []);
+        const serial = String(all.length + 1).padStart(4, '0').slice(-4);
+        const record = {
+          id: `mask-local-${Date.now()}`,
+          agentId,
+          maskedNumber: `+91-98XXXX${serial}`,
+          expiresAt: new Date(Date.now() + (30 * 60000)).toISOString(),
+          source: 'local-fallback',
+        };
+        all.unshift(record);
+        writeJson(CALL_MASK_KEY, all.slice(0, 100));
+        return record;
+      };
+
       const load = async () => {
+        let items = fallback;
         if (!live.request) {
-          render(fallback);
+          items.forEach((item) => { reviewMap[item.id] = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((review) => review.agentId === item.id); });
+          render(items);
+          setStatus('Live API unavailable. Trusted agents loaded in local mode.');
           return;
         }
         try {
           const response = await live.request('/agents');
-          render(response.items || fallback);
+          items = response.items || fallback;
+          await Promise.all((items || []).map((item) => loadAgentReviews(item.id)));
+          render(items);
+          setStatus('Trusted agents loaded from live server.');
         } catch {
-          render(fallback);
+          items.forEach((item) => { reviewMap[item.id] = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((review) => review.agentId === item.id); });
+          render(items);
+          setStatus('Live fetch failed. Trusted agents loaded in local fallback mode.');
         }
       };
+
+      agentGrid.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const chatAgentId = target.getAttribute('data-agent-chat');
+        if (chatAgentId) {
+          window.location.href = `../user-dashboard.html?agentId=${encodeURIComponent(chatAgentId)}`;
+          return;
+        }
+
+        const maskAgentId = target.getAttribute('data-agent-mask');
+        if (maskAgentId) {
+          const token = live.getAnyToken ? live.getAnyToken() : '';
+          if (token && live.request) {
+            try {
+              const response = await live.request('/call-mask/request', {
+                method: 'POST',
+                token,
+                data: {
+                  agentId: maskAgentId,
+                  reason: 'Trusted agent call request from agent program page.',
+                },
+              });
+              const req = response?.request || {};
+              setStatus(`Call mask active: ${req.maskedNumber || 'generated'} (expires: ${new Date(req.expiresAt).toLocaleString()}).`);
+            } catch (error) {
+              const localMask = createLocalCallMask(maskAgentId);
+              setStatus(`Live call mask failed. Local mask issued: ${localMask.maskedNumber}. Reason: ${error.message}`);
+            }
+          } else {
+            const localMask = createLocalCallMask(maskAgentId);
+            setStatus(`Login/live unavailable. Local call mask issued: ${localMask.maskedNumber}.`);
+          }
+          return;
+        }
+
+        const rateAgentId = target.getAttribute('data-agent-rate');
+        if (!rateAgentId) return;
+        const ratingEl = agentGrid.querySelector(`[data-agent-rating="${rateAgentId}"]`);
+        const commentEl = agentGrid.querySelector(`[data-agent-comment="${rateAgentId}"]`);
+        const rating = Number(ratingEl?.value || 0);
+        const comment = String(commentEl?.value || '').trim();
+        if (rating < 1 || rating > 5) {
+          setStatus('Rating submit karne ke liye 1 se 5 ke beech value deni hogi.');
+          return;
+        }
+        const token = live.getAnyToken ? live.getAnyToken() : '';
+        if (token && live.request) {
+          try {
+            await live.request(`/agents/${encodeURIComponent(rateAgentId)}/reviews`, {
+              method: 'POST',
+              token,
+              data: { rating, comment },
+            });
+            setStatus('Agent rating submitted successfully.');
+            await load();
+          } catch (error) {
+            submitLocalAgentReview(rateAgentId, rating, comment);
+            setStatus(`Live rating failed. Local rating saved: ${error.message}`);
+            await load();
+          }
+        } else {
+          submitLocalAgentReview(rateAgentId, rating, comment);
+          setStatus('Login/live unavailable. Agent rating saved in local mode.');
+          await load();
+        }
+      });
 
       load();
     })();

@@ -28,12 +28,15 @@
 Contact on WhatsApp
 </button>
 </a>
+<p style="margin-top:10px;color:#1d4068;"><b>Privacy:</b> Direct phone number public me show nahi hota. In-app chat aur call masking use karein.</p>
 
 <div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
   <button id="bookInspectionBtn" style="padding:10px 20px; background:#0b3d91; color:white; border:none; border-radius:5px;">Book Inspection Slot</button>
   <button id="tokenSlotBtn" style="padding:10px 20px; background:#1f7a45; color:white; border:none; border-radius:5px;">Book Token Payment Slot</button>
   <button id="digitalRentBtn" style="padding:10px 20px; background:#6b4fb3; color:white; border:none; border-radius:5px;">Digital Rent Agreement</button>
+  <button id="callMaskBtn" style="padding:10px 20px; background:#124b73; color:white; border:none; border-radius:5px;">Request Call Mask</button>
 </div>
+<p id="callMaskStatus" style="margin-top:8px;color:#1d4068;"></p>
 
 <section style="max-width:700px;margin:28px auto 0;text-align:left;border:1px solid #d6e1f5;border-radius:10px;padding:14px;background:#f8fbff;">
   <h3 style="margin:0 0 10px;">Rating & Review Matrix</h3>
@@ -73,6 +76,8 @@ Contact on WhatsApp
   const reviewSummary = document.getElementById('reviewSummary');
   const reviewList = document.getElementById('reviewList');
   const recommendedList = document.getElementById('recommendedList');
+  const callMaskStatus = document.getElementById('callMaskStatus');
+  const CALL_MASK_KEY = 'propertySetu:callMaskRequestsLocal';
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -81,6 +86,9 @@ Contact on WhatsApp
     } catch {
       return fallback;
     }
+  });
+  const writeJson = live.writeJson || ((key, value) => {
+    localStorage.setItem(key, JSON.stringify(value));
   });
 
   const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
@@ -203,6 +211,49 @@ Contact on WhatsApp
       window.alert('Digital rent agreement request submitted.');
     } catch (error) {
       window.alert(error.message || 'Digital rent agreement request failed.');
+    }
+  });
+
+  document.getElementById('callMaskBtn')?.addEventListener('click', async () => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    const saveLocalMask = () => {
+      const all = readJson(CALL_MASK_KEY, []);
+      const serial = String(all.length + 1).padStart(4, '0').slice(-4);
+      const localRecord = {
+        id: `mask-local-${Date.now()}`,
+        propertyId: id || null,
+        propertyTitle: titleEl?.innerText || 'Property Details',
+        maskedNumber: `+91-98XXXX${serial}`,
+        expiresAt: new Date(Date.now() + (30 * 60000)).toISOString(),
+        source: 'local-fallback',
+      };
+      all.unshift(localRecord);
+      writeJson(CALL_MASK_KEY, all.slice(0, 100));
+      return localRecord;
+    };
+
+    if (!token || !live.request) {
+      const localRecord = saveLocalMask();
+      if (callMaskStatus) callMaskStatus.textContent = `Login/live unavailable. Local call mask generated: ${localRecord.maskedNumber}.`;
+      return;
+    }
+
+    try {
+      const response = await live.request('/call-mask/request', {
+        method: 'POST',
+        token,
+        data: {
+          propertyId: id || null,
+          reason: 'Property details page masked call request.',
+        },
+      });
+      const req = response?.request || {};
+      if (callMaskStatus) {
+        callMaskStatus.textContent = `Masked call ready: ${req.maskedNumber || 'generated'} (valid till ${req.expiresAt ? new Date(req.expiresAt).toLocaleString() : 'N/A'}).`;
+      }
+    } catch (error) {
+      const localRecord = saveLocalMask();
+      if (callMaskStatus) callMaskStatus.textContent = `Live call masking failed. Local fallback: ${localRecord.maskedNumber}. Reason: ${error.message}`;
     }
   });
 
