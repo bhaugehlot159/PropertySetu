@@ -16,9 +16,30 @@
   const FALLBACK_PLANS = [
     { id: 'featured-7', name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7, type: 'featured' },
     { id: 'featured-30', name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30, type: 'featured' },
-    { id: 'care-basic', name: 'Property Care Basic Visit', amount: 1500, cycleDays: 30, type: 'care' },
-    { id: 'care-plus', name: 'Property Care Plus', amount: 3000, cycleDays: 30, type: 'care' },
-    { id: 'care-full', name: 'Property Care Full Maintenance', amount: 5000, cycleDays: 30, type: 'care' },
+    {
+      id: 'care-basic',
+      name: 'Property Care Basic Visit',
+      amount: 2500,
+      cycleDays: 30,
+      type: 'care',
+      highlights: ['Monthly house check', 'Lock check', 'Water leakage check'],
+    },
+    {
+      id: 'care-plus',
+      name: 'Property Care Cleaning + Visit',
+      amount: 5500,
+      cycleDays: 30,
+      type: 'care',
+      highlights: ['Everything in Basic', 'Garden maintenance', 'Bill payment handling'],
+    },
+    {
+      id: 'care-full',
+      name: 'Property Care Full Maintenance',
+      amount: 10000,
+      cycleDays: 30,
+      type: 'care',
+      highlights: ['Priority maintenance', 'Tenant coordination', 'Full monthly owner support'],
+    },
     { id: 'agent-pro', name: 'Trusted Agent Membership', amount: 1999, cycleDays: 30, type: 'agent' },
   ];
 
@@ -80,6 +101,9 @@
   const renderPlans = (plans) => {
     featuredDiv.innerHTML = '';
     plans.forEach((plan) => {
+      const highlights = Array.isArray(plan.highlights) && plan.highlights.length
+        ? `<ul>${plan.highlights.map((item) => `<li>${item}</li>`).join('')}</ul>`
+        : '';
       const card = document.createElement('div');
       card.className = 'plan-card';
       card.innerHTML = `
@@ -87,6 +111,7 @@
         <p><b>Price:</b> ${formatPrice(plan.amount)}</p>
         <p><b>Duration:</b> ${plan.cycleDays} days</p>
         <p><b>Type:</b> ${plan.type}</p>
+        ${highlights}
         <button type="button" data-plan-id="${plan.id}">Subscribe / Activate</button>
       `;
       featuredDiv.appendChild(card);
