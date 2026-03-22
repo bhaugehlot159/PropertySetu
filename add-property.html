@@ -92,6 +92,8 @@
             <div class="form-group"><label>&nbsp;</label><button type="button" class="btn alt" id="generateAiDescriptionBtn">Generate AI Description</button></div>
             <div class="form-group"><label for="virtualTourSlot">Virtual Tour Slot</label><input id="virtualTourSlot" type="datetime-local" /></div>
             <div class="form-group"><label for="liveVisitSlot">Live Visit Slot</label><input id="liveVisitSlot" type="datetime-local" /></div>
+            <div class="form-group"><label for="virtualTourOption">Virtual Tour Option</label><select id="virtualTourOption"><option>360 Walkthrough</option><option>Live Guided Tour</option><option>Recorded Video Tour</option></select></div>
+            <div class="form-group"><label for="liveVideoVisitSlot">Live Video Visit Booking Slot</label><input id="liveVideoVisitSlot" type="datetime-local" /></div>
             <div class="form-group"><label for="ownerAadhaarPanStatus">Owner Aadhaar/PAN Verification</label><select id="ownerAadhaarPanStatus"><option>Pending</option><option>Submitted</option><option>Verified</option></select></div>
             <div class="form-group"><label for="addressVerificationStatus">Address Verification</label><select id="addressVerificationStatus"><option>Pending</option><option>Submitted</option><option>Verified</option></select></div>
           </div>
@@ -101,7 +103,7 @@
           <h2>Media & Verification Upload</h2>
           <div class="form-grid">
             <div class="form-group full"><label for="photos">Property Photos * (Minimum 5)</label><input id="photos" type="file" accept="image/*" multiple required /><div id="photoPreview" class="preview-grid"></div></div>
-            <div class="form-group"><label for="video">Video Tour (30-60 sec)</label><input id="video" type="file" accept="video/*" /><div id="videoPreview" class="preview-grid"></div></div>
+            <div class="form-group"><label for="video">Video Tour (30-60 sec)</label><input id="video" type="file" accept="video/*" /><div id="videoPreview" class="preview-grid"></div><div id="videoVisitStatus" class="status-box">Upload seller video (minimum 30 sec) to enable virtual + live video visit.</div></div>
             <div class="form-group"><label for="floorPlan">Floor Plan</label><input id="floorPlan" type="file" accept="image/*,.pdf" /></div>
             <div class="form-group"><label for="documents">Property Documents (Private)</label><input id="documents" type="file" accept=".pdf,image/*" multiple /></div>
             <div class="form-group"><label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label><input id="ownerIdProof" type="file" accept=".pdf,image/*" /></div>

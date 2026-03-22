@@ -9,6 +9,7 @@
   const SAVED_SEARCH_KEY = 'propertySetu:savedSearches';
   const RECENTLY_VIEWED_KEY = 'propertySetu:recentlyViewed';
   const FILTER_STATE_KEY = 'propertySetu:marketFilters';
+  const VIDEO_VISIT_KEY = 'propertySetu:videoVisits';
 
   const statActiveListings = document.getElementById('statActiveListings');
   const statVerifiedListings = document.getElementById('statVerifiedListings');
@@ -208,6 +209,11 @@
       verified: Boolean(entry.verified || entry.status === 'Approved' || trustModelEligible),
       premium: Boolean(entry.featured || photosCount >= 8),
       trustScore: Math.max(35, numberFrom(entry?.verification?.verificationScore, 0) || numberFrom(entry.trustScore, 100 - riskScore)),
+      videoTourReady: Boolean(entry?.videoVisit?.enabled || (entry?.media?.videoUploaded && numberFrom(entry?.media?.videoDurationSec, 0) >= 30)),
+      videoDurationSec: numberFrom(entry?.media?.videoDurationSec, 0),
+      virtualTourOption: entry?.videoVisit?.virtualTourOption || null,
+      virtualTourSlot: entry?.videoVisit?.virtualTourSlot || entry?.virtualTour?.slot || null,
+      liveVideoVisitSlot: entry?.videoVisit?.liveVideoVisitSlot || entry?.visitBooking?.preferredSlot || null,
       listedAt: entry.listedAt || entry.createdAt || new Date().toISOString(),
       image: entry.image || 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg',
       status: entry.status || 'Pending Approval',
@@ -232,6 +238,11 @@
       verified: Boolean(entry.verified || entry.featured || entry.verifiedByPropertySetu || isTrustModelEligible(entry)),
       premium: Boolean(entry.featured),
       trustScore: entry.featured ? 85 : 68,
+      videoTourReady: Boolean(entry?.videoVisit?.enabled || (entry?.media?.videoUploaded && numberFrom(entry?.media?.videoDurationSec, 0) >= 30)),
+      videoDurationSec: numberFrom(entry?.media?.videoDurationSec, 0),
+      virtualTourOption: entry?.videoVisit?.virtualTourOption || null,
+      virtualTourSlot: entry?.videoVisit?.virtualTourSlot || entry?.virtualTour?.slot || null,
+      liveVideoVisitSlot: entry?.videoVisit?.liveVideoVisitSlot || entry?.visitBooking?.preferredSlot || null,
       listedAt: entry.createdAt || '2026-03-01T09:00:00.000Z',
       image: entry.image || 'https://cdn.pixabay.com/photo/2020/12/11/22/05/udaipur-5824034_1280.jpg',
       status: entry.status || 'Approved',
@@ -482,11 +493,14 @@
               <li>${item.areaSqft ? `${item.areaSqft} sq.ft.` : 'Area N/A'}</li>
               <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
               <li>Trust ${Math.round(item.trustScore)}%</li>
+              <li>${item.videoTourReady ? `Video ${Math.round(item.videoDurationSec || 30)} sec` : 'Video Tour Pending'}</li>
             </ul>
             <div class="listing-actions">
               <button class="action-btn" data-action="wishlist" data-id="${item.id}" type="button">${inWishlist ? 'Wishlisted' : 'Wishlist'}</button>
               <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
               <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
+              <button class="action-btn primary" data-action="virtualTour" data-id="${item.id}" type="button">Virtual Tour</button>
+              <button class="action-btn" data-action="videoVisit" data-id="${item.id}" type="button">Live Video Visit</button>
               <button class="action-btn" data-action="details" data-id="${item.id}" type="button">View Details</button>
               <button class="action-btn" data-action="map" data-id="${item.id}" type="button">Map</button>
               <button class="action-btn" data-action="report" data-id="${item.id}" type="button">Report</button>
@@ -539,6 +553,28 @@
     } catch (error) {
       if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
         window.alert(error.message || 'Visit request failed.');
+      }
+      return false;
+    }
+  };
+
+  const bookLiveVideoVisit = async (listingId, preferredAt) => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) return false;
+    try {
+      await live.request(`/properties/${encodeURIComponent(listingId)}/visit`, {
+        method: 'POST',
+        token,
+        data: {
+          preferredAt,
+          mode: 'video',
+          note: 'Live video visit requested from marketplace',
+        },
+      });
+      return true;
+    } catch (error) {
+      if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+        window.alert(error.message || 'Video visit request failed.');
       }
       return false;
     }
@@ -704,6 +740,53 @@
           'warn',
         );
       }
+      return;
+    }
+
+    if (action === 'virtualTour') {
+      const item = listings.find((entry) => entry.id === listingId);
+      if (!item) return;
+      if (!item.videoTourReady) {
+        window.alert('Virtual tour abhi available nahi hai. Seller 30 sec video pending hai.');
+        return;
+      }
+      const slot = item.virtualTourSlot ? new Date(item.virtualTourSlot).toLocaleString() : 'Slot will be shared after request';
+      window.alert(`Virtual Tour Option: ${item.virtualTourOption || 'Recorded Video Tour'}\nPreferred Slot: ${slot}`);
+      pushNotification(
+        `Virtual tour requested for ${item.title}.`,
+        ['customer', 'seller'],
+        'Virtual Tour Request',
+        'info',
+      );
+      return;
+    }
+
+    if (action === 'videoVisit') {
+      const item = listings.find((entry) => entry.id === listingId);
+      if (!item) return;
+      if (!item.videoTourReady) {
+        window.alert('Live video visit available nahi hai. Seller 30 sec video required hai.');
+        return;
+      }
+      const preferredAt = item.liveVideoVisitSlot || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const liveDone = await bookLiveVideoVisit(listingId, preferredAt);
+      const videoVisits = readJson(VIDEO_VISIT_KEY, []);
+      videoVisits.unshift({
+        listingId,
+        title: item.title,
+        locality: item.locality,
+        preferredAt,
+        createdAt: new Date().toISOString(),
+        source: liveDone ? 'live' : 'local',
+      });
+      writeJson(VIDEO_VISIT_KEY, videoVisits.slice(0, 80));
+      pushNotification(
+        `Live video visit booked for ${item.title}.`,
+        ['customer', 'seller', 'admin'],
+        'Video Visit Booked',
+        'success',
+      );
+      window.alert('Live video visit request submitted.');
       return;
     }
 

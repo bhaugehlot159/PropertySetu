@@ -13,12 +13,14 @@
   const priceSuggestionOutput = document.getElementById('priceSuggestionOutput');
   const getPriceSuggestionBtn = document.getElementById('getPriceSuggestionBtn');
   const generateAiDescriptionBtn = document.getElementById('generateAiDescriptionBtn');
+  const videoVisitStatus = document.getElementById('videoVisitStatus');
   const trustModelPreview = document.getElementById('trustModelPreview');
   const ownerStatusSelect = document.getElementById('ownerAadhaarPanStatus');
   const addressStatusSelect = document.getElementById('addressVerificationStatus');
   const documentsInput = document.getElementById('documents');
   const ownerIdProofInput = document.getElementById('ownerIdProof');
   const addressProofInput = document.getElementById('addressProof');
+  let videoDurationSeconds = 0;
 
   const DRAFT_KEY = 'propertySetu:addPropertyDraft';
   const LISTINGS_KEY = 'propertySetu:listings';
@@ -76,6 +78,43 @@
 
   const listFileNames = (fileList) => Array.from(fileList || []).map((file) => file.name);
   const hasStatusSubmitted = (value) => ['submitted', 'verified', 'approved'].includes(text(value).toLowerCase());
+
+  const renderVideoVisitStatus = () => {
+    if (!videoVisitStatus) return;
+    const hasVideo = Boolean(videoInput?.files?.[0]);
+    if (!hasVideo) {
+      videoVisitStatus.className = 'status-box err';
+      videoVisitStatus.textContent = 'Upload seller video (minimum 30 sec) to enable virtual + live video visit.';
+      return;
+    }
+    if (videoDurationSeconds >= 30) {
+      videoVisitStatus.className = 'status-box ok';
+      videoVisitStatus.textContent = `Video ready (${Math.round(videoDurationSeconds)} sec). Virtual tour + live video visit booking enabled.`;
+      return;
+    }
+    videoVisitStatus.className = 'status-box err';
+    videoVisitStatus.textContent = `Video too short (${Math.round(videoDurationSeconds || 0)} sec). Minimum 30 sec required.`;
+  };
+
+  const readVideoDuration = (file) => new Promise((resolve) => {
+    if (!file) {
+      resolve(0);
+      return;
+    }
+    const probe = document.createElement('video');
+    const blobUrl = URL.createObjectURL(file);
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = () => {
+      const duration = Number(probe.duration || 0);
+      URL.revokeObjectURL(blobUrl);
+      resolve(Number.isFinite(duration) ? duration : 0);
+    };
+    probe.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      resolve(0);
+    };
+    probe.src = blobUrl;
+  });
 
   const getTrustModel = (values) => {
     const propertyDocuments = listFileNames(documentsInput?.files);
@@ -154,6 +193,8 @@
       landmark: get('landmark'),
       virtualTourSlot: get('virtualTourSlot'),
       liveVisitSlot: get('liveVisitSlot'),
+      virtualTourOption: get('virtualTourOption'),
+      liveVideoVisitSlot: get('liveVideoVisitSlot'),
       ownerAadhaarPanStatus: get('ownerAadhaarPanStatus'),
       addressVerificationStatus: get('addressVerificationStatus'),
       ownerKycRef: get('ownerKycRef'),
@@ -174,15 +215,21 @@
     });
   };
 
-  const createVideoPreview = () => {
+  const createVideoPreview = async () => {
     if (!videoPreview || !videoInput) return;
     videoPreview.innerHTML = '';
     const file = videoInput.files?.[0];
-    if (!file) return;
+    if (!file) {
+      videoDurationSeconds = 0;
+      renderVideoVisitStatus();
+      return;
+    }
     const video = document.createElement('video');
     video.src = URL.createObjectURL(file);
     video.controls = true;
     videoPreview.appendChild(video);
+    videoDurationSeconds = await readVideoDuration(file);
+    renderVideoVisitStatus();
   };
 
   const getAiRiskSignals = (values, photoCount) => {
@@ -328,6 +375,7 @@
       media: {
         photosCount: photoCount,
         videoUploaded: Boolean(videoInput?.files?.[0]),
+        videoDurationSec: Math.round(videoDurationSeconds || 0),
         photoNames: listFileNames(photosInput?.files),
         videoName: listFileNames(videoInput?.files)[0] || null,
         floorPlanName: listFileNames(document.getElementById('floorPlan')?.files)[0] || null,
@@ -354,6 +402,13 @@
       },
       visitBooking: {
         preferredSlot: values.liveVisitSlot || null,
+      },
+      videoVisit: {
+        sellerVideoMin30Sec: videoDurationSeconds >= 30,
+        enabled: Boolean(videoInput?.files?.[0]) && videoDurationSeconds >= 30,
+        virtualTourOption: values.virtualTourOption || '360 Walkthrough',
+        virtualTourSlot: values.virtualTourSlot || null,
+        liveVideoVisitSlot: values.liveVideoVisitSlot || values.liveVisitSlot || null,
       },
       aiReview: {
         fraudRiskScore: aiSignals.riskScore,
@@ -402,7 +457,9 @@
   }
 
   if (videoInput) {
-    videoInput.addEventListener('change', createVideoPreview);
+    videoInput.addEventListener('change', () => {
+      createVideoPreview();
+    });
   }
 
   saveDraftBtn?.addEventListener('click', saveDraft);
@@ -414,6 +471,7 @@
     form?.reset();
     if (photoPreview) photoPreview.innerHTML = '';
     if (videoPreview) videoPreview.innerHTML = '';
+    videoDurationSeconds = 0;
     if (payloadPreview) payloadPreview.textContent = 'No submission yet.';
     showStatus('Draft cleared.', true);
     pushNotification(
@@ -423,6 +481,7 @@
       'info',
     );
     forceUdaipurCity();
+    renderVideoVisitStatus();
     renderTrustModelPreview();
   });
 
@@ -432,6 +491,21 @@
     const photoCount = photosInput?.files?.length || 0;
     if (photoCount < 5) {
       showStatus('Submission failed: Minimum 5 photos required.', false);
+      return;
+    }
+
+    const hasVideo = Boolean(videoInput?.files?.[0]);
+    if (!hasVideo) {
+      showStatus('Submission failed: Seller 30 sec property video required for Video Visit feature.', false);
+      renderVideoVisitStatus();
+      return;
+    }
+    if (!videoDurationSeconds) {
+      await createVideoPreview();
+    }
+    if (videoDurationSeconds < 30) {
+      showStatus(`Submission failed: Video ${Math.round(videoDurationSeconds || 0)} sec hai. Minimum 30 sec required.`, false);
+      renderVideoVisitStatus();
       return;
     }
 
@@ -447,7 +521,7 @@
       if (normalized) upsertLocalListing(normalized);
       showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Verified by PropertySetu badge ready.' : 'Verification pending.'}`, true);
       pushNotification(
-        `New property "${payload.title}" submitted live in Udaipur. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Trust badge eligible.' : 'Trust verification pending.'}`,
+        `New property "${payload.title}" submitted live in Udaipur. Video Visit ready (${Math.round(videoDurationSeconds)} sec). Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Trust badge eligible.' : 'Trust verification pending.'}`,
         ['customer', 'seller', 'admin'],
         'Listing Submitted',
         'success',
@@ -478,13 +552,16 @@
     form.reset();
     if (photoPreview) photoPreview.innerHTML = '';
     if (videoPreview) videoPreview.innerHTML = '';
+    videoDurationSeconds = 0;
     localStorage.removeItem(DRAFT_KEY);
     forceUdaipurCity();
+    renderVideoVisitStatus();
     renderTrustModelPreview();
   });
 
   forceUdaipurCity();
   loadDraft();
+  renderVideoVisitStatus();
   renderTrustModelPreview();
 
   if (live.syncLocalListingsFromApi) {

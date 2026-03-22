@@ -44,6 +44,11 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
 </div>
 
 <div class="container">
+<h2>Live Video Visit Requests</h2>
+<div id="videoVisitList"></div>
+</div>
+
+<div class="container">
 <h2>Chat with Owner / Seller</h2>
 <div class="chat-box" id="chatBox"></div>
 <input type="text" id="chatInput" placeholder="Type message">
@@ -57,6 +62,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
   const wishlistDiv = document.getElementById('wishlist');
   const visitForm = document.getElementById('visitForm');
   const visitList = document.getElementById('visitList');
+  const videoVisitList = document.getElementById('videoVisitList');
   const propertySelect = document.getElementById('propertySelect');
   const visitDate = document.getElementById('visitDate');
   const chatBox = document.getElementById('chatBox');
@@ -75,6 +81,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
 
   const MARKET_STATE_KEY = 'propertysetu-marketplace-state';
   const VISIT_KEY = 'propertySetu:userVisits';
+  const VIDEO_VISIT_KEY = 'propertySetu:videoVisits';
   const CHAT_KEY = 'propertySetu:userChat';
 
   let listings = [];
@@ -128,6 +135,13 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     visitList.innerHTML = visits.length
       ? visits.map((item) => `<div class="property-card"><b>${item.title}</b> booked for <b>${new Date(item.date).toLocaleString()}</b></div>`).join('')
       : '<p>No visits booked yet.</p>';
+  };
+
+  const renderVideoVisits = () => {
+    const videoVisits = readJson(VIDEO_VISIT_KEY, []);
+    videoVisitList.innerHTML = videoVisits.length
+      ? videoVisits.map((item) => `<div class="property-card"><b>${item.title || item.listingId}</b> video visit for <b>${new Date(item.preferredAt || item.createdAt).toLocaleString()}</b></div>`).join('')
+      : '<p>No live video visit requests yet.</p>';
   };
 
   const renderChat = (items) => {
@@ -278,6 +292,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     renderPropertySelect();
     renderWishlist();
     renderVisits();
+    renderVideoVisits();
     activePropertyId = propertySelect.value;
     loadChat(activePropertyId);
   });
