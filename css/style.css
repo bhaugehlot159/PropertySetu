@@ -635,6 +635,12 @@ textarea:focus {
   color: #95611a;
 }
 
+.listing-badge.trust-model {
+  background: #eaf0ff;
+  color: #1a4fa6;
+  border: 1px solid #c4d4fb;
+}
+
 .listing-body {
   padding: 12px;
 }

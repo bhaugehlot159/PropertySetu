@@ -176,6 +176,16 @@
   ];
 
   const normalizePurpose = live.normalizePurpose || ((value) => String(value || '').trim() || 'Buy');
+  const hasSubmitted = (value) => ['submitted', 'verified', 'approved'].includes(String(value || '').trim().toLowerCase());
+  const isTrustModelEligible = (entry) => {
+    const verification = entry?.verification || {};
+    const docs = entry?.privateDocs || {};
+    if (verification.badgeEligible) return true;
+    const ownerStatusOk = hasSubmitted(verification.ownerAadhaarPanStatus);
+    const addressStatusOk = hasSubmitted(verification.addressVerificationStatus);
+    const docsReady = Boolean(Array.isArray(docs.propertyDocuments) && docs.propertyDocuments.length) && Boolean(docs.ownerIdProof) && Boolean(docs.addressProof);
+    return ownerStatusOk && addressStatusOk && docsReady;
+  };
 
   const normalizeLocalEntry = (entry) => {
     if (!entry || typeof entry !== 'object') return null;
@@ -183,6 +193,7 @@
     if (!city.toLowerCase().includes('udaipur')) return null;
     const riskScore = numberFrom(entry?.aiReview?.fraudRiskScore, 45);
     const photosCount = numberFrom(entry?.media?.photosCount, 0);
+    const trustModelEligible = Boolean(entry.verifiedByPropertySetu || isTrustModelEligible(entry));
     return {
       id: entry.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       title: entry.title || 'Untitled Listing',
@@ -193,9 +204,10 @@
       areaSqft: numberFrom(entry.builtUpArea || entry.plotSize || entry.carpetArea || entry.areaSqft, 0),
       beds: numberFrom(entry.bedrooms || entry.beds, 0),
       city: 'Udaipur',
-      verified: Boolean(entry.verified || entry.status === 'Approved'),
+      verifiedByPropertySetu: trustModelEligible,
+      verified: Boolean(entry.verified || entry.status === 'Approved' || trustModelEligible),
       premium: Boolean(entry.featured || photosCount >= 8),
-      trustScore: Math.max(35, numberFrom(entry.trustScore, 100 - riskScore)),
+      trustScore: Math.max(35, numberFrom(entry?.verification?.verificationScore, 0) || numberFrom(entry.trustScore, 100 - riskScore)),
       listedAt: entry.listedAt || entry.createdAt || new Date().toISOString(),
       image: entry.image || 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg',
       status: entry.status || 'Pending Approval',
@@ -216,7 +228,8 @@
       areaSqft: numberFrom(entry.areaSqft, 0),
       beds: numberFrom(entry.beds, 0),
       city: 'Udaipur',
-      verified: Boolean(entry.verified || entry.featured),
+      verifiedByPropertySetu: Boolean(entry.verifiedByPropertySetu || isTrustModelEligible(entry)),
+      verified: Boolean(entry.verified || entry.featured || entry.verifiedByPropertySetu || isTrustModelEligible(entry)),
       premium: Boolean(entry.featured),
       trustScore: entry.featured ? 85 : 68,
       listedAt: entry.createdAt || '2026-03-01T09:00:00.000Z',
@@ -452,6 +465,7 @@
           <div class="listing-media">
             <img loading="lazy" src="${item.image}" alt="${item.title}" />
             <div class="listing-badge-row">
+              ${item.verifiedByPropertySetu ? '<span class="listing-badge trust-model">Verified by PropertySetu</span>' : ''}
               ${item.verified ? '<span class="listing-badge verified">Verified</span>' : ''}
               ${item.premium ? '<span class="listing-badge premium">Elite</span>' : ''}
             </div>

@@ -13,6 +13,12 @@
   const priceSuggestionOutput = document.getElementById('priceSuggestionOutput');
   const getPriceSuggestionBtn = document.getElementById('getPriceSuggestionBtn');
   const generateAiDescriptionBtn = document.getElementById('generateAiDescriptionBtn');
+  const trustModelPreview = document.getElementById('trustModelPreview');
+  const ownerStatusSelect = document.getElementById('ownerAadhaarPanStatus');
+  const addressStatusSelect = document.getElementById('addressVerificationStatus');
+  const documentsInput = document.getElementById('documents');
+  const ownerIdProofInput = document.getElementById('ownerIdProof');
+  const addressProofInput = document.getElementById('addressProof');
 
   const DRAFT_KEY = 'propertySetu:addPropertyDraft';
   const LISTINGS_KEY = 'propertySetu:listings';
@@ -69,6 +75,50 @@
   };
 
   const listFileNames = (fileList) => Array.from(fileList || []).map((file) => file.name);
+  const hasStatusSubmitted = (value) => ['submitted', 'verified', 'approved'].includes(text(value).toLowerCase());
+
+  const getTrustModel = (values) => {
+    const propertyDocuments = listFileNames(documentsInput?.files);
+    const ownerIdProof = listFileNames(ownerIdProofInput?.files)[0] || null;
+    const addressProof = listFileNames(addressProofInput?.files)[0] || null;
+    const ownerStatusOk = hasStatusSubmitted(values.ownerAadhaarPanStatus);
+    const addressStatusOk = hasStatusSubmitted(values.addressVerificationStatus);
+    const docsReady = propertyDocuments.length > 0 && Boolean(ownerIdProof) && Boolean(addressProof);
+    const badgeEligible = ownerStatusOk && addressStatusOk && docsReady;
+    return {
+      ownerStatusOk,
+      addressStatusOk,
+      docsReady,
+      badgeEligible,
+      badgeLabel: badgeEligible ? 'Verified by PropertySetu' : 'Verification Pending',
+      privateViewMode: values.privateDocsConsent || 'Private View Only',
+      ownerKycRef: values.ownerKycRef || null,
+      propertyAddressRef: values.propertyAddressRef || null,
+      verificationOfficerNote: values.verificationOfficerNote || null,
+      propertyDocuments,
+      ownerIdProof,
+      addressProof,
+      score: [ownerStatusOk, addressStatusOk, docsReady].filter(Boolean).length * 34,
+    };
+  };
+
+  const renderTrustModelPreview = () => {
+    if (!trustModelPreview) return;
+    const values = getFormValues();
+    const trustModel = getTrustModel(values);
+    if (trustModel.badgeEligible) {
+      trustModelPreview.className = 'status-box ok';
+      trustModelPreview.textContent = 'Trust Model Ready: Verified by PropertySetu badge eligible. Owner KYC + address + private docs complete.';
+      return;
+    }
+
+    const misses = [];
+    if (!trustModel.ownerStatusOk) misses.push('Owner Aadhaar/PAN status');
+    if (!trustModel.addressStatusOk) misses.push('Address verification status');
+    if (!trustModel.docsReady) misses.push('Private documents pack');
+    trustModelPreview.className = 'status-box err';
+    trustModelPreview.textContent = `Verification pending: ${misses.join(', ')} required for "Verified by PropertySetu" badge.`;
+  };
 
   const forceUdaipurCity = () => {
     if (!citySelect) return;
@@ -106,6 +156,10 @@
       liveVisitSlot: get('liveVisitSlot'),
       ownerAadhaarPanStatus: get('ownerAadhaarPanStatus'),
       addressVerificationStatus: get('addressVerificationStatus'),
+      ownerKycRef: get('ownerKycRef'),
+      propertyAddressRef: get('propertyAddressRef'),
+      verificationOfficerNote: get('verificationOfficerNote'),
+      privateDocsConsent: get('privateDocsConsent'),
     };
   };
 
@@ -257,15 +311,17 @@
     beds: numberFrom(payload.bedrooms, 0),
     listedAt: payload.createdAt || new Date().toISOString(),
     image: payload.image || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
-    verified: payload.status === 'Approved' || false,
+    verifiedByPropertySetu: Boolean(payload.verifiedByPropertySetu || payload?.verification?.badgeEligible),
+    verified: Boolean(payload.status === 'Approved' || payload.verifiedByPropertySetu || payload?.verification?.badgeEligible),
     premium: !!payload.featured,
-    trustScore: Math.max(35, 100 - numberFrom(payload?.aiReview?.fraudRiskScore, 45)),
+    trustScore: Math.max(35, numberFrom(payload?.verification?.verificationScore, 0) || (100 - numberFrom(payload?.aiReview?.fraudRiskScore, 45))),
   });
 
   const getSubmissionPayload = () => {
     const values = getFormValues();
     const photoCount = photosInput?.files?.length || 0;
     const aiSignals = getAiRiskSignals(values, photoCount);
+    const trustModel = getTrustModel(values);
     return {
       id: `local-${Date.now()}`,
       ...values,
@@ -277,13 +333,21 @@
         floorPlanName: listFileNames(document.getElementById('floorPlan')?.files)[0] || null,
       },
       privateDocs: {
-        propertyDocuments: listFileNames(document.getElementById('documents')?.files),
-        ownerIdProof: listFileNames(document.getElementById('ownerIdProof')?.files)[0] || null,
-        addressProof: listFileNames(document.getElementById('addressProof')?.files)[0] || null,
+        propertyDocuments: trustModel.propertyDocuments,
+        ownerIdProof: trustModel.ownerIdProof,
+        addressProof: trustModel.addressProof,
+        privateViewMode: trustModel.privateViewMode,
       },
       verification: {
         ownerAadhaarPanStatus: values.ownerAadhaarPanStatus || 'Pending',
         addressVerificationStatus: values.addressVerificationStatus || 'Pending',
+        ownerKycRef: trustModel.ownerKycRef,
+        propertyAddressRef: trustModel.propertyAddressRef,
+        verificationOfficerNote: trustModel.verificationOfficerNote,
+        privateViewOnly: trustModel.privateViewMode,
+        badgeEligible: trustModel.badgeEligible,
+        badgeLabel: trustModel.badgeLabel,
+        verificationScore: trustModel.score,
       },
       virtualTour: {
         slot: values.virtualTourSlot || null,
@@ -297,6 +361,7 @@
         recommendation: aiSignals.riskScore > 60 ? 'Manual admin verification required' : 'Looks normal',
       },
       status: 'Pending Approval',
+      verifiedByPropertySetu: trustModel.badgeEligible,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       city: 'Udaipur',
@@ -316,6 +381,10 @@
   };
 
   citySelect?.addEventListener('change', forceUdaipurCity);
+  [ownerStatusSelect, addressStatusSelect, documentsInput, ownerIdProofInput, addressProofInput].forEach((el) => {
+    el?.addEventListener('change', renderTrustModelPreview);
+    el?.addEventListener('input', renderTrustModelPreview);
+  });
 
   if (photosInput) {
     photosInput.addEventListener('change', () => {
@@ -328,6 +397,7 @@
       }
       createPhotoPreview();
       showStatus(count < 5 ? 'Please upload minimum 5 photos.' : `Great! ${count} photos selected.`, count >= 5);
+      renderTrustModelPreview();
     });
   }
 
@@ -353,6 +423,7 @@
       'info',
     );
     forceUdaipurCity();
+    renderTrustModelPreview();
   });
 
   form?.addEventListener('submit', async (event) => {
@@ -374,9 +445,9 @@
         : normalizeLocalListing({ ...payload, ...liveProperty, id: liveProperty?.id || payload.id });
 
       if (normalized) upsertLocalListing(normalized);
-      showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}.`, true);
+      showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Verified by PropertySetu badge ready.' : 'Verification pending.'}`, true);
       pushNotification(
-        `New property "${payload.title}" submitted live in Udaipur. Status: ${liveProperty?.status || 'Pending Approval'}.`,
+        `New property "${payload.title}" submitted live in Udaipur. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Trust badge eligible.' : 'Trust verification pending.'}`,
         ['customer', 'seller', 'admin'],
         'Listing Submitted',
         'success',
@@ -409,10 +480,12 @@
     if (videoPreview) videoPreview.innerHTML = '';
     localStorage.removeItem(DRAFT_KEY);
     forceUdaipurCity();
+    renderTrustModelPreview();
   });
 
   forceUdaipurCity();
   loadDraft();
+  renderTrustModelPreview();
 
   if (live.syncLocalListingsFromApi) {
     live.syncLocalListingsFromApi().catch(() => {

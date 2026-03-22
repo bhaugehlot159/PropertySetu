@@ -92,8 +92,8 @@
             <div class="form-group"><label>&nbsp;</label><button type="button" class="btn alt" id="generateAiDescriptionBtn">Generate AI Description</button></div>
             <div class="form-group"><label for="virtualTourSlot">Virtual Tour Slot</label><input id="virtualTourSlot" type="datetime-local" /></div>
             <div class="form-group"><label for="liveVisitSlot">Live Visit Slot</label><input id="liveVisitSlot" type="datetime-local" /></div>
-            <div class="form-group"><label for="ownerAadhaarPanStatus">Owner Aadhaar/PAN Verification</label><select id="ownerAadhaarPanStatus"><option>Pending</option><option>Submitted</option></select></div>
-            <div class="form-group"><label for="addressVerificationStatus">Address Verification</label><select id="addressVerificationStatus"><option>Pending</option><option>Submitted</option></select></div>
+            <div class="form-group"><label for="ownerAadhaarPanStatus">Owner Aadhaar/PAN Verification</label><select id="ownerAadhaarPanStatus"><option>Pending</option><option>Submitted</option><option>Verified</option></select></div>
+            <div class="form-group"><label for="addressVerificationStatus">Address Verification</label><select id="addressVerificationStatus"><option>Pending</option><option>Submitted</option><option>Verified</option></select></div>
           </div>
         </section>
 
@@ -106,6 +106,23 @@
             <div class="form-group"><label for="documents">Property Documents (Private)</label><input id="documents" type="file" accept=".pdf,image/*" multiple /></div>
             <div class="form-group"><label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label><input id="ownerIdProof" type="file" accept=".pdf,image/*" /></div>
             <div class="form-group"><label for="addressProof">Address Proof (Private)</label><input id="addressProof" type="file" accept=".pdf,image/*" /></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>100% Verified Listing System (Trust Model)</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="ownerKycRef">Owner Aadhaar / PAN Ref No.</label><input id="ownerKycRef" placeholder="e.g. PAN: ABCDE1234F (masked/private)" /></div>
+            <div class="form-group"><label for="propertyAddressRef">Address Verification Ref</label><input id="propertyAddressRef" placeholder="e.g. Electricity bill no. / geo-check ref" /></div>
+            <div class="form-group full"><label for="verificationOfficerNote">Verification Officer Note (Private)</label><textarea id="verificationOfficerNote" placeholder="Private verification note. Public listing me show nahi hoga."></textarea></div>
+            <div class="form-group full">
+              <label for="privateDocsConsent">Private View Settings</label>
+              <select id="privateDocsConsent">
+                <option>Private View Only</option>
+                <option>Admin + Owner Access</option>
+              </select>
+            </div>
+            <div class="form-group full"><label>Trust Model Status</label><div id="trustModelPreview" class="status-box">Verification pending: Owner KYC, documents, and address proof required.</div></div>
           </div>
         </section>
 

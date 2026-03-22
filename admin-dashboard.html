@@ -336,17 +336,23 @@ button:hover { background:#092f6d; }
     items.forEach((prop) => {
       const card = document.createElement('div');
       card.className = 'property-card';
+      const verification = prop.verification || {};
+      const privateDocs = prop.privateDocs || {};
+      const trustBadge = Boolean(prop.verifiedByPropertySetu || verification.badgeEligible);
       card.innerHTML = `
         <h3>
           ${prop.title || 'Untitled'}
           ${type === 'approved' ? '<span class="badge">Approved</span>' : ''}
           ${prop.featured ? '<span class="badge">Featured</span>' : ''}
+          ${trustBadge ? '<span class="badge">Verified by PropertySetu</span>' : ''}
         </h3>
         <p><b>City:</b> Udaipur</p>
         <p><b>Category:</b> ${prop.category || '-'}</p>
         <p><b>Location:</b> ${prop.location || prop.locality || '-'}</p>
         <p><b>Price:</b> ${formatPrice(prop.price)}</p>
         <p><b>Status:</b> ${prop.status || 'Pending Approval'}</p>
+        <p><b>KYC:</b> Owner ${verification.ownerAadhaarPanStatus || 'Pending'} | Address ${verification.addressVerificationStatus || 'Pending'}</p>
+        <p><b>Private Docs:</b> Property ${Array.isArray(privateDocs.propertyDocuments) ? privateDocs.propertyDocuments.length : 0}, Owner ID ${privateDocs.ownerIdProof ? 'Yes' : 'No'}, Address ${privateDocs.addressProof ? 'Yes' : 'No'}</p>
         <div>
           ${type === 'pending' ? `<button data-action="approve" data-id="${prop.id}">Approve ✅</button><button data-action="reject" data-id="${prop.id}">Reject ❌</button>` : ''}
           <button data-action="feature" data-id="${prop.id}">Mark Featured ⭐</button>
