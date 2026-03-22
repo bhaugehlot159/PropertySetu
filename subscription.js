@@ -17,6 +17,14 @@
     { id: 'featured-7', name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7, type: 'featured' },
     { id: 'featured-30', name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30, type: 'featured' },
     {
+      id: 'verified-badge-charge',
+      name: 'Verified Badge Charge',
+      amount: 799,
+      cycleDays: 30,
+      type: 'verification',
+      highlights: ['Owner Aadhaar/PAN check', 'Address verification', 'Verified by PropertySetu badge'],
+    },
+    {
       id: 'care-basic',
       name: 'Property Care Basic Visit',
       amount: 2500,
@@ -104,10 +112,13 @@
       const highlights = Array.isArray(plan.highlights) && plan.highlights.length
         ? `<ul>${plan.highlights.map((item) => `<li>${item}</li>`).join('')}</ul>`
         : '';
+      const labels = [];
+      if (plan.type === 'featured') labels.push('<span class="badge">Featured</span>');
+      if (plan.type === 'verification') labels.push('<span class="badge">Verified Badge</span>');
       const card = document.createElement('div');
       card.className = 'plan-card';
       card.innerHTML = `
-        <h3>${plan.name} ${plan.type === 'featured' ? '<span class="badge">Featured</span>' : ''}</h3>
+        <h3>${plan.name} ${labels.join(' ')}</h3>
         <p><b>Price:</b> ${formatPrice(plan.amount)}</p>
         <p><b>Duration:</b> ${plan.cycleDays} days</p>
         <p><b>Type:</b> ${plan.type}</p>

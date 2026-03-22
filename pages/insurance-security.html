@@ -12,9 +12,10 @@
     .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; }
     .field { display: grid; gap: 6px; margin-top: 8px; }
-    .field input, .field textarea { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    .field input, .field textarea, .field select { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
     .muted { color: #3a5770; margin-top: 8px; }
     .list { margin: 0; padding-left: 18px; }
+    .meta-line { color: #3e5972; font-size: 0.92rem; margin-top: 4px; }
     @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -56,6 +57,15 @@
         <article class="cardx">
           <h2>Submit Tie-up Interest</h2>
           <div class="field">
+            <label for="tieupType">Tie-up Type</label>
+            <select id="tieupType">
+              <option value="insurance-security">Insurance + Security Tie-up</option>
+              <option value="insurance">Insurance Partner Only</option>
+              <option value="security">Security Audit Partner</option>
+              <option value="tenant-damage-protection">Tenant Damage Protection Partner</option>
+            </select>
+          </div>
+          <div class="field">
             <label for="companyName">Company Name</label>
             <input id="companyName" placeholder="Insurance / Security company" />
           </div>
@@ -67,6 +77,21 @@
             <label for="companyNotes">Notes</label>
             <textarea id="companyNotes" rows="4" placeholder="Tie-up proposal details..."></textarea>
           </div>
+          <div class="field">
+            <label for="coverageType">Coverage Type</label>
+            <input id="coverageType" placeholder="Property insurance / tenant damage / security package" />
+          </div>
+          <div class="field">
+            <label for="coverageAmount">Coverage Amount (₹)</label>
+            <input id="coverageAmount" type="number" min="0" placeholder="e.g. 500000" />
+          </div>
+          <div class="field">
+            <label for="tenantDamageProtection">Tenant Damage Protection Included</label>
+            <select id="tenantDamageProtection">
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
           <button id="submitTieupBtn" class="solid-btn" type="button">Submit Tie-up Slot</button>
           <p id="tieupStatus" class="muted"></p>
         </article>
@@ -74,6 +99,33 @@
         <article class="cardx">
           <h2>Registered Tie-up Queue</h2>
           <ul id="tieupList" class="list"></ul>
+        </article>
+
+        <article class="cardx">
+          <h2>Tenant Damage Protection Request</h2>
+          <div class="field">
+            <label for="tdPropertyId">Property ID</label>
+            <input id="tdPropertyId" placeholder="e.g. property-101 (optional if locality provided)" />
+          </div>
+          <div class="field">
+            <label for="tdLocality">Locality</label>
+            <input id="tdLocality" placeholder="e.g. Hiran Magri, Udaipur" />
+          </div>
+          <div class="field">
+            <label for="tdExpectedCoverage">Expected Coverage (₹)</label>
+            <input id="tdExpectedCoverage" type="number" min="0" placeholder="e.g. 250000" />
+          </div>
+          <div class="field">
+            <label for="tdNotes">Notes</label>
+            <textarea id="tdNotes" rows="3" placeholder="Tenant damage protection requirement..."></textarea>
+          </div>
+          <button id="submitTenantDamageBtn" class="solid-btn" type="button">Submit Tenant Damage Request</button>
+          <p id="tenantDamageStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Tenant Damage Protection Queue</h2>
+          <ul id="tenantDamageList" class="list"></ul>
         </article>
       </section>
     </div>
@@ -85,29 +137,55 @@
       const live = window.PropertySetuLive || {};
       const tieupList = document.getElementById('tieupList');
       const tieupStatus = document.getElementById('tieupStatus');
+      const tenantDamageStatus = document.getElementById('tenantDamageStatus');
+      const tenantDamageList = document.getElementById('tenantDamageList');
 
       const setStatus = (msg) => { if (tieupStatus) tieupStatus.textContent = msg; };
+      const setTenantDamageStatus = (msg) => { if (tenantDamageStatus) tenantDamageStatus.textContent = msg; };
 
-      const render = (items) => {
+      const renderTieups = (items) => {
         tieupList.innerHTML = (items || []).map((item) => (
-          `<li><b>${item.company}</b> - ${item.contact || 'No contact'}<br>${item.notes || ''}</li>`
+          `<li><b>${item.company}</b> - ${item.contact || 'No contact'}
+            <div class="meta-line">Type: ${item.tieupType || 'insurance-security'} | Coverage: ${item.coverageType || 'N/A'} ${item.coverageAmount ? `| ₹${Number(item.coverageAmount).toLocaleString('en-IN')}` : ''}</div>
+            <div class="meta-line">Tenant Damage Protection: ${item.tenantDamageProtection ? 'Yes' : 'No'}</div>
+            <div class="meta-line">${item.notes || ''}</div>
+          </li>`
         )).join('') || '<li>No tie-up records yet.</li>';
+      };
+
+      const renderTenantDamage = (items) => {
+        tenantDamageList.innerHTML = (items || []).map((item) => (
+          `<li>
+            <b>${item.locality || item.propertyId || 'Udaipur Request'}</b>
+            <div class="meta-line">Coverage: ₹${Number(item.expectedCoverage || 0).toLocaleString('en-IN')} | Status: ${item.status || 'open'}</div>
+            <div class="meta-line">${item.notes || ''}</div>
+          </li>`
+        )).join('') || '<li>No tenant damage protection requests yet.</li>';
       };
 
       const load = async () => {
         if (!live.request) return;
         try {
-          const response = await live.request('/insurance/tieups');
-          render(response.items || []);
+          const [tieupsResponse, tenantDamageResponse] = await Promise.all([
+            live.request('/insurance/tieups'),
+            live.request('/insurance/tenant-damage'),
+          ]);
+          renderTieups(tieupsResponse.items || []);
+          renderTenantDamage(tenantDamageResponse.items || []);
         } catch (error) {
           setStatus(`Load failed: ${error.message}`);
+          setTenantDamageStatus(`Load failed: ${error.message}`);
         }
       };
 
       document.getElementById('submitTieupBtn')?.addEventListener('click', async () => {
+        const tieupType = String(document.getElementById('tieupType')?.value || 'insurance-security').trim();
         const company = String(document.getElementById('companyName')?.value || '').trim();
         const contact = String(document.getElementById('companyContact')?.value || '').trim();
         const notes = String(document.getElementById('companyNotes')?.value || '').trim();
+        const coverageType = String(document.getElementById('coverageType')?.value || '').trim();
+        const coverageAmount = Number(document.getElementById('coverageAmount')?.value || 0);
+        const tenantDamageProtection = String(document.getElementById('tenantDamageProtection')?.value || 'no') === 'yes';
         const token = live.getAnyToken ? live.getAnyToken() : '';
         if (!company) return setStatus('Company name required.');
         if (!token || !live.request) return setStatus('Login required for live tie-up submission.');
@@ -115,12 +193,40 @@
           await live.request('/insurance/tieups', {
             method: 'POST',
             token,
-            data: { company, contact, notes },
+            data: { company, contact, notes, tieupType, coverageType, coverageAmount, tenantDamageProtection },
           });
           setStatus('Tie-up slot submitted.');
           load();
         } catch (error) {
           setStatus(`Submit failed: ${error.message}`);
+        }
+      });
+
+      document.getElementById('submitTenantDamageBtn')?.addEventListener('click', async () => {
+        const propertyId = String(document.getElementById('tdPropertyId')?.value || '').trim();
+        const locality = String(document.getElementById('tdLocality')?.value || '').trim();
+        const expectedCoverage = Number(document.getElementById('tdExpectedCoverage')?.value || 0);
+        const notes = String(document.getElementById('tdNotes')?.value || '').trim();
+        const token = live.getAnyToken ? live.getAnyToken() : '';
+        if (!propertyId && !locality) return setTenantDamageStatus('Property ID ya locality required.');
+        if (!expectedCoverage) return setTenantDamageStatus('Expected coverage required.');
+        if (!token || !live.request) return setTenantDamageStatus('Login required for tenant damage request.');
+        try {
+          await live.request('/insurance/tenant-damage', {
+            method: 'POST',
+            token,
+            data: {
+              propertyId: propertyId || undefined,
+              locality: locality || undefined,
+              issueType: 'tenant-damage-protection',
+              expectedCoverage,
+              notes,
+            },
+          });
+          setTenantDamageStatus('Tenant damage protection request submitted.');
+          load();
+        } catch (error) {
+          setTenantDamageStatus(`Submit failed: ${error.message}`);
         }
       });
 

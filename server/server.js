@@ -25,6 +25,14 @@ const plans = [
   { id: "featured-7", name: "Featured Listing - 7 Days", amount: 299, cycleDays: 7, type: "featured" },
   { id: "featured-30", name: "Featured Listing - 30 Days", amount: 999, cycleDays: 30, type: "featured" },
   {
+    id: "verified-badge-charge",
+    name: "Verified Badge Charge",
+    amount: 799,
+    cycleDays: 30,
+    type: "verification",
+    highlights: ["Owner Aadhaar/PAN check", "Address verification", "Verified by PropertySetu badge"],
+  },
+  {
     id: "care-basic",
     name: "Property Care Basic Visit",
     amount: 2500,
@@ -79,6 +87,7 @@ const defaults = () => ({
   reports: [],
   tokenPayments: [],
   insuranceTieups: [],
+  tenantDamageRequests: [],
   callMaskRequests: [],
   notifications: [],
   adminConfig: {
@@ -89,7 +98,7 @@ const defaults = () => ({
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
     { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
   ],
-  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, agentReview: 1, callMask: 1 },
+  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, tenantDamage: 1, agentReview: 1, callMask: 1 },
 });
 
 let db = defaults();
@@ -162,6 +171,7 @@ const load = async () => {
       reports: safeArr(raw.reports),
       tokenPayments: safeArr(raw.tokenPayments),
       insuranceTieups: safeArr(raw.insuranceTieups),
+      tenantDamageRequests: safeArr(raw.tenantDamageRequests),
       callMaskRequests: safeArr(raw.callMaskRequests),
       notifications: safeArr(raw.notifications),
       adminConfig: {
@@ -219,7 +229,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(webRoot));
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "reports", "admin-config", "token-payments", "insurance", "trusted-agents", "agent-ratings", "call-masking"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "reports", "admin-config", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -483,16 +493,28 @@ app.post("/api/admin/users/:id/unblock", auth, admin, async (req, res) => {
 app.get("/api/admin/commission-analytics", auth, admin, (_req, res) => {
   const paid = db.subscriptions.filter((s) => num(s.amount, 0) > 0);
   const revenue = paid.reduce((sum, item) => sum + num(item.amount, 0), 0);
-  const serviceFees = db.legalRequests.reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const featuredListingRevenue = paid.filter((s) => s.type === "featured").reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const verifiedBadgeRevenue = paid.filter((s) => s.type === "verification" || s.planId === "verified-badge-charge").reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const agentMembershipRevenue = paid.filter((s) => s.type === "agent").reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const propertyCareRevenue = paid.filter((s) => s.type === "care").reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const subscriptionModelRevenue = paid.filter((s) => !["featured", "verification", "agent", "care"].includes(s.type)).reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const documentationServiceFeeRevenue = db.legalRequests.reduce((sum, item) => sum + num(item.amount, 0), 0);
   const estimatedCommission = Math.round(db.properties.filter((p) => p.status === "Approved").length * 2500);
+  const totalMonetized = featuredListingRevenue + verifiedBadgeRevenue + subscriptionModelRevenue + agentMembershipRevenue + propertyCareRevenue + documentationServiceFeeRevenue + estimatedCommission;
   res.json({
     ok: true,
     analytics: {
       paidSubscriptions: paid.length,
       subscriptionRevenue: revenue,
-      legalServiceRevenue: serviceFees,
+      legalServiceRevenue: documentationServiceFeeRevenue,
+      featuredListingRevenue,
+      verifiedBadgeRevenue,
+      subscriptionModelRevenue,
+      agentMembershipRevenue,
+      propertyCareRevenue,
+      documentationServiceFeeRevenue,
       estimatedCommission,
-      totalMonetized: revenue + serviceFees + estimatedCommission,
+      totalMonetized,
     },
   });
 });
@@ -777,11 +799,55 @@ app.post("/api/insurance/tieups", auth, async (req, res) => {
   const company = txt(req.body?.company);
   const contact = txt(req.body?.contact);
   const notes = txt(req.body?.notes);
+  const tieupType = txt(req.body?.tieupType || "insurance-security");
+  const coverageType = txt(req.body?.coverageType || "");
+  const coverageAmount = num(req.body?.coverageAmount, 0);
+  const tenantDamageProtection = !!req.body?.tenantDamageProtection;
   if (!company) return res.status(400).json({ ok: false, message: "Company name required." });
-  const record = { id: nextId("insurance"), company, contact, notes, userId: req.user.id, userName: req.user.name, createdAt: now() };
+  const record = {
+    id: nextId("insurance"),
+    company,
+    contact,
+    notes,
+    tieupType,
+    coverageType,
+    coverageAmount,
+    tenantDamageProtection,
+    userId: req.user.id,
+    userName: req.user.name,
+    createdAt: now(),
+  };
   db.insuranceTieups.unshift(record);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Insurance/Security Tie-up", `${company} submitted a ${tieupType} tie-up.`, "insurance"));
   await save();
   res.status(201).json({ ok: true, tieup: record });
+});
+
+app.get("/api/insurance/tenant-damage", (_req, res) => res.json({ ok: true, items: db.tenantDamageRequests }));
+app.post("/api/insurance/tenant-damage", auth, async (req, res) => {
+  const propertyId = txt(req.body?.propertyId);
+  const locality = txt(req.body?.locality);
+  const issueType = txt(req.body?.issueType || "tenant-damage-protection");
+  const expectedCoverage = num(req.body?.expectedCoverage, 0);
+  const notes = txt(req.body?.notes);
+  if (!propertyId && !locality) return res.status(400).json({ ok: false, message: "Property ID or locality required." });
+  if (expectedCoverage <= 0) return res.status(400).json({ ok: false, message: "Expected coverage amount required." });
+  const record = {
+    id: nextId("tenantDamage"),
+    propertyId: propertyId || null,
+    locality: locality || null,
+    issueType,
+    expectedCoverage,
+    notes,
+    status: "open",
+    userId: req.user.id,
+    userName: req.user.name,
+    createdAt: now(),
+  };
+  db.tenantDamageRequests.unshift(record);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Tenant Damage Protection Request", `${req.user.name} requested tenant damage protection coverage.`, "insurance"));
+  await save();
+  res.status(201).json({ ok: true, request: record });
 });
 
 app.post("/api/sealed-bids", auth, async (req, res) => {

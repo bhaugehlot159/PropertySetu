@@ -234,8 +234,15 @@ button:hover { background:#092f6d; }
         adminAnalytics.innerHTML = `
           <span><b>Paid Subs:</b> ${a.paidSubscriptions || 0}</span>
           <span><b>Sub Revenue:</b> ₹${Number(a.subscriptionRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Featured Listing:</b> ₹${Number(a.featuredListingRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Verified Badge Charge:</b> ₹${Number(a.verifiedBadgeRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Subscription Model:</b> ₹${Number(a.subscriptionModelRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Agent Membership:</b> ₹${Number(a.agentMembershipRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Property Care Package:</b> ₹${Number(a.propertyCareRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Doc Service Fee:</b> ₹${Number((a.documentationServiceFeeRevenue ?? a.legalServiceRevenue) || 0).toLocaleString('en-IN')}</span>
           <span><b>Legal Revenue:</b> ₹${Number(a.legalServiceRevenue || 0).toLocaleString('en-IN')}</span>
           <span><b>Estimated Commission:</b> ₹${Number(a.estimatedCommission || 0).toLocaleString('en-IN')}</span>
+          <span><b>Total Monetized:</b> ₹${Number(a.totalMonetized || 0).toLocaleString('en-IN')}</span>
         `;
       }
 
