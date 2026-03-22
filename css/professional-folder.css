@@ -350,6 +350,10 @@ body.ps-pro-surface .cardx {
   box-shadow: 0 8px 22px rgba(7, 44, 70, 0.08);
 }
 
+body.ps-pro-surface .hub-row.trust-five {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 body.ps-pro-surface .empty-state {
   background: #f9fcff;
   border: 1px dashed #b7cde0;
