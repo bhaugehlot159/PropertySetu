@@ -17,10 +17,16 @@
   const trustModelPreview = document.getElementById('trustModelPreview');
   const ownerStatusSelect = document.getElementById('ownerAadhaarPanStatus');
   const addressStatusSelect = document.getElementById('addressVerificationStatus');
+  const floorPlanInput = document.getElementById('floorPlan');
   const documentsInput = document.getElementById('documents');
   const ownerIdProofInput = document.getElementById('ownerIdProof');
   const addressProofInput = document.getElementById('addressProof');
+  const virtualTour360Input = document.getElementById('virtualTour360Link');
+  const photoAiStatus = document.getElementById('photoAiStatus');
+  const photoAiAudit = document.getElementById('photoAiAudit');
+  const privateDocsStatus = document.getElementById('privateDocsStatus');
   let videoDurationSeconds = 0;
+  let photoQualityAudit = [];
 
   const DRAFT_KEY = 'propertySetu:addPropertyDraft';
   const LISTINGS_KEY = 'propertySetu:listings';
@@ -82,6 +88,13 @@
   const numberFrom = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const fileSizeLabel = (bytes) => {
+    const value = numberFrom(bytes, 0);
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(2)} MB`;
   };
   const medianOf = (arr) => {
     const values = (arr || []).map((x) => numberFrom(x, 0)).filter((x) => x > 0).sort((a, b) => a - b);
@@ -148,21 +161,71 @@
   const listFileNames = (fileList) => Array.from(fileList || []).map((file) => file.name);
   const hasStatusSubmitted = (value) => ['submitted', 'verified', 'approved'].includes(text(value).toLowerCase());
 
+  const renderPrivateDocsStatus = () => {
+    if (!privateDocsStatus) return;
+    const propertyDocumentsCount = listFileNames(documentsInput?.files).length;
+    const floorPlanReady = Boolean(listFileNames(floorPlanInput?.files)[0]);
+    const ownerProofReady = Boolean(listFileNames(ownerIdProofInput?.files)[0]);
+    const addressProofReady = Boolean(listFileNames(addressProofInput?.files)[0]);
+    if (propertyDocumentsCount > 0 && floorPlanReady && ownerProofReady && addressProofReady) {
+      privateDocsStatus.className = 'status-box ok';
+      privateDocsStatus.textContent = 'Private documents complete: floor plan + property docs + owner KYC + address proof uploaded.';
+      return;
+    }
+    const missing = [];
+    if (!floorPlanReady) missing.push('floor plan');
+    if (propertyDocumentsCount === 0) missing.push('property docs');
+    if (!ownerProofReady) missing.push('owner KYC proof');
+    if (!addressProofReady) missing.push('address proof');
+    privateDocsStatus.className = 'status-box err';
+    privateDocsStatus.textContent = `Private section pending: ${missing.join(', ')}.`;
+  };
+
+  const renderPhotoAiAudit = () => {
+    if (photoAiAudit) {
+      photoAiAudit.textContent = photoQualityAudit.length
+        ? JSON.stringify(photoQualityAudit, null, 2)
+        : 'No AI audit yet.';
+    }
+    if (!photoAiStatus) return;
+    const photoCount = photosInput?.files?.length || 0;
+    if (!photoCount) {
+      photoAiStatus.className = 'status-box err';
+      photoAiStatus.textContent = 'Upload photos to run AI auto-enhancement + blurry-image detection.';
+      return;
+    }
+    const blurryCount = photoQualityAudit.filter((item) => item.isBlurry).length;
+    if (photoCount < 5) {
+      photoAiStatus.className = 'status-box err';
+      photoAiStatus.textContent = `Minimum 5 photos required. Current: ${photoCount}.`;
+      return;
+    }
+    if (blurryCount > 0) {
+      photoAiStatus.className = 'status-box err';
+      photoAiStatus.textContent = `AI scan done: ${blurryCount} blurry photo detected. Retake for better trust score.`;
+      return;
+    }
+    photoAiStatus.className = 'status-box ok';
+    photoAiStatus.textContent = `AI scan done: ${photoCount} photos optimized, no blur issue detected.`;
+  };
+
   const renderVideoVisitStatus = () => {
     if (!videoVisitStatus) return;
     const hasVideo = Boolean(videoInput?.files?.[0]);
     if (!hasVideo) {
       videoVisitStatus.className = 'status-box err';
-      videoVisitStatus.textContent = 'Upload seller video (minimum 30 sec) to enable virtual + live video visit.';
+      videoVisitStatus.textContent = 'Upload 1 short video (30-60 sec) to enable virtual + live video visit.';
       return;
     }
-    if (videoDurationSeconds >= 30) {
+    if (videoDurationSeconds >= 30 && videoDurationSeconds <= 60) {
       videoVisitStatus.className = 'status-box ok';
-      videoVisitStatus.textContent = `Video ready (${Math.round(videoDurationSeconds)} sec). Virtual tour + live video visit booking enabled.`;
+      videoVisitStatus.textContent = `Video ready (${Math.round(videoDurationSeconds)} sec). Short video rule 30-60 sec passed.`;
       return;
     }
     videoVisitStatus.className = 'status-box err';
-    videoVisitStatus.textContent = `Video too short (${Math.round(videoDurationSeconds || 0)} sec). Minimum 30 sec required.`;
+    videoVisitStatus.textContent = videoDurationSeconds > 60
+      ? `Video too long (${Math.round(videoDurationSeconds)} sec). Maximum 60 sec allowed.`
+      : `Video too short (${Math.round(videoDurationSeconds || 0)} sec). Minimum 30 sec required.`;
   };
 
   const readVideoDuration = (file) => new Promise((resolve) => {
@@ -184,6 +247,77 @@
     };
     probe.src = blobUrl;
   });
+
+  const loadImageFromFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Image load failed.'));
+      image.src = String(reader.result || '');
+    };
+    reader.onerror = () => reject(new Error('File read failed.'));
+    reader.readAsDataURL(file);
+  });
+
+  const analyzePhotoQuality = async (file) => {
+    const image = await loadImageFromFile(file);
+    const targetWidth = Math.min(720, image.width || 720);
+    const targetHeight = Math.max(1, Math.round((targetWidth / Math.max(1, image.width)) * Math.max(1, image.height)));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error('Canvas context unavailable.');
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const data = ctx.getImageData(0, 0, targetWidth, targetHeight).data;
+    let edgeAccum = 0;
+    let brightnessAccum = 0;
+    let samples = 0;
+
+    for (let y = 1; y < targetHeight; y += 2) {
+      for (let x = 1; x < targetWidth; x += 2) {
+        const idx = (y * targetWidth + x) * 4;
+        const leftIdx = (y * targetWidth + (x - 1)) * 4;
+        const topIdx = (((y - 1) * targetWidth) + x) * 4;
+        const gray = (0.299 * data[idx]) + (0.587 * data[idx + 1]) + (0.114 * data[idx + 2]);
+        const leftGray = (0.299 * data[leftIdx]) + (0.587 * data[leftIdx + 1]) + (0.114 * data[leftIdx + 2]);
+        const topGray = (0.299 * data[topIdx]) + (0.587 * data[topIdx + 1]) + (0.114 * data[topIdx + 2]);
+        edgeAccum += Math.abs(gray - leftGray) + Math.abs(gray - topGray);
+        brightnessAccum += gray;
+        samples += 1;
+      }
+    }
+
+    const edgeScore = samples ? edgeAccum / samples : 0;
+    const avgBrightness = samples ? brightnessAccum / samples : 0;
+    const brightnessPenalty = Math.abs(avgBrightness - 128) / 1.28;
+    const qualityScore = clamp(Math.round((edgeScore * 1.8) + ((100 - brightnessPenalty) * 0.35)), 15, 99);
+    const isBlurry = edgeScore < 24;
+    const blurScore = clamp(Math.round((24 - edgeScore) * 4.5), 0, 100);
+
+    const enhancedCanvas = document.createElement('canvas');
+    enhancedCanvas.width = targetWidth;
+    enhancedCanvas.height = targetHeight;
+    const enhancedCtx = enhancedCanvas.getContext('2d');
+    if (enhancedCtx) {
+      enhancedCtx.filter = 'brightness(1.07) contrast(1.1) saturate(1.08)';
+      enhancedCtx.drawImage(image, 0, 0, targetWidth, targetHeight);
+    }
+
+    return {
+      width: targetWidth,
+      height: targetHeight,
+      qualityScore,
+      blurScore,
+      isBlurry,
+      edgeScore: Number(edgeScore.toFixed(2)),
+      avgBrightness: Number(avgBrightness.toFixed(2)),
+      enhancedPreviewUrl: enhancedCanvas.toDataURL('image/jpeg', 0.86),
+    };
+  };
 
   const getTrustModel = (values) => {
     const propertyDocuments = listFileNames(documentsInput?.files);
@@ -263,6 +397,7 @@
       virtualTourSlot: get('virtualTourSlot'),
       liveVisitSlot: get('liveVisitSlot'),
       virtualTourOption: get('virtualTourOption'),
+      virtualTour360Link: get('virtualTour360Link'),
       liveVideoVisitSlot: get('liveVideoVisitSlot'),
       ownerAadhaarPanStatus: get('ownerAadhaarPanStatus'),
       addressVerificationStatus: get('addressVerificationStatus'),
@@ -273,15 +408,78 @@
     };
   };
 
-  const createPhotoPreview = () => {
+  const createPhotoPreview = async () => {
     if (!photoPreview || !photosInput) return;
+    const files = Array.from(photosInput.files || []);
     photoPreview.innerHTML = '';
-    Array.from(photosInput.files || []).forEach((file) => {
-      const image = document.createElement('img');
-      image.src = URL.createObjectURL(file);
-      image.alt = file.name;
-      photoPreview.appendChild(image);
-    });
+    photoQualityAudit = [];
+
+    if (!files.length) {
+      renderPhotoAiAudit();
+      return;
+    }
+
+    for (const file of files) {
+      const card = document.createElement('article');
+      card.className = 'media-card';
+
+      const compare = document.createElement('div');
+      compare.className = 'media-compare';
+
+      const originalImage = document.createElement('img');
+      originalImage.alt = `${file.name} original`;
+      originalImage.src = URL.createObjectURL(file);
+      compare.appendChild(originalImage);
+
+      const enhancedImage = document.createElement('img');
+      enhancedImage.alt = `${file.name} enhanced`;
+
+      let quality = {
+        width: 0,
+        height: 0,
+        qualityScore: 0,
+        blurScore: 0,
+        isBlurry: false,
+        edgeScore: 0,
+        avgBrightness: 0,
+        enhancedPreviewUrl: originalImage.src,
+      };
+
+      try {
+        quality = await analyzePhotoQuality(file);
+      } catch {
+        quality.enhancedPreviewUrl = originalImage.src;
+      }
+
+      enhancedImage.src = quality.enhancedPreviewUrl;
+      compare.appendChild(enhancedImage);
+      card.appendChild(compare);
+
+      const blurTag = document.createElement('span');
+      blurTag.className = `tag ${quality.isBlurry ? 'warn' : 'ok'}`;
+      blurTag.textContent = quality.isBlurry ? 'Blurry Detected' : 'Clear Photo';
+      card.appendChild(blurTag);
+
+      const meta = document.createElement('div');
+      meta.className = 'media-meta';
+      meta.textContent = `${file.name} | ${fileSizeLabel(file.size)} | Q:${quality.qualityScore} | Blur:${quality.blurScore}`;
+      card.appendChild(meta);
+      photoPreview.appendChild(card);
+
+      photoQualityAudit.push({
+        fileName: file.name,
+        sizeBytes: file.size,
+        dimensions: `${quality.width}x${quality.height}`,
+        qualityScore: quality.qualityScore,
+        blurScore: quality.blurScore,
+        isBlurry: quality.isBlurry,
+        edgeScore: quality.edgeScore,
+        avgBrightness: quality.avgBrightness,
+        aiAutoEnhanced: true,
+      });
+    }
+
+    renderPhotoAiAudit();
   };
 
   const createVideoPreview = async () => {
@@ -457,9 +655,18 @@
         photosCount: photoCount,
         videoUploaded: Boolean(videoInput?.files?.[0]),
         videoDurationSec: Math.round(videoDurationSeconds || 0),
+        shortVideoRuleSec: '30-60',
         photoNames: listFileNames(photosInput?.files),
         videoName: listFileNames(videoInput?.files)[0] || null,
         floorPlanName: listFileNames(document.getElementById('floorPlan')?.files)[0] || null,
+        has360VirtualTour: Boolean(values.virtualTour360Link),
+        photoQualityAudit,
+        blurryPhotosDetected: photoQualityAudit.filter((item) => item.isBlurry).length,
+        aiPhotoEnhancement: {
+          enabled: true,
+          mode: 'auto-brightness-contrast-saturation',
+          blurryImageDetection: true,
+        },
       },
       privateDocs: {
         propertyDocuments: trustModel.propertyDocuments,
@@ -480,13 +687,16 @@
       },
       virtualTour: {
         slot: values.virtualTourSlot || null,
+        option: values.virtualTourOption || '360 Walkthrough',
+        virtualTour360Link: values.virtualTour360Link || null,
       },
       visitBooking: {
         preferredSlot: values.liveVisitSlot || null,
       },
       videoVisit: {
+        sellerVideoShortFormat: videoDurationSeconds >= 30 && videoDurationSeconds <= 60,
         sellerVideoMin30Sec: videoDurationSeconds >= 30,
-        enabled: Boolean(videoInput?.files?.[0]) && videoDurationSeconds >= 30,
+        enabled: Boolean(videoInput?.files?.[0]) && videoDurationSeconds >= 30 && videoDurationSeconds <= 60,
         virtualTourOption: values.virtualTourOption || '360 Walkthrough',
         virtualTourSlot: values.virtualTourSlot || null,
         liveVideoVisitSlot: values.liveVideoVisitSlot || values.liveVisitSlot || null,
@@ -521,17 +731,22 @@
     el?.addEventListener('change', renderTrustModelPreview);
     el?.addEventListener('input', renderTrustModelPreview);
   });
+  [documentsInput, ownerIdProofInput, addressProofInput, floorPlanInput].forEach((el) => {
+    el?.addEventListener('change', renderPrivateDocsStatus);
+    el?.addEventListener('input', renderPrivateDocsStatus);
+  });
 
   if (photosInput) {
     photosInput.addEventListener('change', () => {
       const count = photosInput.files.length;
       if (count > 15) {
         photosInput.value = '';
-        createPhotoPreview();
+        photoQualityAudit = [];
+        void createPhotoPreview();
         showStatus('Max 15 photos allowed.', false);
         return;
       }
-      createPhotoPreview();
+      void createPhotoPreview();
       showStatus(count < 5 ? 'Please upload minimum 5 photos.' : `Great! ${count} photos selected.`, count >= 5);
       renderTrustModelPreview();
     });
@@ -546,6 +761,11 @@
   saveDraftBtn?.addEventListener('click', saveDraft);
   getPriceSuggestionBtn?.addEventListener('click', getSmartPricing);
   generateAiDescriptionBtn?.addEventListener('click', generateAiDescription);
+  virtualTour360Input?.addEventListener('input', () => {
+    if (text(virtualTour360Input.value)) {
+      showStatus('360° virtual tour link attached.', true);
+    }
+  });
 
   clearDraftBtn?.addEventListener('click', () => {
     localStorage.removeItem(DRAFT_KEY);
@@ -553,6 +773,7 @@
     if (photoPreview) photoPreview.innerHTML = '';
     if (videoPreview) videoPreview.innerHTML = '';
     videoDurationSeconds = 0;
+    photoQualityAudit = [];
     if (payloadPreview) payloadPreview.textContent = 'No submission yet.';
     showStatus('Draft cleared.', true);
     pushNotification(
@@ -562,6 +783,8 @@
       'info',
     );
     forceUdaipurCity();
+    renderPhotoAiAudit();
+    renderPrivateDocsStatus();
     renderVideoVisitStatus();
     renderTrustModelPreview();
   });
@@ -574,18 +797,24 @@
       showStatus('Submission failed: Minimum 5 photos required.', false);
       return;
     }
+    await createPhotoPreview();
 
     const hasVideo = Boolean(videoInput?.files?.[0]);
     if (!hasVideo) {
-      showStatus('Submission failed: Seller 30 sec property video required for Video Visit feature.', false);
+      showStatus('Submission failed: 1 short video required (30-60 sec).', false);
       renderVideoVisitStatus();
       return;
     }
     if (!videoDurationSeconds) {
       await createVideoPreview();
     }
-    if (videoDurationSeconds < 30) {
-      showStatus(`Submission failed: Video ${Math.round(videoDurationSeconds || 0)} sec hai. Minimum 30 sec required.`, false);
+    if (videoDurationSeconds < 30 || videoDurationSeconds > 60) {
+      showStatus(
+        videoDurationSeconds > 60
+          ? `Submission failed: Video ${Math.round(videoDurationSeconds)} sec hai. Maximum 60 sec allowed.`
+          : `Submission failed: Video ${Math.round(videoDurationSeconds || 0)} sec hai. Minimum 30 sec required.`,
+        false
+      );
       renderVideoVisitStatus();
       return;
     }
@@ -634,14 +863,19 @@
     if (photoPreview) photoPreview.innerHTML = '';
     if (videoPreview) videoPreview.innerHTML = '';
     videoDurationSeconds = 0;
+    photoQualityAudit = [];
     localStorage.removeItem(DRAFT_KEY);
     forceUdaipurCity();
+    renderPhotoAiAudit();
+    renderPrivateDocsStatus();
     renderVideoVisitStatus();
     renderTrustModelPreview();
   });
 
   forceUdaipurCity();
   loadDraft();
+  renderPhotoAiAudit();
+  renderPrivateDocsStatus();
   renderVideoVisitStatus();
   renderTrustModelPreview();
 

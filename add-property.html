@@ -18,6 +18,14 @@
     .preview-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .preview-grid img { width: 92px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #d6e2fb; }
     .preview-grid video { width: 180px; border-radius: 8px; border: 1px solid #d6e2fb; }
+    .media-card { display: grid; gap: 8px; background: #f7fbff; border: 1px solid #d6e8fb; border-radius: 10px; padding: 8px; width: 210px; }
+    .media-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .media-compare img { width: 100%; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #cfe0f5; }
+    .media-meta { font-size: 0.8rem; color: #24466c; line-height: 1.35; }
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; }
+    .tag.ok { background: #e9f8ee; color: #1b6d2c; border: 1px solid #b9e6c4; }
+    .tag.warn { background: #fff4e8; color: #8d4f14; border: 1px solid #f0d2b4; }
+    .mini-payload { background: #f7faff; border: 1px solid #d9e6ff; border-radius: 8px; padding: 10px; font-size: 0.8rem; overflow: auto; max-height: 190px; margin-top: 8px; }
     .actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .btn { border: none; background: #0b2f6b; color: #fff; padding: 11px 16px; border-radius: 8px; cursor: pointer; font-weight: 700; }
     .btn.alt { background: #eff4ff; color: #17355e; border: 1px solid #cdd9f3; }
@@ -103,11 +111,21 @@
           <h2>Media & Verification Upload</h2>
           <div class="form-grid">
             <div class="form-group full"><label for="photos">Property Photos * (Minimum 5)</label><input id="photos" type="file" accept="image/*" multiple required /><div id="photoPreview" class="preview-grid"></div></div>
-            <div class="form-group"><label for="video">Video Tour (30-60 sec)</label><input id="video" type="file" accept="video/*" /><div id="videoPreview" class="preview-grid"></div><div id="videoVisitStatus" class="status-box">Upload seller video (minimum 30 sec) to enable virtual + live video visit.</div></div>
+            <div class="form-group"><label for="video">Video Tour (30-60 sec)</label><input id="video" type="file" accept="video/*" /><div id="videoPreview" class="preview-grid"></div><div id="videoVisitStatus" class="status-box">Upload 1 short video (30-60 sec) to enable virtual + live video visit.</div></div>
+            <div class="form-group"><label for="virtualTour360Link">360° Virtual Tour Link (Optional)</label><input id="virtualTour360Link" type="url" placeholder="https://..." /></div>
             <div class="form-group"><label for="floorPlan">Floor Plan</label><input id="floorPlan" type="file" accept="image/*,.pdf" /></div>
             <div class="form-group"><label for="documents">Property Documents (Private)</label><input id="documents" type="file" accept=".pdf,image/*" multiple /></div>
             <div class="form-group"><label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label><input id="ownerIdProof" type="file" accept=".pdf,image/*" /></div>
             <div class="form-group"><label for="addressProof">Address Proof (Private)</label><input id="addressProof" type="file" accept=".pdf,image/*" /></div>
+            <div class="form-group full">
+              <label>AI Photo Quality Assistant (Live)</label>
+              <div id="photoAiStatus" class="status-box">Upload photos to run AI auto-enhancement + blurry-image detection.</div>
+              <pre id="photoAiAudit" class="mini-payload">No AI audit yet.</pre>
+            </div>
+            <div class="form-group full">
+              <label>Private Documents Status</label>
+              <div id="privateDocsStatus" class="status-box">Private documents upload ready: property docs, owner KYC, address proof.</div>
+            </div>
           </div>
         </section>
 

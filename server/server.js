@@ -372,8 +372,15 @@ app.post("/api/properties", auth, async (req, res) => {
     createdAt: now(),
     updatedAt: now(),
   };
+  const media = property.media || {};
+  const photosCount = num(media.photosCount, 0);
+  const hasVideoUpload = !!media.videoUploaded;
+  const videoDurationSec = num(media.videoDurationSec, 0);
   if (!isUdaipur(property.city)) return res.status(400).json({ ok: false, message: "Only Udaipur listings are allowed." });
   if (!property.title || !property.location || property.price <= 0) return res.status(400).json({ ok: false, message: "Title, location and valid price required." });
+  if (photosCount < 5) return res.status(400).json({ ok: false, message: "Minimum 5 photos required for listing." });
+  if (!hasVideoUpload) return res.status(400).json({ ok: false, message: "One short property video is required (30-60 sec)." });
+  if (videoDurationSec < 30 || videoDurationSec > 60) return res.status(400).json({ ok: false, message: "Video duration must be between 30 and 60 seconds." });
   db.properties.unshift(property);
   db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Listing Approval Required", `${property.title} submitted by ${owner.name}.`, "approval"));
   await save();
