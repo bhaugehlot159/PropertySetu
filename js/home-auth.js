@@ -20,6 +20,7 @@
   const authOtpInput = document.getElementById('authOtpInput');
   const authErrorMessage = document.getElementById('authErrorMessage');
   const authCancelButton = document.getElementById('authCancelButton');
+  const authRequestOtpButton = document.getElementById('authRequestOtpButton');
   const authSubmitButton = document.getElementById('authSubmitButton');
   const authLoginTab = document.getElementById('authLoginTab');
   const authSignupTab = document.getElementById('authSignupTab');
@@ -153,7 +154,7 @@
     const users = getStoredUsers(role);
     const user = findStoredUser(users, payload.email, payload.mobile);
     if (!user) throw new Error('Account nahi mila. Signup kijiye.');
-    if (user.password !== payload.password) throw new Error('Password galat hai.');
+    if (payload.password && user.password !== payload.password) throw new Error('Password galat hai.');
     return {
       user: shapeUser(user, role),
       token: `local-${role}-${Date.now()}`,
@@ -202,6 +203,51 @@
     authSignupTab?.classList.toggle('active', authAction === 'signup');
     if (authSubmitButton) authSubmitButton.textContent = authAction === 'signup' ? 'Create Account' : 'Login';
     if (authNameInput) authNameInput.style.display = authAction === 'signup' ? 'block' : 'none';
+    if (authPasswordInput) {
+      authPasswordInput.placeholder = authAction === 'signup'
+        ? 'Password (min 6 chars)'
+        : 'Password (optional for OTP login)';
+    }
+    if (authRequestOtpButton) authRequestOtpButton.style.display = authAction === 'login' ? 'inline-flex' : 'none';
+  };
+
+  const requestOtp = async () => {
+    const email = normalizeEmail(authEmailInput?.value);
+    const mobile = normalizeMobile(authMobileInput?.value);
+    setAuthError('');
+    if (authAction !== 'login') {
+      setAuthError('OTP request login mode me available hai.');
+      return;
+    }
+    if (!email && !mobile) {
+      setAuthError('OTP bhejne ke liye email ya mobile enter kijiye.');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setAuthError('Valid email enter kijiye.');
+      return;
+    }
+    if (mobile && mobile.length < 10) {
+      setAuthError('Valid mobile number enter kijiye.');
+      return;
+    }
+
+    try {
+      const response = await apiRequest('/auth/request-otp', {
+        role: authMode,
+        email,
+        mobile,
+      });
+      if (authOtpInput) authOtpInput.value = response?.otpHint || OTP_CODE;
+      setAuthError(response?.message || `OTP sent (demo OTP: ${OTP_CODE})`);
+    } catch (error) {
+      if (shouldFallbackToLocal(error)) {
+        if (authOtpInput) authOtpInput.value = OTP_CODE;
+        setAuthError(`Live OTP unavailable. Demo OTP ${OTP_CODE} use karein.`);
+        return;
+      }
+      setAuthError(error.message || 'OTP request failed.');
+    }
   };
 
   const updateFeatureVisibility = () => {
@@ -296,7 +342,8 @@
     if (!isValidEmail(email)) return setAuthError('Valid email enter kijiye.');
     if (mobile && mobile.length < 10) return setAuthError('Valid mobile number enter kijiye.');
     if (authAction === 'signup' && !name) return setAuthError('Signup ke liye full name required hai.');
-    if (password.length < 6) return setAuthError('Password minimum 6 characters hona chahiye.');
+    if (authAction === 'signup' && password.length < 6) return setAuthError('Password minimum 6 characters hona chahiye.');
+    if (authAction === 'login' && password && password.length < 6) return setAuthError('Password blank rakhein ya minimum 6 characters rakhein.');
     if (otp !== OTP_CODE) return setAuthError(`OTP ${OTP_CODE} enter kijiye.`);
 
     const payload = { name, email, mobile, password, otp, role: authMode };
@@ -372,6 +419,7 @@
   });
 
   authCancelButton?.addEventListener('click', closeAuthModal);
+  authRequestOtpButton?.addEventListener('click', requestOtp);
   authSubmitButton?.addEventListener('click', doAuthFlow);
   authLoginTab?.addEventListener('click', () => setAuthAction('login'));
   authSignupTab?.addEventListener('click', () => setAuthAction('signup'));

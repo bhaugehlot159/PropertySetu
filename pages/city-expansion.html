@@ -92,6 +92,12 @@
       </section>
 
       <section class="panel">
+        <h3>Live City Structure (API-linked)</h3>
+        <p id="cityStructureLiveStatus">Loading live city structure...</p>
+        <div id="cityStructureLiveGrid" class="grid"></div>
+      </section>
+
+      <section class="panel">
         <h3>Expansion Technical Model</h3>
         <ul>
           <li>Route pattern: `/city-slug` + city-specific config bundle</li>
@@ -102,6 +108,55 @@
       </section>
     </div>
   </main>
+<script src="../js/live-api.js"></script>
+<script>
+(() => {
+  const live = window.PropertySetuLive || {};
+  const statusEl = document.getElementById('cityStructureLiveStatus');
+  const gridEl = document.getElementById('cityStructureLiveGrid');
+
+  const fallback = {
+    live: { city: 'Udaipur', route: 'PropertySetu.in/udaipur', status: 'live' },
+    future: [
+      { city: 'Jaipur', route: 'PropertySetu.in/jaipur', status: 'future-ready' },
+      { city: 'Jodhpur', route: 'PropertySetu.in/jodhpur', status: 'future-ready' },
+      { city: 'Ahmedabad', route: 'PropertySetu.in/ahmedabad', status: 'future-ready' },
+      { city: 'Delhi', route: 'PropertySetu.in/delhi', status: 'future-ready' },
+    ],
+  };
+
+  const render = (data) => {
+    const liveCity = data?.live || fallback.live;
+    const futureCities = Array.isArray(data?.future) ? data.future : fallback.future;
+    const cards = [liveCity, ...futureCities].map((item) => `
+      <article class="city">
+        <h2>${item.city} <span class="status ${String(item.status).toLowerCase() === 'live' ? 'live' : 'future'}">${String(item.status).toUpperCase()}</span></h2>
+        <p>${String(item.status).toLowerCase() === 'live' ? 'Live active city module with full workflow.' : 'Future city route and module structure prepared.'}</p>
+        <div class="url">${item.route}</div>
+      </article>
+    `);
+    if (gridEl) gridEl.innerHTML = cards.join('');
+    if (statusEl) statusEl.textContent = 'Live API city structure loaded successfully.';
+  };
+
+  const load = async () => {
+    if (!live.request) {
+      render(fallback);
+      if (statusEl) statusEl.textContent = 'Live API unavailable. Showing fallback city structure.';
+      return;
+    }
+    try {
+      const response = await live.request('/cities/structure');
+      render(response);
+    } catch {
+      render(fallback);
+      if (statusEl) statusEl.textContent = 'Live API failed. Showing fallback city structure.';
+    }
+  };
+
+  load();
+})();
+</script>
 <script src="../js/folder-command-dock.js"></script>
 </body>
 </html>

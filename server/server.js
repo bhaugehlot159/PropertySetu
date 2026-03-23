@@ -88,6 +88,7 @@ const defaults = () => ({
   tokenPayments: [],
   insuranceTieups: [],
   tenantDamageRequests: [],
+  ownerVerificationRequests: [],
   callMaskRequests: [],
   notifications: [],
   adminConfig: {
@@ -98,7 +99,7 @@ const defaults = () => ({
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
     { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
   ],
-  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, tenantDamage: 1, agentReview: 1, callMask: 1 },
+  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, tenantDamage: 1, ownerVerification: 1, otp: 1, agentReview: 1, callMask: 1 },
 });
 
 let db = defaults();
@@ -117,11 +118,57 @@ const role = (v) => {
 const now = () => new Date().toISOString();
 const safeArr = (v) => (Array.isArray(v) ? v : []);
 const isUdaipur = (city) => txt(city || "Udaipur").toLowerCase().includes("udaipur");
-const userSafe = (u) => ({ id: u.id, name: u.name, email: u.email || "", mobile: u.mobile || "", role: u.role, verified: !!u.verified, subscriptionPlan: u.subscriptionPlan || "free-basic" });
+const maskRef = (value) => {
+  const raw = txt(value);
+  if (!raw) return "";
+  if (raw.length <= 4) return "*".repeat(raw.length);
+  return `${raw.slice(0, 2)}${"*".repeat(Math.max(2, raw.length - 4))}${raw.slice(-2)}`;
+};
+const toCitySlug = (name) => txt(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const expansionPriorityCities = ["Udaipur", "Jaipur", "Jodhpur", "Ahmedabad", "Delhi"];
+const ownerVerificationMeta = (u) => ({
+  ownerVerified: !!u?.ownerVerified,
+  ownerVerificationStatus: txt(u?.ownerVerificationStatus || "Not Submitted"),
+  ownerVerificationUpdatedAt: u?.ownerVerificationUpdatedAt || null,
+});
+const userSafe = (u) => ({
+  id: u.id,
+  name: u.name,
+  email: u.email || "",
+  mobile: u.mobile || "",
+  role: u.role,
+  verified: !!u.verified,
+  subscriptionPlan: u.subscriptionPlan || "free-basic",
+  ...ownerVerificationMeta(u),
+});
 const blocked = (u) => !!u?.blocked;
 const directPhonePattern = /\+?\d[\d\s\-()]{8,}\d/;
 const directEmailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const hasDirectContact = (message) => directPhonePattern.test(message) || directEmailPattern.test(message);
+const getCityStructure = () => {
+  const configured = safeArr(db?.adminConfig?.cities).map((city) => txt(city)).filter(Boolean);
+  const unique = [...new Set([...expansionPriorityCities, ...configured])];
+  const mapped = unique.map((cityName) => ({
+    city: cityName,
+    slug: toCitySlug(cityName),
+    route: `PropertySetu.in/${toCitySlug(cityName)}`,
+    status: cityName.toLowerCase() === "udaipur" ? "live" : "future-ready",
+  }));
+  const live = mapped.find((item) => item.city.toLowerCase() === "udaipur") || mapped[0] || {
+    city: "Udaipur",
+    slug: "udaipur",
+    route: "PropertySetu.in/udaipur",
+    status: "live",
+  };
+  const future = mapped.filter((item) => item.city.toLowerCase() !== live.city.toLowerCase());
+  return {
+    baseDomain: "PropertySetu.in",
+    live,
+    future,
+    routePattern: "PropertySetu.in/{city-slug}",
+    mandatoryStructure: expansionPriorityCities.map((cityName) => `PropertySetu.in/${toCitySlug(cityName)}`),
+  };
+};
 
 const nextId = (k) => {
   db.counters[k] = num(db.counters[k], 0) + 1;
@@ -173,6 +220,7 @@ const load = async () => {
       tokenPayments: safeArr(raw.tokenPayments),
       insuranceTieups: safeArr(raw.insuranceTieups),
       tenantDamageRequests: safeArr(raw.tenantDamageRequests),
+      ownerVerificationRequests: safeArr(raw.ownerVerificationRequests),
       callMaskRequests: safeArr(raw.callMaskRequests),
       notifications: safeArr(raw.notifications),
       adminConfig: {
@@ -230,7 +278,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(webRoot));
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "reports", "admin-config", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "otp-login", "owner-verification", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "reports", "admin-config", "city-structure", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -248,11 +296,54 @@ app.post("/api/auth/register", async (req, res) => {
   if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
   const exists = db.users.find((u) => u.role === r && ((e && u.email === e) || (m && u.mobile === m)));
   if (exists) return res.status(409).json({ ok: false, message: "Account already exists. Please login." });
-  const u = { id: nextId("user"), role: r, name: n, email: e || "", mobile: m || "", passwordHash: await bcrypt.hash(p, 10), verified: true, subscriptionPlan: "free-basic", createdAt: now(), updatedAt: now(), lastLoginAt: null };
+  const u = {
+    id: nextId("user"),
+    role: r,
+    name: n,
+    email: e || "",
+    mobile: m || "",
+    passwordHash: await bcrypt.hash(p, 10),
+    verified: true,
+    ownerVerified: false,
+    ownerVerificationStatus: "Not Submitted",
+    ownerVerificationUpdatedAt: null,
+    subscriptionPlan: "free-basic",
+    createdAt: now(),
+    updatedAt: now(),
+    lastLoginAt: null,
+  };
   db.users.push(u);
   pushNoti(u.id, "Welcome to PropertySetu", "Your account is ready.", "auth");
   await save();
   res.status(201).json({ ok: true, token: sign(u), user: userSafe(u) });
+});
+
+app.post("/api/auth/request-otp", async (req, res) => {
+  const r = role(req.body?.role);
+  const e = email(req.body?.email);
+  const m = phone(req.body?.mobile);
+  if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
+  const cred = m || e;
+  const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
+  if (!u) return res.status(404).json({ ok: false, message: "User not found for OTP login." });
+  const record = {
+    id: nextId("otp"),
+    kind: "auth-otp-request",
+    userId: u.id,
+    role: r,
+    channel: m ? "mobile" : "email",
+    destination: m ? `${m.slice(0, 2)}******${m.slice(-2)}` : `${e.slice(0, 2)}***`,
+    status: "sent",
+    createdAt: now(),
+  };
+  db.ownerVerificationRequests.unshift(record);
+  await save();
+  res.json({
+    ok: true,
+    message: `OTP sent successfully (demo OTP: ${OTP}).`,
+    otpHint: OTP,
+    challengeId: record.id,
+  });
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -262,12 +353,13 @@ app.post("/api/auth/login", async (req, res) => {
   const p = String(req.body?.password || "");
   const o = String(req.body?.otp || "");
   if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
-  if (!p) return res.status(400).json({ ok: false, message: "Password required." });
   if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
   const cred = m || e;
   const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
   if (!u) return res.status(404).json({ ok: false, message: "User not found. Please signup first." });
-  if (!(await bcrypt.compare(p, u.passwordHash))) return res.status(401).json({ ok: false, message: "Invalid credentials." });
+  if (p) {
+    if (!(await bcrypt.compare(p, u.passwordHash))) return res.status(401).json({ ok: false, message: "Invalid credentials." });
+  }
   u.lastLoginAt = now();
   u.updatedAt = now();
   await save();
@@ -279,6 +371,73 @@ app.get("/api/auth/me", auth, (req, res) => {
   const u = userById(req.user.id);
   if (!u) return res.status(404).json({ ok: false, message: "User not found." });
   res.json({ ok: true, user: userSafe(u) });
+});
+
+app.post("/api/owner-verification/request", auth, async (req, res) => {
+  const user = userById(req.user.id);
+  if (!user) return res.status(404).json({ ok: false, message: "User not found for session." });
+  const propertyId = txt(req.body?.propertyId);
+  const property = propertyId ? db.properties.find((item) => item.id === propertyId) : null;
+  if (propertyId && !property) return res.status(404).json({ ok: false, message: "Property not found for owner verification." });
+  if (property && req.user.role !== "admin" && property.ownerId !== req.user.id) {
+    return res.status(403).json({ ok: false, message: "You can submit verification only for your own property." });
+  }
+
+  const ownerAadhaarPanStatus = txt(req.body?.ownerAadhaarPanStatus || "Submitted");
+  const addressVerificationStatus = txt(req.body?.addressVerificationStatus || "Submitted");
+  const ownerAadhaarPanRef = txt(req.body?.ownerAadhaarPanRef || req.body?.ownerKycRef);
+  const addressVerificationRef = txt(req.body?.addressVerificationRef || req.body?.propertyAddressRef);
+  const privateDocsUploaded = !!req.body?.privateDocsUploaded;
+  const record = {
+    id: nextId("ownerVerification"),
+    kind: "owner-verification",
+    userId: user.id,
+    userName: user.name,
+    role: user.role,
+    propertyId: property?.id || null,
+    propertyTitle: property?.title || null,
+    ownerAadhaarPanStatus,
+    addressVerificationStatus,
+    ownerAadhaarPanRefMasked: maskRef(ownerAadhaarPanRef),
+    addressVerificationRefMasked: maskRef(addressVerificationRef),
+    privateDocsUploaded,
+    status: "Pending Review",
+    note: txt(req.body?.note || req.body?.verificationOfficerNote),
+    createdAt: now(),
+    updatedAt: now(),
+  };
+
+  db.ownerVerificationRequests.unshift(record);
+  user.ownerVerified = false;
+  user.ownerVerificationStatus = "Pending Review";
+  user.ownerVerificationUpdatedAt = now();
+  user.updatedAt = now();
+
+  if (property) {
+    property.verification = {
+      ...(property.verification || {}),
+      ownerAadhaarPanStatus,
+      addressVerificationStatus,
+      badgeEligible: false,
+    };
+    property.updatedAt = now();
+  }
+
+  pushNoti(user.id, "Owner Verification Submitted", "Your Aadhaar/PAN + address verification request is under review.", "verification");
+  db.users
+    .filter((item) => item.role === "admin")
+    .forEach((adminUser) => pushNoti(adminUser.id, "Owner Verification Review Needed", `${user.name} submitted owner verification request.`, "verification"));
+  await save();
+  res.status(201).json({ ok: true, request: record, user: userSafe(user) });
+});
+
+app.get("/api/owner-verification/me", auth, (req, res) => {
+  const user = userById(req.user.id);
+  if (!user) return res.status(404).json({ ok: false, message: "User not found." });
+  const items = db.ownerVerificationRequests
+    .filter((item) => item.kind === "owner-verification" && item.userId === req.user.id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, user: userSafe(user), items });
 });
 
 app.get("/api/search/suggestions", (req, res) => {
@@ -488,7 +647,27 @@ app.get("/api/admin/properties", auth, admin, (req, res) => {
   res.json({ ok: true, total: items.length, items });
 });
 
-app.get("/api/admin/overview", auth, admin, (_req, res) => res.json({ ok: true, overview: { users: db.users.length, blockedUsers: db.users.filter((u) => !!u.blocked).length, pending: db.properties.filter((p) => p.status === "Pending Approval").length, approved: db.properties.filter((p) => p.status === "Approved").length, featured: db.properties.filter((p) => p.featured).length, careRequests: db.careRequests.length, legalRequests: db.legalRequests.length, reports: db.reports.length, activeSubs: db.subscriptions.filter((s) => s.status === "active").length, totalBids: db.bids.length } }));
+app.get("/api/admin/overview", auth, admin, (_req, res) => res.json({
+  ok: true,
+  overview: {
+    users: db.users.length,
+    blockedUsers: db.users.filter((u) => !!u.blocked).length,
+    pending: db.properties.filter((p) => p.status === "Pending Approval").length,
+    approved: db.properties.filter((p) => p.status === "Approved").length,
+    featured: db.properties.filter((p) => p.featured).length,
+    ownerVerificationPending: db.ownerVerificationRequests.filter((item) => item.kind === "owner-verification" && txt(item.status).toLowerCase() === "pending review").length,
+    careRequests: db.careRequests.length,
+    legalRequests: db.legalRequests.length,
+    reports: db.reports.length,
+    activeSubs: db.subscriptions.filter((s) => s.status === "active").length,
+    totalBids: db.bids.length,
+  },
+}));
+
+app.get("/api/cities/structure", (_req, res) => {
+  const structure = getCityStructure();
+  res.json({ ok: true, ...structure });
+});
 
 app.get("/api/admin/config", auth, admin, (_req, res) => res.json({ ok: true, config: db.adminConfig }));
 app.get("/api/admin/config/categories", auth, admin, (_req, res) => res.json({ ok: true, items: db.adminConfig.categories }));
@@ -507,6 +686,68 @@ app.post("/api/admin/config/cities", auth, admin, async (req, res) => {
   if (!db.adminConfig.cities.some((x) => x.toLowerCase() === city.toLowerCase())) db.adminConfig.cities.push(city);
   await save();
   res.json({ ok: true, items: db.adminConfig.cities });
+});
+
+app.get("/api/admin/owner-verification", auth, admin, (req, res) => {
+  const statusFilter = txt(req.query.status).toLowerCase();
+  let items = db.ownerVerificationRequests.filter((item) => item.kind === "owner-verification");
+  if (statusFilter) items = items.filter((item) => txt(item.status).toLowerCase() === statusFilter);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+app.post("/api/admin/owner-verification/:id/decision", auth, admin, async (req, res) => {
+  const requestItem = db.ownerVerificationRequests.find((item) => item.id === req.params.id && item.kind === "owner-verification");
+  if (!requestItem) return res.status(404).json({ ok: false, message: "Owner verification request not found." });
+  const action = txt(req.body?.status || req.body?.action).toLowerCase();
+  const mappedStatus = ({
+    verify: "Verified",
+    verified: "Verified",
+    approve: "Verified",
+    approved: "Verified",
+    reject: "Rejected",
+    rejected: "Rejected",
+    "needs-info": "Needs Info",
+    needsinfo: "Needs Info",
+    pending: "Pending Review",
+  })[action];
+  if (!mappedStatus) {
+    return res.status(400).json({ ok: false, message: "Valid decision required: verified/rejected/needs-info/pending." });
+  }
+
+  requestItem.status = mappedStatus;
+  requestItem.reviewedBy = req.user.id;
+  requestItem.reviewedByName = req.user.name;
+  requestItem.reviewNote = txt(req.body?.note);
+  requestItem.updatedAt = now();
+
+  const user = userById(requestItem.userId);
+  if (user) {
+    user.ownerVerified = mappedStatus === "Verified";
+    user.ownerVerificationStatus = mappedStatus;
+    user.ownerVerificationUpdatedAt = now();
+    user.updatedAt = now();
+    pushNoti(user.id, "Owner Verification Update", `Your owner verification status is now: ${mappedStatus}.`, "verification");
+  }
+
+  if (requestItem.propertyId) {
+    const property = db.properties.find((item) => item.id === requestItem.propertyId);
+    if (property) {
+      property.verification = {
+        ...(property.verification || {}),
+        ownerAadhaarPanStatus: mappedStatus === "Verified" ? "Verified" : (property.verification?.ownerAadhaarPanStatus || "Submitted"),
+        addressVerificationStatus: mappedStatus === "Verified" ? "Verified" : (property.verification?.addressVerificationStatus || "Submitted"),
+        badgeEligible: mappedStatus === "Verified" ? !!requestItem.privateDocsUploaded : false,
+      };
+      if (mappedStatus === "Verified") {
+        property.verifiedByPropertySetu = !!requestItem.privateDocsUploaded;
+        property.verified = true;
+      }
+      property.updatedAt = now();
+    }
+  }
+
+  await save();
+  res.json({ ok: true, request: requestItem, user: user ? userSafe(user) : null });
 });
 
 app.get("/api/admin/users", auth, admin, (_req, res) => {

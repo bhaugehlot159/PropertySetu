@@ -63,6 +63,10 @@ button:hover { background:#092f6d; }
       <div id="adminReportList"></div>
     </div>
   </div>
+  <div class="property-card" style="margin-top:10px;">
+    <h3>Owner Verification Queue</h3>
+    <div id="ownerVerificationQueue"></div>
+  </div>
 </div>
 
 <div class="container">
@@ -99,6 +103,7 @@ button:hover { background:#092f6d; }
   const cityList = document.getElementById('cityList');
   const adminUserList = document.getElementById('adminUserList');
   const adminReportList = document.getElementById('adminReportList');
+  const ownerVerificationQueue = document.getElementById('ownerVerificationQueue');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -222,11 +227,12 @@ button:hover { background:#092f6d; }
       return;
     }
     try {
-      const [config, users, reports, commission] = await Promise.all([
+      const [config, users, reports, commission, ownerVerifications] = await Promise.all([
         live.request('/admin/config', { token }),
         live.request('/admin/users', { token }),
         live.request('/admin/reports', { token }),
         live.request('/admin/commission-analytics', { token }),
+        live.request('/admin/owner-verification', { token }),
       ]);
 
       if (adminAnalytics) {
@@ -269,6 +275,22 @@ button:hover { background:#092f6d; }
             ${r.status !== 'resolved' ? `<button data-report-resolve="${r.id}">Resolve</button>` : ''}
           </div>
         `).join('') || '<p>No reports.</p>';
+      }
+
+      if (ownerVerificationQueue) {
+        ownerVerificationQueue.innerHTML = (ownerVerifications?.items || []).map((item) => `
+          <div style="margin-bottom:8px;border:1px solid #dbe7ff;border-radius:8px;padding:8px;">
+            <div><b>${item.userName || 'User'}</b> (${item.role || '-'}) - <span class="badge">${item.status || 'Pending Review'}</span></div>
+            <div>Property: ${item.propertyTitle || item.propertyId || 'N/A'}</div>
+            <div>Owner KYC: ${item.ownerAadhaarPanStatus || '-'} | Address: ${item.addressVerificationStatus || '-'}</div>
+            <div>Private Docs: ${item.privateDocsUploaded ? 'Uploaded' : 'Missing'}</div>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              <button data-owner-verify-id="${item.id}" data-owner-verify-action="verified">Mark Verified</button>
+              <button data-owner-verify-id="${item.id}" data-owner-verify-action="needs-info">Needs Info</button>
+              <button data-owner-verify-id="${item.id}" data-owner-verify-action="rejected">Reject</button>
+            </div>
+          </div>
+        `).join('') || '<p>No owner verification requests.</p>';
       }
     } catch (error) {
       if (adminAnalytics) adminAnalytics.textContent = `Admin controls load failed: ${error.message}`;
@@ -480,6 +502,32 @@ button:hover { background:#092f6d; }
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Resolve failed.');
+    }
+  });
+
+  ownerVerificationQueue?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const requestId = target.getAttribute('data-owner-verify-id');
+    const action = target.getAttribute('data-owner-verify-action');
+    if (!requestId || !action) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/owner-verification/${encodeURIComponent(requestId)}/decision`, {
+        method: 'POST',
+        token,
+        data: { status: action },
+      });
+      pushNotification(
+        `Admin updated owner verification ${requestId}: ${action}.`,
+        ['admin', 'customer', 'seller'],
+        'Owner Verification Updated',
+        action === 'verified' ? 'success' : 'warn',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Owner verification update failed.');
     }
   });
 

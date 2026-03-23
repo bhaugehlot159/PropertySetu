@@ -76,6 +76,8 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
   const chatInput = document.getElementById('chatInput');
   const callMaskList = document.getElementById('callMaskList');
   const refreshCallMaskBtn = document.getElementById('refreshCallMaskBtn');
+  const queryParams = new URLSearchParams(window.location.search);
+  const preselectPropertyId = String(queryParams.get('propertyId') || '').trim();
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -141,6 +143,10 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
       option.textContent = `${item.title} (${item.location})`;
       propertySelect.appendChild(option);
     });
+    if (preselectPropertyId && listings.some((item) => item.id === preselectPropertyId)) {
+      propertySelect.value = preselectPropertyId;
+      activePropertyId = preselectPropertyId;
+    }
   };
 
   const renderVisits = () => {
@@ -341,7 +347,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     renderVisits();
     renderVideoVisits();
     loadCallMasks();
-    activePropertyId = propertySelect.value;
+    if (!activePropertyId) activePropertyId = propertySelect.value;
     loadChat(activePropertyId);
   });
 })();

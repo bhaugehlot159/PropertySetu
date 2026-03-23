@@ -19,6 +19,9 @@
   const generateAiDescriptionBtn = document.getElementById('generateAiDescriptionBtn');
   const videoVisitStatus = document.getElementById('videoVisitStatus');
   const trustModelPreview = document.getElementById('trustModelPreview');
+  const submitOwnerVerificationBtn = document.getElementById('submitOwnerVerificationBtn');
+  const refreshOwnerVerificationBtn = document.getElementById('refreshOwnerVerificationBtn');
+  const ownerVerificationLiveStatus = document.getElementById('ownerVerificationLiveStatus');
   const ownerStatusSelect = document.getElementById('ownerAadhaarPanStatus');
   const addressStatusSelect = document.getElementById('addressVerificationStatus');
   const floorPlanInput = document.getElementById('floorPlan');
@@ -385,6 +388,77 @@
     if (!trustModel.docsReady) misses.push('Private documents pack');
     trustModelPreview.className = 'status-box err';
     trustModelPreview.textContent = `Verification pending: ${misses.join(', ')} required for "Verified by PropertySetu" badge.`;
+  };
+
+  const setOwnerVerificationLiveStatus = (message, ok = true) => {
+    if (!ownerVerificationLiveStatus) return;
+    ownerVerificationLiveStatus.className = `status-box ${ok ? 'ok' : 'err'}`;
+    ownerVerificationLiveStatus.textContent = message;
+  };
+
+  const loadOwnerVerificationStatus = async () => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) {
+      setOwnerVerificationLiveStatus('Owner verification status dekhne ke liye login required hai.', false);
+      return;
+    }
+    try {
+      const response = await live.request('/owner-verification/me', { token });
+      const latest = Array.isArray(response?.items) ? response.items[0] : null;
+      if (!latest) {
+        setOwnerVerificationLiveStatus('Abhi tak koi owner verification request submit nahi hui.', false);
+        return;
+      }
+      setOwnerVerificationLiveStatus(
+        `Latest owner verification: ${latest.status || 'Pending Review'} (${new Date(latest.updatedAt || latest.createdAt || Date.now()).toLocaleString()})`,
+        String(latest.status || '').toLowerCase() === 'verified'
+      );
+    } catch (error) {
+      setOwnerVerificationLiveStatus(`Owner verification status load failed: ${error.message || 'Unknown error'}`, false);
+    }
+  };
+
+  const submitOwnerVerificationRequest = async (context = {}) => {
+    const token = live.getAnyToken ? live.getAnyToken() : '';
+    if (!token || !live.request) {
+      setOwnerVerificationLiveStatus('Owner verification submit karne ke liye login required hai.', false);
+      return null;
+    }
+
+    const values = getFormValues();
+    const trustModel = getTrustModel(values);
+    if (!text(values.ownerKycRef) || !text(values.propertyAddressRef)) {
+      setOwnerVerificationLiveStatus('Owner Aadhaar/PAN Ref aur Address Verification Ref required hai.', false);
+      return null;
+    }
+
+    try {
+      const response = await live.request('/owner-verification/request', {
+        method: 'POST',
+        token,
+        data: {
+          propertyId: context?.propertyId || undefined,
+          ownerAadhaarPanStatus: values.ownerAadhaarPanStatus || 'Submitted',
+          addressVerificationStatus: values.addressVerificationStatus || 'Submitted',
+          ownerAadhaarPanRef: values.ownerKycRef,
+          addressVerificationRef: values.propertyAddressRef,
+          privateDocsUploaded: trustModel.docsReady,
+          note: values.verificationOfficerNote,
+        },
+      });
+      const reqStatus = response?.request?.status || 'Pending Review';
+      setOwnerVerificationLiveStatus(`Owner verification request submitted successfully. Status: ${reqStatus}.`, true);
+      pushNotification(
+        `Owner verification request submitted (${reqStatus}).`,
+        ['customer', 'seller', 'admin'],
+        'Owner Verification Submitted',
+        'success',
+      );
+      return response?.request || null;
+    } catch (error) {
+      setOwnerVerificationLiveStatus(`Owner verification submit failed: ${error.message || 'Unknown error'}`, false);
+      return null;
+    }
   };
 
   const forceUdaipurCity = () => {
@@ -905,6 +979,12 @@
   saveDraftBtn?.addEventListener('click', saveDraft);
   getPriceSuggestionBtn?.addEventListener('click', getSmartPricing);
   generateAiDescriptionBtn?.addEventListener('click', generateAiDescription);
+  submitOwnerVerificationBtn?.addEventListener('click', async () => {
+    await submitOwnerVerificationRequest();
+  });
+  refreshOwnerVerificationBtn?.addEventListener('click', async () => {
+    await loadOwnerVerificationStatus();
+  });
   virtualTour360Input?.addEventListener('input', () => {
     if (text(virtualTour360Input.value)) {
       showStatus('360° virtual tour link attached.', true);
@@ -983,6 +1063,9 @@
         'Listing Submitted',
         'success',
       );
+      if (payload.ownerKycRef && payload.propertyAddressRef) {
+        await submitOwnerVerificationRequest({ propertyId: liveProperty?.id || payload.id });
+      }
     } catch (error) {
       const normalized = normalizeLocalListing(payload);
       upsertLocalListing(normalized);
@@ -1027,6 +1110,7 @@
   renderPrivateDocsStatus();
   renderVideoVisitStatus();
   renderTrustModelPreview();
+  loadOwnerVerificationStatus();
 
   if (live.syncLocalListingsFromApi) {
     live.syncLocalListingsFromApi().catch(() => {
