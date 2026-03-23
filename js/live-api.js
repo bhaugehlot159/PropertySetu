@@ -179,6 +179,20 @@
     writeJson(LISTINGS_KEY, merged);
     return merged;
   };
+  const ai = {
+    pricingSuggestion: async (payload = {}) => request('/ai/pricing-suggestion', { method: 'POST', data: payload }),
+    descriptionGenerate: async (payload = {}) => request('/ai/description-generate', { method: 'POST', data: payload }),
+    fraudScan: async (payload = {}) => request('/ai/fraud-scan', { method: 'POST', data: payload }),
+    marketTrend: async (locality = 'Udaipur') => request(`/ai/market-trend?locality=${encodeURIComponent(locality)}`),
+    recommendations: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/ai/recommendations?${params.toString()}`);
+    },
+  };
 
   window.PropertySetuLive = {
     API_BASE,
@@ -199,5 +213,6 @@
     normalizeApiListing,
     mergeById,
     syncLocalListingsFromApi,
+    ai,
   };
 })();

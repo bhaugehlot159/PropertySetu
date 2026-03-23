@@ -822,7 +822,8 @@ textarea:focus {
 }
 
 .feature-link.locked {
-  opacity: 0.48;
+  opacity: 0.82;
+  color: #4f6c85;
   pointer-events: none;
   text-decoration: line-through;
 }

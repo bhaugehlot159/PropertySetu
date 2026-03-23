@@ -22,6 +22,7 @@ const hasFrontendRoot = fs.existsSync(frontendRoot);
 const activeWebRoot = hasFrontendRoot ? frontendRoot : webRoot;
 const dbDir = path.join(webRoot, "database");
 const dbFile = path.join(dbDir, "live-data.json");
+const uploadsRoot = path.join(webRoot, "uploads");
 const liveRouteMap = [
   { path: "/", file: "index.html", feature: "homepage", live: true },
   { path: "/udaipur", file: "index.html", feature: "city-live", live: true },
@@ -33,6 +34,7 @@ const liveRouteMap = [
   { path: "/legal-help", file: "pages/legal-help.html", feature: "legal-help", live: true },
   { path: "/insurance-security", file: "pages/insurance-security.html", feature: "insurance-security", live: true },
   { path: "/premium-services", file: "pages/premium-services.html", feature: "premium-services", live: true },
+  { path: "/live-platform-app", file: "pages/live-platform-app.html", feature: "full-stack-live-app", live: true },
   { path: "/add-property", file: "add-property.html", feature: "listing-upload", live: true },
   { path: "/property-details", file: "property-details.html", feature: "property-details", live: true },
   { path: "/customer-dashboard", file: "user-dashboard.html", feature: "customer-dashboard", live: true },
@@ -113,6 +115,7 @@ const defaults = () => ({
   insuranceTieups: [],
   tenantDamageRequests: [],
   ownerVerificationRequests: [],
+  uploads: [],
   callMaskRequests: [],
   notifications: [],
   adminConfig: {
@@ -123,7 +126,7 @@ const defaults = () => ({
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
     { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
   ],
-  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, tenantDamage: 1, ownerVerification: 1, otp: 1, agentReview: 1, callMask: 1 },
+  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, tenantDamage: 1, ownerVerification: 1, otp: 1, upload: 1, agentReview: 1, callMask: 1 },
 });
 
 let db = defaults();
@@ -193,6 +196,196 @@ const getCityStructure = () => {
     mandatoryStructure: expansionPriorityCities.map((cityName) => `PropertySetu.in/${toCitySlug(cityName)}`),
   };
 };
+const medianFromSorted = (items = []) => {
+  if (!items.length) return 0;
+  const middle = Math.floor(items.length / 2);
+  if (items.length % 2 === 0) {
+    return Math.round((num(items[middle - 1], 0) + num(items[middle], 0)) / 2);
+  }
+  return num(items[middle], 0);
+};
+const getLocalityInsightsPayload = (localityInput = "Udaipur") => {
+  const locality = txt(localityInput || "Udaipur") || "Udaipur";
+  const localityNeedle = locality.toLowerCase();
+  const matched = db.properties.filter((p) => txt(p.location).toLowerCase().includes(localityNeedle));
+  const prices = matched.map((p) => num(p.price, 0)).filter((x) => x > 0).sort((a, b) => a - b);
+  const avgPrice = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+  const medianPrice = medianFromSorted(prices);
+  const trendBase = avgPrice || 4000;
+  const trend = [5, 4, 3, 2, 1, 0].map((offset) => {
+    const monthDate = new Date();
+    monthDate.setMonth(monthDate.getMonth() - offset);
+    return {
+      monthOffset: offset,
+      monthLabel: monthDate.toLocaleString("en-IN", { month: "short" }),
+      monthKey: `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`,
+      avgRate: Math.max(1500, Math.round(trendBase * (1 + (offset - 2) * 0.015))),
+    };
+  });
+  return {
+    stats: {
+      locality,
+      totalListings: matched.length,
+      approvedListings: matched.filter((p) => p.status === "Approved").length,
+      verifiedListings: matched.filter((p) => p.verified).length,
+      avgPrice,
+      medianPrice,
+    },
+    nearby: {
+      schools: [`${locality} Public School`, `${locality} Central School`],
+      hospitals: [`${locality} Hospital`, "Maharana Bhupal Hospital"],
+      markets: [`${locality} Market`, "City Main Bazaar"],
+    },
+    trend,
+  };
+};
+const getRecommendationItems = ({ locality = "", category = "all", excludeId = "", targetPrice = 0, limit = 5 } = {}) => {
+  const localityNeedle = txt(locality).toLowerCase();
+  const categoryNeedle = txt(category).toLowerCase();
+  const exclude = txt(excludeId);
+  const desiredPrice = num(targetPrice, 0);
+  const safeLimit = Math.max(1, Math.min(20, num(limit, 5)));
+
+  let items = db.properties.filter((p) => p.status === "Approved");
+  if (localityNeedle) items = items.filter((p) => txt(p.location).toLowerCase().includes(localityNeedle));
+  if (categoryNeedle && categoryNeedle !== "all") items = items.filter((p) => txt(p.category).toLowerCase() === categoryNeedle);
+  if (exclude) items = items.filter((p) => p.id !== exclude);
+
+  const scored = items.map((item) => {
+    const localityBoost = localityNeedle && txt(item.location).toLowerCase().includes(localityNeedle) ? 16 : 0;
+    const categoryBoost = categoryNeedle && categoryNeedle !== "all" && txt(item.category).toLowerCase() === categoryNeedle ? 18 : 0;
+    const priceScore = desiredPrice > 0 && num(item.price, 0) > 0
+      ? clamp(20 - Math.round((Math.abs(num(item.price, 0) - desiredPrice) / desiredPrice) * 40), 0, 20)
+      : 10;
+    const verifiedBoost = item.verified ? 8 : 0;
+    const score = clamp(Math.round(num(item.trustScore, 0) + localityBoost + categoryBoost + priceScore + verifiedBoost), 35, 100);
+    return {
+      ...item,
+      recommendationScore: score,
+      recommendationReason: [
+        localityBoost ? "locality match" : null,
+        categoryBoost ? "category match" : null,
+        verifiedBoost ? "verified trust" : null,
+        priceScore >= 12 ? "price similarity" : null,
+      ].filter(Boolean).join(", ") || "high trust relevance",
+    };
+  });
+  scored.sort((a, b) => num(b.recommendationScore, 0) - num(a.recommendationScore, 0) || num(b.trustScore, 0) - num(a.trustScore, 0));
+  return { total: scored.length, items: scored.slice(0, safeLimit) };
+};
+const getAiPricingSuggestionPayload = ({ locality = "Udaipur", expectedPrice = 0 } = {}) => {
+  const insights = getLocalityInsightsPayload(locality);
+  const avgPrice = num(insights?.stats?.avgPrice, 0);
+  const medianPrice = num(insights?.stats?.medianPrice, 0);
+  const reference = avgPrice > 0 ? avgPrice : medianPrice;
+  const target = num(expectedPrice, 0);
+  const blended = target > 0 && reference > 0
+    ? Math.round((reference * 0.75) + (target * 0.25))
+    : (reference || target || 0);
+  const recommendedPrice = Math.max(0, blended);
+  const bandMin = Math.max(0, Math.round(recommendedPrice * 0.88));
+  const bandMax = Math.max(bandMin, Math.round(recommendedPrice * 1.14));
+  const confidence = clamp(
+    55
+      + (num(insights?.stats?.totalListings, 0) >= 4 ? 18 : 0)
+      + (num(insights?.stats?.verifiedListings, 0) >= 2 ? 10 : 0)
+      + (reference > 0 ? 8 : 0),
+    40,
+    95,
+  );
+  return {
+    locality: txt(locality || "Udaipur"),
+    avgPrice,
+    medianPrice,
+    recommendedPrice,
+    suggestedBand: { min: bandMin, max: bandMax },
+    confidence,
+    message: `Is area me average price ₹${avgPrice.toLocaleString("en-IN")} hai. Suggested range ₹${bandMin.toLocaleString("en-IN")} - ₹${bandMax.toLocaleString("en-IN")}.`,
+    source: "live-ai-pricing-model",
+    stats: insights.stats,
+  };
+};
+const buildAiDescription = (payload = {}) => {
+  const title = txt(payload.title || "Property");
+  const locality = txt(payload.location || payload.locality || "Udaipur");
+  const category = txt(payload.category || "Property");
+  const listingType = txt(payload.type || payload.purpose || "Buy");
+  const price = num(payload.price, 0);
+  const bedrooms = txt(payload.bedrooms);
+  const bathrooms = txt(payload.bathrooms);
+  const area = txt(payload.builtUpArea || payload.plotSize || payload.carpetArea);
+  const furnished = txt(payload.furnished);
+  const landmark = txt(payload.landmark);
+  const parking = txt(payload.parking);
+  const facing = txt(payload.facing);
+
+  const parts = [
+    `${title} located in ${locality}, Udaipur.`,
+    `${category} available for ${listingType}${price > 0 ? ` at ₹${price.toLocaleString("en-IN")}` : ""}.`,
+    area ? `Area: ${area}.` : "",
+    bedrooms ? `Bedrooms: ${bedrooms}.` : "",
+    bathrooms ? `Bathrooms: ${bathrooms}.` : "",
+    furnished ? `Furnishing: ${furnished}.` : "",
+    facing ? `Facing: ${facing}.` : "",
+    parking ? `Parking: ${parking}.` : "",
+    landmark ? `Nearby landmark: ${landmark}.` : "",
+    "Verified documentation workflow and secure owner verification enabled through PropertySetu.",
+  ].filter(Boolean);
+  return parts.join(" ");
+};
+const evaluateFraudSignals = (payload = {}) => {
+  const rawText = `${txt(payload.title)} ${txt(payload.description)}`.toLowerCase();
+  const riskyWords = ["urgent sale", "cash only", "advance first", "no visit", "token now", "without papers"];
+  const riskyMatches = riskyWords.filter((word) => rawText.includes(word));
+  const photoCount = num(payload?.media?.photosCount ?? payload?.photoCount, 0);
+  const duplicatePhotoCount = num(payload?.media?.duplicatePhotoMatches ?? payload?.duplicatePhotoCount, 0);
+  const blurryPhotoCount = num(payload?.media?.blurryPhotosDetected ?? payload?.blurryPhotoCount, 0);
+  const expectedAveragePrice = num(payload.expectedAveragePrice, 0);
+  const askedPrice = num(payload.price, 0);
+  const suspiciousPricingAlert = expectedAveragePrice > 0 && askedPrice > 0 && askedPrice < Math.round(expectedAveragePrice * 0.38);
+  const lowMediaProof = photoCount > 0 && photoCount < 5;
+  const fakeListingSignal = duplicatePhotoCount > 0 || suspiciousPricingAlert || blurryPhotoCount >= 3 || riskyMatches.length >= 2;
+  const fraudRiskScore = clamp(
+    (riskyMatches.length * 20)
+      + (suspiciousPricingAlert ? 24 : 0)
+      + (lowMediaProof ? 16 : 0)
+      + (duplicatePhotoCount > 0 ? 28 : 0)
+      + (blurryPhotoCount >= 3 ? 12 : 0),
+    0,
+    100,
+  );
+  return {
+    fraudRiskScore,
+    duplicatePhotoDetected: duplicatePhotoCount > 0,
+    duplicatePhotoCount,
+    suspiciousPricingAlert,
+    fakeListingSignal,
+    reasons: [
+      ...riskyMatches.map((word) => `Contains risky phrase: "${word}"`),
+      ...(suspiciousPricingAlert ? ["Price looks abnormally low for this locality"] : []),
+      ...(lowMediaProof ? ["Minimum 5 photos recommended for trust"] : []),
+      ...(duplicatePhotoCount > 0 ? [`Duplicate photo match detected (${duplicatePhotoCount})`] : []),
+      ...(blurryPhotoCount >= 3 ? ["Multiple blurry photos detected"] : []),
+    ],
+    recommendation: fakeListingSignal || fraudRiskScore > 60 ? "Manual admin verification required" : "Looks normal",
+  };
+};
+const allowedUploadExt = new Set(["jpg", "jpeg", "png", "webp", "pdf", "mp4", "mov", "webm"]);
+const safeExtFrom = (name, mime = "") => {
+  const byName = txt(name).split(".").pop().toLowerCase();
+  if (allowedUploadExt.has(byName)) return byName;
+  const map = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "application/pdf": "pdf",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+  };
+  return map[txt(mime).toLowerCase()] || "bin";
+};
+const normalizedUploadUrl = (relativePath) => `/${txt(relativePath).replace(/\\/g, "/").replace(/^\/+/, "")}`;
 const resolveWebFile = (...segments) => {
   const targetInFrontend = path.join(frontendRoot, ...segments);
   if (fs.existsSync(targetInFrontend)) return targetInFrontend;
@@ -229,6 +422,7 @@ const save = async () => {
 const load = async () => {
   if (!fs.existsSync(dbDir)) await fsp.mkdir(dbDir, { recursive: true });
   if (!fs.existsSync(dbFile)) await fsp.writeFile(dbFile, JSON.stringify(defaults(), null, 2), "utf8");
+  if (!fs.existsSync(uploadsRoot)) await fsp.mkdir(uploadsRoot, { recursive: true });
   try {
     const raw = JSON.parse(await fsp.readFile(dbFile, "utf8"));
     const fresh = defaults();
@@ -250,6 +444,7 @@ const load = async () => {
       insuranceTieups: safeArr(raw.insuranceTieups),
       tenantDamageRequests: safeArr(raw.tenantDamageRequests),
       ownerVerificationRequests: safeArr(raw.ownerVerificationRequests),
+      uploads: safeArr(raw.uploads),
       callMaskRequests: safeArr(raw.callMaskRequests),
       notifications: safeArr(raw.notifications),
       adminConfig: {
@@ -310,7 +505,7 @@ if (activeWebRoot !== webRoot) {
   app.use(express.static(webRoot));
 }
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "otp-login", "owner-verification", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "reports", "admin-config", "city-structure", "frontend-rooting", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.3.0", features: ["auth", "otp-login", "owner-verification", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "ai-pricing", "ai-description", "ai-fraud-scan", "ai-market-trend", "reports", "admin-config", "city-structure", "frontend-rooting", "file-upload", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 app.get("/api/system/live-roots", (_req, res) => res.json({
   ok: true,
@@ -319,6 +514,37 @@ app.get("/api/system/live-roots", (_req, res) => res.json({
   frontendMode: hasFrontendRoot ? "frontend-folder-live" : "legacy-root-fallback",
   routePattern: "PropertySetu.in/{city-slug}",
   routes: liveRouteMap,
+}));
+app.get("/api/system/capabilities", (_req, res) => res.json({
+  ok: true,
+  capabilities: {
+    multipageWebApp: true,
+    backendSystem: true,
+    database: true,
+    fileUploadHandling: true,
+    verificationLogic: true,
+    subscriptionLogic: true,
+    aiIntegration: true,
+    secureChat: true,
+  },
+  modules: {
+    auth: "/api/auth/*",
+    listings: "/api/properties",
+    mediaUpload: "/api/uploads/property-media",
+    ownerVerification: "/api/owner-verification/*",
+    reviews: "/api/reviews/*",
+    subscriptions: "/api/subscriptions/*",
+    ai: [
+      "/api/ai/pricing-suggestion",
+      "/api/ai/description-generate",
+      "/api/ai/fraud-scan",
+      "/api/ai/market-trend",
+      "/api/ai/recommendations",
+      "/api/insights/locality",
+      "/api/recommendations",
+    ],
+    chat: "/api/chat/*",
+  },
 }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -486,6 +712,75 @@ app.get("/api/search/suggestions", (req, res) => {
   const merged = [...new Set([...dynamic, ...fallbackLocalities])];
   const items = q ? merged.filter((x) => x.toLowerCase().includes(q)).slice(0, 80) : merged.slice(0, 80);
   res.json({ ok: true, items });
+});
+
+app.post("/api/uploads/property-media", auth, async (req, res) => {
+  const payloadFiles = safeArr(req.body?.files);
+  if (!payloadFiles.length) return res.status(400).json({ ok: false, message: "files payload required." });
+  if (payloadFiles.length > 25) return res.status(400).json({ ok: false, message: "Maximum 25 files allowed in one request." });
+
+  const savedItems = [];
+  const year = new Date().getFullYear();
+  const month = String(new Date().getMonth() + 1).padStart(2, "0");
+  const targetDir = path.join(uploadsRoot, String(year), month);
+  if (!fs.existsSync(targetDir)) await fsp.mkdir(targetDir, { recursive: true });
+
+  for (const fileInput of payloadFiles) {
+    const originalName = txt(fileInput?.name || "upload.bin");
+    const mimeType = txt(fileInput?.type || "application/octet-stream");
+    const category = txt(fileInput?.category || "general");
+    const rawBase64 = String(fileInput?.dataBase64 || fileInput?.base64 || "")
+      .replace(/^data:[^;]+;base64,/, "")
+      .trim();
+    if (!rawBase64) continue;
+    let buffer;
+    try {
+      buffer = Buffer.from(rawBase64, "base64");
+    } catch {
+      return res.status(400).json({ ok: false, message: `Invalid base64 file payload for ${originalName}.` });
+    }
+    if (!buffer.length) continue;
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ ok: false, message: `File too large: ${originalName}. Max 10MB.` });
+    }
+
+    const ext = safeExtFrom(originalName, mimeType);
+    const uploadId = nextId("upload");
+    const diskName = `${uploadId}-${Date.now()}.${ext}`;
+    const fullPath = path.join(targetDir, diskName);
+    await fsp.writeFile(fullPath, buffer);
+
+    const relPath = path.relative(webRoot, fullPath);
+    const record = {
+      id: uploadId,
+      userId: req.user.id,
+      userName: req.user.name,
+      propertyId: txt(fileInput?.propertyId || req.body?.propertyId) || null,
+      name: originalName,
+      mimeType,
+      category,
+      sizeBytes: buffer.length,
+      storagePath: relPath.replace(/\\/g, "/"),
+      url: normalizedUploadUrl(relPath),
+      createdAt: now(),
+    };
+    db.uploads.unshift(record);
+    savedItems.push(record);
+  }
+
+  if (!savedItems.length) return res.status(400).json({ ok: false, message: "No valid file payload found." });
+  await save();
+  res.status(201).json({ ok: true, total: savedItems.length, items: savedItems });
+});
+
+app.get("/api/uploads/mine", auth, (req, res) => {
+  const propertyId = txt(req.query.propertyId);
+  let items = req.user.role === "admin"
+    ? [...db.uploads]
+    : db.uploads.filter((item) => item.userId === req.user.id);
+  if (propertyId) items = items.filter((item) => txt(item.propertyId) === propertyId);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
 });
 
 app.get("/api/properties", authOpt, (req, res) => {
@@ -959,56 +1254,67 @@ app.get("/api/legal/requests", auth, (req, res) => {
 });
 
 app.get("/api/insights/locality", (req, res) => {
-  const name = txt(req.query.name || "Udaipur");
-  const matched = db.properties.filter((p) => txt(p.location).toLowerCase().includes(name.toLowerCase()));
-  const prices = matched.map((p) => num(p.price, 0)).filter((x) => x > 0).sort((a, b) => a - b);
-  const avgPrice = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
-  const medianPrice = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
-  const trendBase = avgPrice || 4000;
-  const trend = [5, 4, 3, 2, 1, 0].map((offset) => {
-    const monthDate = new Date();
-    monthDate.setMonth(monthDate.getMonth() - offset);
-    return {
-      monthOffset: offset,
-      monthLabel: monthDate.toLocaleString("en-IN", { month: "short" }),
-      monthKey: `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`,
-      avgRate: Math.max(1500, Math.round(trendBase * (1 + (offset - 2) * 0.015))),
-    };
+  const payload = getLocalityInsightsPayload(req.query.name || "Udaipur");
+  res.json({ ok: true, ...payload });
+});
+
+app.get("/api/ai/market-trend", (req, res) => {
+  const payload = getLocalityInsightsPayload(req.query.locality || req.query.name || "Udaipur");
+  res.json({
+    ok: true,
+    locality: payload?.stats?.locality || "Udaipur",
+    stats: payload.stats,
+    trend: payload.trend,
+    source: "live-ai-market-trend",
   });
-  res.json({ ok: true, stats: { locality: name, totalListings: matched.length, approvedListings: matched.filter((p) => p.status === "Approved").length, verifiedListings: matched.filter((p) => p.verified).length, avgPrice, medianPrice }, nearby: { schools: [`${name} Public School`, `${name} Central School`], hospitals: [`${name} Hospital`, "Maharana Bhupal Hospital"], markets: [`${name} Market`, "City Main Bazaar"] }, trend });
+});
+
+app.post("/api/ai/pricing-suggestion", (req, res) => {
+  const payload = getAiPricingSuggestionPayload({
+    locality: req.body?.locality || req.body?.location || "Udaipur",
+    expectedPrice: req.body?.price,
+  });
+  res.json({ ok: true, ...payload });
+});
+
+app.post("/api/ai/description-generate", (req, res) => {
+  const description = buildAiDescription(req.body || {});
+  res.json({
+    ok: true,
+    description,
+    source: "live-ai-description-generator",
+  });
+});
+
+app.post("/api/ai/fraud-scan", (req, res) => {
+  const scan = evaluateFraudSignals(req.body || {});
+  res.json({
+    ok: true,
+    scan,
+    source: "live-ai-fraud-scan",
+  });
 });
 
 app.get("/api/recommendations", (req, res) => {
-  const locality = txt(req.query.locality).toLowerCase();
-  const category = txt(req.query.category).toLowerCase();
-  const excludeId = txt(req.query.excludeId);
-  const targetPrice = num(req.query.price, 0);
-  const limit = Math.max(1, Math.min(20, num(req.query.limit, 5)));
-  let items = db.properties.filter((p) => p.status === "Approved");
-  if (locality) items = items.filter((p) => txt(p.location).toLowerCase().includes(locality));
-  if (category && category !== "all") items = items.filter((p) => txt(p.category).toLowerCase() === category);
-  if (excludeId) items = items.filter((p) => p.id !== excludeId);
-  const scored = items.map((item) => {
-    const localityBoost = locality && txt(item.location).toLowerCase().includes(locality) ? 16 : 0;
-    const categoryBoost = category && category !== "all" && txt(item.category).toLowerCase() === category ? 18 : 0;
-    const priceScore = targetPrice > 0 && num(item.price, 0) > 0
-      ? clamp(20 - Math.round((Math.abs(num(item.price, 0) - targetPrice) / targetPrice) * 40), 0, 20)
-      : 10;
-    const verifiedBoost = item.verified ? 8 : 0;
-    const score = clamp(Math.round(num(item.trustScore, 0) + localityBoost + categoryBoost + priceScore + verifiedBoost), 35, 100);
-    return {
-      ...item,
-      recommendationScore: score,
-      recommendationReason: [
-        localityBoost ? "locality match" : null,
-        categoryBoost ? "category match" : null,
-        verifiedBoost ? "verified trust" : null,
-        priceScore >= 12 ? "price similarity" : null,
-      ].filter(Boolean).join(", ") || "high trust relevance",
-    };
+  const payload = getRecommendationItems({
+    locality: req.query.locality,
+    category: req.query.category,
+    excludeId: req.query.excludeId,
+    targetPrice: req.query.price,
+    limit: req.query.limit,
   });
-  scored.sort((a, b) => num(b.recommendationScore, 0) - num(a.recommendationScore, 0) || num(b.trustScore, 0) - num(a.trustScore, 0));
-  res.json({ ok: true, total: scored.length, items: scored.slice(0, limit) });
+  res.json({ ok: true, ...payload });
+});
+
+app.get("/api/ai/recommendations", (req, res) => {
+  const payload = getRecommendationItems({
+    locality: req.query.locality,
+    category: req.query.category,
+    excludeId: req.query.excludeId,
+    targetPrice: req.query.price,
+    limit: req.query.limit,
+  });
+  res.json({ ok: true, ...payload, source: "live-ai-recommendation-engine" });
 });
 
 app.get("/api/agents", (_req, res) => {

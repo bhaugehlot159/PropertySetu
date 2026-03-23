@@ -55,7 +55,7 @@
 
     const renderOptions = () => {
       panel.innerHTML = options.map((opt) => `
-        <button type="button" class="ps-select-option" data-value="${String(opt.value).replaceAll('"', '&quot;')}">
+        <button type="button" class="ps-select-option" data-value="${String(opt.value).replace(/"/g, '&quot;')}">
           ${String(opt.textContent || '').trim()}
         </button>
       `).join('');

@@ -161,7 +161,7 @@
   const buildSmartPricingMessage = (stats, sourceText) => {
     const avg = numberFrom(stats?.avgPrice, 0);
     const med = numberFrom(stats?.medianPrice, 0);
-    const rec = Math.round((avg + med) / 2 || avg || med || 0);
+    const rec = Math.round(numberFrom(stats?.recommendedPrice, 0) || ((avg + med) / 2) || avg || med || 0);
     return {
       rec,
       text: [
@@ -649,19 +649,78 @@
       ],
     };
   };
+  const getLiveAiRiskSignals = async (values, photoCount, mediaAudit = [], expectedAveragePrice = 0) => {
+    if (!live.request) return null;
+    try {
+      const response = await live.request('/ai/fraud-scan', {
+        method: 'POST',
+        data: {
+          title: values.title,
+          description: values.description,
+          price: numberFrom(values.price, 0),
+          expectedAveragePrice: numberFrom(expectedAveragePrice, 0),
+          media: {
+            photosCount: numberFrom(photoCount, 0),
+            duplicatePhotoMatches: (mediaAudit || []).filter((item) => item.duplicateDetected).length,
+            blurryPhotosDetected: (mediaAudit || []).filter((item) => item.isBlurry).length,
+          },
+        },
+      });
+      const scan = response?.scan || {};
+      return {
+        riskScore: numberFrom(scan.fraudRiskScore, 0),
+        duplicatePhotoDetected: Boolean(scan.duplicatePhotoDetected),
+        duplicatePhotoCount: numberFrom(scan.duplicatePhotoCount, 0),
+        suspiciousPricingAlert: Boolean(scan.suspiciousPricingAlert),
+        fakeListingSignal: Boolean(scan.fakeListingSignal),
+        reasons: Array.isArray(scan.reasons) ? scan.reasons : [],
+        recommendation: text(scan.recommendation),
+      };
+    } catch {
+      return null;
+    }
+  };
 
   const renderPayloadPreview = (payload) => {
     if (payloadPreview) payloadPreview.textContent = JSON.stringify(payload, null, 2);
   };
 
-  const generateAiDescription = () => {
+  const generateAiDescription = async () => {
     const values = getFormValues();
     if (!values.title || !values.location || !values.price) {
       showStatus('AI description ke liye title, location aur price bharna zaruri hai.', false);
       return;
     }
 
-    const description = [
+    let description = '';
+    if (live.request) {
+      try {
+        const response = await live.request('/ai/description-generate', {
+          method: 'POST',
+          data: {
+            title: values.title,
+            location: values.location,
+            category: values.category,
+            type: values.type,
+            price: numberFrom(values.price, 0),
+            plotSize: values.plotSize,
+            builtUpArea: values.builtUpArea,
+            carpetArea: values.carpetArea,
+            furnished: values.furnished,
+            bedrooms: values.bedrooms,
+            bathrooms: values.bathrooms,
+            parking: values.parking,
+            facing: values.facing,
+            landmark: values.landmark,
+          },
+        });
+        description = text(response?.description);
+      } catch {
+        // fallback below
+      }
+    }
+    if (!description) {
+      description = [
       `${values.title} in ${values.location}, Udaipur.`,
       `${values.category || 'Property'} available for ${values.type || 'Buy'} at ₹${Number(values.price || 0).toLocaleString('en-IN')}.`,
       values.plotSize ? `Plot size: ${values.plotSize}.` : '',
@@ -673,11 +732,12 @@
       values.parking ? `Parking: ${values.parking}.` : '',
       values.landmark ? `Nearby landmark: ${values.landmark}.` : '',
       'Verified documentation flow enabled with PropertySetu private checks.',
-    ].filter(Boolean).join(' ');
+      ].filter(Boolean).join(' ');
+    }
 
     const descriptionField = document.getElementById('description');
     if (descriptionField) descriptionField.value = description;
-    showStatus('AI description generated and added in description field.', true);
+    showStatus(`AI description generated and added in description field${live.request ? ' (live-enabled).' : '.'}`, true);
   };
 
   const getSmartPricing = async () => {
@@ -704,16 +764,25 @@
     }
 
     try {
-      const response = await live.request(`/insights/locality?name=${encodeURIComponent(locality)}`);
-      const stats = response?.stats || {};
+      const pricingResponse = await live.request('/ai/pricing-suggestion', {
+        method: 'POST',
+        data: {
+          locality,
+          price: numberFrom(document.getElementById('price')?.value, 0),
+          category: text(document.getElementById('category')?.value),
+          purpose: text(document.getElementById('type')?.value),
+        },
+      });
+      const stats = pricingResponse?.stats || {};
       setSuggestion(
         {
           locality: stats.locality || locality,
           totalListings: stats.totalListings || 0,
-          avgPrice: stats.avgPrice || 0,
-          medianPrice: stats.medianPrice || 0,
+          avgPrice: pricingResponse?.avgPrice || stats.avgPrice || 0,
+          medianPrice: pricingResponse?.medianPrice || stats.medianPrice || 0,
+          recommendedPrice: pricingResponse?.recommendedPrice || 0,
         },
-        'Live locality insights API',
+        'Live AI pricing model',
         'Smart pricing suggestion loaded (live mode).',
         true
       );
@@ -793,6 +862,128 @@
     });
     while (items.length > 2000) items.pop();
     writeJson(MEDIA_FINGERPRINT_KEY, items);
+  };
+
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result || '');
+      const encoded = raw.includes(',') ? raw.split(',').pop() : raw;
+      resolve(String(encoded || ''));
+    };
+    reader.onerror = () => reject(new Error('Failed to read file as base64.'));
+    reader.readAsDataURL(file);
+  });
+
+  const buildUploadQueue = async (propertyId) => {
+    const queue = [];
+    const photoFiles = Array.from(photosInput?.files || []);
+    for (const file of photoFiles) {
+      queue.push({
+        name: file.name,
+        type: file.type || 'image/jpeg',
+        category: 'photo',
+        propertyId: propertyId || undefined,
+        dataBase64: await fileToBase64(file),
+      });
+    }
+    const videoFile = videoInput?.files?.[0];
+    if (videoFile) {
+      queue.push({
+        name: videoFile.name,
+        type: videoFile.type || 'video/mp4',
+        category: 'video',
+        propertyId: propertyId || undefined,
+        dataBase64: await fileToBase64(videoFile),
+      });
+    }
+    const floorPlanFile = floorPlanInput?.files?.[0];
+    if (floorPlanFile) {
+      queue.push({
+        name: floorPlanFile.name,
+        type: floorPlanFile.type || 'application/pdf',
+        category: 'floor-plan',
+        propertyId: propertyId || undefined,
+        dataBase64: await fileToBase64(floorPlanFile),
+      });
+    }
+    const ownerProofFile = ownerIdProofInput?.files?.[0];
+    if (ownerProofFile) {
+      queue.push({
+        name: ownerProofFile.name,
+        type: ownerProofFile.type || 'application/pdf',
+        category: 'owner-kyc',
+        propertyId: propertyId || undefined,
+        dataBase64: await fileToBase64(ownerProofFile),
+      });
+    }
+    const addressProofFile = addressProofInput?.files?.[0];
+    if (addressProofFile) {
+      queue.push({
+        name: addressProofFile.name,
+        type: addressProofFile.type || 'application/pdf',
+        category: 'address-proof',
+        propertyId: propertyId || undefined,
+        dataBase64: await fileToBase64(addressProofFile),
+      });
+    }
+    const docFiles = Array.from(documentsInput?.files || []);
+    for (const file of docFiles) {
+      queue.push({
+        name: file.name,
+        type: file.type || 'application/pdf',
+        category: 'property-doc',
+        propertyId: propertyId || undefined,
+        dataBase64: await fileToBase64(file),
+      });
+    }
+    return queue;
+  };
+
+  const uploadMediaLive = async (propertyId) => {
+    if (!live.request) return [];
+    const token = (live.getToken && (live.getToken('customer') || live.getToken('admin'))) || '';
+    if (!token) return [];
+    const queue = await buildUploadQueue(propertyId);
+    if (!queue.length) return [];
+    const response = await live.request('/uploads/property-media', {
+      method: 'POST',
+      token,
+      data: {
+        propertyId,
+        files: queue,
+      },
+      timeoutMs: 30000,
+    });
+    return Array.isArray(response?.items) ? response.items : [];
+  };
+
+  const attachUploadRefsToProperty = async (propertyId, payload, uploadedItems) => {
+    if (!live.request || !propertyId || !uploadedItems?.length) return;
+    const token = (live.getToken && (live.getToken('customer') || live.getToken('admin'))) || '';
+    if (!token) return;
+    const mediaRefs = uploadedItems.map((item) => ({
+      id: item.id,
+      category: item.category,
+      name: item.name,
+      url: item.url,
+      sizeBytes: item.sizeBytes,
+    }));
+    const patchData = {
+      media: {
+        ...(payload.media || {}),
+        uploads: mediaRefs.filter((item) => ['photo', 'video', 'floor-plan'].includes(item.category)),
+      },
+      privateDocs: {
+        ...(payload.privateDocs || {}),
+        uploadedPrivateDocs: mediaRefs.filter((item) => ['owner-kyc', 'address-proof', 'property-doc'].includes(item.category)),
+      },
+    };
+    await live.request(`/properties/${encodeURIComponent(propertyId)}`, {
+      method: 'PATCH',
+      token,
+      data: patchData,
+    });
   };
 
   const getSubmissionPayload = () => {
@@ -1044,21 +1235,93 @@
     }
 
     const payload = getSubmissionPayload();
+    const localityForAi = text(payload.location) || text(document.getElementById('localityInsight')?.value) || 'Udaipur';
+    let livePricing = null;
+    if (live.request) {
+      try {
+        livePricing = await live.request('/ai/pricing-suggestion', {
+          method: 'POST',
+          data: {
+            locality: localityForAi,
+            price: numberFrom(payload.price, 0),
+            category: text(payload.category),
+            purpose: text(payload.type),
+          },
+        });
+        payload.aiPricing = {
+          locality: text(livePricing?.locality || localityForAi),
+          avgPrice: numberFrom(livePricing?.avgPrice, 0),
+          medianPrice: numberFrom(livePricing?.medianPrice, 0),
+          recommendedPrice: numberFrom(livePricing?.recommendedPrice, 0),
+          suggestedBand: livePricing?.suggestedBand || null,
+          confidence: numberFrom(livePricing?.confidence, 0),
+          source: text(livePricing?.source || 'live-ai-pricing-model'),
+        };
+      } catch {
+        // keep existing local pricing signals
+      }
+    }
+    const liveAiSignals = await getLiveAiRiskSignals(
+      payload,
+      photoCount,
+      photoQualityAudit,
+      numberFrom(livePricing?.avgPrice, 0),
+    );
+    if (liveAiSignals) {
+      payload.aiReview = {
+        ...(payload.aiReview || {}),
+        fraudRiskScore: numberFrom(liveAiSignals.riskScore, numberFrom(payload?.aiReview?.fraudRiskScore, 45)),
+        duplicatePhotoDetected: Boolean(liveAiSignals.duplicatePhotoDetected),
+        duplicatePhotoCount: numberFrom(liveAiSignals.duplicatePhotoCount, 0),
+        suspiciousPricingAlert: Boolean(liveAiSignals.suspiciousPricingAlert),
+        fakeListingSignal: Boolean(liveAiSignals.fakeListingSignal),
+        riskReasons: Array.isArray(liveAiSignals.reasons) ? liveAiSignals.reasons : (payload?.aiReview?.riskReasons || []),
+        recommendation: text(liveAiSignals.recommendation) || text(payload?.aiReview?.recommendation),
+      };
+      payload.trustScore = Math.max(30, 100 - numberFrom(payload?.aiReview?.fraudRiskScore, 45));
+    }
     renderPayloadPreview(payload);
 
     try {
       const liveProperty = await pushLiveProperty(payload);
+      let uploadedItems = [];
+      try {
+        uploadedItems = await uploadMediaLive(liveProperty?.id || payload.id);
+      } catch (uploadError) {
+        showStatus(`Property submit live ho gaya, lekin media upload partial fail: ${uploadError.message}`, false);
+      }
+      if (uploadedItems.length && (liveProperty?.id || payload.id)) {
+        try {
+          await attachUploadRefsToProperty(liveProperty?.id || payload.id, payload, uploadedItems);
+        } catch (attachError) {
+          showStatus(`Property submit live ho gaya, lekin media reference patch fail: ${attachError.message}`, false);
+        }
+      }
       const normalized = live.normalizeApiListing
         ? live.normalizeApiListing(liveProperty)
-        : normalizeLocalListing({ ...payload, ...liveProperty, id: liveProperty?.id || payload.id });
+        : normalizeLocalListing({
+          ...payload,
+          ...liveProperty,
+          id: liveProperty?.id || payload.id,
+          media: {
+            ...(payload.media || {}),
+            uploads: uploadedItems.map((item) => ({ id: item.id, url: item.url, category: item.category })),
+          },
+        });
+      if (normalized && uploadedItems.length) {
+        normalized.media = {
+          ...(normalized.media || {}),
+          uploads: uploadedItems.map((item) => ({ id: item.id, url: item.url, category: item.category })),
+        };
+      }
 
       if (normalized) {
         upsertLocalListing(normalized);
         saveMediaFingerprints(normalized.id || payload.id);
       }
-      showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Verified by PropertySetu badge ready.' : 'Verification pending.'}`, true);
+      showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}. Media uploads: ${uploadedItems.length}. ${payload.verifiedByPropertySetu ? 'Verified by PropertySetu badge ready.' : 'Verification pending.'}`, true);
       pushNotification(
-        `New property "${payload.title}" submitted live in Udaipur. Video Visit ready (${Math.round(videoDurationSeconds)} sec). Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Trust badge eligible.' : 'Trust verification pending.'}`,
+        `New property "${payload.title}" submitted live in Udaipur. Video Visit ready (${Math.round(videoDurationSeconds)} sec). Uploaded files: ${uploadedItems.length}. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Trust badge eligible.' : 'Trust verification pending.'}`,
         ['customer', 'seller', 'admin'],
         'Listing Submitted',
         'success',

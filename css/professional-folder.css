@@ -836,6 +836,126 @@ body.ps-pro-surface .footer-links a:hover {
   color: #ffffff;
 }
 
+/* Readability hardening across all pages/cards (non-destructive override) */
+body.ps-pro-surface .section > .container,
+body.ps-pro-surface main > .container,
+body.ps-pro-surface main .shell .container {
+  color: #d4e8f8;
+}
+
+body.ps-pro-surface .section-header h2,
+body.ps-pro-surface .section-header h3 {
+  color: #f2f9ff !important;
+}
+
+body.ps-pro-surface .section-header p,
+body.ps-pro-surface .section-note,
+body.ps-pro-surface .section-intro,
+body.ps-pro-surface .tiny-note,
+body.ps-pro-surface .results-meta {
+  color: #cfe3f5 !important;
+}
+
+body.ps-pro-surface :is(
+  .hub-box,
+  .card,
+  .cardx,
+  .panel,
+  .mini,
+  .role-board,
+  .filter-board,
+  .listing-card,
+  .stat-card,
+  .folder-card,
+  .city,
+  .plan,
+  .feature,
+  .deploy-card,
+  .hub-card,
+  .area-card,
+  .property-card,
+  .container > .card
+) {
+  background: #f9fcff !important;
+  border-color: #c7dcef !important;
+}
+
+body.ps-pro-surface :is(
+  .hub-box,
+  .card,
+  .cardx,
+  .panel,
+  .mini,
+  .role-board,
+  .filter-board,
+  .listing-card,
+  .stat-card,
+  .folder-card,
+  .city,
+  .plan,
+  .feature,
+  .deploy-card,
+  .hub-card,
+  .area-card,
+  .property-card,
+  .container > .card
+) :is(h1, h2, h3, h4, strong, b) {
+  color: #123f63 !important;
+  text-shadow: none !important;
+}
+
+body.ps-pro-surface :is(
+  .hub-box,
+  .card,
+  .cardx,
+  .panel,
+  .mini,
+  .role-board,
+  .filter-board,
+  .listing-card,
+  .stat-card,
+  .folder-card,
+  .city,
+  .plan,
+  .feature,
+  .deploy-card,
+  .hub-card,
+  .area-card,
+  .property-card,
+  .container > .card
+) :is(p, li, label, small, .item, .url, .deploy-code, .board-status, .feature-status) {
+  color: #2f4f69 !important;
+  text-shadow: none !important;
+}
+
+body.ps-pro-surface .status,
+body.ps-pro-surface .pill {
+  text-shadow: none !important;
+}
+
+body.ps-pro-surface :is(
+  .hub-box,
+  .card,
+  .cardx,
+  .panel,
+  .mini,
+  .role-board,
+  .filter-board,
+  .listing-card,
+  .stat-card,
+  .folder-card,
+  .city,
+  .plan,
+  .feature,
+  .deploy-card,
+  .hub-card,
+  .area-card,
+  .property-card,
+  .container > .card
+) a:not(.solid-btn):not(.outline-btn):not(.dark-outline):not(.light-outline) {
+  color: #155b89 !important;
+}
+
 @media (max-width: 1020px) {
   .udaipur-gallery,
   .folder-grid {

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Live Multi-page Web App</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/professional-folder.css" />
+  <style>
+    .shell { padding: 34px 0 56px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(120deg, #0f466f, #236485); color: #eff8ff; padding: 20px; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; box-shadow: 0 8px 22px rgba(8,54,88,.09); }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.03rem; }
+    .pill { display: inline-flex; border-radius: 999px; padding: 4px 9px; font-size: .76rem; font-weight: 700; border: 1px solid #c7daec; background: #eef6ff; color: #154a71; }
+    .pill.ok { background: #e7f7ec; color: #1f7d44; border-color: #bde6c8; }
+    .pill.err { background: #fff1f1; color: #8d1e1e; border-color: #f0c7c7; }
+    .route-list { margin: 0; padding-left: 18px; color: #2f5370; max-height: 220px; overflow: auto; }
+    .field { display: grid; gap: 6px; margin-top: 8px; }
+    .field input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="premium-services.html">Premium Services</a>
+        <a href="city-expansion.html">City Structure</a>
+        <a href="../admin-dashboard.html">Admin Dashboard</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Live Multi-page Web App + Backend Stack</h1>
+        <p>Ye page prove karta hai ki project sirf index layout nahi hai. Backend, database, upload, verification, subscription, AI aur secure chat live endpoints ke saath integrated hain.</p>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Core Capability Status</h2>
+          <p id="capabilityStatus"><span class="pill">Checking live capability API...</span></p>
+          <ul class="route-list" id="capabilityList"></ul>
+        </article>
+
+        <article class="cardx">
+          <h2>Live Root Mapping</h2>
+          <p id="rootStatus"><span class="pill">Checking root configuration...</span></p>
+          <ul class="route-list" id="rootRouteList"></ul>
+        </article>
+
+        <article class="cardx">
+          <h2>Module Launch Panel</h2>
+          <div class="field"><a class="solid-btn" href="../add-property.html">Open Add Property (Upload + AI)</a></div>
+          <div class="field"><a class="solid-btn" href="../user-dashboard.html">Open Customer Dashboard</a></div>
+          <div class="field"><a class="solid-btn" href="../admin-dashboard.html">Open Admin Moderation</a></div>
+          <div class="field"><a class="solid-btn" href="../subscription.html">Open Subscription Plans</a></div>
+          <div class="field"><a class="solid-btn" href="../property-details.html">Open Reviews + Report + Chat</a></div>
+        </article>
+
+        <article class="cardx">
+          <h2>File Upload Test (Live)</h2>
+          <div class="field">
+            <label for="uploadProbeName">Test File Label</label>
+            <input id="uploadProbeName" placeholder="e.g. sample-note.txt" />
+          </div>
+          <button id="runUploadProbeBtn" class="solid-btn" type="button">Run Upload Probe</button>
+          <p id="uploadProbeStatus"><span class="pill">Pending</span></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Health Snapshot</h2>
+          <p id="healthStatus"><span class="pill">Checking /api/health...</span></p>
+          <ul class="route-list" id="healthList"></ul>
+        </article>
+
+        <article class="cardx">
+          <h2>Architecture Note</h2>
+          <ul class="route-list">
+            <li>Layout-only PART 1 ab production-like full-stack flow me expanded hai.</li>
+            <li>Multi-page UI + backend API + local database persistence live hai.</li>
+            <li>File upload handling endpoint available hai: <code>/api/uploads/property-media</code>.</li>
+            <li>Owner verification, subscriptions, AI insights, secure chat connected modules me run karte hain.</li>
+          </ul>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/live-api.js"></script>
+  <script src="../js/live-platform-app.js"></script>
+  <script src="../js/folder-command-dock.js"></script>
+</body>
+</html>
+
