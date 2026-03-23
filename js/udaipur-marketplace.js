@@ -48,6 +48,11 @@
   const marketMaxPrice = document.getElementById('marketMaxPrice');
   const marketSort = document.getElementById('marketSort');
   const marketVerifiedOnly = document.getElementById('marketVerifiedOnly');
+  const aiPricingSummary = document.getElementById('aiPricingSummary');
+  const aiTrendCanvas = document.getElementById('aiTrendCanvas');
+  const aiTrendMeta = document.getElementById('aiTrendMeta');
+  const aiRecommendationList = document.getElementById('aiRecommendationList');
+  const aiRefreshBtn = document.getElementById('aiRefreshBtn');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -195,6 +200,9 @@
     const riskScore = numberFrom(entry?.aiReview?.fraudRiskScore, 45);
     const photosCount = numberFrom(entry?.media?.photosCount, 0);
     const trustModelEligible = Boolean(entry.verifiedByPropertySetu || isTrustModelEligible(entry));
+    const duplicatePhotoDetected = Boolean(entry?.aiReview?.duplicatePhotoDetected || numberFrom(entry?.media?.duplicatePhotoMatches, 0) > 0);
+    const suspiciousPricingAlert = Boolean(entry?.aiReview?.suspiciousPricingAlert);
+    const fakeListingSignal = Boolean(entry?.aiReview?.fakeListingSignal || duplicatePhotoDetected || suspiciousPricingAlert);
     return {
       id: entry.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       title: entry.title || 'Untitled Listing',
@@ -209,6 +217,9 @@
       verified: Boolean(entry.verified || entry.status === 'Approved' || trustModelEligible),
       premium: Boolean(entry.featured || photosCount >= 8),
       trustScore: Math.max(35, numberFrom(entry?.verification?.verificationScore, 0) || numberFrom(entry.trustScore, 100 - riskScore)),
+      duplicatePhotoDetected,
+      suspiciousPricingAlert,
+      fakeListingSignal,
       videoTourReady: Boolean(entry?.videoVisit?.enabled || (entry?.media?.videoUploaded && numberFrom(entry?.media?.videoDurationSec, 0) >= 30)),
       videoDurationSec: numberFrom(entry?.media?.videoDurationSec, 0),
       virtualTourOption: entry?.videoVisit?.virtualTourOption || null,
@@ -238,6 +249,9 @@
       verified: Boolean(entry.verified || entry.featured || entry.verifiedByPropertySetu || isTrustModelEligible(entry)),
       premium: Boolean(entry.featured),
       trustScore: entry.featured ? 85 : 68,
+      duplicatePhotoDetected: Boolean(entry?.aiReview?.duplicatePhotoDetected),
+      suspiciousPricingAlert: Boolean(entry?.aiReview?.suspiciousPricingAlert),
+      fakeListingSignal: Boolean(entry?.aiReview?.fakeListingSignal || entry?.aiReview?.duplicatePhotoDetected || entry?.aiReview?.suspiciousPricingAlert),
       videoTourReady: Boolean(entry?.videoVisit?.enabled || (entry?.media?.videoUploaded && numberFrom(entry?.media?.videoDurationSec, 0) >= 30)),
       videoDurationSec: numberFrom(entry?.media?.videoDurationSec, 0),
       virtualTourOption: entry?.videoVisit?.virtualTourOption || null,
@@ -272,6 +286,8 @@
   const savedSearches = readJson(SAVED_SEARCH_KEY, []);
   const recentlyViewed = readJson(RECENTLY_VIEWED_KEY, []);
   const rememberedFilters = readJson(FILTER_STATE_KEY, null);
+  let aiRefreshTimer = null;
+  let aiLastKey = '';
 
   const getFilters = () => ({
     query: String(marketQuery?.value || '').trim(),
@@ -476,6 +492,7 @@
           <div class="listing-media">
             <img loading="lazy" src="${item.image}" alt="${item.title}" />
             <div class="listing-badge-row">
+              ${item.fakeListingSignal ? '<span class="listing-badge" style="background:#ffe9e9;color:#8f1d1d;">AI Risk Alert</span>' : ''}
               ${item.verifiedByPropertySetu ? '<span class="listing-badge trust-model">Verified by PropertySetu</span>' : ''}
               ${item.verified ? '<span class="listing-badge verified">Verified</span>' : ''}
               ${item.premium ? '<span class="listing-badge premium">Elite</span>' : ''}
@@ -494,6 +511,7 @@
               <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
               <li>Trust ${Math.round(item.trustScore)}%</li>
               <li>${item.videoTourReady ? `Video ${Math.round(item.videoDurationSec || 30)} sec` : 'Video Tour Pending'}</li>
+              <li>${item.fakeListingSignal ? 'Fraud Signal: Review Needed' : 'AI Fraud: Clear'}</li>
             </ul>
             <div class="listing-actions">
               <button class="action-btn" data-action="wishlist" data-id="${item.id}" type="button">${inWishlist ? 'Wishlisted' : 'Wishlist'}</button>
@@ -514,12 +532,238 @@
     if (marketNoResults) marketNoResults.hidden = filtered.length !== 0;
   };
 
+  const buildTrendLabels = (offset = 0) => {
+    const monthDate = new Date();
+    monthDate.setMonth(monthDate.getMonth() - offset);
+    return {
+      monthOffset: offset,
+      monthLabel: monthDate.toLocaleString('en-IN', { month: 'short' }),
+      monthKey: `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`,
+    };
+  };
+
+  const drawAiTrendGraph = (trendItems = []) => {
+    if (!aiTrendCanvas) return;
+    const context = aiTrendCanvas.getContext('2d');
+    if (!context) return;
+    const width = aiTrendCanvas.width;
+    const height = aiTrendCanvas.height;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+
+    const sorted = [...trendItems]
+      .map((item) => ({
+        ...buildTrendLabels(numberFrom(item?.monthOffset, 0)),
+        avgRate: numberFrom(item?.avgRate, 0),
+        monthLabel: item?.monthLabel || buildTrendLabels(numberFrom(item?.monthOffset, 0)).monthLabel,
+      }))
+      .sort((a, b) => numberFrom(b.monthOffset, 0) - numberFrom(a.monthOffset, 0));
+
+    if (!sorted.length) {
+      context.fillStyle = '#6b86a3';
+      context.font = '14px sans-serif';
+      context.fillText('No trend data available', 16, 30);
+      return;
+    }
+
+    const values = sorted.map((item) => numberFrom(item.avgRate, 0));
+    const maxValue = Math.max(...values);
+    const minValue = Math.min(...values);
+    const range = Math.max(1, maxValue - minValue);
+    const padLeft = 42;
+    const padRight = 18;
+    const padTop = 16;
+    const padBottom = 28;
+    const drawWidth = width - padLeft - padRight;
+    const drawHeight = height - padTop - padBottom;
+
+    context.strokeStyle = '#d9e7f6';
+    context.lineWidth = 1;
+    for (let i = 0; i <= 4; i += 1) {
+      const y = padTop + (drawHeight * i) / 4;
+      context.beginPath();
+      context.moveTo(padLeft, y);
+      context.lineTo(width - padRight, y);
+      context.stroke();
+    }
+
+    const points = sorted.map((item, index) => {
+      const x = padLeft + (drawWidth * index) / Math.max(1, sorted.length - 1);
+      const normalized = (numberFrom(item.avgRate, 0) - minValue) / range;
+      const y = padTop + drawHeight - (normalized * drawHeight);
+      return { ...item, x, y };
+    });
+
+    context.strokeStyle = '#0e5aa7';
+    context.lineWidth = 2.5;
+    context.beginPath();
+    points.forEach((point, index) => {
+      if (index === 0) context.moveTo(point.x, point.y);
+      else context.lineTo(point.x, point.y);
+    });
+    context.stroke();
+
+    context.fillStyle = '#0e5aa7';
+    points.forEach((point) => {
+      context.beginPath();
+      context.arc(point.x, point.y, 3.2, 0, Math.PI * 2);
+      context.fill();
+    });
+
+    context.fillStyle = '#2a4d71';
+    context.font = '11px sans-serif';
+    points.forEach((point) => {
+      context.fillText(point.monthLabel, point.x - 12, height - 8);
+    });
+
+    context.fillStyle = '#2a4d71';
+    context.font = '10px sans-serif';
+    context.fillText(`₹${Math.round(maxValue).toLocaleString('en-IN')}`, 6, padTop + 4);
+    context.fillText(`₹${Math.round(minValue).toLocaleString('en-IN')}`, 6, padTop + drawHeight);
+  };
+
+  const getFallbackInsights = (locality) => {
+    const key = String(locality || '').toLowerCase();
+    const matched = listings.filter((item) => String(item.locality || '').toLowerCase().includes(key));
+    const source = matched.length ? matched : listings;
+    const prices = source.map((item) => numberFrom(item.price, 0)).filter((value) => value > 0).sort((a, b) => a - b);
+    const avgPrice = prices.length ? Math.round(prices.reduce((sum, value) => sum + value, 0) / prices.length) : 0;
+    const medianPrice = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
+    const trendBase = avgPrice || 4000000;
+    const trend = [5, 4, 3, 2, 1, 0].map((offset) => {
+      const labels = buildTrendLabels(offset);
+      return {
+        monthOffset: offset,
+        monthLabel: labels.monthLabel,
+        monthKey: labels.monthKey,
+        avgRate: Math.max(1500000, Math.round(trendBase * (1 + (offset - 2) * 0.02))),
+      };
+    });
+    return {
+      stats: {
+        locality: locality || 'Udaipur',
+        totalListings: matched.length || source.length,
+        avgPrice: avgPrice || trendBase,
+        medianPrice: medianPrice || avgPrice || trendBase,
+      },
+      trend,
+    };
+  };
+
+  const fetchAiInsights = async (locality) => {
+    if (!live.request) return getFallbackInsights(locality);
+    try {
+      const response = await live.request(`/insights/locality?name=${encodeURIComponent(locality || 'Udaipur')}`);
+      if (response?.ok) {
+        return {
+          stats: response.stats || {},
+          trend: Array.isArray(response.trend) ? response.trend : [],
+        };
+      }
+    } catch {
+      // fallback below
+    }
+    return getFallbackInsights(locality);
+  };
+
+  const getFallbackRecommendations = ({ locality, category, referenceListing }) => {
+    const localKey = String(locality || '').toLowerCase();
+    const categoryKey = String(category || '').toLowerCase();
+    const basePrice = numberFrom(referenceListing?.price, 0);
+    return listings
+      .filter((item) => item.id !== referenceListing?.id)
+      .map((item) => {
+        let score = numberFrom(item.trustScore, 45);
+        if (localKey && String(item.locality || '').toLowerCase().includes(localKey)) score += 16;
+        if (categoryKey && categoryKey !== 'all' && String(item.category || '').toLowerCase() === categoryKey) score += 18;
+        if (basePrice > 0 && numberFrom(item.price, 0) > 0) {
+          const ratio = Math.abs(numberFrom(item.price, 0) - basePrice) / basePrice;
+          score += Math.max(0, 20 - Math.round(ratio * 40));
+        }
+        if (item.verified) score += 8;
+        const recommendationScore = Math.max(35, Math.min(100, Math.round(score)));
+        return {
+          ...item,
+          recommendationScore,
+          recommendationReason: recommendationScore >= 80 ? 'high trust + price similarity' : 'similar locality/category',
+        };
+      })
+      .sort((a, b) => numberFrom(b.recommendationScore, 0) - numberFrom(a.recommendationScore, 0))
+      .slice(0, 5);
+  };
+
+  const fetchAiRecommendations = async ({ locality, category, referenceListing }) => {
+    if (!live.request) return getFallbackRecommendations({ locality, category, referenceListing });
+    try {
+      const response = await live.request(`/recommendations?locality=${encodeURIComponent(locality || '')}&category=${encodeURIComponent(category || 'all')}&price=${encodeURIComponent(numberFrom(referenceListing?.price, 0))}&excludeId=${encodeURIComponent(referenceListing?.id || '')}&limit=5`);
+      const items = Array.isArray(response?.items) ? response.items : [];
+      if (items.length) return items;
+    } catch {
+      // fallback below
+    }
+    return getFallbackRecommendations({ locality, category, referenceListing });
+  };
+
+  const renderAiRecommendations = (items = []) => {
+    if (!aiRecommendationList) return;
+    if (!items.length) {
+      aiRecommendationList.innerHTML = '<li>No similar recommendations right now.</li>';
+      return;
+    }
+    aiRecommendationList.innerHTML = items.slice(0, 5).map((item) => `
+      <li>
+        <strong>${item.title || 'Recommended Listing'}</strong><br>
+        ${item.locality || 'Udaipur'} • ${formatPrice(item.price)} • ${item.category || 'Property'}<br>
+        <span class="tiny-note">AI Score: ${Math.round(numberFrom(item.recommendationScore, item.trustScore || 0))}% • ${item.recommendationReason || 'high relevance match'}</span>
+      </li>
+    `).join('');
+  };
+
+  const updateAiPanels = async (filters, filteredListings, force = false) => {
+    const locality = String(filters.locality || filteredListings?.[0]?.locality || 'Udaipur').trim() || 'Udaipur';
+    const category = filters.category !== 'all' ? filters.category : (filteredListings?.[0]?.category || 'all');
+    const referenceListing = filteredListings?.[0] || null;
+    const key = `${locality}|${category}|${referenceListing?.id || ''}|${filteredListings?.length || 0}`;
+    if (!force && key === aiLastKey) return;
+    aiLastKey = key;
+
+    if (aiPricingSummary) aiPricingSummary.textContent = 'AI pricing pulse loading...';
+    if (aiTrendMeta) aiTrendMeta.textContent = 'Loading 6-month trend...';
+
+    const [insights, recommendations] = await Promise.all([
+      fetchAiInsights(locality),
+      fetchAiRecommendations({ locality, category, referenceListing }),
+    ]);
+
+    const avgPrice = numberFrom(insights?.stats?.avgPrice, 0);
+    const medianPrice = numberFrom(insights?.stats?.medianPrice, 0);
+    const listingCount = numberFrom(insights?.stats?.totalListings, 0);
+    if (aiPricingSummary) {
+      aiPricingSummary.textContent = `Is area me average price ₹${avgPrice.toLocaleString('en-IN')} hai. Median ₹${medianPrice.toLocaleString('en-IN')} (matched listings: ${listingCount}).`;
+    }
+    const trend = Array.isArray(insights?.trend) ? insights.trend : [];
+    drawAiTrendGraph(trend);
+    if (aiTrendMeta) aiTrendMeta.textContent = `AI market trend for ${locality} - last 6 months.`;
+    renderAiRecommendations(recommendations);
+  };
+
+  const scheduleAiPanels = (filters, filteredListings, force = false) => {
+    clearTimeout(aiRefreshTimer);
+    aiRefreshTimer = setTimeout(() => {
+      updateAiPanels(filters, filteredListings, force).catch(() => {
+        if (aiPricingSummary) aiPricingSummary.textContent = 'AI module fallback mode me hai (local model running).';
+      });
+    }, force ? 0 : 220);
+  };
+
   const runPipeline = () => {
     const filters = getFilters();
     const filtered = applyFilters(filters);
     renderListings(filtered);
     renderActiveTags(filters);
     writeJson(FILTER_STATE_KEY, filters);
+    scheduleAiPanels(filters, filtered);
   };
 
   const saveCurrentSearch = () => {
@@ -642,6 +886,11 @@
   });
 
   saveSearchBtn?.addEventListener('click', saveCurrentSearch);
+  aiRefreshBtn?.addEventListener('click', () => {
+    const filters = getFilters();
+    const filtered = applyFilters(filters);
+    scheduleAiPanels(filters, filtered, true);
+  });
 
   resetFiltersBtn?.addEventListener('click', () => {
     setFilters({

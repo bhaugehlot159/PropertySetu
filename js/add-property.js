@@ -34,6 +34,7 @@
 
   const DRAFT_KEY = 'propertySetu:addPropertyDraft';
   const LISTINGS_KEY = 'propertySetu:listings';
+  const MEDIA_FINGERPRINT_KEY = 'propertySetu:mediaFingerprints';
   const OFFLINE_LOCALITY_PRICE_MODEL = {
     'hiran magri': 6200000,
     pratap: 5400000,
@@ -99,6 +100,20 @@
     if (value < 1024) return `${value} B`;
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
     return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+  };
+  const toHex = (buffer) => Array.from(new Uint8Array(buffer)).map((value) => value.toString(16).padStart(2, '0')).join('');
+  const fingerprintFile = async (file) => {
+    if (!file) return '';
+    try {
+      const bytes = await file.arrayBuffer();
+      if (window.crypto?.subtle) {
+        const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+        return toHex(digest);
+      }
+    } catch {
+      // fallback below
+    }
+    return `${file.name}|${file.size}|${file.lastModified}`;
   };
   const medianOf = (arr) => {
     const values = (arr || []).map((x) => numberFrom(x, 0)).filter((x) => x > 0).sort((a, b) => a - b);
@@ -199,9 +214,15 @@
       return;
     }
     const blurryCount = photoQualityAudit.filter((item) => item.isBlurry).length;
+    const duplicateCount = photoQualityAudit.filter((item) => item.duplicateDetected).length;
     if (photoCount < 5) {
       photoAiStatus.className = 'status-box err';
       photoAiStatus.textContent = `Minimum 5 photos required. Current: ${photoCount}.`;
+      return;
+    }
+    if (duplicateCount > 0) {
+      photoAiStatus.className = 'status-box err';
+      photoAiStatus.textContent = `AI scan done: ${duplicateCount} duplicate photo match detected. Fresh photos upload karein.`;
       return;
     }
     if (blurryCount > 0) {
@@ -420,6 +441,14 @@
   const createPhotoPreview = async () => {
     if (!photoPreview || !photosInput) return;
     const files = Array.from(photosInput.files || []);
+    const fingerprintStore = readJson(MEDIA_FINGERPRINT_KEY, []);
+    const fingerprintHistory = new Map();
+    (Array.isArray(fingerprintStore) ? fingerprintStore : []).forEach((entry) => {
+      const key = String(entry?.fingerprint || '').trim();
+      if (!key) return;
+      fingerprintHistory.set(key, (fingerprintHistory.get(key) || 0) + 1);
+    });
+    const uploadFingerprintCount = new Map();
     photoPreview.innerHTML = '';
     photoQualityAudit = [];
 
@@ -442,6 +471,7 @@
 
       const enhancedImage = document.createElement('img');
       enhancedImage.alt = `${file.name} enhanced`;
+      const fingerprint = await fingerprintFile(file);
 
       let quality = {
         width: 0,
@@ -465,23 +495,31 @@
       card.appendChild(compare);
 
       const blurTag = document.createElement('span');
-      blurTag.className = `tag ${quality.isBlurry ? 'warn' : 'ok'}`;
-      blurTag.textContent = quality.isBlurry ? 'Blurry Detected' : 'Clear Photo';
+      const duplicateWithinUpload = fingerprint ? (uploadFingerprintCount.get(fingerprint) || 0) > 0 : false;
+      const duplicateHistoric = fingerprint ? (fingerprintHistory.get(fingerprint) || 0) : 0;
+      const duplicateDetected = duplicateWithinUpload || duplicateHistoric > 0;
+      if (fingerprint) uploadFingerprintCount.set(fingerprint, (uploadFingerprintCount.get(fingerprint) || 0) + 1);
+      blurTag.className = `tag ${(quality.isBlurry || duplicateDetected) ? 'warn' : 'ok'}`;
+      blurTag.textContent = duplicateDetected ? 'Duplicate Match' : (quality.isBlurry ? 'Blurry Detected' : 'Clear Photo');
       card.appendChild(blurTag);
 
       const meta = document.createElement('div');
       meta.className = 'media-meta';
-      meta.textContent = `${file.name} | ${fileSizeLabel(file.size)} | Q:${quality.qualityScore} | Blur:${quality.blurScore}`;
+      meta.textContent = `${file.name} | ${fileSizeLabel(file.size)} | Q:${quality.qualityScore} | Blur:${quality.blurScore}${duplicateDetected ? ` | Duplicate:${duplicateHistoric + (duplicateWithinUpload ? 1 : 0)}` : ''}`;
       card.appendChild(meta);
       photoPreview.appendChild(card);
 
       photoQualityAudit.push({
         fileName: file.name,
         sizeBytes: file.size,
+        fingerprint,
         dimensions: `${quality.width}x${quality.height}`,
         qualityScore: quality.qualityScore,
         blurScore: quality.blurScore,
         isBlurry: quality.isBlurry,
+        duplicateWithinUpload,
+        duplicateMatchesHistoric: duplicateHistoric,
+        duplicateDetected,
         edgeScore: quality.edgeScore,
         avgBrightness: quality.avgBrightness,
         aiAutoEnhanced: true,
@@ -508,20 +546,32 @@
     renderVideoVisitStatus();
   };
 
-  const getAiRiskSignals = (values, photoCount) => {
+  const getAiRiskSignals = (values, photoCount, mediaAudit = []) => {
     const riskyWords = ['urgent sale', 'cash only', 'advance first', 'no visit'];
     const raw = `${values.title} ${values.description}`.toLowerCase();
     const badWords = riskyWords.filter((word) => raw.includes(word));
     const suspiciousPrice = values.price > 0 && values.price < 300000;
     const lowMediaProof = photoCount < 5;
-
-    const riskScore = badWords.length * 30 + (suspiciousPrice ? 30 : 0) + (lowMediaProof ? 40 : 0);
+    const duplicatePhotoCount = (mediaAudit || []).filter((item) => item.duplicateDetected).length;
+    const blurryPhotoCount = (mediaAudit || []).filter((item) => item.isBlurry).length;
+    const fakeListingSignal = duplicatePhotoCount > 0 || suspiciousPrice || blurryPhotoCount >= 3;
+    const riskScore = (badWords.length * 22)
+      + (suspiciousPrice ? 24 : 0)
+      + (lowMediaProof ? 28 : 0)
+      + (duplicatePhotoCount > 0 ? 34 : 0)
+      + (blurryPhotoCount >= 3 ? 12 : 0);
     return {
       riskScore: Math.min(riskScore, 100),
+      duplicatePhotoDetected: duplicatePhotoCount > 0,
+      duplicatePhotoCount,
+      suspiciousPricingAlert: suspiciousPrice,
+      fakeListingSignal,
       reasons: [
         ...badWords.map((word) => `Contains risky phrase: "${word}"`),
         ...(suspiciousPrice ? ['Price looks abnormally low for local market'] : []),
         ...(lowMediaProof ? ['Not enough photos for verification'] : []),
+        ...(duplicatePhotoCount ? [`Duplicate photo match detected (${duplicatePhotoCount})`] : []),
+        ...(blurryPhotoCount >= 3 ? ['Multiple blurry photos detected'] : []),
       ],
     };
   };
@@ -652,10 +702,29 @@
     trustScore: Math.max(35, numberFrom(payload?.verification?.verificationScore, 0) || (100 - numberFrom(payload?.aiReview?.fraudRiskScore, 45))),
   });
 
+  const saveMediaFingerprints = (listingId) => {
+    const entries = (photoQualityAudit || []).filter((item) => item?.fingerprint);
+    if (!entries.length) return;
+    const current = readJson(MEDIA_FINGERPRINT_KEY, []);
+    const items = Array.isArray(current) ? current : [];
+    entries.forEach((item) => {
+      const exists = items.some((known) => known.fingerprint === item.fingerprint && known.listingId === listingId);
+      if (exists) return;
+      items.unshift({
+        fingerprint: item.fingerprint,
+        listingId,
+        fileName: item.fileName,
+        createdAt: new Date().toISOString(),
+      });
+    });
+    while (items.length > 2000) items.pop();
+    writeJson(MEDIA_FINGERPRINT_KEY, items);
+  };
+
   const getSubmissionPayload = () => {
     const values = getFormValues();
     const photoCount = photosInput?.files?.length || 0;
-    const aiSignals = getAiRiskSignals(values, photoCount);
+    const aiSignals = getAiRiskSignals(values, photoCount, photoQualityAudit);
     const trustModel = getTrustModel(values);
     const normalizedPlot = values.plotSize ? `${values.plotSize} ${values.plotSizeUnit || 'sq ft'}` : '';
     const normalizedBuilt = values.builtUpArea ? `${values.builtUpArea} ${values.builtUpAreaUnit || 'sq ft'}` : '';
@@ -708,10 +777,12 @@
         has360VirtualTour: Boolean(values.virtualTour360Link),
         photoQualityAudit,
         blurryPhotosDetected: photoQualityAudit.filter((item) => item.isBlurry).length,
+        duplicatePhotoMatches: photoQualityAudit.filter((item) => item.duplicateDetected).length,
         aiPhotoEnhancement: {
           enabled: true,
           mode: 'auto-brightness-contrast-saturation',
           blurryImageDetection: true,
+          duplicatePhotoDetection: true,
         },
       },
       privateDocs: {
@@ -749,8 +820,12 @@
       },
       aiReview: {
         fraudRiskScore: aiSignals.riskScore,
+        duplicatePhotoDetected: aiSignals.duplicatePhotoDetected,
+        duplicatePhotoCount: aiSignals.duplicatePhotoCount,
+        suspiciousPricingAlert: aiSignals.suspiciousPricingAlert,
+        fakeListingSignal: aiSignals.fakeListingSignal,
         riskReasons: aiSignals.reasons,
-        recommendation: aiSignals.riskScore > 60 ? 'Manual admin verification required' : 'Looks normal',
+        recommendation: aiSignals.fakeListingSignal || aiSignals.riskScore > 60 ? 'Manual admin verification required' : 'Looks normal',
       },
       status: 'Pending Approval',
       verifiedByPropertySetu: trustModel.badgeEligible,
@@ -897,7 +972,10 @@
         ? live.normalizeApiListing(liveProperty)
         : normalizeLocalListing({ ...payload, ...liveProperty, id: liveProperty?.id || payload.id });
 
-      if (normalized) upsertLocalListing(normalized);
+      if (normalized) {
+        upsertLocalListing(normalized);
+        saveMediaFingerprints(normalized.id || payload.id);
+      }
       showStatus(`Property submitted live. Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Verified by PropertySetu badge ready.' : 'Verification pending.'}`, true);
       pushNotification(
         `New property "${payload.title}" submitted live in Udaipur. Video Visit ready (${Math.round(videoDurationSeconds)} sec). Status: ${liveProperty?.status || 'Pending Approval'}. ${payload.verifiedByPropertySetu ? 'Trust badge eligible.' : 'Trust verification pending.'}`,
@@ -908,6 +986,7 @@
     } catch (error) {
       const normalized = normalizeLocalListing(payload);
       upsertLocalListing(normalized);
+      saveMediaFingerprints(normalized.id || payload.id);
       const canFallback = live.shouldFallbackToLocal ? live.shouldFallbackToLocal(error) : true;
       if (canFallback) {
         showStatus(`Live submit unavailable. Local backup me save kar diya: ${error.message}`, false);

@@ -108,6 +108,7 @@ const txt = (v) => String(v || "").trim();
 const email = (v) => txt(v).toLowerCase();
 const phone = (v) => String(v || "").replace(/\D/g, "");
 const num = (v, f = 0) => (Number.isFinite(Number(v)) ? Number(v) : f);
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const role = (v) => {
   const r = txt(v).toLowerCase();
   if (r === "admin" || r === "seller" || r === "agent") return r;
@@ -229,7 +230,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(webRoot));
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "reports", "admin-config", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "reports", "admin-config", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -379,6 +380,35 @@ app.post("/api/properties", auth, async (req, res) => {
   const photosCount = num(media.photosCount, 0);
   const hasVideoUpload = !!media.videoUploaded;
   const videoDurationSec = num(media.videoDurationSec, 0);
+  const localityKey = txt(property.location).toLowerCase();
+  const localityPeers = db.properties
+    .filter((item) => txt(item.location).toLowerCase().includes(localityKey))
+    .map((item) => num(item.price, 0))
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+  const peerMedianPrice = localityPeers.length ? localityPeers[Math.floor(localityPeers.length / 2)] : 0;
+  const duplicatePhotoDetected = !!payload?.aiReview?.duplicatePhotoDetected || num(media.duplicatePhotoMatches, 0) > 0;
+  const suspiciousPricingAlert = peerMedianPrice > 0
+    ? property.price < Math.round(peerMedianPrice * 0.45) || property.price > Math.round(peerMedianPrice * 2.2)
+    : property.price > 0 && property.price < 300000;
+  const blurryHeavy = num(media.blurryPhotosDetected, 0) >= 3;
+  const fakeListingSignal = duplicatePhotoDetected || suspiciousPricingAlert || blurryHeavy;
+  const payloadFraudRisk = num(payload?.aiReview?.fraudRiskScore, 45);
+  const fraudRiskScore = clamp(
+    Math.round(payloadFraudRisk + (duplicatePhotoDetected ? 28 : 0) + (suspiciousPricingAlert ? 22 : 0) + (blurryHeavy ? 12 : 0)),
+    0,
+    100,
+  );
+  property.aiReview = {
+    ...(payload.aiReview || {}),
+    duplicatePhotoDetected,
+    suspiciousPricingAlert,
+    fakeListingSignal,
+    localAreaMedianPrice: peerMedianPrice,
+    fraudRiskScore,
+    recommendation: fakeListingSignal ? "Manual admin verification required" : "Looks normal",
+  };
+  property.trustScore = Math.max(30, 100 - fraudRiskScore);
   if (!isUdaipur(property.city)) return res.status(400).json({ ok: false, message: "Only Udaipur listings are allowed." });
   if (!property.title || !property.location || property.price <= 0) return res.status(400).json({ ok: false, message: "Title, location and valid price required." });
   if (photosCount < 5) return res.status(400).json({ ok: false, message: "Minimum 5 photos required for listing." });
@@ -654,7 +684,16 @@ app.get("/api/insights/locality", (req, res) => {
   const avgPrice = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
   const medianPrice = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
   const trendBase = avgPrice || 4000;
-  const trend = [5, 4, 3, 2, 1, 0].map((offset) => ({ monthOffset: offset, avgRate: Math.max(1500, Math.round(trendBase * (1 + (offset - 2) * 0.015))) }));
+  const trend = [5, 4, 3, 2, 1, 0].map((offset) => {
+    const monthDate = new Date();
+    monthDate.setMonth(monthDate.getMonth() - offset);
+    return {
+      monthOffset: offset,
+      monthLabel: monthDate.toLocaleString("en-IN", { month: "short" }),
+      monthKey: `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`,
+      avgRate: Math.max(1500, Math.round(trendBase * (1 + (offset - 2) * 0.015))),
+    };
+  });
   res.json({ ok: true, stats: { locality: name, totalListings: matched.length, approvedListings: matched.filter((p) => p.status === "Approved").length, verifiedListings: matched.filter((p) => p.verified).length, avgPrice, medianPrice }, nearby: { schools: [`${name} Public School`, `${name} Central School`], hospitals: [`${name} Hospital`, "Maharana Bhupal Hospital"], markets: [`${name} Market`, "City Main Bazaar"] }, trend });
 });
 
@@ -662,13 +701,33 @@ app.get("/api/recommendations", (req, res) => {
   const locality = txt(req.query.locality).toLowerCase();
   const category = txt(req.query.category).toLowerCase();
   const excludeId = txt(req.query.excludeId);
+  const targetPrice = num(req.query.price, 0);
   const limit = Math.max(1, Math.min(20, num(req.query.limit, 5)));
   let items = db.properties.filter((p) => p.status === "Approved");
   if (locality) items = items.filter((p) => txt(p.location).toLowerCase().includes(locality));
   if (category && category !== "all") items = items.filter((p) => txt(p.category).toLowerCase() === category);
   if (excludeId) items = items.filter((p) => p.id !== excludeId);
-  items.sort((a, b) => num(b.trustScore, 0) - num(a.trustScore, 0) || num(b.reviewCount, 0) - num(a.reviewCount, 0));
-  res.json({ ok: true, total: items.length, items: items.slice(0, limit) });
+  const scored = items.map((item) => {
+    const localityBoost = locality && txt(item.location).toLowerCase().includes(locality) ? 16 : 0;
+    const categoryBoost = category && category !== "all" && txt(item.category).toLowerCase() === category ? 18 : 0;
+    const priceScore = targetPrice > 0 && num(item.price, 0) > 0
+      ? clamp(20 - Math.round((Math.abs(num(item.price, 0) - targetPrice) / targetPrice) * 40), 0, 20)
+      : 10;
+    const verifiedBoost = item.verified ? 8 : 0;
+    const score = clamp(Math.round(num(item.trustScore, 0) + localityBoost + categoryBoost + priceScore + verifiedBoost), 35, 100);
+    return {
+      ...item,
+      recommendationScore: score,
+      recommendationReason: [
+        localityBoost ? "locality match" : null,
+        categoryBoost ? "category match" : null,
+        verifiedBoost ? "verified trust" : null,
+        priceScore >= 12 ? "price similarity" : null,
+      ].filter(Boolean).join(", ") || "high trust relevance",
+    };
+  });
+  scored.sort((a, b) => num(b.recommendationScore, 0) - num(a.recommendationScore, 0) || num(b.trustScore, 0) - num(a.trustScore, 0));
+  res.json({ ok: true, total: scored.length, items: scored.slice(0, limit) });
 });
 
 app.get("/api/agents", (_req, res) => {
