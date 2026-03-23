@@ -67,6 +67,9 @@ Available in `/legal`:
 ## Production Blueprint
 Detailed non-destructive production roadmap: `PRODUCTION_GRADE_BLUEPRINT.md`
 
+## Real Backend Structure Plan
+Production-level backend + database-ready architecture map: `docs/REAL_BACKEND_STRUCTURE_PLAN.md`
+
 ## Direct Production Deploy
 Domain + PM2 + Nginx + SSL checklist: `docs/PRODUCTION_DEPLOY_CHECKLIST.md`
 
