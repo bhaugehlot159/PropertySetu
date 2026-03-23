@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Production Deploy Checklist</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/professional-folder.css" />
+  <style>
+    .deploy-shell { padding: 34px 0 58px; }
+    .deploy-hero {
+      border: 1px solid #c3d9ed;
+      border-radius: 16px;
+      padding: 22px;
+      color: #edf7ff;
+      background:
+        linear-gradient(112deg, rgba(7, 56, 90, 0.93), rgba(28, 117, 160, 0.86)),
+        url("https://cdn.pixabay.com/photo/2022/02/23/17/15/udaipur-7031066_640.jpg");
+      background-size: cover;
+      background-position: center;
+      box-shadow: 0 16px 30px rgba(8, 44, 73, 0.22);
+    }
+    .deploy-hero h1 { margin: 0 0 10px; font-size: clamp(1.45rem, 2.4vw, 2.2rem); }
+    .deploy-hero p { margin: 0; color: #d9ebfb; }
+    .deploy-grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .deploy-card {
+      background: #fff;
+      border: 1px solid #c8ddf0;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 8px 20px rgba(7, 46, 74, 0.09);
+    }
+    .deploy-card h2 { margin: 0 0 8px; color: #114a71; font-size: 1.05rem; }
+    .deploy-card p { margin: 0 0 8px; color: #375a74; }
+    .deploy-card ul { margin: 0; padding-left: 18px; color: #385970; }
+    .deploy-card li { margin: 5px 0; }
+    .deploy-code {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #d4e4f2;
+      background: #f5faff;
+      color: #1c4568;
+      font-size: 0.84rem;
+      overflow: auto;
+      white-space: pre;
+      font-family: Consolas, "Courier New", monospace;
+    }
+    .deploy-actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+    @media (max-width: 920px) { .deploy-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="structure-hub.html">Structure Hub</a>
+        <a href="../admin-dashboard.html">Admin Dashboard</a>
+        <a href="legal-help.html">Legal Help</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="deploy-shell">
+    <div class="container">
+      <section class="deploy-hero">
+        <h1>Production Deploy Checklist (Domain + PM2 + Reverse Proxy + SSL)</h1>
+        <p>Ye checklist PropertySetu ko demo se production-ready deployment me le jane ke liye step-by-step operational flow deti hai, with rollback and security hygiene.</p>
+      </section>
+
+      <section class="deploy-grid">
+        <article class="deploy-card">
+          <h2>1) Domain & DNS</h2>
+          <ul>
+            <li>Primary domain set: `propertysetu.in` (example).</li>
+            <li>`A` record server IP par point kare.</li>
+            <li>`www` ko CNAME se primary domain par redirect karo.</li>
+            <li>TTL short rakho during migration (300 sec) and stabilize later.</li>
+          </ul>
+          <p>Before cutover, staging URL par smoke test run karo.</p>
+        </article>
+
+        <article class="deploy-card">
+          <h2>2) App Runtime with PM2</h2>
+          <ul>
+            <li>Node backend ko PM2 se daemon mode me run karo.</li>
+            <li>Auto-restart + startup script enable karo.</li>
+            <li>Memory limit and log rotation configure karo.</li>
+          </ul>
+          <div class="deploy-code">pm2 start server/index.js --name propertysetu-api
+pm2 save
+pm2 startup</div>
+        </article>
+
+        <article class="deploy-card">
+          <h2>3) Reverse Proxy (Nginx)</h2>
+          <ul>
+            <li>Nginx ko public entry point rakho (80/443).</li>
+            <li>Frontend static files serve + `/api` upstream to Node app.</li>
+            <li>Security headers add: `X-Frame-Options`, `X-Content-Type-Options`.</li>
+            <li>Upload size limit and request timeout tune karo.</li>
+          </ul>
+          <div class="deploy-code">server {
+  server_name propertysetu.in www.propertysetu.in;
+  root /var/www/propertysetu;
+  location /api/ { proxy_pass http://127.0.0.1:3000/; }
+}</div>
+        </article>
+
+        <article class="deploy-card">
+          <h2>4) SSL with Let's Encrypt</h2>
+          <ul>
+            <li>Certbot install karo and Nginx plugin use karo.</li>
+            <li>HTTP to HTTPS force redirect enable karo.</li>
+            <li>Auto-renew cron/systemd timer verify karo.</li>
+          </ul>
+          <div class="deploy-code">sudo certbot --nginx -d propertysetu.in -d www.propertysetu.in
+sudo certbot renew --dry-run</div>
+        </article>
+
+        <article class="deploy-card">
+          <h2>5) Environment & Secrets</h2>
+          <ul>
+            <li>`.env` me DB URI, JWT secret, storage keys separate rakho.</li>
+            <li>Production me never hardcode secrets in JS/HTML.</li>
+            <li>Separate configs: `dev`, `staging`, `production`.</li>
+            <li>Access control: server SSH keys only, password login disable (recommended).</li>
+          </ul>
+        </article>
+
+        <article class="deploy-card">
+          <h2>6) Data Safety & Monitoring</h2>
+          <ul>
+            <li>Daily DB backup schedule with retention policy.</li>
+            <li>Server metrics: CPU, RAM, Disk alerts.</li>
+            <li>Error logs centralize (PM2 logs + app logs).</li>
+            <li>Incident runbook ready: rollback + DNS failback notes.</li>
+          </ul>
+        </article>
+
+        <article class="deploy-card">
+          <h2>7) Release Process</h2>
+          <ul>
+            <li>`main` se production branch/tag deploy policy define karo.</li>
+            <li>Pre-deploy checklist: migrations, smoke tests, auth check.</li>
+            <li>Post-deploy checklist: login, listing create, media upload, search, care plans.</li>
+            <li>Rollback command + previous release artifact maintain karo.</li>
+          </ul>
+        </article>
+
+        <article class="deploy-card">
+          <h2>8) Security Hardening</h2>
+          <ul>
+            <li>Rate limiting for auth and listing APIs.</li>
+            <li>CORS allowlist strict rakho.</li>
+            <li>File upload validation: MIME + size + extension guard.</li>
+            <li>Audit log for admin actions and sealed bid reveal actions.</li>
+          </ul>
+        </article>
+      </section>
+
+      <div class="deploy-actions">
+        <a class="solid-btn" href="structure-hub.html">Back to Structure Hub</a>
+        <a class="outline-btn dark-outline" href="../index.html">Back to Homepage</a>
+        <a class="outline-btn dark-outline" href="../admin-dashboard.html">Open Admin Dashboard</a>
+      </div>
+    </div>
+  </main>
+  <script src="../js/folder-command-dock.js"></script>
+</body>
+</html>

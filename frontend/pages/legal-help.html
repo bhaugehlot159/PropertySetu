@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Legal & Documentation Help</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/professional-folder.css" />
+  <style>
+    .shell { padding: 34px 0 56px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(118deg, #0f456d, #2a5e90); color: #eff8ff; padding: 20px; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.03rem; }
+    .muted { color: #3b5b74; margin: 4px 0; }
+    .list { margin: 0; padding-left: 18px; }
+    .list li { margin: 6px 0; color: #2f4f69; }
+    .field { display: grid; gap: 6px; margin-top: 8px; }
+    .field input, .field textarea, .field select { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="premium-services.html">Premium Services</a>
+        <a href="trusted-agents.html">Trusted Agents</a>
+        <a href="structure-hub.html">Structure</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Legal & Documentation Help</h1>
+        <p>Agreement draft, stamp duty guidance, lawyer connect aur digital legal workflow yahan live hai.</p>
+      </section>
+
+      <section class="udaipur-gallery">
+        <figure class="udaipur-shot">
+          <img loading="lazy" src="https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg" alt="Udaipur palace legal heritage context" />
+          <figcaption>Trust-led Legal Support Layer</figcaption>
+        </figure>
+        <figure class="udaipur-shot">
+          <img loading="lazy" src="https://cdn.pixabay.com/photo/2017/03/19/04/52/lake-pichola-2155531_1280.jpg" alt="Udaipur lake and city legal service region" />
+          <figcaption>Area-wise Legal Assistance Coverage</figcaption>
+        </figure>
+        <figure class="udaipur-shot">
+          <img loading="lazy" src="https://cdn.pixabay.com/photo/2022/02/23/17/15/udaipur-7031066_640.jpg" alt="Udaipur skyline for documentation support model" />
+          <figcaption>Agreement & Stamp Duty Desk</figcaption>
+        </figure>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Available Legal Templates</h2>
+          <p class="muted">Live templates from backend:</p>
+          <ul id="templateList" class="list"></ul>
+        </article>
+
+        <article class="cardx">
+          <h2>Request Legal Service</h2>
+          <div class="field">
+            <label for="templateId">Template</label>
+            <select id="templateId">
+              <option value="sale-agreement">Sale Agreement Draft</option>
+              <option value="rent-agreement">Rent Agreement Template</option>
+              <option value="stamp-duty-guide">Stamp Duty Guidance</option>
+              <option value="lawyer-connect">Local Lawyer Connect</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="legalDetails">Details</label>
+            <textarea id="legalDetails" rows="4" placeholder="Requirement details likhiye..."></textarea>
+          </div>
+          <button id="submitLegalRequestBtn" class="solid-btn" type="button">Submit Legal Request</button>
+          <p id="legalStatus" class="muted">Login ke baad request live submit hogi.</p>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/live-api.js"></script>
+  <script>
+    (() => {
+      const live = window.PropertySetuLive || {};
+      const templateList = document.getElementById('templateList');
+      const templateId = document.getElementById('templateId');
+      const legalDetails = document.getElementById('legalDetails');
+      const submitBtn = document.getElementById('submitLegalRequestBtn');
+      const legalStatus = document.getElementById('legalStatus');
+      const LOCAL_LEGAL_REQ_KEY = 'propertySetu:legalRequests';
+      const FALLBACK_TEMPLATES = [
+        { id: 'sale-agreement', name: 'Sale Agreement Draft', fee: 999 },
+        { id: 'rent-agreement', name: 'Rent Agreement Template', fee: 499 },
+        { id: 'stamp-duty-guide', name: 'Stamp Duty Guidance', fee: 299 },
+        { id: 'lawyer-connect', name: 'Local Lawyer Connect', fee: 1499 },
+      ];
+      const readJson = live.readJson || ((key, fallback) => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch {
+          return fallback;
+        }
+      });
+      const writeJson = live.writeJson || ((key, value) => {
+        localStorage.setItem(key, JSON.stringify(value));
+      });
+
+      const setStatus = (msg) => {
+        if (legalStatus) legalStatus.textContent = msg;
+      };
+
+      const renderTemplates = (items) => {
+        templateList.innerHTML = (items || []).map((item) => (
+          `<li><b>${item.name}</b> - Fee: ₹${Number(item.fee || 0).toLocaleString('en-IN')}</li>`
+        )).join('') || '<li>No templates available.</li>';
+      };
+
+      const loadTemplates = async () => {
+        if (!live.request) {
+          renderTemplates(FALLBACK_TEMPLATES);
+          setStatus('Live API unavailable. Local legal templates loaded.');
+          return;
+        }
+        try {
+          const response = await live.request('/legal/templates');
+          renderTemplates(response.items || FALLBACK_TEMPLATES);
+        } catch (error) {
+          renderTemplates(FALLBACK_TEMPLATES);
+          setStatus(`Live template fetch failed. Local templates loaded: ${error.message}`);
+        }
+      };
+
+      const saveLocalRequest = ({ templateIdValue, details }) => {
+        const templates = readJson('propertySetu:legalTemplatesCache', FALLBACK_TEMPLATES);
+        const all = readJson(LOCAL_LEGAL_REQ_KEY, []);
+        const match = (Array.isArray(templates) ? templates : FALLBACK_TEMPLATES).find((item) => item.id === templateIdValue)
+          || FALLBACK_TEMPLATES.find((item) => item.id === templateIdValue);
+        const record = {
+          id: `legal-local-${Date.now()}`,
+          templateId: templateIdValue,
+          templateName: match?.name || templateIdValue,
+          amount: Number(match?.fee || 0),
+          details: String(details || '').trim(),
+          status: 'Pending Live Sync',
+          source: 'local-fallback',
+          createdAt: new Date().toISOString(),
+        };
+        const merged = [record, ...(Array.isArray(all) ? all : [])].slice(0, 200);
+        writeJson(LOCAL_LEGAL_REQ_KEY, merged);
+        return record;
+      };
+
+      submitBtn?.addEventListener('click', async () => {
+        const templateIdValue = String(templateId?.value || '').trim();
+        const details = String(legalDetails?.value || '').trim();
+        if (!details) {
+          setStatus('Please enter requirement details before submit.');
+          return;
+        }
+
+        const token = live.getAnyToken ? live.getAnyToken() : '';
+        if (!token || !live.request) {
+          const localRecord = saveLocalRequest({ templateIdValue, details });
+          setStatus(`Login/live unavailable. Local request saved: ${localRecord.templateName}.`);
+          if (legalDetails) legalDetails.value = '';
+          return;
+        }
+        try {
+          await live.request('/legal/requests', {
+            method: 'POST',
+            token,
+            data: {
+              templateId: templateIdValue,
+              details,
+            },
+          });
+          setStatus('Legal request submitted successfully.');
+          if (legalDetails) legalDetails.value = '';
+        } catch (error) {
+          const localRecord = saveLocalRequest({ templateIdValue, details });
+          setStatus(`Live submit failed. Local request saved (${localRecord.templateName}): ${error.message}`);
+          if (legalDetails) legalDetails.value = '';
+        }
+      });
+
+      writeJson('propertySetu:legalTemplatesCache', FALLBACK_TEMPLATES);
+      loadTemplates();
+    })();
+  </script>
+<script src="../js/folder-command-dock.js"></script>
+</body>
+</html>
+

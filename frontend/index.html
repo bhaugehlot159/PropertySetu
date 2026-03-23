@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu Udaipur | Verified Real Estate Marketplace</title>
+  <meta name="description" content="PropertySetu Udaipur: verified local listings, smart filters, comparison, visits, sealed bids, and trusted owner marketplace in one platform." />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/professional-folder.css" />
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html">PropertySetu Udaipur</a>
+      <nav class="main-nav">
+        <a href="#marketplace">Marketplace</a>
+        <a href="#categoryHub">Buy/Rent/Care</a>
+        <a href="pages/structure-hub.html">Complete Model</a>
+        <a href="pages/production-deploy-checklist.html">Deploy Checklist</a>
+        <a href="pages/city-expansion.html">City Structure</a>
+        <a href="pages/premium-services.html">Premium Services</a>
+        <a href="pages/legal-help.html">Legal Help</a>
+        <a href="pages/trusted-agents.html">Trusted Agents</a>
+        <a href="pages/insurance-security.html">Insurance Slot</a>
+        <a href="#localityPulse">Locality Pulse</a>
+        <a href="folders/common/all-features.html">All Features</a>
+        <a href="folders/customer/customer-features.html">Customer Folder</a>
+        <a href="folders/admin/admin-features.html">Admin Folder</a>
+        <a href="pages/folder-architecture.html">Folder Architecture</a>
+      </nav>
+      <div class="auth-actions">
+        <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
+        <button id="adminAuthButton" class="solid-btn" type="button">Admin Login</button>
+        <span id="sessionBadge" class="session-badge">Guest Mode</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero hero-market">
+      <div class="hero-gradient"></div>
+      <div class="hero-pattern"></div>
+      <div class="container hero-layout">
+        <div class="hero-copy reveal-up">
+          <p class="eyebrow">Only Udaipur. Hyperlocal. Verified.</p>
+          <h1>OLX style se aage: Udaipur ka most trusted property command center.</h1>
+          <p class="hero-tagline">India’s Trusted Property & Care Platform</p>
+          <p class="hero-subline">
+            Buy, rent, resale, commercial, farm house, plot. Smart ranking, price intelligence, fraud signals, sealed bids,
+            and role-based dashboards - sab ek jagah.
+          </p>
+          <div class="hero-badges">
+            <span>Verified Owners</span>
+            <span>Udaipur Localities Mapped</span>
+            <span>AI Risk Signals</span>
+          </div>
+          <div class="hero-cta">
+            <a class="solid-btn" href="add-property.html">Post Property in Udaipur</a>
+            <a class="outline-btn light-outline" href="#marketplace">Explore Listings</a>
+          </div>
+        </div>
+
+        <aside class="hero-widget reveal-up-delay">
+          <h2>Instant Udaipur Search</h2>
+          <p>City fixed: <strong>Udaipur</strong> (non-Udaipur listings auto excluded).</p>
+          <label for="quickLocality">Locality</label>
+          <input id="quickLocality" placeholder="e.g. Hiran Magri Sector 4" autocomplete="off" />
+
+          <label for="quickPurpose">Purpose</label>
+          <select id="quickPurpose">
+            <option value="all">All</option>
+            <option value="Buy">Buy</option>
+            <option value="Sell">Sell</option>
+            <option value="Rent">Rent</option>
+            <option value="Lease">Lease</option>
+            <option value="Resale">Resale</option>
+            <option value="Mortgage (Girvi)">Mortgage (Girvi)</option>
+            <option value="House">House</option>
+            <option value="Flat">Flat</option>
+            <option value="Villa">Villa</option>
+            <option value="Plot">Plot</option>
+            <option value="Farm House">Farm House</option>
+            <option value="Vadi">Vadi</option>
+            <option value="Agriculture Land">Agriculture Land</option>
+            <option value="Commercial">Commercial</option>
+            <option value="Shop">Shop</option>
+            <option value="Office">Office</option>
+            <option value="Warehouse">Warehouse</option>
+            <option value="PG/Hostel">PG/Hostel</option>
+            <option value="Property Care">Property Care</option>
+            <option value="Home Maintenance">Home Maintenance</option>
+            <option value="Home Watch">Home Watch</option>
+          </select>
+
+          <label for="quickBudget">Max Budget (INR)</label>
+          <input id="quickBudget" type="number" min="0" step="50000" placeholder="e.g. 6500000" />
+
+          <button id="quickSearchButton" class="solid-btn full-width" type="button">Search Udaipur Listings</button>
+          <p class="tiny-note" id="quickSearchHint">Top localities: Bhuwana, Hiran Magri, Pratap Nagar, Sukher.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Udaipur Visual Highlights</h2>
+          <p class="section-note">City Palace, Lake Pichola aur heritage view points - hyperlocal identity ko professional presentation me set kiya gaya hai.</p>
+        </div>
+        <div class="udaipur-gallery">
+          <figure class="udaipur-shot">
+            <img loading="lazy" src="https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg" alt="Udaipur City Palace facade view" />
+            <figcaption>City Palace Front View</figcaption>
+          </figure>
+          <figure class="udaipur-shot">
+            <img loading="lazy" src="https://cdn.pixabay.com/photo/2017/03/19/04/52/lake-pichola-2155531_1280.jpg" alt="Lake Pichola Udaipur waterfront" />
+            <figcaption>Lake Pichola Waterfront</figcaption>
+          </figure>
+          <figure class="udaipur-shot">
+            <img loading="lazy" src="https://cdn.pixabay.com/photo/2020/12/11/22/05/udaipur-5824034_1280.jpg" alt="Udaipur lake city skyline" />
+            <figcaption>Udaipur Lake City Skyline</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="categoryHub" class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Main Categories (Professional Model)</h2>
+          <p class="section-note">Buy/Sell, Rent, Property Care aur advanced structure ke saare core points dedicated sections me set hain.</p>
+        </div>
+        <div class="hub-row">
+          <article class="hub-box">
+            <h3>Buy / Sell Section</h3>
+            <p>Makan Sale, Jamin Sale, Commercial Property, Farmhouse/Vadi.</p>
+            <ul class="mini-list">
+              <li>House, Flat, Villa, Plot</li>
+              <li>Agricultural Land, Commercial</li>
+              <li>Buy, Sell, Lease, Girvi routes</li>
+            </ul>
+            <a class="solid-btn" href="pages/buy-sell.html">Open Buy/Sell Hub</a>
+          </article>
+
+          <article class="hub-box">
+            <h3>Rent Section</h3>
+            <p>House for Rent, Shop for Rent, Office Space, PG/Flat flow.</p>
+            <ul class="mini-list">
+              <li>Residential + Commercial Rent</li>
+              <li>Visit booking ready workflow</li>
+              <li>Rent-first category navigation</li>
+            </ul>
+            <a class="solid-btn" href="pages/rent.html">Open Rent Hub</a>
+          </article>
+
+          <article class="hub-box">
+            <h3>Property Care Services</h3>
+            <p>Unique USP: care + maintenance + owner assistance packages.</p>
+            <p class="section-note">Especially useful in Udaipur (tourist + NRI owners).</p>
+            <ul class="mini-list">
+              <li>Monthly house check</li>
+              <li>Cleaning, garden/vadi, security visit</li>
+              <li>Bill payment and tenant coordination</li>
+            </ul>
+            <a class="solid-btn" href="pages/property-care-plans.html">Open Care Plans</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft-bg">
+      <div class="container">
+        <div class="section-header">
+          <h2>Trust, Legal, Revenue, Expansion</h2>
+          <p class="section-note">Requested strategic points proper place par mapped hain and live linked.</p>
+        </div>
+        <div class="hub-row four">
+          <article class="hub-box compact">
+            <h3>Trust & Security</h3>
+            <ul class="mini-list">
+              <li>Verified listing badge model</li>
+              <li>Owner verification workflow</li>
+              <li>In-app chat + spam/report controls</li>
+              <li>No direct public number + call masking flow</li>
+            </ul>
+          </article>
+
+          <article class="hub-box compact">
+            <h3>Legal & Docs</h3>
+            <ul class="mini-list">
+              <li>Terms, Privacy, Refund, Disclaimer</li>
+              <li>Service agreement support</li>
+              <li>Draft/legal-help structure</li>
+              <li>Sale agreement draft</li>
+              <li>Rent agreement template</li>
+              <li>Stamp duty guidance</li>
+              <li>Local lawyer connect</li>
+            </ul>
+          </article>
+
+          <article class="hub-box compact">
+            <h3>Revenue Model</h3>
+            <ul class="mini-list">
+              <li>Featured listing plans</li>
+              <li>Verified badge charge stream</li>
+              <li>Subscription model stream</li>
+              <li>Agent membership stream</li>
+              <li>Care subscription packages</li>
+              <li>Documentation service fee</li>
+              <li>Commission + agent membership model</li>
+            </ul>
+            <div class="link-row">
+              <a class="outline-btn dark-outline" href="subscription.html">Open Revenue Plans</a>
+              <a class="outline-btn dark-outline" href="pages/insurance-security.html">Open Insurance Tie-up</a>
+            </div>
+          </article>
+
+          <article class="hub-box compact">
+            <h3>Future-ready City URLs</h3>
+            <ul class="mini-list">
+              <li>PropertySetu.in/udaipur</li>
+              <li>PropertySetu.in/jaipur</li>
+              <li>Scale-ready city modules</li>
+            </ul>
+            <a class="outline-btn dark-outline" href="pages/city-expansion.html">Open City Structure</a>
+          </article>
+        </div>
+        <div class="link-row">
+          <a class="solid-btn" href="pages/structure-hub.html">Open Complete Website Structure</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Trust Building Elements (Live)</h2>
+          <p class="section-note">Verified listings, owner checks, support access and office identity - trust-first design.</p>
+        </div>
+        <div class="hub-row four trust-five">
+          <article class="hub-box compact">
+            <h3>Verified Listings Badge</h3>
+            <p>Admin-approved listings get visible trust badge in marketplace cards.</p>
+          </article>
+          <article class="hub-box compact">
+            <h3>Owner Verification</h3>
+            <p>Aadhaar/PAN + private documents workflow in Add Property flow.</p>
+          </article>
+          <article class="hub-box compact">
+            <h3>WhatsApp + Chat Support</h3>
+            <p>Support-ready communication layer with secure moderation model.</p>
+            <div class="link-row">
+              <a class="outline-btn dark-outline" href="user-dashboard.html">Open Chat Dashboard</a>
+              <a class="solid-btn" href="https://wa.me/919876543210?text=Hi%20PropertySetu%20Udaipur%2C%20mujhe%20verified%20property%20help%20chahiye." target="_blank" rel="noopener noreferrer">WhatsApp Chat</a>
+            </div>
+          </article>
+          <article class="hub-box compact">
+            <h3>Customer Reviews</h3>
+            <p>Verified buyer/tenant feedback, owner behaviour rating, and service quality reviews.</p>
+            <a class="outline-btn dark-outline" href="user-dashboard.html">Open Customer Reviews</a>
+          </article>
+          <article class="hub-box compact">
+            <h3>Office Address Presence</h3>
+            <p>PropertySetu Udaipur Operations Desk, Rajasthan (service region: Udaipur district).</p>
+            <a class="outline-btn dark-outline" href="https://maps.google.com/?q=Udaipur%20Rajasthan" target="_blank" rel="noopener noreferrer">View Office Area</a>
+          </article>
+          <article class="hub-box compact">
+            <h3>100% Verified Listing System</h3>
+            <ul class="mini-list">
+              <li>Owner Aadhaar / PAN verification</li>
+              <li>Property document upload (private view)</li>
+              <li>Address verification workflow</li>
+              <li>“Verified by PropertySetu” badge model</li>
+            </ul>
+            <p>Ye trust model OLX se stronger verification layer provide karta hai.</p>
+            <a class="outline-btn dark-outline" href="add-property.html">Open Verification Flow</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Live Udaipur Market Snapshot</h2>
+          <p class="section-note">Real-time view from your local listing data + curated verified inventory.</p>
+        </div>
+        <div class="stat-grid">
+          <article class="stat-card">
+            <p>Active Listings</p>
+            <h3 id="statActiveListings">0</h3>
+          </article>
+          <article class="stat-card">
+            <p>Verified Listings</p>
+            <h3 id="statVerifiedListings">0</h3>
+          </article>
+          <article class="stat-card">
+            <p>Median Price</p>
+            <h3 id="statMedianPrice">₹0</h3>
+          </article>
+          <article class="stat-card">
+            <p>Top Demand Locality</p>
+            <h3 id="statTopLocality">-</h3>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft-bg">
+      <div class="container">
+        <div class="section-header">
+          <h2>Video Visit Feature (Live)</h2>
+          <p class="section-note">Seller 30 sec property video + virtual tour option + live video visit booking - unique trust workflow.</p>
+        </div>
+        <div class="hub-row">
+          <article class="hub-box compact">
+            <h3>Seller 30 Sec Video Upload</h3>
+            <p>Add Property flow me minimum 30 sec property video upload required for Video Visit enablement.</p>
+          </article>
+          <article class="hub-box compact">
+            <h3>Virtual Tour Option</h3>
+            <p>360 walkthrough, live guided tour, ya recorded video tour selection available.</p>
+          </article>
+          <article class="hub-box compact">
+            <h3>Live Video Visit Booking</h3>
+            <p>Marketplace card se direct live video visit request submit kar sakte hain.</p>
+          </article>
+        </div>
+        <div class="link-row">
+          <a class="solid-btn" href="add-property.html">Configure Seller Video Visit</a>
+          <a class="outline-btn dark-outline" href="user-dashboard.html">Open Booking Dashboard</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="localityPulse" class="section soft-bg">
+      <div class="container">
+        <div class="section-header">
+          <h2>Udaipur Locality Pulse</h2>
+          <p class="section-note">One-tap locality filters for faster discovery and better lead matching.</p>
+        </div>
+        <div id="localityChips" class="chip-row"></div>
+      </div>
+    </section>
+
+    <section id="marketplace" class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Udaipur Marketplace</h2>
+          <p class="section-note">Advanced filters, sort, compare, wishlist, and saved searches - OLX-style se stronger workflow.</p>
+        </div>
+
+        <div class="filter-board">
+          <div class="filter-grid">
+            <div class="field">
+              <label for="marketQuery">Search</label>
+              <input id="marketQuery" type="text" placeholder="Search title/locality/category" />
+            </div>
+            <div class="field">
+              <label for="marketLocality">Locality</label>
+              <input id="marketLocality" placeholder="All Udaipur localities" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="marketCategory">Category</label>
+              <select id="marketCategory">
+                <option value="all">All Categories</option>
+                <option value="House">House</option>
+                <option value="Flat">Flat</option>
+                <option value="Villa">Villa</option>
+                <option value="Plot">Plot</option>
+                <option value="Farm House">Farm House</option>
+                <option value="Vadi">Vadi</option>
+                <option value="Agriculture Land">Agriculture Land</option>
+                <option value="Commercial">Commercial</option>
+                <option value="Shop">Shop</option>
+                <option value="Office">Office</option>
+                <option value="Warehouse">Warehouse</option>
+                <option value="PG/Hostel">PG/Hostel</option>
+                <option value="Property Care">Property Care</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketPurpose">Purpose</label>
+              <select id="marketPurpose">
+                <option value="all">All</option>
+                <option value="Buy">Buy</option>
+                <option value="Sell">Sell</option>
+                <option value="Rent">Rent</option>
+                <option value="Lease">Lease</option>
+                <option value="Resale">Resale</option>
+                <option value="Mortgage (Girvi)">Mortgage (Girvi)</option>
+                <option value="House">House</option>
+                <option value="Flat">Flat</option>
+                <option value="Villa">Villa</option>
+                <option value="Plot">Plot</option>
+                <option value="Farm House">Farm House</option>
+                <option value="Vadi">Vadi</option>
+                <option value="Agriculture Land">Agriculture Land</option>
+                <option value="Commercial">Commercial</option>
+                <option value="Shop">Shop</option>
+                <option value="Office">Office</option>
+                <option value="Warehouse">Warehouse</option>
+                <option value="PG/Hostel">PG/Hostel</option>
+                <option value="Property Care">Property Care</option>
+                <option value="Home Maintenance">Home Maintenance</option>
+                <option value="Home Watch">Home Watch</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketMinPrice">Min Price</label>
+              <input id="marketMinPrice" type="number" min="0" step="50000" placeholder="0" />
+            </div>
+            <div class="field">
+              <label for="marketMaxPrice">Max Price</label>
+              <input id="marketMaxPrice" type="number" min="0" step="50000" placeholder="No Limit" />
+            </div>
+            <div class="field">
+              <label for="marketSort">Sort By</label>
+              <select id="marketSort">
+                <option value="relevance">Relevance</option>
+                <option value="latest">Latest</option>
+                <option value="priceLow">Price: Low to High</option>
+                <option value="priceHigh">Price: High to Low</option>
+                <option value="trust">Most Trusted</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketVerifiedOnly">Verified Only</label>
+              <select id="marketVerifiedOnly">
+                <option value="0">All</option>
+                <option value="1">Verified Listings Only</option>
+              </select>
+            </div>
+          </div>
+          <div class="filter-actions">
+            <button id="saveSearchBtn" class="solid-btn" type="button">Save This Search</button>
+            <button id="resetFiltersBtn" class="outline-btn dark-outline" type="button">Reset Filters</button>
+          </div>
+          <div id="activeFilterTags" class="active-filter-tags"></div>
+          <p id="resultsMeta" class="results-meta">0 listings found</p>
+        </div>
+
+        <div class="split-grid" style="margin-top:14px;">
+          <article class="card">
+            <h3>AI Pricing Suggestion</h3>
+            <p id="aiPricingSummary" class="tiny-note">Locality select karte hi AI bolega: Is area me average price ₹____ hai.</p>
+          </article>
+          <article class="card">
+            <h3>AI Market Trend (Last 6 Months)</h3>
+            <canvas id="aiTrendCanvas" width="520" height="180" style="width:100%;height:180px;border:1px solid #d7e5f8;border-radius:10px;background:#ffffff;"></canvas>
+            <p id="aiTrendMeta" class="tiny-note">Trend graph locality wise load hoga.</p>
+          </article>
+          <article class="card">
+            <h3>AI Property Recommendation</h3>
+            <ul id="aiRecommendationList" class="stack-list">
+              <li>Search apply karte hi AI similar property recommend karega.</li>
+            </ul>
+            <button id="aiRefreshBtn" class="outline-btn dark-outline" type="button">Refresh AI Recommendations</button>
+          </article>
+        </div>
+
+        <div id="marketGrid" class="listing-grid"></div>
+        <div id="marketNoResults" class="empty-state" hidden>
+          <h3>No listings matched your filters</h3>
+          <p>Filter relax karo ya locality chip use karke fresh results dekho.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft-bg">
+      <div class="container split-grid">
+        <article class="card">
+          <h3>Compare Board (<span id="compareCount">0</span>/3)</h3>
+          <p>Best 3 shortlisted listings side-by-side compare karo before final call.</p>
+          <ul id="compareList" class="stack-list"></ul>
+          <button id="clearCompareBtn" class="outline-btn dark-outline" type="button">Clear Compare</button>
+        </article>
+
+        <article class="card">
+          <h3>Saved Searches</h3>
+          <p>Aapke high-intent filters yahan saved rehte hain for quick revisit.</p>
+          <ul id="savedSearchList" class="stack-list"></ul>
+        </article>
+
+        <article class="card">
+          <h3>Recently Viewed</h3>
+          <p>Recent localities aur listings track rahenge for faster follow-up.</p>
+          <ul id="recentList" class="stack-list"></ul>
+        </article>
+
+        <article class="card">
+          <h3>EMI Calculator</h3>
+          <p>Loan amount, tenure, rate dalke monthly EMI nikaalo.</p>
+          <div style="display:grid;gap:8px;">
+            <input id="emiLoanAmount" type="number" min="0" placeholder="Loan Amount (₹)" />
+            <input id="emiRate" type="number" min="0" step="0.1" placeholder="Annual Interest (%)" />
+            <input id="emiTenureMonths" type="number" min="1" placeholder="Tenure (Months)" />
+            <button id="emiCalcBtn" class="solid-btn" type="button">Calculate EMI</button>
+            <p id="emiResult" class="tiny-note">EMI result yahan show hoga.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Role-based Feature Boards</h2>
+          <p class="section-note">Purane sabhi features intact hain; login ke baad auto unlock hote hain.</p>
+        </div>
+        <div class="role-grid">
+          <article class="role-board">
+            <h3>Customer Features (Login Required)</h3>
+            <ul class="feature-list">
+              <li><a class="feature-link locked" data-lock-role="customer" href="add-property.html">Add Property</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="dashboard.html">Customer Dashboard</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="client/pages/customer-portal.html">Customer Portal</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="user-dashboard.html">Chat</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="property-care.html">Property Care</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="area-insights.html">Area Insights</a></li>
+            </ul>
+            <p class="board-status" id="customerBoardStatus">Customer login ke baad sabhi features open honge.</p>
+          </article>
+
+          <article class="role-board">
+            <h3>Admin Features (Login Required)</h3>
+            <ul class="feature-list">
+              <li><a class="feature-link locked" data-lock-role="admin" href="admin-dashboard.html">Admin Dashboard</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="client/pages/admin-portal.html">Admin Portal</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="seller-dashboard.html">Seller Listings Monitor</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="dashboard.html">Marketplace Snapshot</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="user-dashboard.html">Chat Oversight</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="auction.html">Sealed Bid Control</a></li>
+            </ul>
+            <p class="board-status" id="adminBoardStatus">Admin login ke baad moderation aur control features open honge.</p>
+          </article>
+        </div>
+        <p id="customerFeatureStatus" class="feature-status">Please login as customer/admin to unlock features.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-row">
+      <div>
+        <h3>PropertySetu Udaipur</h3>
+        <p>Focused local marketplace for Udaipur only. Better trust, better matching, better conversion.</p>
+      </div>
+      <div class="footer-links">
+        <a href="legal/terms.html">Terms</a>
+        <a href="legal/privacy.html">Privacy</a>
+        <a href="legal/refund.html">Refund</a>
+        <a href="legal/disclaimer.html">Disclaimer</a>
+        <a href="legal/service-agreement.html">Service Agreement</a>
+      </div>
+    </div>
+  </footer>
+
+  <div id="authModal" class="auth-modal" aria-hidden="true">
+    <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+      <h3 id="authModalTitle">Login</h3>
+      <p id="authModalHint">Secure login required.</p>
+      <div class="auth-mode-switch" role="tablist" aria-label="Authentication mode">
+        <button id="authLoginTab" type="button" class="outline-btn auth-tab active">Login</button>
+        <button id="authSignupTab" type="button" class="outline-btn auth-tab">Signup</button>
+      </div>
+      <input id="authNameInput" type="text" placeholder="Full Name" />
+      <input id="authEmailInput" type="email" placeholder="Email Address (optional if mobile used)" />
+      <input id="authMobileInput" type="tel" placeholder="Mobile Number (10 digits, optional if email used)" />
+      <input id="authPasswordInput" type="password" placeholder="Password (min 6 chars)" />
+      <input id="authOtpInput" type="text" placeholder="OTP (123456)" />
+      <p id="authErrorMessage" class="auth-error" aria-live="polite"></p>
+      <div class="auth-modal-actions">
+        <button id="authCancelButton" type="button" class="outline-btn dark-outline">Cancel</button>
+        <button id="authRequestOtpButton" type="button" class="outline-btn dark-outline">Send OTP</button>
+        <button id="authSubmitButton" type="button" class="solid-btn">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/udaipur-latest-map-data.js"></script>
+  <script src="js/udaipur-official-data.js"></script>
+  <script src="js/location.js"></script>
+  <script src="js/pro-autocomplete.js"></script>
+  <script src="js/live-api.js"></script>
+  <script src="js/udaipur-marketplace.js"></script>
+  <script src="js/pro-select.js"></script>
+  <script src="js/home-auth.js"></script>
+<script src="js/folder-command-dock.js"></script>
+</body>
+</html>
+

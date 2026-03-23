@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PropertySetu – Admin Dashboard</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+body { font-family: "Manrope", "Plus Jakarta Sans", sans-serif; margin:0; padding:0; background:#f4f6f9; }
+header { background:#0b3d91; color:white; padding:15px; text-align:center; font-size:24px; }
+.container { max-width: 1000px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+h2 { color:#0b3d91; }
+button { background:#0b3d91; color:white; padding:6px 10px; border:none; border-radius:4px; cursor:pointer; margin-right:5px; }
+button:hover { background:#092f6d; }
+.property-card { border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:6px; background:#fdfdfd; }
+.badge { background:#eaf1ff; color:#123d83; border-radius:6px; padding:2px 8px; font-size:12px; }
+.backup-panel { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+#backupStatus { font-size:14px; color:#123d83; }
+</style>
+  <link rel="stylesheet" href="css/professional-folder.css" />
+</head>
+<body>
+
+<header>PropertySetu Admin Dashboard</header>
+<div style="text-align:center;padding:10px;background:#eaf1ff;">
+  <a href="index.html">Home</a> | <a href="add-property.html">Add Property</a> | <a href="dashboard.html">User Dashboard</a> | <a href="seller-dashboard.html">Seller Dashboard</a>
+</div>
+
+<div class="container">
+  <h2>Pending Property Approvals</h2>
+  <div id="pendingProperties"></div>
+</div>
+
+<div class="container">
+  <h2>Approved / Featured Listings</h2>
+  <div id="approvedProperties"></div>
+</div>
+
+<div class="container">
+  <h2>Admin Controls: Category / City / User Block / Reports / Commission</h2>
+  <div id="adminAnalytics" class="backup-panel"></div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
+    <div class="property-card">
+      <h3>Category Management</h3>
+      <input id="newCategoryInput" placeholder="New category" style="padding:6px;width:100%;max-width:260px;" />
+      <button id="addCategoryBtn">Add Category</button>
+      <div id="categoryList"></div>
+    </div>
+    <div class="property-card">
+      <h3>City Management</h3>
+      <input id="newCityInput" placeholder="New city" style="padding:6px;width:100%;max-width:260px;" />
+      <button id="addCityBtn">Add City</button>
+      <div id="cityList"></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
+    <div class="property-card">
+      <h3>User Block Control</h3>
+      <div id="adminUserList"></div>
+    </div>
+    <div class="property-card">
+      <h3>Report Queue</h3>
+      <div id="adminReportList"></div>
+    </div>
+  </div>
+  <div class="property-card" style="margin-top:10px;">
+    <h3>Owner Verification Queue</h3>
+    <div id="ownerVerificationQueue"></div>
+  </div>
+</div>
+
+<div class="container">
+  <h2>Local Data Backup</h2>
+  <div class="backup-panel">
+    <button id="downloadLocalDataBtn">Download Local Data File (.json)</button>
+    <span id="backupStatus">Browser me jo data saved hai, uska JSON backup yahan se download hoga.</span>
+  </div>
+</div>
+
+<script src="js/live-api.js"></script>
+<script>
+(() => {
+  const live = window.PropertySetuLive || {};
+  const LISTINGS_KEY = 'propertySetu:listings';
+  const BASE_BACKUP_KEYS = [
+    'propertySetu:listings',
+    'propertySetu:addPropertyDraft',
+    'propertySetu:notifications',
+    'propertySetu:notified',
+    'propertysetu-marketplace-state',
+    'propertysetu-customer-session',
+    'propertysetu-admin-session',
+    'propertysetu-seller-session',
+    'properties',
+    'favorites',
+  ];
+
+  const backupStatus = document.getElementById('backupStatus');
+  const pendingDiv = document.getElementById('pendingProperties');
+  const approvedDiv = document.getElementById('approvedProperties');
+  const adminAnalytics = document.getElementById('adminAnalytics');
+  const categoryList = document.getElementById('categoryList');
+  const cityList = document.getElementById('cityList');
+  const adminUserList = document.getElementById('adminUserList');
+  const adminReportList = document.getElementById('adminReportList');
+  const ownerVerificationQueue = document.getElementById('ownerVerificationQueue');
+
+  const readJson = live.readJson || ((key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+  const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
+  const pushNotification = (message, audience = ['all'], title = 'PropertySetu Update', type = 'info') => {
+    if (!message) return;
+    const notifyApi = window.PropertySetuNotify;
+    if (notifyApi && typeof notifyApi.emit === 'function') {
+      notifyApi.emit({ title, message, audience, type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      audience: Array.isArray(audience) ? audience : ['all'],
+      type,
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 400) list.pop();
+    writeJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
+
+  const isUdaipurListing = (item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur');
+  const normalizeApi = (item) => (live.normalizeApiListing ? live.normalizeApiListing(item) : item);
+  const getAdminToken = () => (live.getToken ? live.getToken('admin') : '');
+  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+  const safeParse = (value) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+
+  const getBackupKeys = () => {
+    const keys = new Set(BASE_BACKUP_KEYS);
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key) continue;
+      const normalized = key.toLowerCase();
+      if (normalized.includes('propertysetu') || key === 'properties' || key === 'favorites') keys.add(key);
+    }
+    return [...keys];
+  };
+
+  const downloadLocalData = () => {
+    const storageData = {};
+    getBackupKeys().forEach((key) => {
+      const value = localStorage.getItem(key);
+      if (value !== null) storageData[key] = safeParse(value);
+    });
+    if (!Object.keys(storageData).length) {
+      if (backupStatus) backupStatus.textContent = 'Backup skipped: local data nahi mila.';
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `propertysetu-local-data-${timestamp}.json`;
+    const payload = { app: 'PropertySetu', exportedAt: new Date().toISOString(), storage: storageData };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    if (backupStatus) backupStatus.textContent = `Backup saved: ${fileName}`;
+    pushNotification(
+      `Admin downloaded local backup: ${fileName}`,
+      ['admin'],
+      'Backup Downloaded',
+      'info',
+    );
+  };
+
+  const getLocalListings = () => readJson(LISTINGS_KEY, []).filter(isUdaipurListing);
+
+  const syncLocalListings = (items) => {
+    const normalized = items.map(normalizeApi).filter(Boolean);
+    const existing = readJson(LISTINGS_KEY, []);
+    const merged = live.mergeById ? live.mergeById(normalized, existing) : [...normalized, ...existing];
+    writeJson(LISTINGS_KEY, merged);
+  };
+
+  const fetchListings = async () => {
+    const token = getAdminToken();
+    if (!token || !live.request) return getLocalListings();
+    try {
+      const response = await live.request('/admin/properties', { token });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      syncLocalListings(items);
+      return items.map(normalizeApi).filter(isUdaipurListing);
+    } catch (error) {
+      if (backupStatus) backupStatus.textContent = `Live admin API unavailable: ${error.message}`;
+      return getLocalListings();
+    }
+  };
+
+  const loadAdminControls = async () => {
+    const token = getAdminToken();
+    if (!token || !live.request) {
+      if (adminAnalytics) adminAnalytics.textContent = 'Admin controls ke liye admin login required.';
+      return;
+    }
+    try {
+      const [config, users, reports, commission, ownerVerifications] = await Promise.all([
+        live.request('/admin/config', { token }),
+        live.request('/admin/users', { token }),
+        live.request('/admin/reports', { token }),
+        live.request('/admin/commission-analytics', { token }),
+        live.request('/admin/owner-verification', { token }),
+      ]);
+
+      if (adminAnalytics) {
+        const a = commission?.analytics || {};
+        adminAnalytics.innerHTML = `
+          <span><b>Paid Subs:</b> ${a.paidSubscriptions || 0}</span>
+          <span><b>Sub Revenue:</b> ₹${Number(a.subscriptionRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Featured Listing:</b> ₹${Number(a.featuredListingRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Verified Badge Charge:</b> ₹${Number(a.verifiedBadgeRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Subscription Model:</b> ₹${Number(a.subscriptionModelRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Agent Membership:</b> ₹${Number(a.agentMembershipRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Property Care Package:</b> ₹${Number(a.propertyCareRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Doc Service Fee:</b> ₹${Number((a.documentationServiceFeeRevenue ?? a.legalServiceRevenue) || 0).toLocaleString('en-IN')}</span>
+          <span><b>Legal Revenue:</b> ₹${Number(a.legalServiceRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Estimated Commission:</b> ₹${Number(a.estimatedCommission || 0).toLocaleString('en-IN')}</span>
+          <span><b>Total Monetized:</b> ₹${Number(a.totalMonetized || 0).toLocaleString('en-IN')}</span>
+        `;
+      }
+
+      if (categoryList) {
+        categoryList.innerHTML = (config?.config?.categories || []).map((x) => `<span class="badge">${x}</span>`).join(' ');
+      }
+      if (cityList) {
+        cityList.innerHTML = (config?.config?.cities || []).map((x) => `<span class="badge">${x}</span>`).join(' ');
+      }
+
+      if (adminUserList) {
+        adminUserList.innerHTML = (users?.items || []).map((u) => `
+          <div style="margin-bottom:6px;">
+            <b>${u.name}</b> (${u.role}) ${u.blocked ? '<span class="badge">Blocked</span>' : ''}
+            <button data-user-action="${u.blocked ? 'unblock' : 'block'}" data-user-id="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>
+          </div>
+        `).join('') || '<p>No users found.</p>';
+      }
+
+      if (adminReportList) {
+        adminReportList.innerHTML = (reports?.items || []).map((r) => `
+          <div style="margin-bottom:8px;">
+            <b>${r.propertyTitle || r.propertyId}</b> - ${r.reason} (${r.status})
+            ${r.status !== 'resolved' ? `<button data-report-resolve="${r.id}">Resolve</button>` : ''}
+          </div>
+        `).join('') || '<p>No reports.</p>';
+      }
+
+      if (ownerVerificationQueue) {
+        ownerVerificationQueue.innerHTML = (ownerVerifications?.items || []).map((item) => `
+          <div style="margin-bottom:8px;border:1px solid #dbe7ff;border-radius:8px;padding:8px;">
+            <div><b>${item.userName || 'User'}</b> (${item.role || '-'}) - <span class="badge">${item.status || 'Pending Review'}</span></div>
+            <div>Property: ${item.propertyTitle || item.propertyId || 'N/A'}</div>
+            <div>Owner KYC: ${item.ownerAadhaarPanStatus || '-'} | Address: ${item.addressVerificationStatus || '-'}</div>
+            <div>Private Docs: ${item.privateDocsUploaded ? 'Uploaded' : 'Missing'}</div>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              <button data-owner-verify-id="${item.id}" data-owner-verify-action="verified">Mark Verified</button>
+              <button data-owner-verify-id="${item.id}" data-owner-verify-action="needs-info">Needs Info</button>
+              <button data-owner-verify-id="${item.id}" data-owner-verify-action="rejected">Reject</button>
+            </div>
+          </div>
+        `).join('') || '<p>No owner verification requests.</p>';
+      }
+    } catch (error) {
+      if (adminAnalytics) adminAnalytics.textContent = `Admin controls load failed: ${error.message}`;
+    }
+  };
+
+  const updateStatus = async (id, status) => {
+    const token = getAdminToken();
+    let apiUpdated = false;
+    if (token && live.request) {
+      try {
+        await live.request(`/properties/${encodeURIComponent(id)}/approve`, {
+          method: 'POST',
+          token,
+          data: { status },
+        });
+        apiUpdated = true;
+      } catch (error) {
+        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+          window.alert(error.message || 'Status update failed.');
+          return;
+        }
+      }
+    }
+
+    const listings = getLocalListings();
+    const updated = listings.map((item) => (item.id === id ? { ...item, status, verified: status === 'Approved' } : item));
+    writeJson(LISTINGS_KEY, updated);
+    if (apiUpdated && backupStatus) backupStatus.textContent = `Listing ${id} updated live + local.`;
+    pushNotification(
+      `Admin changed listing ${id} status to ${status}.`,
+      ['admin', 'customer', 'seller'],
+      'Listing Status Updated',
+      status === 'Approved' ? 'success' : 'warn',
+    );
+    await render();
+  };
+
+  const markFeatured = async (id) => {
+    const token = getAdminToken();
+    if (!token || !live.request) {
+      window.alert('Live feature mark ke liye admin login required.');
+      return;
+    }
+    try {
+      await live.request(`/properties/${encodeURIComponent(id)}/feature`, {
+        method: 'POST',
+        token,
+        data: { days: 30 },
+      });
+      pushNotification(
+        `Admin marked listing ${id} as featured.`,
+        ['admin', 'customer', 'seller'],
+        'Featured Listing',
+        'success',
+      );
+      await render();
+    } catch (error) {
+      window.alert(error.message || 'Feature update failed.');
+    }
+  };
+
+  const renderList = (items, type) => {
+    const div = type === 'pending' ? pendingDiv : approvedDiv;
+    if (!div) return;
+    if (!items.length) {
+      div.innerHTML = type === 'pending' ? '<p>No pending properties.</p>' : '<p>No approved properties yet.</p>';
+      return;
+    }
+
+    div.innerHTML = '';
+    items.forEach((prop) => {
+      const card = document.createElement('div');
+      card.className = 'property-card';
+      const verification = prop.verification || {};
+      const privateDocs = prop.privateDocs || {};
+      const trustBadge = Boolean(prop.verifiedByPropertySetu || verification.badgeEligible);
+      card.innerHTML = `
+        <h3>
+          ${prop.title || 'Untitled'}
+          ${type === 'approved' ? '<span class="badge">Approved</span>' : ''}
+          ${prop.featured ? '<span class="badge">Featured</span>' : ''}
+          ${trustBadge ? '<span class="badge">Verified by PropertySetu</span>' : ''}
+        </h3>
+        <p><b>City:</b> Udaipur</p>
+        <p><b>Category:</b> ${prop.category || '-'}</p>
+        <p><b>Location:</b> ${prop.location || prop.locality || '-'}</p>
+        <p><b>Price:</b> ${formatPrice(prop.price)}</p>
+        <p><b>Status:</b> ${prop.status || 'Pending Approval'}</p>
+        <p><b>KYC:</b> Owner ${verification.ownerAadhaarPanStatus || 'Pending'} | Address ${verification.addressVerificationStatus || 'Pending'}</p>
+        <p><b>Private Docs:</b> Property ${Array.isArray(privateDocs.propertyDocuments) ? privateDocs.propertyDocuments.length : 0}, Owner ID ${privateDocs.ownerIdProof ? 'Yes' : 'No'}, Address ${privateDocs.addressProof ? 'Yes' : 'No'}</p>
+        <div>
+          ${type === 'pending' ? `<button data-action="approve" data-id="${prop.id}">Approve ✅</button><button data-action="reject" data-id="${prop.id}">Reject ❌</button>` : ''}
+          <button data-action="feature" data-id="${prop.id}">Mark Featured ⭐</button>
+        </div>
+      `;
+      div.appendChild(card);
+    });
+  };
+
+  const render = async () => {
+    const listings = await fetchListings();
+    const pending = listings.filter((item) => String(item.status || 'Pending Approval').toLowerCase() !== 'approved');
+    const approved = listings.filter((item) => String(item.status || '').toLowerCase() === 'approved');
+    renderList(pending, 'pending');
+    renderList(approved, 'approved');
+  };
+
+  document.getElementById('downloadLocalDataBtn')?.addEventListener('click', downloadLocalData);
+  window.downloadLocalData = downloadLocalData;
+  window.updateStatus = updateStatus;
+
+  pendingDiv?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-action');
+    const id = target.getAttribute('data-id');
+    if (!action || !id) return;
+    if (action === 'approve') await updateStatus(id, 'Approved');
+    if (action === 'reject') await updateStatus(id, 'Rejected');
+    if (action === 'feature') await markFeatured(id);
+  });
+
+  approvedDiv?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-action');
+    const id = target.getAttribute('data-id');
+    if (action === 'feature' && id) await markFeatured(id);
+  });
+
+  document.getElementById('addCategoryBtn')?.addEventListener('click', async () => {
+    const token = getAdminToken();
+    const name = String(document.getElementById('newCategoryInput')?.value || '').trim();
+    if (!name) return;
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request('/admin/config/categories', { method: 'POST', token, data: { name } });
+      document.getElementById('newCategoryInput').value = '';
+      pushNotification(
+        `Admin added category: ${name}.`,
+        ['admin'],
+        'Category Added',
+        'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Category add failed.');
+    }
+  });
+
+  document.getElementById('addCityBtn')?.addEventListener('click', async () => {
+    const token = getAdminToken();
+    const city = String(document.getElementById('newCityInput')?.value || '').trim();
+    if (!city) return;
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request('/admin/config/cities', { method: 'POST', token, data: { city } });
+      document.getElementById('newCityInput').value = '';
+      pushNotification(
+        `Admin added city route config: ${city}.`,
+        ['admin'],
+        'City Added',
+        'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'City add failed.');
+    }
+  });
+
+  adminUserList?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.getAttribute('data-user-action');
+    const userId = target.getAttribute('data-user-id');
+    if (!action || !userId) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/users/${encodeURIComponent(userId)}/${action}`, { method: 'POST', token });
+      pushNotification(
+        `Admin ${action} user ${userId}.`,
+        ['admin'],
+        'User Moderation',
+        'warn',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'User action failed.');
+    }
+  });
+
+  adminReportList?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const reportId = target.getAttribute('data-report-resolve');
+    if (!reportId) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, { method: 'POST', token });
+      pushNotification(
+        `Admin resolved report ${reportId}.`,
+        ['admin', 'customer', 'seller'],
+        'Report Resolved',
+        'success',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Resolve failed.');
+    }
+  });
+
+  ownerVerificationQueue?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const requestId = target.getAttribute('data-owner-verify-id');
+    const action = target.getAttribute('data-owner-verify-action');
+    if (!requestId || !action) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/owner-verification/${encodeURIComponent(requestId)}/decision`, {
+        method: 'POST',
+        token,
+        data: { status: action },
+      });
+      pushNotification(
+        `Admin updated owner verification ${requestId}: ${action}.`,
+        ['admin', 'customer', 'seller'],
+        'Owner Verification Updated',
+        action === 'verified' ? 'success' : 'warn',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Owner verification update failed.');
+    }
+  });
+
+  render();
+  loadAdminControls();
+})();
+</script>
+
+<script src="js/folder-command-dock.js"></script>
+</body>
+</html>
+

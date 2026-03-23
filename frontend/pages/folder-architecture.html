@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Folder Architecture</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/professional-folder.css" />
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="../folders/common/all-features.html">All Features</a>
+        <a href="../folders/customer/customer-features.html">Customer Folder</a>
+        <a href="../folders/admin/admin-features.html">Admin Folder</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="pro-shell">
+    <div class="container">
+      <section class="pro-hero" style="--hero-image:url('https://cdn.pixabay.com/photo/2018/08/17/11/01/india-3612588_1280.jpg');">
+        <h1>Professional Folder-wise Architecture</h1>
+        <p>Puri website ko module-wise organize kiya gaya hai taaki customer, seller, admin aur city-structure flows clearly grouped रहें. Purane pages delete nahi kiye gaye hain.</p>
+      </section>
+
+      <section class="folder-grid">
+        <article class="folder-card">
+          <h2>Core Marketplace</h2>
+          <p>Homepage, search, listing grid, category filters, purpose matrix.</p>
+          <ul>
+            <li>`index.html`</li>
+            <li>`add-property.html`</li>
+            <li>`property-details.html`</li>
+          </ul>
+          <div class="folder-links">
+            <a class="link-chip" href="../index.html">Open Marketplace</a>
+            <a class="link-chip" href="../add-property.html">Add Property</a>
+          </div>
+        </article>
+
+        <article class="folder-card">
+          <h2>Category Modules</h2>
+          <p>Buy/Sell, Rent, Property Care and premium modules.</p>
+          <ul>
+            <li>`pages/buy-sell.html`</li>
+            <li>`pages/rent.html`</li>
+            <li>`pages/property-care-plans.html`</li>
+          </ul>
+          <div class="folder-links">
+            <a class="link-chip" href="buy-sell.html">Buy/Sell</a>
+            <a class="link-chip" href="rent.html">Rent</a>
+            <a class="link-chip" href="property-care-plans.html">Property Care</a>
+          </div>
+        </article>
+
+        <article class="folder-card">
+          <h2>User Dashboards</h2>
+          <p>Customer and seller daily operations with sync-ready workflows.</p>
+          <ul>
+            <li>`dashboard.html`</li>
+            <li>`seller-dashboard.html`</li>
+            <li>`user-dashboard.html`</li>
+          </ul>
+          <div class="folder-links">
+            <a class="link-chip" href="../dashboard.html">Customer Dashboard</a>
+            <a class="link-chip" href="../seller-dashboard.html">Seller Dashboard</a>
+            <a class="link-chip" href="../user-dashboard.html">User Panel</a>
+          </div>
+        </article>
+
+        <article class="folder-card">
+          <h2>Admin & Moderation</h2>
+          <p>Verification, approvals, reports, controls and analytics.</p>
+          <ul>
+            <li>`admin-dashboard.html`</li>
+            <li>`client/pages/admin-portal.html`</li>
+            <li>`auction.html`</li>
+          </ul>
+          <div class="folder-links">
+            <a class="link-chip" href="../admin-dashboard.html">Admin Dashboard</a>
+            <a class="link-chip" href="../auction.html">Sealed Bid</a>
+          </div>
+        </article>
+
+        <article class="folder-card">
+          <h2>Legal & Trust Stack</h2>
+          <p>Legal docs, trusted agents, insurance/security tie-up modules.</p>
+          <ul>
+            <li>`legal/*.html`</li>
+            <li>`pages/legal-help.html`</li>
+            <li>`pages/trusted-agents.html`</li>
+          </ul>
+          <div class="folder-links">
+            <a class="link-chip" href="legal-help.html">Legal Help</a>
+            <a class="link-chip" href="trusted-agents.html">Trusted Agents</a>
+            <a class="link-chip" href="insurance-security.html">Insurance Slot</a>
+          </div>
+        </article>
+
+        <article class="folder-card">
+          <h2>Operations & Deploy</h2>
+          <p>Production scripts, deploy plans, backup, rollback, automation.</p>
+          <ul>
+            <li>`deploy/scripts/*`</li>
+            <li>`docs/PRODUCTION_*`</li>
+            <li>`server/` runtime</li>
+          </ul>
+          <div class="folder-links">
+            <a class="link-chip" href="../docs/PRODUCTION_ONE_SHOT_DEPLOY.md">One-shot Deploy Doc</a>
+            <a class="link-chip" href="../docs/PRODUCTION_OPERATIONS_RUNBOOK.md">Ops Runbook</a>
+          </div>
+        </article>
+      </section>
+
+      <section class="udaipur-gallery">
+        <figure class="udaipur-shot">
+          <img loading="lazy" src="https://cdn.pixabay.com/photo/2018/03/15/21/46/city-palace-3229617_640.jpg" alt="City Palace Udaipur from lake side" />
+          <figcaption>City Palace Lake-side</figcaption>
+        </figure>
+        <figure class="udaipur-shot">
+          <img loading="lazy" src="https://cdn.pixabay.com/photo/2022/02/23/17/15/udaipur-7031066_640.jpg" alt="Udaipur architectural skyline" />
+          <figcaption>Udaipur Heritage Skyline</figcaption>
+        </figure>
+        <figure class="udaipur-shot">
+          <img loading="lazy" src="https://cdn.pixabay.com/photo/2018/08/17/11/01/india-3612588_1280.jpg" alt="Udaipur palace by water" />
+          <figcaption>Royal Waterfront Ambience</figcaption>
+        </figure>
+      </section>
+    </div>
+  </main>
+<script src="../js/folder-command-dock.js"></script>
+</body>
+</html>
+

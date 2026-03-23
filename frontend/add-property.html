@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu – Add Property</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .form-shell { padding: 34px 0 50px; }
+    .panel { background: #fff; border-radius: 12px; border: 1px solid #dbe7ff; box-shadow: 0 8px 24px rgba(16, 43, 87, 0.08); padding: 18px; margin-bottom: 16px; }
+    .panel h2 { margin: 0 0 12px; color: #0b2f6b; font-size: 1.2rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .form-group { display: grid; gap: 6px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .inline-pair { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 8px; }
+    .helper-note { color: #2b537e; font-size: 0.82rem; margin-top: -2px; }
+    label { font-size: 0.9rem; font-weight: 600; color: #1f3658; }
+    input, select, textarea { width: 100%; padding: 10px 11px; border-radius: 8px; border: 1px solid #cdd9f3; font: inherit; }
+    textarea { min-height: 95px; resize: vertical; }
+    .preview-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .preview-grid img { width: 92px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #d6e2fb; }
+    .preview-grid video { width: 180px; border-radius: 8px; border: 1px solid #d6e2fb; }
+    .media-card { display: grid; gap: 8px; background: #f7fbff; border: 1px solid #d6e8fb; border-radius: 10px; padding: 8px; width: 210px; }
+    .media-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .media-compare img { width: 100%; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #cfe0f5; }
+    .media-meta { font-size: 0.8rem; color: #24466c; line-height: 1.35; }
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; }
+    .tag.ok { background: #e9f8ee; color: #1b6d2c; border: 1px solid #b9e6c4; }
+    .tag.warn { background: #fff4e8; color: #8d4f14; border: 1px solid #f0d2b4; }
+    .mini-payload { background: #f7faff; border: 1px solid #d9e6ff; border-radius: 8px; padding: 10px; font-size: 0.8rem; overflow: auto; max-height: 190px; margin-top: 8px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn { border: none; background: #0b2f6b; color: #fff; padding: 11px 16px; border-radius: 8px; cursor: pointer; font-weight: 700; }
+    .btn.alt { background: #eff4ff; color: #17355e; border: 1px solid #cdd9f3; }
+    .status-box { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 0.92rem; }
+    .status-box.ok { background: #ecf8ee; border: 1px solid #b8e6c0; color: #1b6a2a; }
+    .status-box.err { background: #fff1f1; border: 1px solid #f1c8c8; color: #8d1e1e; }
+    .payload { background: #f7faff; border: 1px solid #d9e6ff; border-radius: 8px; padding: 10px; font-size: 0.85rem; overflow: auto; max-height: 280px; }
+    .city-lock-note { margin: -2px 0 12px; color: #26567b; font-size: 0.88rem; font-weight: 600; }
+    @media (max-width: 760px) { .form-grid { grid-template-columns: 1fr; } }
+  </style>
+  <link rel="stylesheet" href="css/professional-folder.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">PropertySetu</div>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="add-property.html">Add Property</a>
+        <a href="client/pages/customer-portal.html">Customer Portal</a>
+        <a href="client/pages/admin-portal.html">Admin Portal</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="form-shell">
+    <div class="container">
+      <form id="addPropertyForm">
+        <section class="panel">
+          <h2>Basic Information</h2>
+          <p class="city-lock-note">This portal is configured for Udaipur only. City is auto-locked to maintain clean local marketplace data.</p>
+          <div class="form-grid">
+            <div class="form-group"><label for="title">Property Title *</label><input id="title" required /></div>
+            <div class="form-group"><label for="city">City *</label><select id="city" required><option value="Udaipur" selected>Udaipur (Only)</option></select></div>
+            <div class="form-group"><label for="type">Type *</label><select id="type" required><option value="">Select</option><option>Buy</option><option>Sell</option><option>Rent</option><option>Lease</option><option>Girvi</option></select></div>
+            <div class="form-group"><label for="category">Category *</label><select id="category" required><option value="">Select</option><option>House</option><option>Flat</option><option>Villa</option><option>Plot</option><option>Agriculture Land</option><option>Commercial</option><option>Farm House</option><option>PG / Hostel</option><option>Warehouse</option></select></div>
+            <div class="form-group"><label for="propertyTypeCore">Property Type (House / Plot / Commercial)</label><select id="propertyTypeCore"><option value="">Select</option><option>House</option><option>Plot</option><option>Commercial</option></select></div>
+            <div class="form-group"><label for="saleRentMode">Sale / Rent</label><select id="saleRentMode"><option value="">Select</option><option>Sale</option><option>Rent</option></select></div>
+            <div class="form-group full"><p class="helper-note">Core detail fields auto sync with category/type and preserve old workflow.</p></div>
+
+            <div class="form-group"><label for="location">Location *</label><input id="location" required placeholder="e.g. Hiran Magri Sector 4" autocomplete="off" /></div>
+            <div class="form-group"><label for="price">Price (₹) *</label><input id="price" type="number" min="0" required /></div>
+            <div class="form-group"><label for="negotiable">Negotiable</label><select id="negotiable"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group full"><label for="description">Description</label><textarea id="description"></textarea></div>
+            <div class="form-group"><label for="roadWidth">Road Width (ft)</label><input id="roadWidth" type="number" min="0" placeholder="e.g. 30" /></div>
+            <div class="form-group"><label for="loanAvailable">Loan Available</label><select id="loanAvailable"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group"><label for="readyToMove">Ready to Move</label><select id="readyToMove"><option>Yes</option><option>No</option><option>Under Construction</option></select></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Size & Interior Details</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="plotSize">Plot Size</label>
+              <div class="inline-pair">
+                <input id="plotSize" placeholder="e.g. 2400" />
+                <select id="plotSizeUnit"><option>sq ft</option><option>sq yard</option><option>acre</option></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="builtUpArea">Built-up Area</label>
+              <div class="inline-pair">
+                <input id="builtUpArea" placeholder="e.g. 1600" />
+                <select id="builtUpAreaUnit"><option>sq ft</option><option>sq yard</option></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="carpetArea">Carpet Area</label>
+              <div class="inline-pair">
+                <input id="carpetArea" placeholder="e.g. 1350" />
+                <select id="carpetAreaUnit"><option>sq ft</option><option>sq yard</option></select>
+              </div>
+            </div>
+            <div class="form-group"><label for="floors">Floors</label><input id="floors" placeholder="e.g. G+2" /></div>
+            <div class="form-group"><label for="facing">Facing</label><select id="facing"><option value="">Select</option><option>North</option><option>South</option><option>East</option><option>West</option><option>North-East</option><option>South-East</option><option>South-West</option><option>North-West</option></select></div>
+            <div class="form-group"><label for="furnished">Furnishing</label><select id="furnished"><option value="">Select</option><option>Furnished</option><option>Semi Furnished</option><option>Unfurnished</option></select></div>
+            <div class="form-group"><label for="bedrooms">Bedrooms</label><input id="bedrooms" type="number" min="0" /></div>
+            <div class="form-group"><label for="bathrooms">Bathrooms</label><input id="bathrooms" type="number" min="0" /></div>
+            <div class="form-group"><label for="parking">Parking</label><select id="parking"><option>No</option><option>Yes - 1</option><option>Yes - 2+</option></select></div>
+            <div class="form-group"><label for="garden">Garden</label><select id="garden"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group"><label for="borewell">Borewell</label><select id="borewell"><option>No</option><option>Yes</option></select></div>
+            <div class="form-group full"><label for="landmark">Nearby Landmark</label><input id="landmark" placeholder="e.g. Near Celebration Mall / Sukher Chouraha" /></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Smart Pricing, AI & Compliance</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="localityInsight">Locality For Price Insight</label><input id="localityInsight" placeholder="e.g. Hiran Magri" /></div>
+            <div class="form-group"><label>&nbsp;</label><button type="button" class="btn alt" id="getPriceSuggestionBtn">Get Smart Pricing</button></div>
+            <div class="form-group full"><label for="priceSuggestionOutput">Smart Pricing Suggestion</label><textarea id="priceSuggestionOutput" readonly placeholder="Average, median and recommendation yahan aayega."></textarea></div>
+            <div class="form-group"><label>&nbsp;</label><button type="button" class="btn alt" id="generateAiDescriptionBtn">Generate AI Description</button></div>
+            <div class="form-group"><label for="virtualTourSlot">Virtual Tour Slot</label><input id="virtualTourSlot" type="datetime-local" /></div>
+            <div class="form-group"><label for="liveVisitSlot">Live Visit Slot</label><input id="liveVisitSlot" type="datetime-local" /></div>
+            <div class="form-group"><label for="virtualTourOption">Virtual Tour Option</label><select id="virtualTourOption"><option>360 Walkthrough</option><option>Live Guided Tour</option><option>Recorded Video Tour</option></select></div>
+            <div class="form-group"><label for="liveVideoVisitSlot">Live Video Visit Booking Slot</label><input id="liveVideoVisitSlot" type="datetime-local" /></div>
+            <div class="form-group"><label for="ownerAadhaarPanStatus">Owner Aadhaar/PAN Verification</label><select id="ownerAadhaarPanStatus"><option>Pending</option><option>Submitted</option><option>Verified</option></select></div>
+            <div class="form-group"><label for="addressVerificationStatus">Address Verification</label><select id="addressVerificationStatus"><option>Pending</option><option>Submitted</option><option>Verified</option></select></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Media & Verification Upload</h2>
+          <div class="form-grid">
+            <div class="form-group full"><label for="photos">Property Photos * (Minimum 5)</label><input id="photos" type="file" accept="image/*" multiple required /><div id="photoPreview" class="preview-grid"></div></div>
+            <div class="form-group"><label for="video">Video Tour (30-60 sec)</label><input id="video" type="file" accept="video/*" /><div id="videoPreview" class="preview-grid"></div><div id="videoVisitStatus" class="status-box">Upload 1 short video (30-60 sec) to enable virtual + live video visit.</div></div>
+            <div class="form-group"><label for="virtualTour360Link">360° Virtual Tour Link (Optional)</label><input id="virtualTour360Link" type="url" placeholder="https://..." /></div>
+            <div class="form-group"><label for="floorPlan">Floor Plan</label><input id="floorPlan" type="file" accept="image/*,.pdf" /></div>
+            <div class="form-group"><label for="documents">Property Documents (Private)</label><input id="documents" type="file" accept=".pdf,image/*" multiple /></div>
+            <div class="form-group"><label for="ownerIdProof">Owner Aadhaar / PAN (Private)</label><input id="ownerIdProof" type="file" accept=".pdf,image/*" /></div>
+            <div class="form-group"><label for="addressProof">Address Proof (Private)</label><input id="addressProof" type="file" accept=".pdf,image/*" /></div>
+            <div class="form-group full">
+              <label>AI Photo Quality Assistant (Live)</label>
+              <div id="photoAiStatus" class="status-box">Upload photos to run AI auto-enhancement + blurry-image detection.</div>
+              <pre id="photoAiAudit" class="mini-payload">No AI audit yet.</pre>
+            </div>
+            <div class="form-group full">
+              <label>Private Documents Status</label>
+              <div id="privateDocsStatus" class="status-box">Private documents upload ready: property docs, owner KYC, address proof.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>100% Verified Listing System (Trust Model)</h2>
+          <div class="form-grid">
+            <div class="form-group"><label for="ownerKycRef">Owner Aadhaar / PAN Ref No.</label><input id="ownerKycRef" placeholder="e.g. PAN: ABCDE1234F (masked/private)" /></div>
+            <div class="form-group"><label for="propertyAddressRef">Address Verification Ref</label><input id="propertyAddressRef" placeholder="e.g. Electricity bill no. / geo-check ref" /></div>
+            <div class="form-group full"><label for="verificationOfficerNote">Verification Officer Note (Private)</label><textarea id="verificationOfficerNote" placeholder="Private verification note. Public listing me show nahi hoga."></textarea></div>
+            <div class="form-group full">
+              <label for="privateDocsConsent">Private View Settings</label>
+              <select id="privateDocsConsent">
+                <option>Private View Only</option>
+                <option>Admin + Owner Access</option>
+              </select>
+            </div>
+            <div class="form-group full"><label>Trust Model Status</label><div id="trustModelPreview" class="status-box">Verification pending: Owner KYC, documents, and address proof required.</div></div>
+            <div class="form-group full">
+              <label>Live Owner Verification</label>
+              <div class="actions">
+                <button type="button" id="submitOwnerVerificationBtn" class="btn alt">Submit Owner Verification</button>
+                <button type="button" id="refreshOwnerVerificationBtn" class="btn alt">Refresh Verification Status</button>
+              </div>
+              <div id="ownerVerificationLiveStatus" class="status-box">Owner verification request status yahan live show hoga.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel"><div class="actions"><button type="submit" class="btn">Submit Property</button><button type="button" id="saveDraft" class="btn alt">Save Local Draft</button><button type="button" id="clearDraft" class="btn alt">Clear Draft</button></div><div id="statusArea"></div></section>
+        <section class="panel"><h2>Submission Payload Preview</h2><pre id="payloadPreview" class="payload">No submission yet.</pre></section>
+      </form>
+    </div>
+  </main>
+
+
+  <script src="js/udaipur-latest-map-data.js"></script>
+  <script src="js/udaipur-official-data.js"></script>
+  <script src="js/location.js"></script>
+  <script src="js/pro-autocomplete.js"></script>
+  <script src="js/live-api.js"></script>
+  <script src="js/add-property.js"></script>
+<script src="js/folder-command-dock.js"></script>
+</body>
+</html>
+

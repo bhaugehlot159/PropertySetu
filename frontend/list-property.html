@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Quick List (Udaipur)</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .quick-wrap { padding: 34px 0 50px; }
+    .quick-card { max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #d3e3f1; border-radius: 14px; box-shadow: 0 12px 26px rgba(8, 54, 88, 0.08); padding: 18px; }
+    .quick-card h2 { margin-top: 0; color: #0f4268; }
+    .quick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .quick-grid .full { grid-column: 1 / -1; }
+    .quick-note { margin: 0 0 14px; color: #335572; font-size: 0.9rem; font-weight: 600; }
+    .status { margin-top: 10px; color: #1f7d44; font-weight: 700; }
+    @media (max-width: 760px) { .quick-grid { grid-template-columns: 1fr; } }
+  </style>
+  <link rel="stylesheet" href="css/professional-folder.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="add-property.html">Advanced Add Property</a>
+        <a href="dashboard.html">Dashboard</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="quick-wrap">
+    <div class="container">
+      <section class="quick-card">
+        <h2>Quick List Property</h2>
+        <p class="quick-note">This quick form is locked to Udaipur only.</p>
+
+        <form id="propertyForm" class="quick-grid">
+          <div class="full">
+            <label for="title">Property Title</label>
+            <input type="text" id="title" placeholder="e.g. 3BHK Flat near Fatehpura" required />
+          </div>
+          <div>
+            <label for="location">Locality (Udaipur)</label>
+            <input type="text" id="location" placeholder="e.g. Pratap Nagar" required />
+          </div>
+          <div>
+            <label for="price">Price (₹)</label>
+            <input type="number" id="price" min="0" placeholder="e.g. 6500000" required />
+          </div>
+          <div>
+            <label for="type">Purpose</label>
+            <select id="type" required>
+              <option value="Buy">Buy</option>
+              <option value="Rent">Rent</option>
+              <option value="Sell">Sell</option>
+              <option value="Lease">Lease</option>
+            </select>
+          </div>
+          <div>
+            <label for="category">Category</label>
+            <select id="category" required>
+              <option>House</option>
+              <option>Flat</option>
+              <option>Villa</option>
+              <option>Plot</option>
+              <option>Commercial</option>
+            </select>
+          </div>
+          <div class="full">
+            <label for="image">Image URL</label>
+            <input type="url" id="image" placeholder="https://..." />
+          </div>
+          <div class="full">
+            <button class="solid-btn" type="submit">Save Quick Listing</button>
+          </div>
+        </form>
+        <p id="quickStatus" class="status"></p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    document.getElementById('propertyForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+
+      const property = {
+        id: `quick-${Date.now()}`,
+        title: document.getElementById('title').value.trim(),
+        location: document.getElementById('location').value.trim(),
+        price: Number(document.getElementById('price').value || 0),
+        type: document.getElementById('type').value,
+        category: document.getElementById('category').value,
+        image: document.getElementById('image').value.trim() || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
+        city: 'Udaipur',
+        status: 'Pending Approval',
+        createdAt: new Date().toISOString(),
+      };
+
+      const list = JSON.parse(localStorage.getItem('propertySetu:listings') || '[]');
+      list.unshift(property);
+      localStorage.setItem('propertySetu:listings', JSON.stringify(list));
+
+      const legacy = JSON.parse(localStorage.getItem('properties') || '[]');
+      legacy.unshift(property);
+      localStorage.setItem('properties', JSON.stringify(legacy));
+
+      document.getElementById('quickStatus').textContent = 'Quick listing saved successfully for Udaipur marketplace.';
+      document.getElementById('propertyForm').reset();
+    });
+  </script>
+<script src="js/folder-command-dock.js"></script>
+</body>
+</html>
+

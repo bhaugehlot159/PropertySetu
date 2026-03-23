@@ -17,8 +17,32 @@ const OTP = "123456";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webRoot = path.join(__dirname, "..");
+const frontendRoot = path.join(webRoot, "frontend");
+const hasFrontendRoot = fs.existsSync(frontendRoot);
+const activeWebRoot = hasFrontendRoot ? frontendRoot : webRoot;
 const dbDir = path.join(webRoot, "database");
 const dbFile = path.join(dbDir, "live-data.json");
+const liveRouteMap = [
+  { path: "/", file: "index.html", feature: "homepage", live: true },
+  { path: "/udaipur", file: "index.html", feature: "city-live", live: true },
+  { path: "/buy-sell", file: "pages/buy-sell.html", feature: "buy-sell", live: true },
+  { path: "/rent", file: "pages/rent.html", feature: "rent", live: true },
+  { path: "/property-care", file: "pages/property-care-plans.html", feature: "property-care", live: true },
+  { path: "/city-structure", file: "pages/city-expansion.html", feature: "city-expansion", live: true },
+  { path: "/trusted-agents", file: "pages/trusted-agents.html", feature: "trusted-agents", live: true },
+  { path: "/legal-help", file: "pages/legal-help.html", feature: "legal-help", live: true },
+  { path: "/insurance-security", file: "pages/insurance-security.html", feature: "insurance-security", live: true },
+  { path: "/premium-services", file: "pages/premium-services.html", feature: "premium-services", live: true },
+  { path: "/add-property", file: "add-property.html", feature: "listing-upload", live: true },
+  { path: "/property-details", file: "property-details.html", feature: "property-details", live: true },
+  { path: "/customer-dashboard", file: "user-dashboard.html", feature: "customer-dashboard", live: true },
+  { path: "/admin-dashboard", file: "admin-dashboard.html", feature: "admin-dashboard", live: true },
+  { path: "/seller-dashboard", file: "seller-dashboard.html", feature: "seller-dashboard", live: true },
+  { path: "/jaipur", file: "pages/city-expansion.html", feature: "future-city-route", live: false },
+  { path: "/jodhpur", file: "pages/city-expansion.html", feature: "future-city-route", live: false },
+  { path: "/ahmedabad", file: "pages/city-expansion.html", feature: "future-city-route", live: false },
+  { path: "/delhi", file: "pages/city-expansion.html", feature: "future-city-route", live: false },
+];
 
 const plans = [
   { id: "free-basic", name: "Free Basic Listing", amount: 0, cycleDays: 30, type: "listing" },
@@ -169,6 +193,11 @@ const getCityStructure = () => {
     mandatoryStructure: expansionPriorityCities.map((cityName) => `PropertySetu.in/${toCitySlug(cityName)}`),
   };
 };
+const resolveWebFile = (...segments) => {
+  const targetInFrontend = path.join(frontendRoot, ...segments);
+  if (fs.existsSync(targetInFrontend)) return targetInFrontend;
+  return path.join(webRoot, ...segments);
+};
 
 const nextId = (k) => {
   db.counters[k] = num(db.counters[k], 0) + 1;
@@ -276,10 +305,21 @@ const pushNoti = (userId, title, message, type = "general") => db.notifications.
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
-app.use(express.static(webRoot));
+app.use(express.static(activeWebRoot));
+if (activeWebRoot !== webRoot) {
+  app.use(express.static(webRoot));
+}
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "otp-login", "owner-verification", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "reports", "admin-config", "city-structure", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
+app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.2.0", features: ["auth", "otp-login", "owner-verification", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "reports", "admin-config", "city-structure", "frontend-rooting", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
+app.get("/api/system/live-roots", (_req, res) => res.json({
+  ok: true,
+  frontendRoot: activeWebRoot === frontendRoot ? "/frontend" : "/",
+  backendRoot: "/server",
+  frontendMode: hasFrontendRoot ? "frontend-folder-live" : "legacy-root-fallback",
+  routePattern: "PropertySetu.in/{city-slug}",
+  routes: liveRouteMap,
+}));
 
 app.post("/api/auth/register", async (req, res) => {
   const r = role(req.body?.role);
@@ -1224,8 +1264,13 @@ app.post("/api/notifications/:id/read", auth, async (req, res) => {
 
 app.get("/api/bootstrap", (_req, res) => res.json({ ok: true, plans, legalTemplates, localities: fallbackLocalities, categories: db.adminConfig.categories, cities: db.adminConfig.cities }));
 app.get("/api/export", auth, admin, (_req, res) => res.json({ ok: true, exportedAt: now(), data: db }));
+
+liveRouteMap.forEach((routeItem) => {
+  app.get(routeItem.path, (_req, res) => res.sendFile(resolveWebFile(routeItem.file)));
+});
+
 app.use("/api", (_req, res) => res.status(404).json({ ok: false, message: "API route not found." }));
-app.get("*", (_req, res) => res.sendFile(path.join(webRoot, "index.html")));
+app.get("*", (_req, res) => res.sendFile(resolveWebFile("index.html")));
 
 await load();
 if (!db.users.some((u) => u.role === "admin")) {
