@@ -10,6 +10,10 @@
   const saveDraftBtn = document.getElementById('saveDraft');
   const clearDraftBtn = document.getElementById('clearDraft');
   const citySelect = document.getElementById('city');
+  const typeSelect = document.getElementById('type');
+  const categorySelect = document.getElementById('category');
+  const propertyTypeCoreSelect = document.getElementById('propertyTypeCore');
+  const saleRentModeSelect = document.getElementById('saleRentMode');
   const priceSuggestionOutput = document.getElementById('priceSuggestionOutput');
   const getPriceSuggestionBtn = document.getElementById('getPriceSuggestionBtn');
   const generateAiDescriptionBtn = document.getElementById('generateAiDescriptionBtn');
@@ -375,13 +379,18 @@
       city: 'Udaipur',
       type: get('type'),
       category: get('category'),
+      propertyTypeCore: get('propertyTypeCore'),
+      saleRentMode: get('saleRentMode'),
       location: get('location'),
       price: numberFrom(get('price'), 0),
       negotiable: get('negotiable'),
       description: get('description'),
       plotSize: get('plotSize'),
+      plotSizeUnit: get('plotSizeUnit') || 'sq ft',
       builtUpArea: get('builtUpArea'),
+      builtUpAreaUnit: get('builtUpAreaUnit') || 'sq ft',
       carpetArea: get('carpetArea'),
+      carpetAreaUnit: get('carpetAreaUnit') || 'sq ft',
       floors: get('floors'),
       facing: get('facing'),
       furnished: get('furnished'),
@@ -648,9 +657,46 @@
     const photoCount = photosInput?.files?.length || 0;
     const aiSignals = getAiRiskSignals(values, photoCount);
     const trustModel = getTrustModel(values);
+    const normalizedPlot = values.plotSize ? `${values.plotSize} ${values.plotSizeUnit || 'sq ft'}` : '';
+    const normalizedBuilt = values.builtUpArea ? `${values.builtUpArea} ${values.builtUpAreaUnit || 'sq ft'}` : '';
+    const normalizedCarpet = values.carpetArea ? `${values.carpetArea} ${values.carpetAreaUnit || 'sq ft'}` : '';
+    const normalizedPropertyTypeCore = values.propertyTypeCore || (['House', 'Plot', 'Commercial'].includes(values.category) ? values.category : '');
+    const normalizedSaleRentMode = values.saleRentMode || (values.type === 'Rent' ? 'Rent' : (values.type ? 'Sale' : ''));
     return {
       id: `local-${Date.now()}`,
       ...values,
+      propertyTypeCore: normalizedPropertyTypeCore,
+      saleRentMode: normalizedSaleRentMode,
+      plotSize: normalizedPlot || values.plotSize,
+      builtUpArea: normalizedBuilt || values.builtUpArea,
+      carpetArea: normalizedCarpet || values.carpetArea,
+      detailStructure: {
+        basicInfo: {
+          propertyType: normalizedPropertyTypeCore,
+          saleRent: normalizedSaleRentMode,
+          listingType: values.type,
+          category: values.category,
+          price: values.price,
+          negotiable: values.negotiable,
+        },
+        sizeDetails: {
+          plotSize: normalizedPlot || values.plotSize,
+          builtUpArea: normalizedBuilt || values.builtUpArea,
+          carpetArea: normalizedCarpet || values.carpetArea,
+          floors: values.floors,
+          facing: values.facing,
+          furnished: values.furnished,
+        },
+        extraFeatures: {
+          bedrooms: values.bedrooms,
+          bathrooms: values.bathrooms,
+          parking: values.parking,
+          garden: values.garden,
+          borewell: values.borewell,
+          roadWidth: values.roadWidth,
+          landmark: values.landmark,
+        },
+      },
       media: {
         photosCount: photoCount,
         videoUploaded: Boolean(videoInput?.files?.[0]),
@@ -726,7 +772,30 @@
     return response?.property || null;
   };
 
+  const syncCoreFromTypeCategory = () => {
+    const typeValue = text(typeSelect?.value);
+    const categoryValue = text(categorySelect?.value);
+    if (propertyTypeCoreSelect && ['House', 'Plot', 'Commercial'].includes(categoryValue)) {
+      propertyTypeCoreSelect.value = categoryValue;
+    }
+    if (saleRentModeSelect) {
+      if (typeValue === 'Rent') saleRentModeSelect.value = 'Rent';
+      else if (typeValue) saleRentModeSelect.value = 'Sale';
+    }
+  };
+
+  const syncTypeCategoryFromCore = () => {
+    const coreType = text(propertyTypeCoreSelect?.value);
+    const saleRent = text(saleRentModeSelect?.value);
+    if (coreType && categorySelect) categorySelect.value = coreType;
+    if (saleRent && typeSelect) typeSelect.value = saleRent === 'Rent' ? 'Rent' : 'Sell';
+  };
+
   citySelect?.addEventListener('change', forceUdaipurCity);
+  typeSelect?.addEventListener('change', syncCoreFromTypeCategory);
+  categorySelect?.addEventListener('change', syncCoreFromTypeCategory);
+  propertyTypeCoreSelect?.addEventListener('change', syncTypeCategoryFromCore);
+  saleRentModeSelect?.addEventListener('change', syncTypeCategoryFromCore);
   [ownerStatusSelect, addressStatusSelect, documentsInput, ownerIdProofInput, addressProofInput].forEach((el) => {
     el?.addEventListener('change', renderTrustModelPreview);
     el?.addEventListener('input', renderTrustModelPreview);
@@ -874,6 +943,7 @@
 
   forceUdaipurCity();
   loadDraft();
+  syncCoreFromTypeCategory();
   renderPhotoAiAudit();
   renderPrivateDocsStatus();
   renderVideoVisitStatus();

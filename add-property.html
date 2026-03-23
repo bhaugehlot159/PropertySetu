@@ -12,6 +12,8 @@
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .form-group { display: grid; gap: 6px; }
     .form-group.full { grid-column: 1 / -1; }
+    .inline-pair { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 8px; }
+    .helper-note { color: #2b537e; font-size: 0.82rem; margin-top: -2px; }
     label { font-size: 0.9rem; font-weight: 600; color: #1f3658; }
     input, select, textarea { width: 100%; padding: 10px 11px; border-radius: 8px; border: 1px solid #cdd9f3; font: inherit; }
     textarea { min-height: 95px; resize: vertical; }
@@ -62,6 +64,9 @@
             <div class="form-group"><label for="city">City *</label><select id="city" required><option value="Udaipur" selected>Udaipur (Only)</option></select></div>
             <div class="form-group"><label for="type">Type *</label><select id="type" required><option value="">Select</option><option>Buy</option><option>Sell</option><option>Rent</option><option>Lease</option><option>Girvi</option></select></div>
             <div class="form-group"><label for="category">Category *</label><select id="category" required><option value="">Select</option><option>House</option><option>Flat</option><option>Villa</option><option>Plot</option><option>Agriculture Land</option><option>Commercial</option><option>Farm House</option><option>PG / Hostel</option><option>Warehouse</option></select></div>
+            <div class="form-group"><label for="propertyTypeCore">Property Type (House / Plot / Commercial)</label><select id="propertyTypeCore"><option value="">Select</option><option>House</option><option>Plot</option><option>Commercial</option></select></div>
+            <div class="form-group"><label for="saleRentMode">Sale / Rent</label><select id="saleRentMode"><option value="">Select</option><option>Sale</option><option>Rent</option></select></div>
+            <div class="form-group full"><p class="helper-note">Core detail fields auto sync with category/type and preserve old workflow.</p></div>
 
             <div class="form-group"><label for="location">Location *</label><input id="location" required placeholder="e.g. Hiran Magri Sector 4" autocomplete="off" /></div>
             <div class="form-group"><label for="price">Price (₹) *</label><input id="price" type="number" min="0" required /></div>
@@ -76,9 +81,27 @@
         <section class="panel">
           <h2>Size & Interior Details</h2>
           <div class="form-grid">
-            <div class="form-group"><label for="plotSize">Plot Size</label><input id="plotSize" placeholder="e.g. 2400 sq ft" /></div>
-            <div class="form-group"><label for="builtUpArea">Built-up Area</label><input id="builtUpArea" placeholder="e.g. 1600 sq ft" /></div>
-            <div class="form-group"><label for="carpetArea">Carpet Area</label><input id="carpetArea" placeholder="e.g. 1350 sq ft" /></div>
+            <div class="form-group">
+              <label for="plotSize">Plot Size</label>
+              <div class="inline-pair">
+                <input id="plotSize" placeholder="e.g. 2400" />
+                <select id="plotSizeUnit"><option>sq ft</option><option>sq yard</option><option>acre</option></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="builtUpArea">Built-up Area</label>
+              <div class="inline-pair">
+                <input id="builtUpArea" placeholder="e.g. 1600" />
+                <select id="builtUpAreaUnit"><option>sq ft</option><option>sq yard</option></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="carpetArea">Carpet Area</label>
+              <div class="inline-pair">
+                <input id="carpetArea" placeholder="e.g. 1350" />
+                <select id="carpetAreaUnit"><option>sq ft</option><option>sq yard</option></select>
+              </div>
+            </div>
             <div class="form-group"><label for="floors">Floors</label><input id="floors" placeholder="e.g. G+2" /></div>
             <div class="form-group"><label for="facing">Facing</label><select id="facing"><option value="">Select</option><option>North</option><option>South</option><option>East</option><option>West</option><option>North-East</option><option>South-East</option><option>South-West</option><option>North-West</option></select></div>
             <div class="form-group"><label for="furnished">Furnishing</label><select id="furnished"><option value="">Select</option><option>Furnished</option><option>Semi Furnished</option><option>Unfurnished</option></select></div>
