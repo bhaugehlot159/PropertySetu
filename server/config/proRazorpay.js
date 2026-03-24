@@ -2,11 +2,21 @@ import Razorpay from "razorpay";
 
 let razorpayClient;
 
+function isConfiguredCredential(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return false;
+  return (
+    !raw.includes("replace_with") &&
+    !raw.includes("placeholder") &&
+    !raw.startsWith("your_")
+  );
+}
+
 export function getProRazorpayClient() {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
-  if (!keyId || !keySecret) {
+  if (!isConfiguredCredential(keyId) || !isConfiguredCredential(keySecret)) {
     return null;
   }
 
@@ -21,5 +31,6 @@ export function getProRazorpayClient() {
 }
 
 export function getRazorpayPublicKey() {
-  return process.env.RAZORPAY_KEY_ID || "";
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  return isConfiguredCredential(keyId) ? keyId : "";
 }
