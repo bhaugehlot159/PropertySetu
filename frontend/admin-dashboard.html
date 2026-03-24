@@ -38,14 +38,17 @@ button:hover { background:#092f6d; }
 .queue-meta { font-size:12px; color:#44627d; margin-top:4px; line-height:1.45; }
 .queue-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .queue-actions button { padding:4px 8px; font-size:12px; }
-.ops-toolbar { display:grid; gap:8px; grid-template-columns:2fr 1fr 1fr auto auto auto; align-items:center; margin:10px 0; }
+.ops-toolbar { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); align-items:center; margin:10px 0; }
 .ops-toolbar input, .ops-toolbar select { width:100%; padding:7px; border:1px solid #c7d9ef; border-radius:8px; }
 .ops-toolbar button { white-space:nowrap; }
+.ops-toolbar .wide-field { min-width:260px; }
 .queue-pagination { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
 .queue-pagination .controls { display:flex; gap:6px; align-items:center; }
 .queue-pagination button { padding:4px 8px; font-size:12px; }
+.ops-card-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.ops-card-head h4 { margin:0; }
+.ops-card-head button { font-size:12px; padding:4px 8px; }
 @media (max-width: 900px) { .ops-grid { grid-template-columns:1fr; } }
-@media (max-width: 1200px) { .ops-toolbar { grid-template-columns:1fr 1fr; } }
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
@@ -134,7 +137,7 @@ button:hover { background:#092f6d; }
   <div class="property-card" style="margin-top:10px;">
     <h3>Ecosystem Operations Console</h3>
     <div class="ops-toolbar">
-      <input id="opsSearchInput" placeholder="Search by ID, user, city, bank, service, status..." />
+      <input id="opsSearchInput" class="wide-field" placeholder="Search by ID, user, city, bank, service, status..." />
       <select id="opsModuleFilter">
         <option value="all">All Modules</option>
         <option value="documentation">Documentation</option>
@@ -161,6 +164,21 @@ button:hover { background:#092f6d; }
         <option value="logged">Logged (Valuation)</option>
         <option value="generated">Generated (Rent Draft)</option>
       </select>
+      <input id="opsDateFrom" type="date" />
+      <input id="opsDateTo" type="date" />
+      <select id="opsSortBy">
+        <option value="createdAt">Sort by Created At</option>
+        <option value="updatedAt">Sort by Updated At</option>
+        <option value="amount">Sort by Amount</option>
+        <option value="status">Sort by Status</option>
+        <option value="userName">Sort by User</option>
+        <option value="cityLocality">Sort by City/Locality</option>
+        <option value="primary">Sort by Primary Field</option>
+      </select>
+      <select id="opsSortDir">
+        <option value="desc">Sort Desc</option>
+        <option value="asc">Sort Asc</option>
+      </select>
       <button id="clearOpsFiltersBtn" type="button">Clear Filters</button>
       <button id="exportOpsFilteredBtn" type="button">Export Filtered CSV</button>
       <button id="exportOpsFullBtn" type="button">Export Full CSV</button>
@@ -169,27 +187,45 @@ button:hover { background:#092f6d; }
     <div id="ecosystemOpsSummary" class="kpi-grid"></div>
     <div class="ops-grid">
       <div class="ops-card">
-        <h4>Documentation Requests</h4>
+        <div class="ops-card-head">
+          <h4>Documentation Requests</h4>
+          <button type="button" data-export-module="documentation">Export CSV</button>
+        </div>
         <div id="documentationQueue" class="queue-list"></div>
       </div>
       <div class="ops-card">
-        <h4>Loan Assistance Leads</h4>
+        <div class="ops-card-head">
+          <h4>Loan Assistance Leads</h4>
+          <button type="button" data-export-module="loan">Export CSV</button>
+        </div>
         <div id="loanLeadQueue" class="queue-list"></div>
       </div>
       <div class="ops-card">
-        <h4>Partner Service Bookings</h4>
+        <div class="ops-card-head">
+          <h4>Partner Service Bookings</h4>
+          <button type="button" data-export-module="booking">Export CSV</button>
+        </div>
         <div id="serviceBookingQueue" class="queue-list"></div>
       </div>
       <div class="ops-card">
-        <h4>Franchise Requests</h4>
+        <div class="ops-card-head">
+          <h4>Franchise Requests</h4>
+          <button type="button" data-export-module="franchise">Export CSV</button>
+        </div>
         <div id="franchiseQueue" class="queue-list"></div>
       </div>
       <div class="ops-card">
-        <h4>Valuation Tool Logs</h4>
+        <div class="ops-card-head">
+          <h4>Valuation Tool Logs</h4>
+          <button type="button" data-export-module="valuation">Export CSV</button>
+        </div>
         <div id="valuationQueue" class="queue-list"></div>
       </div>
       <div class="ops-card">
-        <h4>Rent Agreement Draft Logs</h4>
+        <div class="ops-card-head">
+          <h4>Rent Agreement Draft Logs</h4>
+          <button type="button" data-export-module="rent">Export CSV</button>
+        </div>
         <div id="rentAgreementQueue" class="queue-list"></div>
       </div>
     </div>
@@ -242,6 +278,10 @@ button:hover { background:#092f6d; }
   const opsSearchInput = document.getElementById('opsSearchInput');
   const opsModuleFilter = document.getElementById('opsModuleFilter');
   const opsStatusFilter = document.getElementById('opsStatusFilter');
+  const opsDateFrom = document.getElementById('opsDateFrom');
+  const opsDateTo = document.getElementById('opsDateTo');
+  const opsSortBy = document.getElementById('opsSortBy');
+  const opsSortDir = document.getElementById('opsSortDir');
   const clearOpsFiltersBtn = document.getElementById('clearOpsFiltersBtn');
   const exportOpsFilteredBtn = document.getElementById('exportOpsFilteredBtn');
   const exportOpsFullBtn = document.getElementById('exportOpsFullBtn');
@@ -258,6 +298,10 @@ button:hover { background:#092f6d; }
     query: '',
     module: 'all',
     status: 'all',
+    dateFrom: '',
+    dateTo: '',
+    sortBy: 'createdAt',
+    sortDir: 'desc',
     data: {
       documentation: [],
       loan: [],
@@ -495,6 +539,32 @@ button:hover { background:#092f6d; }
   const resetOpsPages = () => {
     Object.keys(opsState.page).forEach((key) => { opsState.page[key] = 1; });
   };
+  const parseDateMs = (value, endOfDay = false) => {
+    const raw = textOf(value);
+    if (!raw) return NaN;
+    const suffix = endOfDay ? 'T23:59:59.999' : 'T00:00:00.000';
+    const ms = Date.parse(`${raw}${suffix}`);
+    return Number.isNaN(ms) ? NaN : ms;
+  };
+  const itemCreatedMs = (item) => {
+    const ms = Date.parse(textOf(item?.createdAt));
+    return Number.isNaN(ms) ? NaN : ms;
+  };
+  const itemUpdatedMs = (item) => {
+    const ms = Date.parse(textOf(item?.updatedAt || item?.createdAt));
+    return Number.isNaN(ms) ? NaN : ms;
+  };
+  const itemAmount = (item) => numberFrom(
+    item?.amount
+    || item?.requestedAmount
+    || item?.serviceFee
+    || item?.estimatedPrice
+    || item?.rentAmount
+    || item?.investmentBudget,
+    0,
+  );
+  const itemPrimary = (item) => textOf(item?.serviceName || item?.bankName || item?.propertyType || item?.ownerName || item?.city);
+  const itemCityLocality = (item) => textOf(item?.city || item?.locality);
   const effectiveOpsStatus = (item, module) => {
     if (module === 'valuation') return 'logged';
     if (module === 'rent') return 'generated';
@@ -523,14 +593,43 @@ button:hover { background:#092f6d; }
     item?.rentAmount,
   ].map((value) => textOf(value).toLowerCase()).join(' ');
   const moduleHiddenByFilter = (module) => opsState.module !== 'all' && opsState.module !== module;
+  const itemSortValue = (item, module, sortBy) => {
+    if (sortBy === 'updatedAt') return itemUpdatedMs(item);
+    if (sortBy === 'amount') return itemAmount(item);
+    if (sortBy === 'status') return effectiveOpsStatus(item, module);
+    if (sortBy === 'userName') return textOf(item?.userName || 'guest').toLowerCase();
+    if (sortBy === 'cityLocality') return itemCityLocality(item).toLowerCase();
+    if (sortBy === 'primary') return itemPrimary(item).toLowerCase();
+    return itemCreatedMs(item);
+  };
   const moduleItemsFiltered = (items = [], module) => {
     if (moduleHiddenByFilter(module)) return [];
     const query = normalizeStatus(opsState.query);
     const statusFilter = normalizeStatus(opsState.status);
-    return (Array.isArray(items) ? items : []).filter((item) => {
+    const fromMs = parseDateMs(opsState.dateFrom, false);
+    const toMs = parseDateMs(opsState.dateTo, true);
+    const sortBy = textOf(opsState.sortBy || 'createdAt');
+    const sortDir = textOf(opsState.sortDir || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const filtered = (Array.isArray(items) ? items : []).filter((item) => {
       if (statusFilter !== 'all' && effectiveOpsStatus(item, module) !== statusFilter) return false;
       if (query && !opsSearchBlob(item, module).includes(query)) return false;
+      const createdMs = itemCreatedMs(item);
+      if (!Number.isNaN(fromMs) && (Number.isNaN(createdMs) || createdMs < fromMs)) return false;
+      if (!Number.isNaN(toMs) && (Number.isNaN(createdMs) || createdMs > toMs)) return false;
       return true;
+    });
+    return [...filtered].sort((a, b) => {
+      const av = itemSortValue(a, module, sortBy);
+      const bv = itemSortValue(b, module, sortBy);
+      const na = typeof av === 'number';
+      const nb = typeof bv === 'number';
+      let cmp = 0;
+      if (na && nb) {
+        cmp = av - bv;
+      } else {
+        cmp = String(av).localeCompare(String(bv), 'en', { sensitivity: 'base' });
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
     });
   };
   const queuePaginationMarkup = ({ module, total, page, totalPages, start, end }) => `
@@ -705,7 +804,11 @@ button:hover { background:#092f6d; }
     const moduleText = opsState.module === 'all' ? 'All modules' : (moduleLabelMap[opsState.module] || opsState.module);
     const statusText = opsState.status === 'all' ? 'All status' : opsState.status;
     const queryText = textOf(opsState.query) ? ` | Query: "${textOf(opsState.query)}"` : '';
-    opsFilterStatus.textContent = `Filter: ${moduleText} | ${statusText} | Records: ${total}${queryText}`;
+    const dateText = (opsState.dateFrom || opsState.dateTo)
+      ? ` | Date: ${opsState.dateFrom || 'Start'} to ${opsState.dateTo || 'End'}`
+      : '';
+    const sortText = ` | Sort: ${opsState.sortBy} (${opsState.sortDir})`;
+    opsFilterStatus.textContent = `Filter: ${moduleText} | ${statusText}${dateText}${sortText} | Records: ${total}${queryText}`;
   };
   const renderOpsQueues = () => {
     renderDocumentationQueue(opsState.data.documentation);
@@ -726,9 +829,9 @@ button:hover { background:#092f6d; }
     id: textOf(item.id),
     status: effectiveOpsStatus(item, module),
     userName: textOf(item.userName || 'guest'),
-    primary: textOf(item.serviceName || item.bankName || item.propertyType || item.ownerName || item.city),
-    cityLocality: textOf(item.city || item.locality),
-    amount: numberFrom(item.amount || item.requestedAmount || item.serviceFee || item.estimatedPrice || item.rentAmount || item.investmentBudget, 0),
+    primary: itemPrimary(item),
+    cityLocality: itemCityLocality(item),
+    amount: itemAmount(item),
     notes: textOf(item.details || item.notes || item.propertyAddress),
     createdAt: textOf(item.createdAt),
     updatedAt: textOf(item.updatedAt),
@@ -765,6 +868,14 @@ button:hover { background:#092f6d; }
     const suffix = filteredOnly ? 'filtered' : 'full';
     downloadCsv(rows, `propertysetu-ecosystem-${suffix}-${stamp}.csv`);
   };
+  const exportModuleCsv = (module, filteredOnly = true) => {
+    const source = opsState.data[module] || [];
+    const list = filteredOnly ? moduleItemsFiltered(source, module) : source;
+    const rows = csvRowsFromModule(module, list);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const suffix = filteredOnly ? 'filtered' : 'full';
+    downloadCsv(rows, `propertysetu-ecosystem-${module}-${suffix}-${stamp}.csv`);
+  };
   const handleQueuePaginationClick = (target) => {
     if (!(target instanceof HTMLElement)) return false;
     const module = target.getAttribute('data-queue-module');
@@ -781,6 +892,10 @@ button:hover { background:#092f6d; }
     opsState.query = textOf(opsSearchInput?.value);
     opsState.module = textOf(opsModuleFilter?.value || 'all') || 'all';
     opsState.status = textOf(opsStatusFilter?.value || 'all') || 'all';
+    opsState.dateFrom = textOf(opsDateFrom?.value);
+    opsState.dateTo = textOf(opsDateTo?.value);
+    opsState.sortBy = textOf(opsSortBy?.value || 'createdAt') || 'createdAt';
+    opsState.sortDir = textOf(opsSortDir?.value || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
     if (resetPages) resetOpsPages();
     renderOpsQueues();
   };
@@ -788,6 +903,10 @@ button:hover { background:#092f6d; }
     if (opsSearchInput) opsSearchInput.value = '';
     if (opsModuleFilter) opsModuleFilter.value = 'all';
     if (opsStatusFilter) opsStatusFilter.value = 'all';
+    if (opsDateFrom) opsDateFrom.value = '';
+    if (opsDateTo) opsDateTo.value = '';
+    if (opsSortBy) opsSortBy.value = 'createdAt';
+    if (opsSortDir) opsSortDir.value = 'desc';
     syncOpsFiltersFromControls({ resetPages: true });
   };
 
@@ -1049,9 +1168,20 @@ button:hover { background:#092f6d; }
   opsSearchInput?.addEventListener('input', () => syncOpsFiltersFromControls({ resetPages: true }));
   opsModuleFilter?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
   opsStatusFilter?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
+  opsDateFrom?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
+  opsDateTo?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
+  opsSortBy?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
+  opsSortDir?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
   clearOpsFiltersBtn?.addEventListener('click', clearOpsFilters);
   exportOpsFilteredBtn?.addEventListener('click', () => exportOpsCsv(true));
   exportOpsFullBtn?.addEventListener('click', () => exportOpsCsv(false));
+  document.querySelectorAll('[data-export-module]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const module = textOf(btn.getAttribute('data-export-module'));
+      if (!module) return;
+      exportModuleCsv(module, true);
+    });
+  });
 
   pendingDiv?.addEventListener('click', async (event) => {
     const target = event.target;
