@@ -1,0 +1,44 @@
+[
+  {
+    "title": "3BHK Lake View Apartment",
+    "city": "Udaipur",
+    "price": 12500000,
+    "propertyType": "Apartment",
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "areaSqft": 1850,
+    "description": "Premium apartment near Fateh Sagar with open terrace and modern amenities.",
+    "imageUrls": [
+      "https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "status": "published"
+  },
+  {
+    "title": "4BHK Independent Villa",
+    "city": "Jaipur",
+    "price": 29800000,
+    "propertyType": "Villa",
+    "bedrooms": 4,
+    "bathrooms": 4,
+    "areaSqft": 3200,
+    "description": "Gated community villa with private garden, parking and servant room.",
+    "imageUrls": [
+      "https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "status": "published"
+  },
+  {
+    "title": "Commercial Office Floor",
+    "city": "Ahmedabad",
+    "price": 19000000,
+    "propertyType": "Commercial",
+    "bedrooms": 0,
+    "bathrooms": 2,
+    "areaSqft": 2600,
+    "description": "Fully furnished office floor in business district, ideal for startup teams.",
+    "imageUrls": [
+      "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "status": "published"
+  }
+]
