@@ -34,6 +34,7 @@ const liveRouteMap = [
   { path: "/legal-help", file: "pages/legal-help.html", feature: "legal-help", live: true },
   { path: "/insurance-security", file: "pages/insurance-security.html", feature: "insurance-security", live: true },
   { path: "/premium-services", file: "pages/premium-services.html", feature: "premium-services", live: true },
+  { path: "/ecosystem-services", file: "pages/ecosystem-services.html", feature: "ecosystem-services", live: true },
   { path: "/live-platform-app", file: "pages/live-platform-app.html", feature: "full-stack-live-app", live: true },
   { path: "/add-property", file: "add-property.html", feature: "listing-upload", live: true },
   { path: "/property-details", file: "property-details.html", feature: "property-details", live: true },
@@ -48,6 +49,30 @@ const liveRouteMap = [
 
 const plans = [
   { id: "free-basic", name: "Free Basic Listing", amount: 0, cycleDays: 30, type: "listing" },
+  {
+    id: "basic-plan",
+    name: "Basic Subscription",
+    amount: 1499,
+    cycleDays: 30,
+    type: "subscription",
+    highlights: ["Up to 5 active listings", "Basic support", "Standard ranking"],
+  },
+  {
+    id: "pro-plan",
+    name: "Pro Subscription",
+    amount: 3999,
+    cycleDays: 30,
+    type: "subscription",
+    highlights: ["Up to 20 active listings", "Priority support", "Seller analytics access"],
+  },
+  {
+    id: "premium-plan",
+    name: "Premium Subscription",
+    amount: 7999,
+    cycleDays: 30,
+    type: "subscription",
+    highlights: ["Unlimited active listings", "Top priority support", "Higher lead boost and concierge support"],
+  },
   { id: "featured-7", name: "Featured Listing - 7 Days", amount: 299, cycleDays: 7, type: "featured" },
   { id: "featured-30", name: "Featured Listing - 30 Days", amount: 999, cycleDays: 30, type: "featured" },
   {
@@ -134,8 +159,31 @@ const featuredPricingSnapshotFromPlans = () =>
 const legalTemplates = [
   { id: "sale-agreement", name: "Sale Agreement Draft", fee: 999 },
   { id: "rent-agreement", name: "Rent Agreement Template", fee: 499 },
+  { id: "registry-support", name: "Registry Support (Appointment + Checklist)", fee: 2499 },
+  { id: "legal-help-desk", name: "Legal Help Desk Consultation", fee: 1499 },
   { id: "stamp-duty-guide", name: "Stamp Duty Guidance", fee: 299 },
   { id: "lawyer-connect", name: "Local Lawyer Connect", fee: 1499 },
+];
+
+const documentationServices = [
+  { id: "agreement-service", name: "Agreement Drafting Service", category: "agreement", fee: 1299, slaHours: 24 },
+  { id: "registry-service", name: "Registry Support Service", category: "registry", fee: 2499, slaHours: 48 },
+  { id: "legal-help-service", name: "Legal Help Service", category: "legal", fee: 1499, slaHours: 24 },
+];
+
+const loanPartnerBanks = [
+  { id: "hdfc", name: "HDFC Bank", homeLoanRateStart: "8.40%", maxLtvPercent: 80, commissionPercent: 0.45 },
+  { id: "sbi", name: "State Bank of India", homeLoanRateStart: "8.35%", maxLtvPercent: 80, commissionPercent: 0.4 },
+  { id: "icici", name: "ICICI Bank", homeLoanRateStart: "8.50%", maxLtvPercent: 80, commissionPercent: 0.5 },
+  { id: "axis", name: "Axis Bank", homeLoanRateStart: "8.55%", maxLtvPercent: 75, commissionPercent: 0.45 },
+];
+
+const ecosystemServiceCatalog = [
+  { id: "movers-packers", name: "Movers & Packers Booking", category: "relocation", baseFee: 799 },
+  { id: "interior-designer", name: "Interior Designer Booking", category: "interior", baseFee: 1499 },
+  { id: "property-valuation", name: "Property Valuation Tool", category: "valuation", baseFee: 0 },
+  { id: "rent-agreement-generator", name: "Rent Agreement Generator", category: "legal-tool", baseFee: 299 },
+  { id: "franchise", name: "Franchise Interest Program", category: "growth", baseFee: 0 },
 ];
 
 const fallbackLocalities = ["Hiran Magri", "Pratap Nagar", "Bhuwana", "Sukher", "Fatehpura", "Ambamata", "Savina", "Bedla"];
@@ -154,12 +202,18 @@ const defaults = () => ({
   subscriptions: [],
   careRequests: [],
   legalRequests: [],
+  documentationRequests: [],
   visits: [],
   bids: [],
   reports: [],
   tokenPayments: [],
   insuranceTieups: [],
   tenantDamageRequests: [],
+  loanAssistanceLeads: [],
+  servicePartnerBookings: [],
+  valuationRequests: [],
+  rentAgreementDrafts: [],
+  franchiseRequests: [],
   ownerVerificationRequests: [],
   uploads: [],
   callMaskRequests: [],
@@ -173,7 +227,33 @@ const defaults = () => ({
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
     { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
   ],
-  counters: { user: 1, property: 100, review: 1, message: 1, subscription: 1, care: 1, legal: 1, visit: 1, bid: 1, notification: 1, report: 1, token: 1, insurance: 1, tenantDamage: 1, ownerVerification: 1, otp: 1, upload: 1, agentReview: 1, callMask: 1 },
+  counters: {
+    user: 1,
+    property: 100,
+    review: 1,
+    message: 1,
+    subscription: 1,
+    care: 1,
+    legal: 1,
+    documentation: 1,
+    visit: 1,
+    bid: 1,
+    notification: 1,
+    report: 1,
+    token: 1,
+    insurance: 1,
+    tenantDamage: 1,
+    loan: 1,
+    partnerBooking: 1,
+    valuation: 1,
+    rentAgreement: 1,
+    franchise: 1,
+    ownerVerification: 1,
+    otp: 1,
+    upload: 1,
+    agentReview: 1,
+    callMask: 1,
+  },
 });
 
 let db = defaults();
@@ -484,12 +564,18 @@ const load = async () => {
       subscriptions: safeArr(raw.subscriptions),
       careRequests: safeArr(raw.careRequests),
       legalRequests: safeArr(raw.legalRequests),
+      documentationRequests: safeArr(raw.documentationRequests),
       visits: safeArr(raw.visits),
       bids: safeArr(raw.bids),
       reports: safeArr(raw.reports),
       tokenPayments: safeArr(raw.tokenPayments),
       insuranceTieups: safeArr(raw.insuranceTieups),
       tenantDamageRequests: safeArr(raw.tenantDamageRequests),
+      loanAssistanceLeads: safeArr(raw.loanAssistanceLeads),
+      servicePartnerBookings: safeArr(raw.servicePartnerBookings),
+      valuationRequests: safeArr(raw.valuationRequests),
+      rentAgreementDrafts: safeArr(raw.rentAgreementDrafts),
+      franchiseRequests: safeArr(raw.franchiseRequests),
       ownerVerificationRequests: safeArr(raw.ownerVerificationRequests),
       uploads: safeArr(raw.uploads),
       callMaskRequests: safeArr(raw.callMaskRequests),
@@ -555,7 +641,48 @@ if (activeWebRoot !== webRoot) {
   app.use(express.static(webRoot));
 }
 
-app.get("/api", (_req, res) => res.json({ ok: true, service: "PropertySetu API", version: "2.3.0", features: ["auth", "otp-login", "owner-verification", "properties", "admin", "visits", "reviews", "chat", "subscriptions", "care", "legal", "bids", "insights", "ai-recommendations", "ai-pricing", "ai-description", "ai-fraud-scan", "ai-market-trend", "reports", "admin-config", "city-structure", "frontend-rooting", "file-upload", "token-payments", "insurance", "tenant-damage", "trusted-agents", "agent-ratings", "call-masking"] }));
+app.get("/api", (_req, res) => res.json({
+  ok: true,
+  service: "PropertySetu API",
+  version: "2.4.0",
+  features: [
+    "auth",
+    "otp-login",
+    "owner-verification",
+    "properties",
+    "admin",
+    "visits",
+    "reviews",
+    "chat",
+    "subscriptions",
+    "care",
+    "legal",
+    "documentation-services",
+    "loan-assistance",
+    "ecosystem-bookings",
+    "valuation-tool",
+    "rent-agreement-generator",
+    "franchise-system",
+    "bids",
+    "insights",
+    "ai-recommendations",
+    "ai-pricing",
+    "ai-description",
+    "ai-fraud-scan",
+    "ai-market-trend",
+    "reports",
+    "admin-config",
+    "city-structure",
+    "frontend-rooting",
+    "file-upload",
+    "token-payments",
+    "insurance",
+    "tenant-damage",
+    "trusted-agents",
+    "agent-ratings",
+    "call-masking",
+  ],
+}));
 app.get("/api/health", (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), counts: { users: db.users.length, properties: db.properties.length, reviews: db.reviews.length, messages: db.messages.length, subscriptions: db.subscriptions.length, bids: db.bids.length } }));
 app.get("/api/system/live-roots", (_req, res) => res.json({
   ok: true,
@@ -576,6 +703,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     subscriptionLogic: true,
     aiIntegration: true,
     secureChat: true,
+    ecosystemServices: true,
   },
   modules: {
     auth: "/api/auth/*",
@@ -584,6 +712,12 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     ownerVerification: "/api/owner-verification/*",
     reviews: "/api/reviews/*",
     subscriptions: "/api/subscriptions/*",
+    documentation: "/api/documentation/*",
+    loanAssistance: "/api/loan/*",
+    ecosystem: "/api/ecosystem/*",
+    valuation: "/api/valuation/estimate",
+    rentAgreementGenerator: "/api/rent-agreement/generate",
+    franchise: "/api/franchise/*",
     ai: [
       "/api/ai/pricing-suggestion",
       "/api/ai/description-generate",
@@ -1043,6 +1177,12 @@ app.get("/api/admin/overview", auth, admin, (_req, res) => res.json({
     ownerVerificationPending: db.ownerVerificationRequests.filter((item) => item.kind === "owner-verification" && txt(item.status).toLowerCase() === "pending review").length,
     careRequests: db.careRequests.length,
     legalRequests: db.legalRequests.length,
+    documentationRequests: db.documentationRequests.length,
+    loanAssistanceLeads: db.loanAssistanceLeads.length,
+    servicePartnerBookings: db.servicePartnerBookings.length,
+    valuationRequests: db.valuationRequests.length,
+    rentAgreementDrafts: db.rentAgreementDrafts.length,
+    franchiseRequests: db.franchiseRequests.length,
     reports: db.reports.length,
     activeSubs: db.subscriptions.filter((s) => s.status === "active").length,
     totalBids: db.bids.length,
@@ -1256,21 +1396,37 @@ app.get("/api/admin/commission-analytics", auth, admin, (_req, res) => {
   const agentMembershipRevenue = paid.filter((s) => s.type === "agent").reduce((sum, item) => sum + num(item.amount, 0), 0);
   const propertyCareRevenue = paid.filter((s) => s.type === "care").reduce((sum, item) => sum + num(item.amount, 0), 0);
   const subscriptionModelRevenue = paid.filter((s) => !["featured", "verification", "agent", "care"].includes(s.type)).reduce((sum, item) => sum + num(item.amount, 0), 0);
-  const documentationServiceFeeRevenue = db.legalRequests.reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const legalServiceRevenue = db.legalRequests.reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const documentationServiceFeeRevenue = db.documentationRequests.reduce((sum, item) => sum + num(item.amount, 0), 0);
+  const ecosystemServiceRevenue = db.servicePartnerBookings.reduce((sum, item) => sum + num(item.serviceFee, 0), 0);
+  const loanAssistanceCommissionRevenue = db.loanAssistanceLeads.reduce((sum, item) => sum + num(item.finalCommissionAmount || item.estimatedCommission, 0), 0);
+  const franchisePipelineValue = db.franchiseRequests.reduce((sum, item) => sum + num(item.initialFeePotential, 0), 0);
   const estimatedCommission = Math.round(db.properties.filter((p) => p.status === "Approved").length * 2500);
-  const totalMonetized = featuredListingRevenue + verifiedBadgeRevenue + subscriptionModelRevenue + agentMembershipRevenue + propertyCareRevenue + documentationServiceFeeRevenue + estimatedCommission;
+  const totalMonetized = featuredListingRevenue
+    + verifiedBadgeRevenue
+    + subscriptionModelRevenue
+    + agentMembershipRevenue
+    + propertyCareRevenue
+    + legalServiceRevenue
+    + documentationServiceFeeRevenue
+    + ecosystemServiceRevenue
+    + loanAssistanceCommissionRevenue
+    + estimatedCommission;
   res.json({
     ok: true,
     analytics: {
       paidSubscriptions: paid.length,
       subscriptionRevenue: revenue,
-      legalServiceRevenue: documentationServiceFeeRevenue,
+      legalServiceRevenue,
       featuredListingRevenue,
       verifiedBadgeRevenue,
       subscriptionModelRevenue,
       agentMembershipRevenue,
       propertyCareRevenue,
       documentationServiceFeeRevenue,
+      ecosystemServiceRevenue,
+      loanAssistanceCommissionRevenue,
+      franchisePipelineValue,
       estimatedCommission,
       totalMonetized,
     },
@@ -1394,6 +1550,288 @@ app.post("/api/legal/requests", auth, async (req, res) => {
 });
 app.get("/api/legal/requests", auth, (req, res) => {
   const items = req.user.role === "admin" ? [...db.legalRequests] : db.legalRequests.filter((r) => r.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/documentation/services", (_req, res) => {
+  res.json({ ok: true, items: documentationServices });
+});
+app.post("/api/documentation/requests", auth, async (req, res) => {
+  const serviceId = txt(req.body?.serviceId || req.body?.templateId);
+  const service = documentationServices.find((item) => item.id === serviceId);
+  if (!service) return res.status(404).json({ ok: false, message: "Documentation service not found." });
+  const details = txt(req.body?.details);
+  if (!details) return res.status(400).json({ ok: false, message: "Request details required." });
+
+  const record = {
+    id: nextId("documentation"),
+    serviceId: service.id,
+    serviceName: service.name,
+    category: service.category,
+    amount: service.fee,
+    propertyId: txt(req.body?.propertyId) || null,
+    city: txt(req.body?.city || "Udaipur"),
+    details,
+    status: "Requested",
+    userId: req.user.id,
+    userName: req.user.name,
+    createdAt: now(),
+  };
+  db.documentationRequests.unshift(record);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Documentation Request", `${req.user.name} requested ${service.name}.`, "documentation"));
+  await save();
+  res.status(201).json({ ok: true, request: record });
+});
+app.get("/api/documentation/requests", auth, (req, res) => {
+  const items = req.user.role === "admin"
+    ? [...db.documentationRequests]
+    : db.documentationRequests.filter((item) => item.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.get("/api/loan/banks", (_req, res) => {
+  res.json({ ok: true, items: loanPartnerBanks });
+});
+app.post("/api/loan/assistance", auth, async (req, res) => {
+  const bankId = txt(req.body?.bankId);
+  const bank = loanPartnerBanks.find((item) => item.id === bankId);
+  if (!bank) return res.status(404).json({ ok: false, message: "Loan partner bank not found." });
+
+  const requestedAmount = num(req.body?.requestedAmount || req.body?.loanAmount, 0);
+  const propertyValue = num(req.body?.propertyValue || req.body?.propertyCost, 0);
+  if (requestedAmount <= 0) return res.status(400).json({ ok: false, message: "Requested loan amount required." });
+  if (propertyValue > 0 && requestedAmount > Math.round(propertyValue * 0.9)) {
+    return res.status(400).json({ ok: false, message: "Loan amount should be less than property value." });
+  }
+
+  const estimatedCommission = Math.round(requestedAmount * (num(bank.commissionPercent, 0) / 100));
+  const record = {
+    id: nextId("loan"),
+    userId: req.user.id,
+    userName: req.user.name,
+    bankId: bank.id,
+    bankName: bank.name,
+    propertyId: txt(req.body?.propertyId) || null,
+    city: txt(req.body?.city || "Udaipur"),
+    locality: txt(req.body?.locality || ""),
+    loanType: txt(req.body?.loanType || "home-loan"),
+    requestedAmount,
+    propertyValue,
+    monthlyIncome: num(req.body?.monthlyIncome, 0),
+    cibilScore: num(req.body?.cibilScore, 0),
+    referralSource: txt(req.body?.referralSource || "platform"),
+    commissionPercent: num(bank.commissionPercent, 0),
+    estimatedCommission,
+    finalCommissionAmount: null,
+    status: "lead-created",
+    notes: txt(req.body?.notes),
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  db.loanAssistanceLeads.unshift(record);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Loan Assistance Lead", `${req.user.name} requested loan support from ${bank.name}.`, "loan"));
+  await save();
+  res.status(201).json({ ok: true, lead: record });
+});
+app.get("/api/loan/assistance", auth, (req, res) => {
+  const items = req.user.role === "admin"
+    ? [...db.loanAssistanceLeads]
+    : db.loanAssistanceLeads.filter((item) => item.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+app.post("/api/admin/loan/assistance/:id/status", auth, admin, async (req, res) => {
+  const lead = db.loanAssistanceLeads.find((item) => item.id === req.params.id);
+  if (!lead) return res.status(404).json({ ok: false, message: "Loan lead not found." });
+  const nextStatus = txt(req.body?.status || "in-progress");
+  lead.status = nextStatus;
+  if (num(req.body?.finalCommissionAmount, -1) >= 0) {
+    lead.finalCommissionAmount = Math.round(Math.max(0, num(req.body?.finalCommissionAmount, 0)));
+  }
+  lead.updatedAt = now();
+  await save();
+  res.json({ ok: true, lead });
+});
+
+app.get("/api/ecosystem/services", (_req, res) => {
+  res.json({ ok: true, items: ecosystemServiceCatalog });
+});
+app.post("/api/ecosystem/bookings", auth, async (req, res) => {
+  const serviceId = txt(req.body?.serviceId || req.body?.type);
+  const service = ecosystemServiceCatalog.find((item) => item.id === serviceId);
+  if (!service) return res.status(404).json({ ok: false, message: "Ecosystem service not found." });
+  if (!["movers-packers", "interior-designer"].includes(service.id)) {
+    return res.status(400).json({ ok: false, message: "Use dedicated endpoint for this service type." });
+  }
+
+  const preferredDate = txt(req.body?.preferredDate);
+  if (!preferredDate) return res.status(400).json({ ok: false, message: "Preferred date required." });
+
+  const record = {
+    id: nextId("partnerBooking"),
+    serviceId: service.id,
+    serviceName: service.name,
+    serviceFee: num(req.body?.serviceFee, service.baseFee),
+    userId: req.user.id,
+    userName: req.user.name,
+    propertyId: txt(req.body?.propertyId) || null,
+    city: txt(req.body?.city || "Udaipur"),
+    locality: txt(req.body?.locality || ""),
+    preferredDate,
+    budget: num(req.body?.budget, 0),
+    contactName: txt(req.body?.contactName || req.user.name),
+    contactPhone: phone(req.body?.contactPhone),
+    notes: txt(req.body?.notes),
+    status: "Requested",
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  db.servicePartnerBookings.unshift(record);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Partner Service Booking", `${req.user.name} booked ${service.name}.`, "ecosystem"));
+  await save();
+  res.status(201).json({ ok: true, booking: record });
+});
+app.get("/api/ecosystem/bookings", auth, (req, res) => {
+  const items = req.user.role === "admin"
+    ? [...db.servicePartnerBookings]
+    : db.servicePartnerBookings.filter((item) => item.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
+
+app.post("/api/valuation/estimate", authOpt, async (req, res) => {
+  const locality = txt(req.body?.locality || req.body?.location || "Udaipur");
+  const propertyType = txt(req.body?.propertyType || req.body?.category || "House");
+  const areaSqft = Math.max(100, num(req.body?.areaSqft || req.body?.size, 0));
+  const bedrooms = Math.max(0, num(req.body?.bedrooms, 0));
+  const ageYears = Math.max(0, num(req.body?.ageYears, 0));
+  const furnished = txt(req.body?.furnished || "semi").toLowerCase();
+  const expectedPrice = num(req.body?.expectedPrice, 0);
+  const base = getAiPricingSuggestionPayload({ locality, expectedPrice });
+  const basePerSqft = Math.max(1200, Math.round(num(base.recommendedPrice, 0) / Math.max(areaSqft, 1)));
+  const furnishingBoost = furnished.includes("furnished") ? 1.08 : furnished.includes("semi") ? 1.03 : 0.97;
+  const ageMultiplier = clamp(1 - (ageYears * 0.008), 0.7, 1.02);
+  const bhkMultiplier = bedrooms > 0 ? clamp(1 + (bedrooms * 0.02), 1, 1.16) : 1;
+  const estimatedPrice = Math.round(basePerSqft * areaSqft * furnishingBoost * ageMultiplier * bhkMultiplier);
+  const min = Math.max(0, Math.round(estimatedPrice * 0.9));
+  const max = Math.max(min, Math.round(estimatedPrice * 1.12));
+
+  const record = {
+    id: nextId("valuation"),
+    userId: req.user?.id || null,
+    userName: req.user?.name || "guest",
+    locality,
+    propertyType,
+    areaSqft,
+    bedrooms,
+    ageYears,
+    furnished,
+    expectedPrice,
+    estimatedPrice,
+    suggestedBand: { min, max },
+    confidence: base.confidence,
+    source: "propertysetu-valuation-tool-v1",
+    createdAt: now(),
+  };
+  db.valuationRequests.unshift(record);
+  db.valuationRequests = db.valuationRequests.slice(0, 1200);
+  await save();
+
+  res.json({
+    ok: true,
+    valuation: record,
+    insight: `Estimated value for ${propertyType} in ${locality} is ₹${estimatedPrice.toLocaleString("en-IN")}.`,
+  });
+});
+
+app.post("/api/rent-agreement/generate", auth, async (req, res) => {
+  const ownerName = txt(req.body?.ownerName);
+  const tenantName = txt(req.body?.tenantName);
+  const propertyAddress = txt(req.body?.propertyAddress);
+  const rentAmount = num(req.body?.rentAmount, 0);
+  const depositAmount = num(req.body?.depositAmount, 0);
+  const durationMonths = Math.max(1, num(req.body?.durationMonths, 11));
+  const startDate = txt(req.body?.startDate || new Date().toISOString().slice(0, 10));
+  if (!ownerName || !tenantName || !propertyAddress || rentAmount <= 0) {
+    return res.status(400).json({ ok: false, message: "ownerName, tenantName, propertyAddress and rentAmount are required." });
+  }
+
+  const draftText = [
+    "RENT AGREEMENT (Draft)",
+    `Owner: ${ownerName}`,
+    `Tenant: ${tenantName}`,
+    `Property Address: ${propertyAddress}`,
+    `Monthly Rent: INR ${Math.round(rentAmount).toLocaleString("en-IN")}`,
+    `Security Deposit: INR ${Math.round(depositAmount).toLocaleString("en-IN")}`,
+    `Tenure: ${durationMonths} months`,
+    `Start Date: ${startDate}`,
+    "Payment due date: 5th of every month.",
+    "Electricity and water charges to be paid by tenant as per actual.",
+    "Notice period: 30 days by either party.",
+    "This is a generated draft and should be reviewed by a legal expert before execution."
+  ].join("\n");
+
+  const record = {
+    id: nextId("rentAgreement"),
+    userId: req.user.id,
+    userName: req.user.name,
+    ownerName,
+    tenantName,
+    propertyAddress,
+    rentAmount: Math.round(rentAmount),
+    depositAmount: Math.round(depositAmount),
+    durationMonths,
+    startDate,
+    draftText,
+    createdAt: now(),
+  };
+  db.rentAgreementDrafts.unshift(record);
+  db.rentAgreementDrafts = db.rentAgreementDrafts.slice(0, 500);
+  await save();
+  res.status(201).json({ ok: true, draft: record });
+});
+
+app.get("/api/franchise/regions", (_req, res) => {
+  const configuredCities = safeArr(db?.adminConfig?.cities).map((city) => txt(city)).filter(Boolean);
+  const regions = [...new Set(["Udaipur", ...configuredCities])].map((cityName) => ({
+    city: cityName,
+    slug: toCitySlug(cityName),
+    status: cityName.toLowerCase() === "udaipur" ? "live-operational" : "expansion-ready",
+  }));
+  res.json({ ok: true, items: regions });
+});
+app.post("/api/franchise/requests", auth, async (req, res) => {
+  const city = txt(req.body?.city || req.body?.region);
+  const investmentBudget = num(req.body?.investmentBudget, 0);
+  if (!city) return res.status(400).json({ ok: false, message: "City is required for franchise request." });
+  if (investmentBudget <= 0) return res.status(400).json({ ok: false, message: "Investment budget required." });
+
+  const record = {
+    id: nextId("franchise"),
+    userId: req.user.id,
+    userName: req.user.name,
+    city,
+    experienceYears: num(req.body?.experienceYears, 0),
+    teamSize: num(req.body?.teamSize, 0),
+    officeAddress: txt(req.body?.officeAddress),
+    investmentBudget,
+    initialFeePotential: Math.max(0, Math.round(investmentBudget * 0.08)),
+    notes: txt(req.body?.notes),
+    status: "screening",
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  db.franchiseRequests.unshift(record);
+  db.users.filter((u) => u.role === "admin").forEach((a) => pushNoti(a.id, "New Franchise Request", `${req.user.name} requested franchise for ${city}.`, "franchise"));
+  await save();
+  res.status(201).json({ ok: true, request: record });
+});
+app.get("/api/franchise/requests", auth, (req, res) => {
+  const items = req.user.role === "admin"
+    ? [...db.franchiseRequests]
+    : db.franchiseRequests.filter((item) => item.userId === req.user.id);
   items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   res.json({ ok: true, total: items.length, items });
 });
@@ -1719,6 +2157,9 @@ app.get("/api/bootstrap", (_req, res) => {
     ok: true,
     plans,
     legalTemplates,
+    documentationServices,
+    loanPartnerBanks,
+    ecosystemServiceCatalog,
     localities: fallbackLocalities,
     categories: db.adminConfig.categories,
     cities: db.adminConfig.cities,

@@ -10,6 +10,9 @@
   };
 
   const PLAN_CATALOG = {
+    'basic-plan': { name: 'Basic Subscription', amount: 1499, cycleDays: 30, type: 'subscription' },
+    'pro-plan': { name: 'Pro Subscription', amount: 3999, cycleDays: 30, type: 'subscription' },
+    'premium-plan': { name: 'Premium Subscription', amount: 7999, cycleDays: 30, type: 'subscription' },
     'featured-7': { name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7, type: 'featured' },
     'featured-30': { name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30, type: 'featured' },
     'verified-badge-charge': { name: 'Verified Badge Charge', amount: 799, cycleDays: 30, type: 'verification' },

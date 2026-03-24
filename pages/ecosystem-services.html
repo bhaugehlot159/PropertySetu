@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Advanced Ecosystem Services</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/professional-folder.css" />
+  <style>
+    .shell { padding: 34px 0 58px; }
+    .hero { border: 1px solid #c6dcef; border-radius: 16px; background: linear-gradient(115deg, #0f466f, #265f87); color: #eff8ff; padding: 20px; }
+    .hero p { margin: 6px 0 0; color: #dceffe; }
+    .grid { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cardx { background: #fff; border: 1px solid #cbdef0; border-radius: 14px; padding: 14px; box-shadow: 0 7px 15px rgba(13, 61, 96, 0.08); }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.04rem; }
+    .field { display: grid; gap: 6px; margin-top: 8px; }
+    .field input, .field textarea, .field select { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    .muted { color: #3a5770; margin-top: 8px; white-space: pre-wrap; }
+    .plans-grid { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .plan-mini { border: 1px solid #c9deef; border-radius: 12px; padding: 10px; background: #f8fcff; }
+    .plan-mini h3 { margin: 0 0 4px; color: #11466e; font-size: 0.97rem; }
+    .plan-mini ul { margin: 6px 0; padding-left: 16px; color: #33546e; font-size: 0.88rem; }
+    .plan-mini button { margin-top: 4px; width: 100%; }
+    .feed { margin: 0; padding-left: 18px; color: #2f5370; }
+    .feed li { margin: 6px 0; }
+    .link-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .plans-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="premium-services.html">Premium Services</a>
+        <a href="legal-help.html">Legal Help</a>
+        <a href="insurance-security.html">Insurance Slot</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Advanced Real Estate Ecosystem</h1>
+        <p>Subscription plans, documentation desk, loan assistance, movers/packers, interior booking, valuation, rent agreement generator aur franchise intake - sab live APIs ke saath connected.</p>
+      </section>
+
+      <section class="grid">
+        <article class="cardx">
+          <h2>Subscription Plans (Basic / Pro / Premium)</h2>
+          <div id="subscriptionPlansGrid" class="plans-grid">
+            <p class="muted">Plans loading...</p>
+          </div>
+          <p id="planStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Property Documentation Service</h2>
+          <div class="field">
+            <label for="docServiceSelect">Service</label>
+            <select id="docServiceSelect">
+              <option value="">Loading services...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="docPropertyId">Property ID (Optional)</label>
+            <input id="docPropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="docDetails">Requirement Details</label>
+            <textarea id="docDetails" rows="4" placeholder="Agreement, registry, legal support details..."></textarea>
+          </div>
+          <button id="submitDocRequestBtn" class="solid-btn" type="button">Submit Documentation Request</button>
+          <p id="docStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Loan Assistance (Bank Tie-up + Commission Flow)</h2>
+          <div class="field">
+            <label for="loanBankSelect">Partner Bank</label>
+            <select id="loanBankSelect">
+              <option value="">Loading banks...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="loanAmount">Requested Loan Amount (₹)</label>
+            <input id="loanAmount" type="number" min="0" placeholder="e.g. 3500000" />
+          </div>
+          <div class="field">
+            <label for="propertyValue">Property Value (₹)</label>
+            <input id="propertyValue" type="number" min="0" placeholder="e.g. 4500000" />
+          </div>
+          <div class="field">
+            <label for="loanLocality">Locality</label>
+            <input id="loanLocality" placeholder="e.g. Pratap Nagar" />
+          </div>
+          <div class="field">
+            <label for="loanCibil">CIBIL Score (Optional)</label>
+            <input id="loanCibil" type="number" min="300" max="900" placeholder="e.g. 760" />
+          </div>
+          <button id="submitLoanLeadBtn" class="solid-btn" type="button">Submit Loan Assistance Lead</button>
+          <p id="loanStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Movers & Packers Booking</h2>
+          <div class="field">
+            <label for="movePropertyId">Property ID (Optional)</label>
+            <input id="movePropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="moveLocality">Locality</label>
+            <input id="moveLocality" placeholder="e.g. Sukher" />
+          </div>
+          <div class="field">
+            <label for="moveDate">Preferred Date</label>
+            <input id="moveDate" type="datetime-local" />
+          </div>
+          <div class="field">
+            <label for="moveBudget">Approx Budget (₹)</label>
+            <input id="moveBudget" type="number" min="0" placeholder="e.g. 12000" />
+          </div>
+          <button id="bookMoverBtn" class="solid-btn" type="button">Book Movers & Packers</button>
+          <p id="moveStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Interior Designer Booking</h2>
+          <div class="field">
+            <label for="interiorPropertyId">Property ID (Optional)</label>
+            <input id="interiorPropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="interiorLocality">Locality</label>
+            <input id="interiorLocality" placeholder="e.g. Bhuwana" />
+          </div>
+          <div class="field">
+            <label for="interiorDate">Preferred Site Visit Date</label>
+            <input id="interiorDate" type="datetime-local" />
+          </div>
+          <div class="field">
+            <label for="interiorBudget">Interior Budget (₹)</label>
+            <input id="interiorBudget" type="number" min="0" placeholder="e.g. 600000" />
+          </div>
+          <button id="bookInteriorBtn" class="solid-btn" type="button">Book Interior Designer</button>
+          <p id="interiorStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Property Valuation Tool</h2>
+          <div class="field">
+            <label for="valuationLocality">Locality</label>
+            <input id="valuationLocality" value="Udaipur" />
+          </div>
+          <div class="field">
+            <label for="valuationType">Property Type</label>
+            <select id="valuationType">
+              <option>House</option>
+              <option>Flat</option>
+              <option>Plot</option>
+              <option>Commercial</option>
+              <option>Farm House</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="valuationArea">Area (sqft)</label>
+            <input id="valuationArea" type="number" min="100" value="1200" />
+          </div>
+          <div class="field">
+            <label for="valuationBeds">Bedrooms</label>
+            <input id="valuationBeds" type="number" min="0" value="2" />
+          </div>
+          <div class="field">
+            <label for="valuationAge">Property Age (years)</label>
+            <input id="valuationAge" type="number" min="0" value="2" />
+          </div>
+          <button id="runValuationBtn" class="solid-btn" type="button">Run Valuation</button>
+          <p id="valuationStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Rent Agreement Generator</h2>
+          <div class="field">
+            <label for="ownerName">Owner Name</label>
+            <input id="ownerName" placeholder="Owner full name" />
+          </div>
+          <div class="field">
+            <label for="tenantName">Tenant Name</label>
+            <input id="tenantName" placeholder="Tenant full name" />
+          </div>
+          <div class="field">
+            <label for="propertyAddress">Property Address</label>
+            <textarea id="propertyAddress" rows="2" placeholder="Full property address"></textarea>
+          </div>
+          <div class="field">
+            <label for="rentAmount">Monthly Rent (₹)</label>
+            <input id="rentAmount" type="number" min="0" placeholder="e.g. 18000" />
+          </div>
+          <div class="field">
+            <label for="depositAmount">Security Deposit (₹)</label>
+            <input id="depositAmount" type="number" min="0" placeholder="e.g. 36000" />
+          </div>
+          <div class="field">
+            <label for="durationMonths">Duration (months)</label>
+            <input id="durationMonths" type="number" min="1" value="11" />
+          </div>
+          <div class="field">
+            <label for="agreementStartDate">Start Date</label>
+            <input id="agreementStartDate" type="date" />
+          </div>
+          <button id="generateAgreementBtn" class="solid-btn" type="button">Generate Draft</button>
+          <textarea id="agreementDraftOutput" rows="9" readonly placeholder="Generated draft appears here..."></textarea>
+          <p id="agreementStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Franchise System Intake</h2>
+          <div class="field">
+            <label for="franchiseCity">Target City</label>
+            <input id="franchiseCity" placeholder="e.g. Jaipur" />
+          </div>
+          <div class="field">
+            <label for="franchiseBudget">Investment Budget (₹)</label>
+            <input id="franchiseBudget" type="number" min="0" placeholder="e.g. 2500000" />
+          </div>
+          <div class="field">
+            <label for="franchiseExperience">Experience (years)</label>
+            <input id="franchiseExperience" type="number" min="0" value="1" />
+          </div>
+          <div class="field">
+            <label for="franchiseTeamSize">Team Size</label>
+            <input id="franchiseTeamSize" type="number" min="0" value="2" />
+          </div>
+          <div class="field">
+            <label for="franchiseOfficeAddress">Office Address</label>
+            <textarea id="franchiseOfficeAddress" rows="2" placeholder="Current office or planned location"></textarea>
+          </div>
+          <button id="submitFranchiseBtn" class="solid-btn" type="button">Submit Franchise Request</button>
+          <p id="franchiseStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Home Insurance & Ecosystem Links</h2>
+          <p class="muted">Insurance tie-up module already live hai. Is panel se quick navigation use karein.</p>
+          <div class="link-row">
+            <a class="solid-btn" href="insurance-security.html">Open Home Insurance Module</a>
+            <a class="outline-btn dark-outline" href="premium-services.html">Open Premium Services</a>
+            <a class="outline-btn dark-outline" href="../subscription.html">Open Full Subscription Page</a>
+          </div>
+        </article>
+
+        <article class="cardx">
+          <h2>Ecosystem Action Feed</h2>
+          <ul id="ecosystemActionFeed" class="feed">
+            <li>Loading feed...</li>
+          </ul>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/live-api.js"></script>
+  <script>
+    (() => {
+      const live = window.PropertySetuLive || {};
+      const FEED_KEY = 'propertySetu:ecosystemActionFeed';
+
+      const readJson = live.readJson || ((key, fallback) => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch {
+          return fallback;
+        }
+      });
+      const writeJson = live.writeJson || ((key, value) => {
+        localStorage.setItem(key, JSON.stringify(value));
+      });
+      const text = (value) => String(value || '').trim();
+      const num = (value, fallback = 0) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
+      const token = () => (live.getAnyToken ? live.getAnyToken() : '');
+      const hasLive = () => !!(live.request && token());
+
+      const fallbackPlans = [
+        { id: 'basic-plan', name: 'Basic Subscription', amount: 1499, cycleDays: 30, highlights: ['Up to 5 active listings', 'Basic support'] },
+        { id: 'pro-plan', name: 'Pro Subscription', amount: 3999, cycleDays: 30, highlights: ['Up to 20 active listings', 'Priority support'] },
+        { id: 'premium-plan', name: 'Premium Subscription', amount: 7999, cycleDays: 30, highlights: ['Unlimited listings', 'Concierge support'] },
+      ];
+      const fallbackDocServices = [
+        { id: 'agreement-service', name: 'Agreement Drafting Service', fee: 1299 },
+        { id: 'registry-service', name: 'Registry Support Service', fee: 2499 },
+        { id: 'legal-help-service', name: 'Legal Help Service', fee: 1499 },
+      ];
+      const fallbackBanks = [
+        { id: 'hdfc', name: 'HDFC Bank', commissionPercent: 0.45 },
+        { id: 'sbi', name: 'State Bank of India', commissionPercent: 0.4 },
+        { id: 'icici', name: 'ICICI Bank', commissionPercent: 0.5 },
+      ];
+
+      const setStatus = (id, message, ok = true) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.style.color = ok ? '#1f6d3d' : '#8d1e1e';
+        el.textContent = message;
+      };
+
+      const pushFeed = (message) => {
+        const items = readJson(FEED_KEY, []);
+        const next = Array.isArray(items) ? items : [];
+        next.unshift({ message, at: new Date().toISOString() });
+        while (next.length > 60) next.pop();
+        writeJson(FEED_KEY, next);
+        renderFeed();
+      };
+
+      const renderFeed = () => {
+        const target = document.getElementById('ecosystemActionFeed');
+        if (!target) return;
+        const items = readJson(FEED_KEY, []);
+        target.innerHTML = (Array.isArray(items) && items.length)
+          ? items.slice(0, 12).map((item) => `<li>${item.message} <small>(${new Date(item.at).toLocaleString('en-IN')})</small></li>`).join('')
+          : '<li>No ecosystem actions yet.</li>';
+      };
+
+      const renderPlanCards = (plans) => {
+        const grid = document.getElementById('subscriptionPlansGrid');
+        if (!grid) return;
+        const list = (Array.isArray(plans) ? plans : []).filter((item) => ['basic-plan', 'pro-plan', 'premium-plan'].includes(String(item.id || '')));
+        grid.innerHTML = list.length ? list.map((plan) => {
+          const highlights = Array.isArray(plan.highlights) ? plan.highlights : [];
+          return `
+            <div class="plan-mini">
+              <h3>${plan.name}</h3>
+              <p><b>₹${Number(plan.amount || 0).toLocaleString('en-IN')}</b> / ${Number(plan.cycleDays || 30)} days</p>
+              <ul>${highlights.map((h) => `<li>${h}</li>`).join('')}</ul>
+              <button class="solid-btn" type="button" data-plan-id="${plan.id}">Activate Plan</button>
+            </div>
+          `;
+        }).join('') : '<p class="muted">Plans unavailable.</p>';
+      };
+
+      const populateDocServices = (services) => {
+        const select = document.getElementById('docServiceSelect');
+        if (!select) return;
+        const list = Array.isArray(services) && services.length ? services : fallbackDocServices;
+        select.innerHTML = list.map((item) => (
+          `<option value="${item.id}">${item.name} - ₹${Number(item.fee || 0).toLocaleString('en-IN')}</option>`
+        )).join('');
+      };
+
+      const populateBanks = (banks) => {
+        const select = document.getElementById('loanBankSelect');
+        if (!select) return;
+        const list = Array.isArray(banks) && banks.length ? banks : fallbackBanks;
+        select.innerHTML = list.map((item) => (
+          `<option value="${item.id}">${item.name} (Commission ${Number(item.commissionPercent || 0).toFixed(2)}%)</option>`
+        )).join('');
+      };
+
+      const requireLogin = (statusId) => {
+        if (hasLive()) return false;
+        setStatus(statusId, 'Login required for live submission.', false);
+        return true;
+      };
+
+      const loadInitialData = async () => {
+        let plans = fallbackPlans;
+        let docServices = fallbackDocServices;
+        let banks = fallbackBanks;
+
+        if (live.request) {
+          try {
+            const [planRes, docRes, bankRes] = await Promise.all([
+              live.request('/subscriptions/plans'),
+              live.request('/documentation/services'),
+              live.request('/loan/banks'),
+            ]);
+            if (Array.isArray(planRes?.items) && planRes.items.length) plans = planRes.items;
+            if (Array.isArray(docRes?.items) && docRes.items.length) docServices = docRes.items;
+            if (Array.isArray(bankRes?.items) && bankRes.items.length) banks = bankRes.items;
+          } catch (error) {
+            pushFeed(`Initial live load fallback: ${error.message || 'unknown error'}`);
+          }
+        }
+
+        renderPlanCards(plans);
+        populateDocServices(docServices);
+        populateBanks(banks);
+      };
+
+      document.getElementById('subscriptionPlansGrid')?.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const planId = target.getAttribute('data-plan-id');
+        if (!planId) return;
+        if (requireLogin('planStatus')) return;
+        try {
+          const response = await live.request('/subscriptions/activate', {
+            method: 'POST',
+            token: token(),
+            data: { planId },
+          });
+          const planName = text(response?.subscription?.planName || planId);
+          setStatus('planStatus', `${planName} activated successfully.`);
+          pushFeed(`Subscription activated: ${planName}`);
+        } catch (error) {
+          setStatus('planStatus', `Plan activation failed: ${error.message}`, false);
+        }
+      });
+
+      document.getElementById('submitDocRequestBtn')?.addEventListener('click', async () => {
+        if (requireLogin('docStatus')) return;
+        const serviceId = text(document.getElementById('docServiceSelect')?.value);
+        const propertyId = text(document.getElementById('docPropertyId')?.value);
+        const details = text(document.getElementById('docDetails')?.value);
+        if (!serviceId || !details) {
+          return setStatus('docStatus', 'Service and details are required.', false);
+        }
+        try {
+          const response = await live.request('/documentation/requests', {
+            method: 'POST',
+            token: token(),
+            data: { serviceId, propertyId: propertyId || undefined, details, city: 'Udaipur' },
+          });
+          setStatus('docStatus', `${response?.request?.serviceName || 'Documentation service'} request submitted.`);
+          pushFeed(`Documentation request submitted (${serviceId}).`);
+        } catch (error) {
+          setStatus('docStatus', `Documentation request failed: ${error.message}`, false);
+        }
+      });
+
+      document.getElementById('submitLoanLeadBtn')?.addEventListener('click', async () => {
+        if (requireLogin('loanStatus')) return;
+        const bankId = text(document.getElementById('loanBankSelect')?.value);
+        const requestedAmount = num(document.getElementById('loanAmount')?.value, 0);
+        const propertyValue = num(document.getElementById('propertyValue')?.value, 0);
+        const locality = text(document.getElementById('loanLocality')?.value);
+        const cibilScore = num(document.getElementById('loanCibil')?.value, 0);
+        if (!bankId || requestedAmount <= 0) {
+          return setStatus('loanStatus', 'Bank and requested amount required.', false);
+        }
+        try {
+          const response = await live.request('/loan/assistance', {
+            method: 'POST',
+            token: token(),
+            data: { bankId, requestedAmount, propertyValue, locality, cibilScore, city: 'Udaipur' },
+          });
+          const lead = response?.lead || {};
+          setStatus('loanStatus', `Loan lead submitted. Estimated commission: ₹${Number(lead.estimatedCommission || 0).toLocaleString('en-IN')}.`);
+          pushFeed(`Loan assistance lead submitted (${lead.bankName || bankId}).`);
+        } catch (error) {
+          setStatus('loanStatus', `Loan assistance failed: ${error.message}`, false);
+        }
+      });
+
+      const submitPartnerBooking = async ({ serviceId, statusId, propertyIdId, localityId, dateId, budgetId }) => {
+        if (requireLogin(statusId)) return;
+        const propertyId = text(document.getElementById(propertyIdId)?.value);
+        const locality = text(document.getElementById(localityId)?.value);
+        const preferredDate = text(document.getElementById(dateId)?.value);
+        const budget = num(document.getElementById(budgetId)?.value, 0);
+        if (!preferredDate) return setStatus(statusId, 'Preferred date required.', false);
+        try {
+          const response = await live.request('/ecosystem/bookings', {
+            method: 'POST',
+            token: token(),
+            data: {
+              serviceId,
+              propertyId: propertyId || undefined,
+              locality,
+              preferredDate: new Date(preferredDate).toISOString(),
+              budget,
+              city: 'Udaipur',
+            },
+          });
+          const booking = response?.booking || {};
+          setStatus(statusId, `${booking.serviceName || serviceId} booking submitted.`);
+          pushFeed(`Partner booking submitted (${booking.serviceName || serviceId}).`);
+        } catch (error) {
+          setStatus(statusId, `Booking failed: ${error.message}`, false);
+        }
+      };
+
+      document.getElementById('bookMoverBtn')?.addEventListener('click', () => submitPartnerBooking({
+        serviceId: 'movers-packers',
+        statusId: 'moveStatus',
+        propertyIdId: 'movePropertyId',
+        localityId: 'moveLocality',
+        dateId: 'moveDate',
+        budgetId: 'moveBudget',
+      }));
+
+      document.getElementById('bookInteriorBtn')?.addEventListener('click', () => submitPartnerBooking({
+        serviceId: 'interior-designer',
+        statusId: 'interiorStatus',
+        propertyIdId: 'interiorPropertyId',
+        localityId: 'interiorLocality',
+        dateId: 'interiorDate',
+        budgetId: 'interiorBudget',
+      }));
+
+      document.getElementById('runValuationBtn')?.addEventListener('click', async () => {
+        const locality = text(document.getElementById('valuationLocality')?.value || 'Udaipur');
+        const propertyType = text(document.getElementById('valuationType')?.value || 'House');
+        const areaSqft = num(document.getElementById('valuationArea')?.value, 1200);
+        const bedrooms = num(document.getElementById('valuationBeds')?.value, 0);
+        const ageYears = num(document.getElementById('valuationAge')?.value, 0);
+        if (!live.request) return setStatus('valuationStatus', 'Live API unavailable.', false);
+        try {
+          const response = await live.request('/valuation/estimate', {
+            method: 'POST',
+            token: token(),
+            data: { locality, propertyType, areaSqft, bedrooms, ageYears },
+          });
+          const valuation = response?.valuation || {};
+          const min = Number(valuation?.suggestedBand?.min || 0).toLocaleString('en-IN');
+          const max = Number(valuation?.suggestedBand?.max || 0).toLocaleString('en-IN');
+          setStatus('valuationStatus', `Estimated value: ₹${Number(valuation.estimatedPrice || 0).toLocaleString('en-IN')} (Range: ₹${min} - ₹${max})`);
+          pushFeed(`Valuation generated for ${locality} (${propertyType}).`);
+        } catch (error) {
+          setStatus('valuationStatus', `Valuation failed: ${error.message}`, false);
+        }
+      });
+
+      document.getElementById('generateAgreementBtn')?.addEventListener('click', async () => {
+        if (requireLogin('agreementStatus')) return;
+        const ownerName = text(document.getElementById('ownerName')?.value);
+        const tenantName = text(document.getElementById('tenantName')?.value);
+        const propertyAddress = text(document.getElementById('propertyAddress')?.value);
+        const rentAmount = num(document.getElementById('rentAmount')?.value, 0);
+        const depositAmount = num(document.getElementById('depositAmount')?.value, 0);
+        const durationMonths = num(document.getElementById('durationMonths')?.value, 11);
+        const startDate = text(document.getElementById('agreementStartDate')?.value);
+        if (!ownerName || !tenantName || !propertyAddress || rentAmount <= 0) {
+          return setStatus('agreementStatus', 'Owner, tenant, address and rent are required.', false);
+        }
+        try {
+          const response = await live.request('/rent-agreement/generate', {
+            method: 'POST',
+            token: token(),
+            data: { ownerName, tenantName, propertyAddress, rentAmount, depositAmount, durationMonths, startDate },
+          });
+          const draftText = text(response?.draft?.draftText);
+          const output = document.getElementById('agreementDraftOutput');
+          if (output) output.value = draftText;
+          setStatus('agreementStatus', 'Rent agreement draft generated successfully.');
+          pushFeed('Rent agreement draft generated.');
+        } catch (error) {
+          setStatus('agreementStatus', `Draft generation failed: ${error.message}`, false);
+        }
+      });
+
+      document.getElementById('submitFranchiseBtn')?.addEventListener('click', async () => {
+        if (requireLogin('franchiseStatus')) return;
+        const city = text(document.getElementById('franchiseCity')?.value);
+        const investmentBudget = num(document.getElementById('franchiseBudget')?.value, 0);
+        const experienceYears = num(document.getElementById('franchiseExperience')?.value, 0);
+        const teamSize = num(document.getElementById('franchiseTeamSize')?.value, 0);
+        const officeAddress = text(document.getElementById('franchiseOfficeAddress')?.value);
+        if (!city || investmentBudget <= 0) {
+          return setStatus('franchiseStatus', 'City and investment budget required.', false);
+        }
+        try {
+          const response = await live.request('/franchise/requests', {
+            method: 'POST',
+            token: token(),
+            data: { city, investmentBudget, experienceYears, teamSize, officeAddress },
+          });
+          const request = response?.request || {};
+          setStatus('franchiseStatus', `Franchise request submitted. Pipeline value: ₹${Number(request.initialFeePotential || 0).toLocaleString('en-IN')}.`);
+          pushFeed(`Franchise request submitted for ${city}.`);
+        } catch (error) {
+          setStatus('franchiseStatus', `Franchise request failed: ${error.message}`, false);
+        }
+      });
+
+      renderFeed();
+      loadInitialData();
+    })();
+  </script>
+  <script src="../js/folder-command-dock.js"></script>
+</body>
+</html>
