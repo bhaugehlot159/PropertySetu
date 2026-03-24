@@ -42,6 +42,8 @@ button:hover { background:#092f6d; }
 .ops-toolbar input, .ops-toolbar select { width:100%; padding:7px; border:1px solid #c7d9ef; border-radius:8px; }
 .ops-toolbar button { white-space:nowrap; }
 .ops-toolbar .wide-field { min-width:260px; }
+.ops-toolbar-secondary { border:1px solid #d5e4f6; border-radius:10px; padding:10px; background:#f7fbff; }
+.ops-chip { display:inline-flex; align-items:center; border:1px solid #cbdcf3; border-radius:999px; padding:6px 10px; font-size:12px; background:#fff; color:#17466f; }
 .queue-pagination { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
 .queue-pagination .controls { display:flex; gap:6px; align-items:center; }
 .queue-pagination button { padding:4px 8px; font-size:12px; }
@@ -183,7 +185,27 @@ button:hover { background:#092f6d; }
       <button id="exportOpsFilteredBtn" type="button">Export Filtered CSV</button>
       <button id="exportOpsFullBtn" type="button">Export Full CSV</button>
     </div>
+    <div class="ops-toolbar ops-toolbar-secondary">
+      <input id="opsPresetNameInput" placeholder="Preset name (e.g. Loan Followups)" />
+      <select id="opsPresetSelect">
+        <option value="">Saved Presets</option>
+      </select>
+      <button id="saveOpsPresetBtn" type="button">Save Preset</button>
+      <button id="loadOpsPresetBtn" type="button">Load Preset</button>
+      <button id="deleteOpsPresetBtn" type="button">Delete Preset</button>
+      <select id="opsAutoRefreshSelect">
+        <option value="0">Auto-refresh: Off</option>
+        <option value="30">Auto-refresh: 30s</option>
+        <option value="60">Auto-refresh: 60s</option>
+        <option value="120">Auto-refresh: 120s</option>
+        <option value="300">Auto-refresh: 5m</option>
+      </select>
+      <span id="opsAutoRefreshStatus" class="ops-chip">Auto-refresh Off</span>
+      <button id="exportOpsAuditBtn" type="button">Export Audit CSV</button>
+      <button id="clearOpsAuditBtn" type="button">Clear Audit Log</button>
+    </div>
     <p id="opsFilterStatus" class="mini-status">Showing all ecosystem records.</p>
+    <p id="opsAuditStatus" class="mini-status">Audit records: 0</p>
     <div id="ecosystemOpsSummary" class="kpi-grid"></div>
     <div class="ops-grid">
       <div class="ops-card">
@@ -282,6 +304,16 @@ button:hover { background:#092f6d; }
   const opsDateTo = document.getElementById('opsDateTo');
   const opsSortBy = document.getElementById('opsSortBy');
   const opsSortDir = document.getElementById('opsSortDir');
+  const opsPresetNameInput = document.getElementById('opsPresetNameInput');
+  const opsPresetSelect = document.getElementById('opsPresetSelect');
+  const saveOpsPresetBtn = document.getElementById('saveOpsPresetBtn');
+  const loadOpsPresetBtn = document.getElementById('loadOpsPresetBtn');
+  const deleteOpsPresetBtn = document.getElementById('deleteOpsPresetBtn');
+  const opsAutoRefreshSelect = document.getElementById('opsAutoRefreshSelect');
+  const opsAutoRefreshStatus = document.getElementById('opsAutoRefreshStatus');
+  const exportOpsAuditBtn = document.getElementById('exportOpsAuditBtn');
+  const clearOpsAuditBtn = document.getElementById('clearOpsAuditBtn');
+  const opsAuditStatus = document.getElementById('opsAuditStatus');
   const clearOpsFiltersBtn = document.getElementById('clearOpsFiltersBtn');
   const exportOpsFilteredBtn = document.getElementById('exportOpsFilteredBtn');
   const exportOpsFullBtn = document.getElementById('exportOpsFullBtn');
@@ -293,7 +325,12 @@ button:hover { background:#092f6d; }
   const valuationQueue = document.getElementById('valuationQueue');
   const rentAgreementQueue = document.getElementById('rentAgreementQueue');
   const franchiseQueue = document.getElementById('franchiseQueue');
+  const OPS_PRESETS_KEY = 'propertySetu:adminOpsPresets';
+  const OPS_AUTO_REFRESH_KEY = 'propertySetu:adminOpsAutoRefreshSec';
+  const OPS_AUDIT_KEY = 'propertySetu:adminOpsAuditLog';
   const OPS_PAGE_SIZE = 6;
+  let opsAutoRefreshTimer = null;
+  let isAdminControlsLoading = false;
   const opsState = {
     query: '',
     module: 'all',
@@ -422,6 +459,7 @@ button:hover { background:#092f6d; }
       'Backup Downloaded',
       'info',
     );
+    pushOpsAudit('Downloaded local backup', 'backup', fileName);
   };
 
   const getLocalListings = () => readJson(LISTINGS_KEY, []).filter(isUdaipurListing);
@@ -536,6 +574,147 @@ button:hover { background:#092f6d; }
   const queueEmpty = (msg) => `<p class="mini-status">${msg}</p>`;
   const textOf = (value) => String(value || '').trim();
   const normalizeStatus = (value) => textOf(value).toLowerCase();
+  const getOpsAudit = () => {
+    const items = readJson(OPS_AUDIT_KEY, []);
+    return Array.isArray(items) ? items : [];
+  };
+  const setOpsAudit = (items = []) => {
+    writeJson(OPS_AUDIT_KEY, (Array.isArray(items) ? items : []).slice(0, 2000));
+  };
+  const refreshOpsAuditStatus = () => {
+    if (!opsAuditStatus) return;
+    const count = getOpsAudit().length;
+    opsAuditStatus.textContent = `Audit records: ${count}`;
+  };
+  const pushOpsAudit = (action, module = 'system', details = '') => {
+    const entry = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      action: textOf(action),
+      module: textOf(module),
+      details: textOf(details),
+      actor: textOf(live.getSession ? live.getSession('admin')?.name : '') || 'Admin',
+      createdAt: new Date().toISOString(),
+    };
+    const next = getOpsAudit();
+    next.unshift(entry);
+    setOpsAudit(next);
+    refreshOpsAuditStatus();
+  };
+  const getOpsPresets = () => {
+    const items = readJson(OPS_PRESETS_KEY, []);
+    return Array.isArray(items) ? items : [];
+  };
+  const setOpsPresets = (items = []) => {
+    writeJson(OPS_PRESETS_KEY, (Array.isArray(items) ? items : []).slice(0, 40));
+  };
+  const filterSnapshot = () => ({
+    query: textOf(opsSearchInput?.value),
+    module: textOf(opsModuleFilter?.value || 'all') || 'all',
+    status: textOf(opsStatusFilter?.value || 'all') || 'all',
+    dateFrom: textOf(opsDateFrom?.value),
+    dateTo: textOf(opsDateTo?.value),
+    sortBy: textOf(opsSortBy?.value || 'createdAt') || 'createdAt',
+    sortDir: textOf(opsSortDir?.value || 'desc') || 'desc',
+  });
+  const applyFilterSnapshot = (snapshot = {}) => {
+    if (opsSearchInput) opsSearchInput.value = textOf(snapshot.query);
+    if (opsModuleFilter) opsModuleFilter.value = textOf(snapshot.module || 'all') || 'all';
+    if (opsStatusFilter) opsStatusFilter.value = textOf(snapshot.status || 'all') || 'all';
+    if (opsDateFrom) opsDateFrom.value = textOf(snapshot.dateFrom);
+    if (opsDateTo) opsDateTo.value = textOf(snapshot.dateTo);
+    if (opsSortBy) opsSortBy.value = textOf(snapshot.sortBy || 'createdAt') || 'createdAt';
+    if (opsSortDir) opsSortDir.value = textOf(snapshot.sortDir || 'desc') || 'desc';
+    syncOpsFiltersFromControls({ resetPages: true });
+  };
+  const renderOpsPresetOptions = () => {
+    if (!opsPresetSelect) return;
+    const presets = getOpsPresets();
+    opsPresetSelect.innerHTML = [
+      '<option value="">Saved Presets</option>',
+      ...presets.map((preset) => `<option value="${preset.id}">${preset.name}</option>`),
+    ].join('');
+  };
+  const saveOpsPreset = () => {
+    const name = textOf(opsPresetNameInput?.value);
+    if (!name) {
+      window.alert('Preset name required.');
+      return;
+    }
+    const presets = getOpsPresets();
+    const existing = presets.find((item) => normalizeStatus(item.name) === normalizeStatus(name));
+    const payload = {
+      id: existing?.id || `preset-${Date.now()}`,
+      name,
+      filters: filterSnapshot(),
+      updatedAt: new Date().toISOString(),
+    };
+    const next = existing
+      ? presets.map((item) => (item.id === existing.id ? payload : item))
+      : [payload, ...presets];
+    setOpsPresets(next);
+    renderOpsPresetOptions();
+    if (opsPresetSelect) opsPresetSelect.value = payload.id;
+    pushOpsAudit('Saved filter preset', 'preset', name);
+  };
+  const loadSelectedPreset = () => {
+    const presetId = textOf(opsPresetSelect?.value);
+    if (!presetId) return window.alert('Select preset first.');
+    const preset = getOpsPresets().find((item) => item.id === presetId);
+    if (!preset) return window.alert('Preset not found.');
+    applyFilterSnapshot(preset.filters || {});
+    pushOpsAudit('Loaded filter preset', 'preset', preset.name || presetId);
+  };
+  const deleteSelectedPreset = () => {
+    const presetId = textOf(opsPresetSelect?.value);
+    if (!presetId) return window.alert('Select preset first.');
+    const presets = getOpsPresets();
+    const preset = presets.find((item) => item.id === presetId);
+    if (!preset) return window.alert('Preset not found.');
+    const next = presets.filter((item) => item.id !== presetId);
+    setOpsPresets(next);
+    renderOpsPresetOptions();
+    if (opsPresetNameInput) opsPresetNameInput.value = '';
+    pushOpsAudit('Deleted filter preset', 'preset', preset.name || presetId);
+  };
+  const setAutoRefresh = (secondsRaw, options = {}) => {
+    const { persist = true, silent = false } = options;
+    const seconds = Math.max(0, numberFrom(secondsRaw, 0));
+    if (opsAutoRefreshTimer) {
+      clearInterval(opsAutoRefreshTimer);
+      opsAutoRefreshTimer = null;
+    }
+    if (persist) writeJson(OPS_AUTO_REFRESH_KEY, seconds);
+    if (seconds > 0) {
+      opsAutoRefreshTimer = setInterval(() => {
+        render();
+        loadAdminControls();
+      }, seconds * 1000);
+    }
+    if (opsAutoRefreshSelect) opsAutoRefreshSelect.value = String(seconds);
+    if (opsAutoRefreshStatus) opsAutoRefreshStatus.textContent = seconds > 0 ? `Auto-refresh every ${seconds}s` : 'Auto-refresh Off';
+    if (!silent) pushOpsAudit('Updated auto refresh', 'auto-refresh', seconds > 0 ? `${seconds}s` : 'off');
+  };
+  const exportOpsAuditCsv = () => {
+    const rows = getOpsAudit().map((item) => ({
+      id: textOf(item.id),
+      action: textOf(item.action),
+      module: textOf(item.module),
+      details: textOf(item.details),
+      actor: textOf(item.actor),
+      createdAt: textOf(item.createdAt),
+    }));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadCsv(rows, `propertysetu-ops-audit-${stamp}.csv`);
+    pushOpsAudit('Exported ops audit CSV', 'audit', `rows=${rows.length}`);
+  };
+  const clearOpsAudit = () => {
+    const count = getOpsAudit().length;
+    if (!count) return;
+    if (!window.confirm(`Clear ${count} audit record(s)?`)) return;
+    setOpsAudit([]);
+    refreshOpsAuditStatus();
+    pushNotification('Admin cleared ecosystem audit log.', ['admin'], 'Audit Cleared', 'warn');
+  };
   const resetOpsPages = () => {
     Object.keys(opsState.page).forEach((key) => { opsState.page[key] = 1; });
   };
@@ -867,6 +1046,7 @@ button:hover { background:#092f6d; }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const suffix = filteredOnly ? 'filtered' : 'full';
     downloadCsv(rows, `propertysetu-ecosystem-${suffix}-${stamp}.csv`);
+    pushOpsAudit('Exported ecosystem CSV', 'export', `${suffix} rows=${rows.length}`);
   };
   const exportModuleCsv = (module, filteredOnly = true) => {
     const source = opsState.data[module] || [];
@@ -875,6 +1055,7 @@ button:hover { background:#092f6d; }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const suffix = filteredOnly ? 'filtered' : 'full';
     downloadCsv(rows, `propertysetu-ecosystem-${module}-${suffix}-${stamp}.csv`);
+    pushOpsAudit('Exported module CSV', module, `${suffix} rows=${rows.length}`);
   };
   const handleQueuePaginationClick = (target) => {
     if (!(target instanceof HTMLElement)) return false;
@@ -908,6 +1089,7 @@ button:hover { background:#092f6d; }
     if (opsSortBy) opsSortBy.value = 'createdAt';
     if (opsSortDir) opsSortDir.value = 'desc';
     syncOpsFiltersFromControls({ resetPages: true });
+    pushOpsAudit('Cleared ops filters', 'filters', 'reset-to-default');
   };
 
   const setFeaturedPricingInputs = (pricingMap = {}) => {
@@ -939,6 +1121,8 @@ button:hover { background:#092f6d; }
       if (adminAnalytics) adminAnalytics.textContent = 'Admin controls ke liye admin login required.';
       return;
     }
+    if (isAdminControlsLoading) return;
+    isAdminControlsLoading = true;
     try {
       const [
         config,
@@ -1057,6 +1241,8 @@ button:hover { background:#092f6d; }
       });
     } catch (error) {
       if (adminAnalytics) adminAnalytics.textContent = `Admin controls load failed: ${error.message}`;
+    } finally {
+      isAdminControlsLoading = false;
     }
   };
 
@@ -1089,6 +1275,7 @@ button:hover { background:#092f6d; }
       'Listing Status Updated',
       status === 'Approved' ? 'success' : 'warn',
     );
+    pushOpsAudit('Updated listing status', 'listings', `${id} -> ${status}`);
     await render();
   };
 
@@ -1110,6 +1297,7 @@ button:hover { background:#092f6d; }
         'Featured Listing',
         'success',
       );
+      pushOpsAudit('Marked listing featured', 'listings', id);
       await render();
     } catch (error) {
       window.alert(error.message || 'Feature update failed.');
@@ -1175,6 +1363,18 @@ button:hover { background:#092f6d; }
   clearOpsFiltersBtn?.addEventListener('click', clearOpsFilters);
   exportOpsFilteredBtn?.addEventListener('click', () => exportOpsCsv(true));
   exportOpsFullBtn?.addEventListener('click', () => exportOpsCsv(false));
+  saveOpsPresetBtn?.addEventListener('click', saveOpsPreset);
+  loadOpsPresetBtn?.addEventListener('click', loadSelectedPreset);
+  deleteOpsPresetBtn?.addEventListener('click', deleteSelectedPreset);
+  opsPresetSelect?.addEventListener('change', () => {
+    const presetId = textOf(opsPresetSelect?.value);
+    if (!presetId) return;
+    const preset = getOpsPresets().find((item) => item.id === presetId);
+    if (preset && opsPresetNameInput) opsPresetNameInput.value = preset.name || '';
+  });
+  opsAutoRefreshSelect?.addEventListener('change', () => setAutoRefresh(numberFrom(opsAutoRefreshSelect?.value, 0)));
+  exportOpsAuditBtn?.addEventListener('click', exportOpsAuditCsv);
+  clearOpsAuditBtn?.addEventListener('click', clearOpsAudit);
   document.querySelectorAll('[data-export-module]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const module = textOf(btn.getAttribute('data-export-module'));
@@ -1216,6 +1416,7 @@ button:hover { background:#092f6d; }
         'Category Added',
         'info',
       );
+      pushOpsAudit('Added category', 'config', name);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Category add failed.');
@@ -1236,6 +1437,7 @@ button:hover { background:#092f6d; }
         'City Added',
         'info',
       );
+      pushOpsAudit('Added city config', 'config', city);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'City add failed.');
@@ -1258,6 +1460,7 @@ button:hover { background:#092f6d; }
         'Category Removed',
         'warn',
       );
+      pushOpsAudit('Removed category', 'config', category);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Category remove failed.');
@@ -1280,6 +1483,7 @@ button:hover { background:#092f6d; }
         'City Removed',
         'warn',
       );
+      pushOpsAudit('Removed city config', 'config', city);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'City remove failed.');
@@ -1316,6 +1520,7 @@ button:hover { background:#092f6d; }
         'Featured Pricing Updated',
         'info',
       );
+      pushOpsAudit('Updated featured pricing', 'pricing', `${planId} ${amount}/${cycleDays}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Featured pricing update failed.');
@@ -1338,6 +1543,7 @@ button:hover { background:#092f6d; }
         'User Moderation',
         'warn',
       );
+      pushOpsAudit('User moderation action', 'users', `${action} ${userId}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'User action failed.');
@@ -1359,6 +1565,7 @@ button:hover { background:#092f6d; }
         'Report Resolved',
         'success',
       );
+      pushOpsAudit('Resolved report', 'reports', reportId);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Resolve failed.');
@@ -1385,6 +1592,7 @@ button:hover { background:#092f6d; }
         'Owner Verification Updated',
         action === 'verified' ? 'success' : 'warn',
       );
+      pushOpsAudit('Updated owner verification', 'verification', `${requestId} -> ${action}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Owner verification update failed.');
@@ -1412,6 +1620,7 @@ button:hover { background:#092f6d; }
         'Documentation Queue Updated',
         status === 'rejected' ? 'warn' : 'info',
       );
+      pushOpsAudit('Updated documentation request', 'documentation', `${requestId} -> ${status}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Documentation update failed.');
@@ -1445,6 +1654,7 @@ button:hover { background:#092f6d; }
         'Loan Lead Updated',
         status === 'rejected' ? 'warn' : 'info',
       );
+      pushOpsAudit('Updated loan lead', 'loan', `${leadId} -> ${status}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Loan lead update failed.');
@@ -1472,6 +1682,7 @@ button:hover { background:#092f6d; }
         'Ecosystem Booking Updated',
         status === 'cancelled' ? 'warn' : 'info',
       );
+      pushOpsAudit('Updated service booking', 'booking', `${bookingId} -> ${status}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Ecosystem booking update failed.');
@@ -1499,6 +1710,7 @@ button:hover { background:#092f6d; }
         'Franchise Queue Updated',
         status === 'rejected' ? 'warn' : 'info',
       );
+      pushOpsAudit('Updated franchise request', 'franchise', `${requestId} -> ${status}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Franchise update failed.');
@@ -1515,9 +1727,15 @@ button:hover { background:#092f6d; }
     handleQueuePaginationClick(target);
   });
 
+  renderOpsPresetOptions();
+  refreshOpsAuditStatus();
+  setAutoRefresh(numberFrom(readJson(OPS_AUTO_REFRESH_KEY, 0), 0), { persist: false, silent: true });
   render();
   syncOpsFiltersFromControls({ resetPages: true });
   loadAdminControls();
+  window.addEventListener('beforeunload', () => {
+    if (opsAutoRefreshTimer) clearInterval(opsAutoRefreshTimer);
+  });
 })();
 </script>
 
