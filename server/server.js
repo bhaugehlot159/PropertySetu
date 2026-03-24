@@ -1590,6 +1590,18 @@ app.get("/api/documentation/requests", auth, (req, res) => {
   items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   res.json({ ok: true, total: items.length, items });
 });
+app.post("/api/admin/documentation/requests/:id/status", auth, admin, async (req, res) => {
+  const request = db.documentationRequests.find((item) => item.id === req.params.id);
+  if (!request) return res.status(404).json({ ok: false, message: "Documentation request not found." });
+  const status = txt(req.body?.status || "");
+  if (!status) return res.status(400).json({ ok: false, message: "Status is required." });
+  request.status = status;
+  request.adminNote = txt(req.body?.adminNote);
+  request.updatedAt = now();
+  await save();
+  if (request.userId) pushNoti(request.userId, "Documentation Request Updated", `Your request ${request.id} is now "${status}".`, "documentation");
+  res.json({ ok: true, request });
+});
 
 app.get("/api/loan/banks", (_req, res) => {
   res.json({ ok: true, items: loanPartnerBanks });
@@ -1700,6 +1712,18 @@ app.get("/api/ecosystem/bookings", auth, (req, res) => {
   items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   res.json({ ok: true, total: items.length, items });
 });
+app.post("/api/admin/ecosystem/bookings/:id/status", auth, admin, async (req, res) => {
+  const booking = db.servicePartnerBookings.find((item) => item.id === req.params.id);
+  if (!booking) return res.status(404).json({ ok: false, message: "Booking not found." });
+  const status = txt(req.body?.status || "");
+  if (!status) return res.status(400).json({ ok: false, message: "Status is required." });
+  booking.status = status;
+  booking.adminNote = txt(req.body?.adminNote);
+  booking.updatedAt = now();
+  await save();
+  if (booking.userId) pushNoti(booking.userId, "Service Booking Updated", `Your ${booking.serviceName} booking is now "${status}".`, "ecosystem");
+  res.json({ ok: true, booking });
+});
 
 app.post("/api/valuation/estimate", authOpt, async (req, res) => {
   const locality = txt(req.body?.locality || req.body?.location || "Udaipur");
@@ -1744,6 +1768,10 @@ app.post("/api/valuation/estimate", authOpt, async (req, res) => {
     valuation: record,
     insight: `Estimated value for ${propertyType} in ${locality} is ₹${estimatedPrice.toLocaleString("en-IN")}.`,
   });
+});
+app.get("/api/valuation/requests", auth, admin, (_req, res) => {
+  const items = [...db.valuationRequests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
 });
 
 app.post("/api/rent-agreement/generate", auth, async (req, res) => {
@@ -1792,6 +1820,13 @@ app.post("/api/rent-agreement/generate", auth, async (req, res) => {
   await save();
   res.status(201).json({ ok: true, draft: record });
 });
+app.get("/api/rent-agreement/drafts", auth, (req, res) => {
+  const items = req.user.role === "admin"
+    ? [...db.rentAgreementDrafts]
+    : db.rentAgreementDrafts.filter((item) => item.userId === req.user.id);
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ ok: true, total: items.length, items });
+});
 
 app.get("/api/franchise/regions", (_req, res) => {
   const configuredCities = safeArr(db?.adminConfig?.cities).map((city) => txt(city)).filter(Boolean);
@@ -1834,6 +1869,18 @@ app.get("/api/franchise/requests", auth, (req, res) => {
     : db.franchiseRequests.filter((item) => item.userId === req.user.id);
   items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   res.json({ ok: true, total: items.length, items });
+});
+app.post("/api/admin/franchise/requests/:id/status", auth, admin, async (req, res) => {
+  const request = db.franchiseRequests.find((item) => item.id === req.params.id);
+  if (!request) return res.status(404).json({ ok: false, message: "Franchise request not found." });
+  const status = txt(req.body?.status || "");
+  if (!status) return res.status(400).json({ ok: false, message: "Status is required." });
+  request.status = status;
+  request.adminNote = txt(req.body?.adminNote);
+  request.updatedAt = now();
+  await save();
+  if (request.userId) pushNoti(request.userId, "Franchise Request Updated", `Your franchise request for ${request.city} is now "${status}".`, "franchise");
+  res.json({ ok: true, request });
 });
 
 app.get("/api/insights/locality", (req, res) => {

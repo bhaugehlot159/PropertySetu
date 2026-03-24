@@ -29,6 +29,16 @@ button:hover { background:#092f6d; }
 .analytics-table { width:100%; border-collapse:collapse; margin-top:8px; }
 .analytics-table th, .analytics-table td { border:1px solid #d7e3f7; padding:6px; text-align:left; font-size:13px; }
 .analytics-table th { background:#f3f8ff; }
+.ops-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:10px; }
+.ops-card { border:1px solid #dbe7ff; border-radius:10px; padding:10px; background:#f8fbff; }
+.ops-card h4 { margin:0 0 8px; color:#124a72; }
+.queue-list { display:grid; gap:8px; }
+.queue-row { border:1px solid #cfdef2; border-radius:8px; background:#fff; padding:8px; }
+.queue-row b { color:#103f66; }
+.queue-meta { font-size:12px; color:#44627d; margin-top:4px; line-height:1.45; }
+.queue-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.queue-actions button { padding:4px 8px; font-size:12px; }
+@media (max-width: 900px) { .ops-grid { grid-template-columns:1fr; } }
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
@@ -113,6 +123,37 @@ button:hover { background:#092f6d; }
     <h3>Owner Verification Queue</h3>
     <div id="ownerVerificationQueue"></div>
   </div>
+
+  <div class="property-card" style="margin-top:10px;">
+    <h3>Ecosystem Operations Console</h3>
+    <div id="ecosystemOpsSummary" class="kpi-grid"></div>
+    <div class="ops-grid">
+      <div class="ops-card">
+        <h4>Documentation Requests</h4>
+        <div id="documentationQueue" class="queue-list"></div>
+      </div>
+      <div class="ops-card">
+        <h4>Loan Assistance Leads</h4>
+        <div id="loanLeadQueue" class="queue-list"></div>
+      </div>
+      <div class="ops-card">
+        <h4>Partner Service Bookings</h4>
+        <div id="serviceBookingQueue" class="queue-list"></div>
+      </div>
+      <div class="ops-card">
+        <h4>Franchise Requests</h4>
+        <div id="franchiseQueue" class="queue-list"></div>
+      </div>
+      <div class="ops-card">
+        <h4>Valuation Tool Logs</h4>
+        <div id="valuationQueue" class="queue-list"></div>
+      </div>
+      <div class="ops-card">
+        <h4>Rent Agreement Draft Logs</h4>
+        <div id="rentAgreementQueue" class="queue-list"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="container">
@@ -158,6 +199,13 @@ button:hover { background:#092f6d; }
   const adminReportList = document.getElementById('adminReportList');
   const analyticsDashboard = document.getElementById('analyticsDashboard');
   const ownerVerificationQueue = document.getElementById('ownerVerificationQueue');
+  const ecosystemOpsSummary = document.getElementById('ecosystemOpsSummary');
+  const documentationQueue = document.getElementById('documentationQueue');
+  const loanLeadQueue = document.getElementById('loanLeadQueue');
+  const serviceBookingQueue = document.getElementById('serviceBookingQueue');
+  const valuationQueue = document.getElementById('valuationQueue');
+  const rentAgreementQueue = document.getElementById('rentAgreementQueue');
+  const franchiseQueue = document.getElementById('franchiseQueue');
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -290,6 +338,12 @@ button:hover { background:#092f6d; }
       ['Reports', overview.reports || 0],
       ['Active Subs', overview.activeSubs || 0],
       ['Owner Verification Pending', overview.ownerVerificationPending || 0],
+      ['Documentation Requests', overview.documentationRequests || 0],
+      ['Loan Leads', overview.loanAssistanceLeads || 0],
+      ['Partner Bookings', overview.servicePartnerBookings || 0],
+      ['Valuation Logs', overview.valuationRequests || 0],
+      ['Rent Drafts', overview.rentAgreementDrafts || 0],
+      ['Franchise Requests', overview.franchiseRequests || 0],
     ];
     adminOverview.innerHTML = rows.map(([label, value]) => `
       <div class="kpi">
@@ -318,6 +372,9 @@ button:hover { background:#092f6d; }
     const blockedUsers = safeUsers.filter((u) => !!u.blocked).length;
     const monetized = numberFrom(commission.totalMonetized, 0);
     const estCommission = numberFrom(commission.estimatedCommission, 0);
+    const ecosystemServiceRevenue = numberFrom(commission.ecosystemServiceRevenue, 0);
+    const loanCommission = numberFrom(commission.loanAssistanceCommissionRevenue, 0);
+    const franchisePipelineValue = numberFrom(commission.franchisePipelineValue, 0);
 
     analyticsDashboard.innerHTML = `
       <table class="analytics-table">
@@ -334,11 +391,144 @@ button:hover { background:#092f6d; }
           <tr><td>Blocked Users</td><td>${blockedUsers}</td><td>Risk control</td></tr>
           <tr><td>Total Monetized</td><td>${formatPrice(monetized)}</td><td>Revenue momentum</td></tr>
           <tr><td>Estimated Commission</td><td>${formatPrice(estCommission)}</td><td>Brokerage estimate</td></tr>
+          <tr><td>Ecosystem Service Revenue</td><td>${formatPrice(ecosystemServiceRevenue)}</td><td>Partner services stream</td></tr>
+          <tr><td>Loan Assistance Commission</td><td>${formatPrice(loanCommission)}</td><td>Finance referral stream</td></tr>
+          <tr><td>Franchise Pipeline</td><td>${formatPrice(franchisePipelineValue)}</td><td>Expansion potential</td></tr>
           <tr><td>Top Category</td><td>${topCategories[0]?.[0] || 'N/A'}</td><td>${topCategories[0]?.[1] || 0} listings</td></tr>
           <tr><td>Top City</td><td>${topCities[0]?.[0] || 'N/A'}</td><td>${topCities[0]?.[1] || 0} listings</td></tr>
         </tbody>
       </table>
     `;
+  };
+  const toDateLabel = (value) => {
+    const dt = new Date(value || '');
+    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('en-IN');
+  };
+  const queueEmpty = (msg) => `<p class="mini-status">${msg}</p>`;
+  const renderOpsSummary = (payload = {}) => {
+    if (!ecosystemOpsSummary) return;
+    const rows = [
+      ['Doc Requests', payload.documentationRequests || 0],
+      ['Loan Leads', payload.loanLeads || 0],
+      ['Partner Bookings', payload.partnerBookings || 0],
+      ['Valuations', payload.valuationLogs || 0],
+      ['Rent Drafts', payload.rentDrafts || 0],
+      ['Franchise Requests', payload.franchiseRequests || 0],
+    ];
+    ecosystemOpsSummary.innerHTML = rows.map(([label, value]) => `
+      <div class="kpi">
+        <small>${label}</small>
+        <strong>${value}</strong>
+      </div>
+    `).join('');
+  };
+
+  const renderDocumentationQueue = (items = []) => {
+    if (!documentationQueue) return;
+    const list = Array.isArray(items) ? items : [];
+    documentationQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+      <div class="queue-row">
+        <b>${item.serviceName || item.serviceId || 'Documentation Request'}</b>
+        <div class="queue-meta">
+          Request: ${item.id} | User: ${item.userName || '-'} | Status: ${item.status || 'Requested'}<br>
+          Amount: ${formatPrice(item.amount || 0)} | City: ${item.city || 'Udaipur'} | Created: ${toDateLabel(item.createdAt)}
+        </div>
+        <div class="queue-actions">
+          <button data-doc-id="${item.id}" data-doc-status="in-review">In Review</button>
+          <button data-doc-id="${item.id}" data-doc-status="approved">Approve</button>
+          <button data-doc-id="${item.id}" data-doc-status="completed">Complete</button>
+          <button data-doc-id="${item.id}" data-doc-status="rejected">Reject</button>
+        </div>
+      </div>
+    `).join('') : queueEmpty('No documentation requests.');
+  };
+
+  const renderLoanQueue = (items = []) => {
+    if (!loanLeadQueue) return;
+    const list = Array.isArray(items) ? items : [];
+    loanLeadQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+      <div class="queue-row">
+        <b>${item.bankName || item.bankId || 'Bank Lead'} - ${item.id}</b>
+        <div class="queue-meta">
+          User: ${item.userName || '-'} | Status: ${item.status || 'lead-created'} | Locality: ${item.locality || '-'}<br>
+          Loan: ${formatPrice(item.requestedAmount || 0)} | Est. Commission: ${formatPrice(item.estimatedCommission || 0)} | Updated: ${toDateLabel(item.updatedAt || item.createdAt)}
+        </div>
+        <div class="queue-actions">
+          <button data-loan-id="${item.id}" data-loan-status="in-progress">In Progress</button>
+          <button data-loan-id="${item.id}" data-loan-status="approved">Approve</button>
+          <button data-loan-id="${item.id}" data-loan-status="sanctioned">Sanctioned</button>
+          <button data-loan-id="${item.id}" data-loan-status="rejected">Reject</button>
+        </div>
+      </div>
+    `).join('') : queueEmpty('No loan assistance leads.');
+  };
+
+  const renderServiceBookingQueue = (items = []) => {
+    if (!serviceBookingQueue) return;
+    const list = Array.isArray(items) ? items : [];
+    serviceBookingQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+      <div class="queue-row">
+        <b>${item.serviceName || item.serviceId || 'Service Booking'} - ${item.id}</b>
+        <div class="queue-meta">
+          User: ${item.userName || '-'} | Status: ${item.status || 'Requested'} | Locality: ${item.locality || '-'}<br>
+          Preferred: ${toDateLabel(item.preferredDate)} | Fee: ${formatPrice(item.serviceFee || 0)} | Budget: ${formatPrice(item.budget || 0)}
+        </div>
+        <div class="queue-actions">
+          <button data-booking-id="${item.id}" data-booking-status="assigned">Assign</button>
+          <button data-booking-id="${item.id}" data-booking-status="partner-confirmed">Partner Confirmed</button>
+          <button data-booking-id="${item.id}" data-booking-status="completed">Complete</button>
+          <button data-booking-id="${item.id}" data-booking-status="cancelled">Cancel</button>
+        </div>
+      </div>
+    `).join('') : queueEmpty('No partner service bookings.');
+  };
+
+  const renderValuationQueue = (items = []) => {
+    if (!valuationQueue) return;
+    const list = Array.isArray(items) ? items : [];
+    valuationQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+      <div class="queue-row">
+        <b>${item.propertyType || 'Property'} - ${item.locality || 'Udaipur'}</b>
+        <div class="queue-meta">
+          Request: ${item.id} | User: ${item.userName || 'guest'} | Estimated: ${formatPrice(item.estimatedPrice || 0)}<br>
+          Range: ${formatPrice(item?.suggestedBand?.min || 0)} - ${formatPrice(item?.suggestedBand?.max || 0)} | Confidence: ${numberFrom(item.confidence, 0)}% | ${toDateLabel(item.createdAt)}
+        </div>
+      </div>
+    `).join('') : queueEmpty('No valuation logs.');
+  };
+
+  const renderRentAgreementQueue = (items = []) => {
+    if (!rentAgreementQueue) return;
+    const list = Array.isArray(items) ? items : [];
+    rentAgreementQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+      <div class="queue-row">
+        <b>${item.ownerName || 'Owner'} - ${item.tenantName || 'Tenant'}</b>
+        <div class="queue-meta">
+          Draft: ${item.id} | User: ${item.userName || '-'} | Rent: ${formatPrice(item.rentAmount || 0)} | Deposit: ${formatPrice(item.depositAmount || 0)}<br>
+          Start: ${item.startDate || '-'} | Duration: ${item.durationMonths || 0} months | ${toDateLabel(item.createdAt)}
+        </div>
+      </div>
+    `).join('') : queueEmpty('No rent agreement drafts.');
+  };
+
+  const renderFranchiseQueue = (items = []) => {
+    if (!franchiseQueue) return;
+    const list = Array.isArray(items) ? items : [];
+    franchiseQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+      <div class="queue-row">
+        <b>${item.city || 'City'} - ${item.id}</b>
+        <div class="queue-meta">
+          User: ${item.userName || '-'} | Status: ${item.status || 'screening'} | Team: ${item.teamSize || 0} | Experience: ${item.experienceYears || 0} yrs<br>
+          Budget: ${formatPrice(item.investmentBudget || 0)} | Pipeline: ${formatPrice(item.initialFeePotential || 0)} | Updated: ${toDateLabel(item.updatedAt || item.createdAt)}
+        </div>
+        <div class="queue-actions">
+          <button data-franchise-id="${item.id}" data-franchise-status="screening">Screening</button>
+          <button data-franchise-id="${item.id}" data-franchise-status="approved">Approve</button>
+          <button data-franchise-id="${item.id}" data-franchise-status="onboarding">Onboarding</button>
+          <button data-franchise-id="${item.id}" data-franchise-status="rejected">Reject</button>
+        </div>
+      </div>
+    `).join('') : queueEmpty('No franchise requests.');
   };
 
   const setFeaturedPricingInputs = (pricingMap = {}) => {
@@ -371,7 +561,21 @@ button:hover { background:#092f6d; }
       return;
     }
     try {
-      const [config, users, reports, commission, ownerVerifications, overview, featuredPricing] = await Promise.all([
+      const [
+        config,
+        users,
+        reports,
+        commission,
+        ownerVerifications,
+        overview,
+        featuredPricing,
+        documentationRequests,
+        loanAssistance,
+        serviceBookings,
+        valuationRequests,
+        rentAgreementDrafts,
+        franchiseRequests,
+      ] = await Promise.all([
         live.request('/admin/config', { token }),
         live.request('/admin/users', { token }),
         live.request('/admin/reports', { token }),
@@ -379,6 +583,12 @@ button:hover { background:#092f6d; }
         live.request('/admin/owner-verification', { token }),
         live.request('/admin/overview', { token }),
         live.request('/admin/config/featured-pricing', { token }),
+        live.request('/documentation/requests', { token }),
+        live.request('/loan/assistance', { token }),
+        live.request('/ecosystem/bookings', { token }),
+        live.request('/valuation/requests', { token }),
+        live.request('/rent-agreement/drafts', { token }),
+        live.request('/franchise/requests', { token }),
       ]);
 
       if (adminAnalytics) {
@@ -393,6 +603,9 @@ button:hover { background:#092f6d; }
           <span><b>Property Care Package:</b> ₹${Number(a.propertyCareRevenue || 0).toLocaleString('en-IN')}</span>
           <span><b>Doc Service Fee:</b> ₹${Number((a.documentationServiceFeeRevenue ?? a.legalServiceRevenue) || 0).toLocaleString('en-IN')}</span>
           <span><b>Legal Revenue:</b> ₹${Number(a.legalServiceRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Ecosystem Revenue:</b> ₹${Number(a.ecosystemServiceRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Loan Commission:</b> ₹${Number(a.loanAssistanceCommissionRevenue || 0).toLocaleString('en-IN')}</span>
+          <span><b>Franchise Pipeline:</b> ₹${Number(a.franchisePipelineValue || 0).toLocaleString('en-IN')}</span>
           <span><b>Estimated Commission:</b> ₹${Number(a.estimatedCommission || 0).toLocaleString('en-IN')}</span>
           <span><b>Total Monetized:</b> ₹${Number(a.totalMonetized || 0).toLocaleString('en-IN')}</span>
         `;
@@ -441,6 +654,20 @@ button:hover { background:#092f6d; }
           </div>
         `).join('') || '<p>No owner verification requests.</p>';
       }
+      renderDocumentationQueue(documentationRequests?.items || []);
+      renderLoanQueue(loanAssistance?.items || []);
+      renderServiceBookingQueue(serviceBookings?.items || []);
+      renderValuationQueue(valuationRequests?.items || []);
+      renderRentAgreementQueue(rentAgreementDrafts?.items || []);
+      renderFranchiseQueue(franchiseRequests?.items || []);
+      renderOpsSummary({
+        documentationRequests: documentationRequests?.total || 0,
+        loanLeads: loanAssistance?.total || 0,
+        partnerBookings: serviceBookings?.total || 0,
+        valuationLogs: valuationRequests?.total || 0,
+        rentDrafts: rentAgreementDrafts?.total || 0,
+        franchiseRequests: franchiseRequests?.total || 0,
+      });
 
       renderAnalyticsDashboard({
         listings: await fetchListings(),
@@ -764,6 +991,116 @@ button:hover { background:#092f6d; }
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Owner verification update failed.');
+    }
+  });
+
+  documentationQueue?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const requestId = target.getAttribute('data-doc-id');
+    const status = target.getAttribute('data-doc-status');
+    if (!requestId || !status) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/documentation/requests/${encodeURIComponent(requestId)}/status`, {
+        method: 'POST',
+        token,
+        data: { status },
+      });
+      pushNotification(
+        `Admin updated documentation request ${requestId}: ${status}.`,
+        ['admin', 'customer', 'seller'],
+        'Documentation Queue Updated',
+        status === 'rejected' ? 'warn' : 'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Documentation update failed.');
+    }
+  });
+
+  loanLeadQueue?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const leadId = target.getAttribute('data-loan-id');
+    const status = target.getAttribute('data-loan-status');
+    if (!leadId || !status) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    let finalCommissionAmount;
+    if (status === 'sanctioned') {
+      const value = window.prompt('Final commission amount (optional):', '');
+      const parsed = Number(value);
+      finalCommissionAmount = Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+    }
+    try {
+      await live.request(`/admin/loan/assistance/${encodeURIComponent(leadId)}/status`, {
+        method: 'POST',
+        token,
+        data: { status, ...(finalCommissionAmount !== undefined ? { finalCommissionAmount } : {}) },
+      });
+      pushNotification(
+        `Admin updated loan lead ${leadId}: ${status}.`,
+        ['admin', 'customer', 'seller'],
+        'Loan Lead Updated',
+        status === 'rejected' ? 'warn' : 'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Loan lead update failed.');
+    }
+  });
+
+  serviceBookingQueue?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const bookingId = target.getAttribute('data-booking-id');
+    const status = target.getAttribute('data-booking-status');
+    if (!bookingId || !status) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/ecosystem/bookings/${encodeURIComponent(bookingId)}/status`, {
+        method: 'POST',
+        token,
+        data: { status },
+      });
+      pushNotification(
+        `Admin updated ecosystem booking ${bookingId}: ${status}.`,
+        ['admin', 'customer', 'seller'],
+        'Ecosystem Booking Updated',
+        status === 'cancelled' ? 'warn' : 'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Ecosystem booking update failed.');
+    }
+  });
+
+  franchiseQueue?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const requestId = target.getAttribute('data-franchise-id');
+    const status = target.getAttribute('data-franchise-status');
+    if (!requestId || !status) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/franchise/requests/${encodeURIComponent(requestId)}/status`, {
+        method: 'POST',
+        token,
+        data: { status },
+      });
+      pushNotification(
+        `Admin updated franchise request ${requestId}: ${status}.`,
+        ['admin', 'customer', 'seller'],
+        'Franchise Queue Updated',
+        status === 'rejected' ? 'warn' : 'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Franchise update failed.');
     }
   });
 
