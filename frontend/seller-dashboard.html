@@ -118,6 +118,10 @@ button:hover { background:#092f6d; }
   const SELLER_ENGAGEMENT_KEY = 'propertySetu:sellerEngagement';
   const SELLER_EXPIRY_TRACK_KEY = 'propertySetu:sellerExpiryAlertTrack';
   const CHAT_PREFIX = 'propertySetu:userChat:';
+  const featuredPlans = {
+    'featured-7': { name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7 },
+    'featured-30': { name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30 },
+  };
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -218,6 +222,27 @@ button:hover { background:#092f6d; }
       ? `Video: ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(1)} MB)`
       : 'Video: not selected';
     mediaUploadMeta.textContent = `${photosCount} photo(s) selected. ${videoText}`;
+  };
+
+  const syncFeaturedPlans = async () => {
+    if (!live.request) return;
+    try {
+      const response = await live.request('/subscriptions/plans');
+      const items = Array.isArray(response?.items) ? response.items : [];
+      items
+        .filter((item) => String(item?.type || '').toLowerCase() === 'featured')
+        .forEach((item) => {
+          const id = String(item.id || '').trim();
+          if (!featuredPlans[id]) return;
+          featuredPlans[id] = {
+            name: String(item.name || featuredPlans[id].name),
+            amount: numberFrom(item.amount, featuredPlans[id].amount),
+            cycleDays: Math.max(1, numberFrom(item.cycleDays, featuredPlans[id].cycleDays)),
+          };
+        });
+    } catch {
+      // keep defaults
+    }
   };
 
   const upsertLocal = (record) => {
@@ -393,8 +418,8 @@ button:hover { background:#092f6d; }
         <p><b>Analytics:</b> Views ${metrics.views} | Saves ${metrics.saves} | Inquiries ${metrics.inquiries} | Conversion ${metrics.conversion}%</p>
         <div class="boost-row">
           <select data-plan-for="${property.id}">
-            <option value="featured-7">Featured 7 Days - ₹299</option>
-            <option value="featured-30">Featured 30 Days - ₹999</option>
+            <option value="featured-7">${featuredPlans['featured-7'].name} - ₹${Number(featuredPlans['featured-7'].amount || 0).toLocaleString('en-IN')}</option>
+            <option value="featured-30">${featuredPlans['featured-30'].name} - ₹${Number(featuredPlans['featured-30'].amount || 0).toLocaleString('en-IN')}</option>
           </select>
           <button type="button" data-action="boost" data-id="${property.id}">Boost Listing (Paid Featured)</button>
         </div>
@@ -537,7 +562,9 @@ button:hover { background:#092f6d; }
   videoInput?.addEventListener('change', describeMediaSelection);
   describeMediaSelection();
 
-  syncMineFromApi().finally(render);
+  syncFeaturedPlans().finally(() => {
+    syncMineFromApi().finally(render);
+  });
 
   propertyList.addEventListener('click', async (event) => {
     const target = event.target;
@@ -547,8 +574,9 @@ button:hover { background:#092f6d; }
     if (action !== 'boost' || !id) return;
     const planSelect = propertyList.querySelector(`select[data-plan-for="${id}"]`);
     const planId = String(planSelect?.value || 'featured-7');
-    const cycleDays = planId === 'featured-30' ? 30 : 7;
-    const amount = planId === 'featured-30' ? 999 : 299;
+    const selectedPlan = featuredPlans[planId] || featuredPlans['featured-7'];
+    const cycleDays = Math.max(1, numberFrom(selectedPlan?.cycleDays, 7));
+    const amount = Math.max(0, numberFrom(selectedPlan?.amount, 0));
 
     const token = live.getAnyToken ? live.getAnyToken() : '';
     if (!token || !live.request) return window.alert('Boost ke liye login required.');

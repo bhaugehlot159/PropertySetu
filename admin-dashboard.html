@@ -16,6 +16,19 @@ button:hover { background:#092f6d; }
 .badge { background:#eaf1ff; color:#123d83; border-radius:6px; padding:2px 8px; font-size:12px; }
 .backup-panel { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 #backupStatus { font-size:14px; color:#123d83; }
+.chip-wrap { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.pill { display:inline-flex; align-items:center; gap:6px; border:1px solid #c9dbf6; border-radius:999px; padding:4px 8px; font-size:12px; background:#f5f9ff; color:#1a467c; }
+.pill button { margin:0; padding:2px 6px; font-size:11px; background:#fff; color:#a82727; border:1px solid #f2b5b5; }
+.kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-top:10px; }
+.kpi { border:1px solid #dbe7ff; border-radius:8px; padding:8px; background:#f8fbff; }
+.kpi small { color:#5c6f88; display:block; }
+.pricing-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; margin-top:10px; }
+.pricing-card { border:1px solid #dbe7ff; border-radius:10px; padding:10px; background:#f8fbff; }
+.pricing-card input { width:100%; max-width:180px; padding:6px; margin:5px 0; }
+.mini-status { font-size:13px; color:#1b4e86; margin-top:8px; }
+.analytics-table { width:100%; border-collapse:collapse; margin-top:8px; }
+.analytics-table th, .analytics-table td { border:1px solid #d7e3f7; padding:6px; text-align:left; font-size:13px; }
+.analytics-table th { background:#f3f8ff; }
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
@@ -37,22 +50,49 @@ button:hover { background:#092f6d; }
 </div>
 
 <div class="container">
-  <h2>Admin Controls: Category / City / User Block / Reports / Commission</h2>
+  <h2>Admin Controls: Category / City / Pricing / User Block / Reports / Commission</h2>
+  <div id="adminOverview" class="kpi-grid"></div>
   <div id="adminAnalytics" class="backup-panel"></div>
+
   <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
     <div class="property-card">
-      <h3>Category Management</h3>
+      <h3>Category Management (Add / Remove)</h3>
       <input id="newCategoryInput" placeholder="New category" style="padding:6px;width:100%;max-width:260px;" />
       <button id="addCategoryBtn">Add Category</button>
-      <div id="categoryList"></div>
+      <div id="categoryList" class="chip-wrap"></div>
     </div>
     <div class="property-card">
-      <h3>City Management</h3>
+      <h3>City Management (Add / Remove)</h3>
       <input id="newCityInput" placeholder="New city" style="padding:6px;width:100%;max-width:260px;" />
       <button id="addCityBtn">Add City</button>
-      <div id="cityList"></div>
+      <div id="cityList" class="chip-wrap"></div>
+      <p class="mini-status">Note: Live city Udaipur remove nahi kiya ja sakta.</p>
     </div>
   </div>
+
+  <div class="property-card" style="margin-top:10px;">
+    <h3>Featured Pricing Control</h3>
+    <div id="featuredPricingPanel" class="pricing-grid">
+      <div class="pricing-card">
+        <h4>Featured 7 Days</h4>
+        <label>Amount (INR)</label>
+        <input id="featured7AmountInput" type="number" min="0" step="1" />
+        <label>Cycle Days</label>
+        <input id="featured7DaysInput" type="number" min="1" step="1" />
+        <button type="button" data-pricing-save="featured-7">Save Featured 7</button>
+      </div>
+      <div class="pricing-card">
+        <h4>Featured 30 Days</h4>
+        <label>Amount (INR)</label>
+        <input id="featured30AmountInput" type="number" min="0" step="1" />
+        <label>Cycle Days</label>
+        <input id="featured30DaysInput" type="number" min="1" step="1" />
+        <button type="button" data-pricing-save="featured-30">Save Featured 30</button>
+      </div>
+    </div>
+    <p id="featuredPricingStatus" class="mini-status">Latest featured pricing yahan load hoga.</p>
+  </div>
+
   <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
     <div class="property-card">
       <h3>User Block Control</h3>
@@ -63,6 +103,12 @@ button:hover { background:#092f6d; }
       <div id="adminReportList"></div>
     </div>
   </div>
+
+  <div class="property-card" style="margin-top:10px;">
+    <h3>Analytics Dashboard</h3>
+    <div id="analyticsDashboard"></div>
+  </div>
+
   <div class="property-card" style="margin-top:10px;">
     <h3>Owner Verification Queue</h3>
     <div id="ownerVerificationQueue"></div>
@@ -98,11 +144,19 @@ button:hover { background:#092f6d; }
   const backupStatus = document.getElementById('backupStatus');
   const pendingDiv = document.getElementById('pendingProperties');
   const approvedDiv = document.getElementById('approvedProperties');
+  const adminOverview = document.getElementById('adminOverview');
   const adminAnalytics = document.getElementById('adminAnalytics');
   const categoryList = document.getElementById('categoryList');
   const cityList = document.getElementById('cityList');
+  const featuredPricingPanel = document.getElementById('featuredPricingPanel');
+  const featuredPricingStatus = document.getElementById('featuredPricingStatus');
+  const featured7AmountInput = document.getElementById('featured7AmountInput');
+  const featured7DaysInput = document.getElementById('featured7DaysInput');
+  const featured30AmountInput = document.getElementById('featured30AmountInput');
+  const featured30DaysInput = document.getElementById('featured30DaysInput');
   const adminUserList = document.getElementById('adminUserList');
   const adminReportList = document.getElementById('adminReportList');
+  const analyticsDashboard = document.getElementById('analyticsDashboard');
   const ownerVerificationQueue = document.getElementById('ownerVerificationQueue');
 
   const readJson = live.readJson || ((key, fallback) => {
@@ -145,6 +199,10 @@ button:hover { background:#092f6d; }
   const normalizeApi = (item) => (live.normalizeApiListing ? live.normalizeApiListing(item) : item);
   const getAdminToken = () => (live.getToken ? live.getToken('admin') : '');
   const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+  const numberFrom = live.numberFrom || ((value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  });
 
   const safeParse = (value) => {
     try {
@@ -206,6 +264,92 @@ button:hover { background:#092f6d; }
     writeJson(LISTINGS_KEY, merged);
   };
 
+  const renderPillList = (target, items, removeAttr) => {
+    if (!target) return;
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+      target.innerHTML = '<span class="mini-status">No items configured.</span>';
+      return;
+    }
+    target.innerHTML = list.map((item) => `
+      <span class="pill">
+        ${item}
+        <button type="button" ${removeAttr}="${encodeURIComponent(item)}">Remove</button>
+      </span>
+    `).join('');
+  };
+
+  const renderOverview = (overview = {}) => {
+    if (!adminOverview) return;
+    const rows = [
+      ['Users', overview.users || 0],
+      ['Blocked Users', overview.blockedUsers || 0],
+      ['Pending Listings', overview.pending || 0],
+      ['Approved Listings', overview.approved || 0],
+      ['Featured Listings', overview.featured || 0],
+      ['Reports', overview.reports || 0],
+      ['Active Subs', overview.activeSubs || 0],
+      ['Owner Verification Pending', overview.ownerVerificationPending || 0],
+    ];
+    adminOverview.innerHTML = rows.map(([label, value]) => `
+      <div class="kpi">
+        <small>${label}</small>
+        <strong>${value}</strong>
+      </div>
+    `).join('');
+  };
+
+  const renderAnalyticsDashboard = ({ listings = [], reports = [], users = [], commission = {} } = {}) => {
+    if (!analyticsDashboard) return;
+    const safeListings = Array.isArray(listings) ? listings : [];
+    const safeReports = Array.isArray(reports) ? reports : [];
+    const safeUsers = Array.isArray(users) ? users : [];
+    const categoryMap = new Map();
+    const cityMap = new Map();
+    safeListings.forEach((item) => {
+      const category = String(item.category || 'Unknown').trim() || 'Unknown';
+      const city = String(item.city || 'Udaipur').trim() || 'Udaipur';
+      categoryMap.set(category, (categoryMap.get(category) || 0) + 1);
+      cityMap.set(city, (cityMap.get(city) || 0) + 1);
+    });
+    const topCategories = [...categoryMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const topCities = [...cityMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const openReports = safeReports.filter((r) => String(r.status || '').toLowerCase() !== 'resolved').length;
+    const blockedUsers = safeUsers.filter((u) => !!u.blocked).length;
+    const monetized = numberFrom(commission.totalMonetized, 0);
+    const estCommission = numberFrom(commission.estimatedCommission, 0);
+
+    analyticsDashboard.innerHTML = `
+      <table class="analytics-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Value</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Total Listings</td><td>${safeListings.length}</td><td>Inventory health</td></tr>
+          <tr><td>Open Reports</td><td>${openReports}</td><td>Moderation load</td></tr>
+          <tr><td>Blocked Users</td><td>${blockedUsers}</td><td>Risk control</td></tr>
+          <tr><td>Total Monetized</td><td>${formatPrice(monetized)}</td><td>Revenue momentum</td></tr>
+          <tr><td>Estimated Commission</td><td>${formatPrice(estCommission)}</td><td>Brokerage estimate</td></tr>
+          <tr><td>Top Category</td><td>${topCategories[0]?.[0] || 'N/A'}</td><td>${topCategories[0]?.[1] || 0} listings</td></tr>
+          <tr><td>Top City</td><td>${topCities[0]?.[0] || 'N/A'}</td><td>${topCities[0]?.[1] || 0} listings</td></tr>
+        </tbody>
+      </table>
+    `;
+  };
+
+  const setFeaturedPricingInputs = (pricingMap = {}) => {
+    const p7 = pricingMap['featured-7'] || {};
+    const p30 = pricingMap['featured-30'] || {};
+    if (featured7AmountInput) featured7AmountInput.value = String(numberFrom(p7.amount, 299));
+    if (featured7DaysInput) featured7DaysInput.value = String(Math.max(1, numberFrom(p7.cycleDays, 7)));
+    if (featured30AmountInput) featured30AmountInput.value = String(numberFrom(p30.amount, 999));
+    if (featured30DaysInput) featured30DaysInput.value = String(Math.max(1, numberFrom(p30.cycleDays, 30)));
+  };
+
   const fetchListings = async () => {
     const token = getAdminToken();
     if (!token || !live.request) return getLocalListings();
@@ -227,12 +371,14 @@ button:hover { background:#092f6d; }
       return;
     }
     try {
-      const [config, users, reports, commission, ownerVerifications] = await Promise.all([
+      const [config, users, reports, commission, ownerVerifications, overview, featuredPricing] = await Promise.all([
         live.request('/admin/config', { token }),
         live.request('/admin/users', { token }),
         live.request('/admin/reports', { token }),
         live.request('/admin/commission-analytics', { token }),
         live.request('/admin/owner-verification', { token }),
+        live.request('/admin/overview', { token }),
+        live.request('/admin/config/featured-pricing', { token }),
       ]);
 
       if (adminAnalytics) {
@@ -252,11 +398,14 @@ button:hover { background:#092f6d; }
         `;
       }
 
-      if (categoryList) {
-        categoryList.innerHTML = (config?.config?.categories || []).map((x) => `<span class="badge">${x}</span>`).join(' ');
-      }
-      if (cityList) {
-        cityList.innerHTML = (config?.config?.cities || []).map((x) => `<span class="badge">${x}</span>`).join(' ');
+      renderOverview(overview?.overview || {});
+      renderPillList(categoryList, config?.config?.categories || [], 'data-remove-category');
+      renderPillList(cityList, config?.config?.cities || [], 'data-remove-city');
+      setFeaturedPricingInputs(featuredPricing?.items || {});
+      if (featuredPricingStatus) {
+        const p7 = featuredPricing?.items?.['featured-7'] || {};
+        const p30 = featuredPricing?.items?.['featured-30'] || {};
+        featuredPricingStatus.textContent = `Live featured pricing loaded. 7D: ${formatPrice(p7.amount || 0)} (${p7.cycleDays || 7} days), 30D: ${formatPrice(p30.amount || 0)} (${p30.cycleDays || 30} days).`;
       }
 
       if (adminUserList) {
@@ -292,6 +441,13 @@ button:hover { background:#092f6d; }
           </div>
         `).join('') || '<p>No owner verification requests.</p>';
       }
+
+      renderAnalyticsDashboard({
+        listings: await fetchListings(),
+        reports: reports?.items || [],
+        users: users?.items || [],
+        commission: commission?.analytics || {},
+      });
     } catch (error) {
       if (adminAnalytics) adminAnalytics.textContent = `Admin controls load failed: ${error.message}`;
     }
@@ -459,6 +615,86 @@ button:hover { background:#092f6d; }
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'City add failed.');
+    }
+  });
+
+  categoryList?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const encodedName = target.getAttribute('data-remove-category');
+    if (!encodedName) return;
+    const category = decodeURIComponent(encodedName);
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/config/categories?name=${encodeURIComponent(category)}`, { method: 'DELETE', token });
+      pushNotification(
+        `Admin removed category: ${category}.`,
+        ['admin'],
+        'Category Removed',
+        'warn',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Category remove failed.');
+    }
+  });
+
+  cityList?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const encodedCity = target.getAttribute('data-remove-city');
+    if (!encodedCity) return;
+    const city = decodeURIComponent(encodedCity);
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+    try {
+      await live.request(`/admin/config/cities?city=${encodeURIComponent(city)}`, { method: 'DELETE', token });
+      pushNotification(
+        `Admin removed city route config: ${city}.`,
+        ['admin'],
+        'City Removed',
+        'warn',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'City remove failed.');
+    }
+  });
+
+  featuredPricingPanel?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const planId = target.getAttribute('data-pricing-save');
+    if (!planId) return;
+    const token = getAdminToken();
+    if (!token || !live.request) return window.alert('Admin login required.');
+
+    const amountInput = planId === 'featured-7' ? featured7AmountInput : featured30AmountInput;
+    const daysInput = planId === 'featured-7' ? featured7DaysInput : featured30DaysInput;
+    const amount = numberFrom(amountInput?.value, NaN);
+    const cycleDays = numberFrom(daysInput?.value, NaN);
+    if (!Number.isFinite(amount) || amount < 0) return window.alert('Valid amount required.');
+    if (!Number.isFinite(cycleDays) || cycleDays < 1) return window.alert('Valid cycle days required.');
+
+    try {
+      await live.request('/admin/config/featured-pricing', {
+        method: 'POST',
+        token,
+        data: { planId, amount, cycleDays },
+      });
+      if (featuredPricingStatus) {
+        featuredPricingStatus.textContent = `Pricing updated for ${planId}. Amount: ${formatPrice(amount)} | Days: ${cycleDays}.`;
+      }
+      pushNotification(
+        `Admin updated featured pricing ${planId}: ${formatPrice(amount)} for ${cycleDays} day(s).`,
+        ['admin', 'seller'],
+        'Featured Pricing Updated',
+        'info',
+      );
+      loadAdminControls();
+    } catch (error) {
+      window.alert(error.message || 'Featured pricing update failed.');
     }
   });
 

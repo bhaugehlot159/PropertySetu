@@ -85,6 +85,52 @@ const plans = [
   { id: "agent-pro", name: "Trusted Agent Membership", amount: 1999, cycleDays: 30, type: "agent" },
 ];
 
+const featuredPlanDefaults = {
+  "featured-7": { label: "Featured Listing - 7 Days", amount: 299, cycleDays: 7 },
+  "featured-30": { label: "Featured Listing - 30 Days", amount: 999, cycleDays: 30 },
+};
+
+const normalizeFeaturedPricingConfig = (incoming = {}) => {
+  const output = {};
+  Object.entries(featuredPlanDefaults).forEach(([planId, defaultsForPlan]) => {
+    const raw = incoming && typeof incoming === "object" ? incoming[planId] : null;
+    const amount = Number(raw?.amount);
+    const cycleDays = Number(raw?.cycleDays);
+    const label = String(raw?.label || defaultsForPlan.label || "").trim();
+    output[planId] = {
+      label,
+      amount: Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : defaultsForPlan.amount,
+      cycleDays: Number.isFinite(cycleDays) ? Math.max(1, Math.round(cycleDays)) : defaultsForPlan.cycleDays,
+    };
+  });
+  return output;
+};
+
+const applyFeaturedPricingToPlans = (config = {}) => {
+  const normalized = normalizeFeaturedPricingConfig(config);
+  plans.forEach((plan) => {
+    if (plan.type !== "featured") return;
+    const matched = normalized[plan.id];
+    if (!matched) return;
+    plan.amount = matched.amount;
+    plan.cycleDays = matched.cycleDays;
+    const label = String(matched.label || "").trim();
+    if (label) plan.name = label;
+  });
+};
+
+const featuredPricingSnapshotFromPlans = () =>
+  plans
+    .filter((plan) => plan.type === "featured")
+    .reduce((acc, plan) => {
+      acc[plan.id] = {
+        label: String(plan.name || "").trim(),
+        amount: Number.isFinite(Number(plan.amount)) ? Number(plan.amount) : 0,
+        cycleDays: Math.max(1, Number.isFinite(Number(plan.cycleDays)) ? Number(plan.cycleDays) : 7),
+      };
+      return acc;
+    }, {});
+
 const legalTemplates = [
   { id: "sale-agreement", name: "Sale Agreement Draft", fee: 999 },
   { id: "rent-agreement", name: "Rent Agreement Template", fee: 499 },
@@ -121,6 +167,7 @@ const defaults = () => ({
   adminConfig: {
     categories: ["House", "Flat", "Villa", "Plot", "Agriculture Land", "Commercial", "Warehouse", "Farm House", "PG / Hostel"],
     cities: ["Udaipur", "Jaipur", "Jodhpur", "Ahmedabad", "Delhi", "Mumbai"],
+    featuredPricing: normalizeFeaturedPricingConfig(),
   },
   trustedAgents: [
     { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
@@ -452,12 +499,15 @@ const load = async () => {
         ...(raw.adminConfig || {}),
         categories: safeArr(raw?.adminConfig?.categories).length ? safeArr(raw.adminConfig.categories) : fresh.adminConfig.categories,
         cities: safeArr(raw?.adminConfig?.cities).length ? safeArr(raw.adminConfig.cities) : fresh.adminConfig.cities,
+        featuredPricing: normalizeFeaturedPricingConfig(raw?.adminConfig?.featuredPricing || fresh.adminConfig.featuredPricing),
       },
       trustedAgents: safeArr(raw.trustedAgents).length ? safeArr(raw.trustedAgents) : fresh.trustedAgents,
       counters: { ...fresh.counters, ...(raw.counters || {}) },
     };
+    applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
   } catch {
     db = defaults();
+    applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
     await save();
   }
 };
@@ -1013,6 +1063,28 @@ app.post("/api/admin/config/categories", auth, admin, async (req, res) => {
   await save();
   res.json({ ok: true, items: db.adminConfig.categories });
 });
+app.delete("/api/admin/config/categories", auth, admin, async (req, res) => {
+  const name = txt(req.body?.name || req.query?.name);
+  if (!name) return res.status(400).json({ ok: false, message: "Category name required." });
+  const before = db.adminConfig.categories.length;
+  db.adminConfig.categories = db.adminConfig.categories.filter((item) => txt(item).toLowerCase() !== name.toLowerCase());
+  if (before === db.adminConfig.categories.length) {
+    return res.status(404).json({ ok: false, message: "Category not found." });
+  }
+  await save();
+  res.json({ ok: true, items: db.adminConfig.categories });
+});
+app.delete("/api/admin/config/categories/:name", auth, admin, async (req, res) => {
+  const name = txt(req.params.name);
+  if (!name) return res.status(400).json({ ok: false, message: "Category name required." });
+  const before = db.adminConfig.categories.length;
+  db.adminConfig.categories = db.adminConfig.categories.filter((item) => txt(item).toLowerCase() !== name.toLowerCase());
+  if (before === db.adminConfig.categories.length) {
+    return res.status(404).json({ ok: false, message: "Category not found." });
+  }
+  await save();
+  res.json({ ok: true, items: db.adminConfig.categories });
+});
 
 app.get("/api/admin/config/cities", auth, admin, (_req, res) => res.json({ ok: true, items: db.adminConfig.cities }));
 app.post("/api/admin/config/cities", auth, admin, async (req, res) => {
@@ -1021,6 +1093,76 @@ app.post("/api/admin/config/cities", auth, admin, async (req, res) => {
   if (!db.adminConfig.cities.some((x) => x.toLowerCase() === city.toLowerCase())) db.adminConfig.cities.push(city);
   await save();
   res.json({ ok: true, items: db.adminConfig.cities });
+});
+app.delete("/api/admin/config/cities", auth, admin, async (req, res) => {
+  const city = txt(req.body?.city || req.query?.city);
+  if (!city) return res.status(400).json({ ok: false, message: "City name required." });
+  if (city.toLowerCase() === "udaipur") {
+    return res.status(400).json({ ok: false, message: "Udaipur live city cannot be removed." });
+  }
+  const before = db.adminConfig.cities.length;
+  db.adminConfig.cities = db.adminConfig.cities.filter((item) => txt(item).toLowerCase() !== city.toLowerCase());
+  if (before === db.adminConfig.cities.length) {
+    return res.status(404).json({ ok: false, message: "City not found." });
+  }
+  await save();
+  res.json({ ok: true, items: db.adminConfig.cities });
+});
+app.delete("/api/admin/config/cities/:city", auth, admin, async (req, res) => {
+  const city = txt(req.params.city);
+  if (!city) return res.status(400).json({ ok: false, message: "City name required." });
+  if (city.toLowerCase() === "udaipur") {
+    return res.status(400).json({ ok: false, message: "Udaipur live city cannot be removed." });
+  }
+  const before = db.adminConfig.cities.length;
+  db.adminConfig.cities = db.adminConfig.cities.filter((item) => txt(item).toLowerCase() !== city.toLowerCase());
+  if (before === db.adminConfig.cities.length) {
+    return res.status(404).json({ ok: false, message: "City not found." });
+  }
+  await save();
+  res.json({ ok: true, items: db.adminConfig.cities });
+});
+
+app.get("/api/admin/config/featured-pricing", auth, admin, (_req, res) => {
+  applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
+  res.json({
+    ok: true,
+    items: featuredPricingSnapshotFromPlans(),
+    plans: plans.filter((item) => item.type === "featured"),
+  });
+});
+
+app.post("/api/admin/config/featured-pricing", auth, admin, async (req, res) => {
+  const planId = txt(req.body?.planId).toLowerCase();
+  if (!featuredPlanDefaults[planId]) {
+    return res.status(400).json({ ok: false, message: "Valid featured plan required (featured-7 or featured-30)." });
+  }
+
+  const rawAmount = Number(req.body?.amount);
+  const rawCycleDays = Number(req.body?.cycleDays);
+  if (!Number.isFinite(rawAmount) || rawAmount < 0) {
+    return res.status(400).json({ ok: false, message: "Valid amount is required." });
+  }
+  if (!Number.isFinite(rawCycleDays) || rawCycleDays < 1) {
+    return res.status(400).json({ ok: false, message: "Valid cycleDays is required." });
+  }
+
+  const current = normalizeFeaturedPricingConfig(db?.adminConfig?.featuredPricing || {});
+  const label = txt(req.body?.label || current?.[planId]?.label || featuredPlanDefaults[planId]?.label);
+  current[planId] = {
+    label: label || featuredPlanDefaults[planId].label,
+    amount: Math.max(0, Math.round(rawAmount)),
+    cycleDays: Math.max(1, Math.round(rawCycleDays)),
+  };
+
+  db.adminConfig.featuredPricing = normalizeFeaturedPricingConfig(current);
+  applyFeaturedPricingToPlans(db.adminConfig.featuredPricing);
+  await save();
+  res.json({
+    ok: true,
+    items: featuredPricingSnapshotFromPlans(),
+    plans: plans.filter((item) => item.type === "featured"),
+  });
 });
 
 app.get("/api/admin/owner-verification", auth, admin, (req, res) => {
@@ -1201,7 +1343,10 @@ app.get("/api/chat/:propertyId", auth, (req, res) => {
   res.json({ ok: true, total: items.length, items });
 });
 
-app.get("/api/subscriptions/plans", (_req, res) => res.json({ ok: true, items: plans }));
+app.get("/api/subscriptions/plans", (_req, res) => {
+  applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
+  res.json({ ok: true, items: plans });
+});
 app.post("/api/subscriptions/activate", auth, async (req, res) => {
   const planId = txt(req.body?.planId);
   const pl = plans.find((p) => p.id === planId);
@@ -1568,7 +1713,18 @@ app.post("/api/notifications/:id/read", auth, async (req, res) => {
   res.json({ ok: true, message: "Marked as read." });
 });
 
-app.get("/api/bootstrap", (_req, res) => res.json({ ok: true, plans, legalTemplates, localities: fallbackLocalities, categories: db.adminConfig.categories, cities: db.adminConfig.cities }));
+app.get("/api/bootstrap", (_req, res) => {
+  applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
+  res.json({
+    ok: true,
+    plans,
+    legalTemplates,
+    localities: fallbackLocalities,
+    categories: db.adminConfig.categories,
+    cities: db.adminConfig.cities,
+    featuredPricing: featuredPricingSnapshotFromPlans(),
+  });
+});
 app.get("/api/export", auth, admin, (_req, res) => res.json({ ok: true, exportedAt: now(), data: db }));
 
 liveRouteMap.forEach((routeItem) => {
