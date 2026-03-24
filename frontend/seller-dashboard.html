@@ -15,6 +15,19 @@ button { background:#0b3d91; color:white; padding:10px 20px; border:none; border
 button:hover { background:#092f6d; }
 .property-card { border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:6px; background:#fdfdfd; }
 .featured-badge { background:gold; color:black; padding:2px 6px; font-weight:bold; border-radius:4px; font-size:12px; }
+.grid-two { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.alert-chip { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+.alert-urgent { background:#ffe9e9; color:#9b1c1c; }
+.alert-soft { background:#eef6ff; color:#1d4f87; }
+.tiny { font-size:12px; color:#4b5f76; }
+.boost-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+.boost-row select { max-width:260px; margin:0; }
+.analytics-table { width:100%; border-collapse:collapse; margin-top:10px; }
+.analytics-table th, .analytics-table td { border:1px solid #d4dbe6; padding:7px; font-size:13px; text-align:left; }
+.analytics-table th { background:#f1f5fb; }
+@media (max-width: 800px) {
+  .grid-two { grid-template-columns:1fr; }
+}
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
@@ -59,11 +72,12 @@ button:hover { background:#092f6d; }
     <label>Description</label>
     <textarea id="description" rows="4" placeholder="Property Description"></textarea>
 
-    <label>Upload Photos (Min 5)</label>
-    <input type="file" id="photos" multiple accept="image/*">
+	    <label>Upload Photos (Min 5)</label>
+	    <input type="file" id="photos" multiple accept="image/*">
 
-    <label>Upload Video (Optional)</label>
-    <input type="file" id="video" accept="video/*">
+	    <label>Upload Video (Optional)</label>
+	    <input type="file" id="video" accept="video/*">
+	    <p id="mediaUploadMeta" class="tiny">No media selected yet.</p>
 
     <label>Featured Listing?</label>
     <select id="featured">
@@ -77,7 +91,9 @@ button:hover { background:#092f6d; }
 
 <div class="container">
 <h2>Your Properties</h2>
-<div id="sellerStats" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px;"></div>
+<div id="sellerStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px;"></div>
+<div id="expiryAlertsPanel" class="property-card"></div>
+<div id="analyticsPanel" class="property-card"></div>
 <div id="propertyList">
     <!-- Existing properties will show here -->
 </div>
@@ -90,7 +106,18 @@ button:hover { background:#092f6d; }
   const form = document.getElementById('addPropertyForm');
   const propertyList = document.getElementById('propertyList');
   const sellerStats = document.getElementById('sellerStats');
+  const expiryAlertsPanel = document.getElementById('expiryAlertsPanel');
+  const analyticsPanel = document.getElementById('analyticsPanel');
+  const photosInput = document.getElementById('photos');
+  const videoInput = document.getElementById('video');
+  const mediaUploadMeta = document.getElementById('mediaUploadMeta');
   const LISTINGS_KEY = 'propertySetu:listings';
+  const MARKET_STATE_KEY = 'propertysetu-marketplace-state';
+  const USER_VISIT_KEY = 'propertySetu:userVisits';
+  const VIDEO_VISIT_KEY = 'propertySetu:videoVisits';
+  const SELLER_ENGAGEMENT_KEY = 'propertySetu:sellerEngagement';
+  const SELLER_EXPIRY_TRACK_KEY = 'propertySetu:sellerExpiryAlertTrack';
+  const CHAT_PREFIX = 'propertySetu:userChat:';
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -102,6 +129,96 @@ button:hover { background:#092f6d; }
   });
   const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
   const normalizePurpose = live.normalizePurpose || ((value) => String(value || '').trim() || 'Buy');
+  const numberFrom = live.numberFrom || ((value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  });
+
+  const pushNotification = (title, message, type = 'info') => {
+    if (!title || !message) return;
+    if (window.PropertySetuNotify && typeof window.PropertySetuNotify.emit === 'function') {
+      window.PropertySetuNotify.emit({ title, message, audience: ['seller', 'admin'], type });
+      return;
+    }
+    const existing = readJson('propertySetu:notifications', []);
+    const list = Array.isArray(existing) ? existing : [];
+    list.unshift({
+      id: `seller-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      type,
+      audience: ['seller', 'admin'],
+      createdAt: new Date().toISOString(),
+      readBy: {},
+    });
+    while (list.length > 500) list.pop();
+    writeJson('propertySetu:notifications', list);
+    try {
+      localStorage.setItem('propertySetu:notifications:ping', String(Date.now()));
+    } catch {
+      // no-op
+    }
+  };
+
+  const getEngagementStore = () => {
+    const current = readJson(SELLER_ENGAGEMENT_KEY, {});
+    return current && typeof current === 'object' ? current : {};
+  };
+
+  const readChatInquiryMap = () => {
+    const map = {};
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith(CHAT_PREFIX)) continue;
+        const listingId = key.slice(CHAT_PREFIX.length);
+        const items = readJson(key, []);
+        map[listingId] = Array.isArray(items) ? items.length : 0;
+      }
+    } catch {
+      // ignore local storage scan error
+    }
+    return map;
+  };
+
+  const readVisitInquiryMap = () => {
+    const map = {};
+    const userVisits = readJson(USER_VISIT_KEY, []);
+    const videoVisits = readJson(VIDEO_VISIT_KEY, []);
+    const marketVisits = readJson(MARKET_STATE_KEY, { visits: [] }).visits || [];
+
+    const bump = (listingId, qty = 1) => {
+      const id = String(listingId || '').trim();
+      if (!id) return;
+      map[id] = numberFrom(map[id], 0) + qty;
+    };
+
+    (Array.isArray(userVisits) ? userVisits : []).forEach((item) => bump(item.propertyId));
+    (Array.isArray(videoVisits) ? videoVisits : []).forEach((item) => bump(item.listingId || item.propertyId));
+    (Array.isArray(marketVisits) ? marketVisits : []).forEach((item) => bump(item.listingId || item.propertyId));
+    return map;
+  };
+
+  const readSaveMap = () => {
+    const state = readJson(MARKET_STATE_KEY, { wishlist: [] });
+    const map = {};
+    (Array.isArray(state?.wishlist) ? state.wishlist : []).forEach((listingId) => {
+      const id = String(listingId || '').trim();
+      if (!id) return;
+      map[id] = numberFrom(map[id], 0) + 1;
+    });
+    return map;
+  };
+
+  const describeMediaSelection = () => {
+    if (!mediaUploadMeta) return;
+    const photosCount = photosInput?.files?.length || 0;
+    const videoFile = videoInput?.files?.[0] || null;
+    const videoText = videoFile
+      ? `Video: ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(1)} MB)`
+      : 'Video: not selected';
+    mediaUploadMeta.textContent = `${photosCount} photo(s) selected. ${videoText}`;
+  };
 
   const upsertLocal = (record) => {
     const all = readJson(LISTINGS_KEY, []);
@@ -117,28 +234,144 @@ button:hover { background:#092f6d; }
       .filter((item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur'))
       .filter((item) => !sessionId || item.ownerId === sessionId)
       .sort((a, b) => new Date(b.createdAt || b.listedAt || 0) - new Date(a.createdAt || a.listedAt || 0));
+    const engagementStore = getEngagementStore();
+    const saveMap = readSaveMap();
+    const chatMap = readChatInquiryMap();
+    const visitMap = readVisitInquiryMap();
 
     propertyList.innerHTML = '';
     if (!items.length) {
       propertyList.innerHTML = '<p>No properties yet.</p>';
       if (sellerStats) sellerStats.innerHTML = '';
+      if (expiryAlertsPanel) expiryAlertsPanel.innerHTML = '<h3>Auto Expiry Alerts</h3><p class="tiny">No listing available yet.</p>';
+      if (analyticsPanel) analyticsPanel.innerHTML = '<h3>Property Analytics</h3><p class="tiny">Data will appear once listings are added.</p>';
       return;
     }
 
+    const metricsById = {};
+    const metricsRows = items.map((property) => {
+      const id = String(property.id || '').trim();
+      const engagement = engagementStore[id] && typeof engagementStore[id] === 'object' ? engagementStore[id] : {};
+      const views = numberFrom(property?.analytics?.views, 0) + numberFrom(property?.viewCount, 0) + numberFrom(engagement.views, 0);
+      const saves = numberFrom(saveMap[id], 0) + numberFrom(engagement.saves, 0);
+      const inquiries = numberFrom(engagement.inquiries, 0) + numberFrom(chatMap[id], 0) + numberFrom(visitMap[id], 0);
+      const score = Math.round((views * 0.2) + (saves * 1.5) + (inquiries * 2.5) + (property.featured ? 10 : 0));
+      const conversion = views > 0 ? Math.round((inquiries / views) * 100) : 0;
+      const row = { id, views, saves, inquiries, score, conversion };
+      metricsById[id] = row;
+      return row;
+    });
+
+    const totalViews = metricsRows.reduce((sum, row) => sum + row.views, 0);
+    const totalSaves = metricsRows.reduce((sum, row) => sum + row.saves, 0);
+    const totalInquiries = metricsRows.reduce((sum, row) => sum + row.inquiries, 0);
+    const avgScore = metricsRows.length
+      ? Math.round(metricsRows.reduce((sum, row) => sum + row.score, 0) / metricsRows.length)
+      : 0;
+
     const approved = items.filter((x) => String(x.status || '').toLowerCase() === 'approved').length;
     const featured = items.filter((x) => x.featured).length;
-    const expiring = items.filter((x) => {
-      const ts = Date.parse(x.featuredUntil || x.listingExpiresAt || '');
-      if (!Number.isFinite(ts)) return false;
-      const diffDays = Math.ceil((ts - Date.now()) / 86400000);
-      return diffDays >= 0 && diffDays <= 7;
-    }).length;
+    const expiryRows = items
+      .map((item) => {
+        const ts = Date.parse(item.featuredUntil || item.listingExpiresAt || '');
+        if (!Number.isFinite(ts)) return null;
+        const diffDays = Math.ceil((ts - Date.now()) / 86400000);
+        return {
+          id: item.id,
+          title: item.title || item.id,
+          status: diffDays < 0 ? 'expired' : diffDays <= 3 ? 'urgent' : 'soon',
+          diffDays,
+          endDate: new Date(ts).toLocaleDateString(),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.diffDays - b.diffDays);
+    const expiring = expiryRows.filter((row) => row.diffDays >= 0 && row.diffDays <= 7).length;
+
     if (sellerStats) {
       sellerStats.innerHTML = `
         <div class="property-card"><b>Total Listings</b><br>${items.length}</div>
+        <div class="property-card"><b>Total Views</b><br>${totalViews}</div>
+        <div class="property-card"><b>Total Saves</b><br>${totalSaves}</div>
+        <div class="property-card"><b>Total Inquiries</b><br>${totalInquiries}</div>
         <div class="property-card"><b>Approved</b><br>${approved}</div>
         <div class="property-card"><b>Featured</b><br>${featured}</div>
         <div class="property-card"><b>Expiry Alerts (<=7d)</b><br>${expiring}</div>
+        <div class="property-card"><b>Avg Analytics Score</b><br>${avgScore}</div>
+      `;
+    }
+
+    if (expiryAlertsPanel) {
+      if (!expiryRows.length) {
+        expiryAlertsPanel.innerHTML = '<h3>Auto Expiry Alerts</h3><p class="tiny">No active expiry date found on your listings yet.</p>';
+      } else {
+        expiryAlertsPanel.innerHTML = `
+          <h3>Auto Expiry Alerts</h3>
+          <div class="grid-two">
+            ${expiryRows.slice(0, 8).map((row) => {
+              const label = row.diffDays < 0
+                ? `Expired ${Math.abs(row.diffDays)} day(s) ago`
+                : `Expires in ${row.diffDays} day(s)`;
+              const klass = row.status === 'urgent' || row.status === 'expired' ? 'alert-urgent' : 'alert-soft';
+              return `
+                <div class="property-card">
+                  <b>${row.title}</b><br>
+                  <span class="alert-chip ${klass}">${label}</span>
+                  <p class="tiny">End date: ${row.endDate}</p>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }
+    }
+
+    const expiryTrack = readJson(SELLER_EXPIRY_TRACK_KEY, {});
+    const today = new Date().toISOString().slice(0, 10);
+    let shouldSaveTrack = false;
+    expiryRows
+      .filter((row) => row.diffDays >= 0 && row.diffDays <= 3)
+      .forEach((row) => {
+        const marker = `${today}:${row.diffDays}`;
+        if (expiryTrack[row.id] === marker) return;
+        pushNotification('Listing Expiry Alert', `${row.title} expires in ${row.diffDays} day(s). Renew or boost now.`, 'warn');
+        expiryTrack[row.id] = marker;
+        shouldSaveTrack = true;
+      });
+    if (shouldSaveTrack) writeJson(SELLER_EXPIRY_TRACK_KEY, expiryTrack);
+
+    if (analyticsPanel) {
+      const ranked = [...items]
+        .map((item) => ({ item, metric: metricsById[String(item.id || '')] || { views: 0, saves: 0, inquiries: 0, score: 0, conversion: 0 } }))
+        .sort((a, b) => b.metric.score - a.metric.score)
+        .slice(0, 8);
+      analyticsPanel.innerHTML = `
+        <h3>Property Analytics</h3>
+        <p class="tiny">Live engagement summary based on views, saves, chat/visit inquiries and featured boost performance.</p>
+        <table class="analytics-table">
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Views</th>
+              <th>Saves</th>
+              <th>Inquiries</th>
+              <th>Conversion</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${ranked.map((row) => `
+              <tr>
+                <td>${row.item.title || row.item.id}</td>
+                <td>${row.metric.views}</td>
+                <td>${row.metric.saves}</td>
+                <td>${row.metric.inquiries}</td>
+                <td>${row.metric.conversion}%</td>
+                <td>${row.metric.score}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       `;
     }
 
@@ -147,6 +380,7 @@ button:hover { background:#092f6d; }
       const featuredText = Number.isFinite(featuredTs)
         ? ` | Featured till: ${new Date(featuredTs).toLocaleDateString()}`
         : '';
+      const metrics = metricsById[String(property.id || '')] || { views: 0, saves: 0, inquiries: 0, conversion: 0, score: 0 };
       const card = document.createElement('div');
       card.className = 'property-card';
       card.innerHTML = `
@@ -156,7 +390,14 @@ button:hover { background:#092f6d; }
         <p><b>Location:</b> ${property.location || property.locality || '-'}</p>
         <p><b>Price:</b> ₹${Number(property.price || 0).toLocaleString('en-IN')}</p>
         <p><b>Status:</b> ${property.status || 'Pending Approval'}${featuredText}</p>
-        <button type="button" data-action="boost" data-id="${property.id}">Boost Listing (Featured 7d)</button>
+        <p><b>Analytics:</b> Views ${metrics.views} | Saves ${metrics.saves} | Inquiries ${metrics.inquiries} | Conversion ${metrics.conversion}%</p>
+        <div class="boost-row">
+          <select data-plan-for="${property.id}">
+            <option value="featured-7">Featured 7 Days - ₹299</option>
+            <option value="featured-30">Featured 30 Days - ₹999</option>
+          </select>
+          <button type="button" data-action="boost" data-id="${property.id}">Boost Listing (Paid Featured)</button>
+        </div>
       `;
       propertyList.appendChild(card);
     });
@@ -192,8 +433,30 @@ button:hover { background:#092f6d; }
     const price = Number(document.getElementById('price').value || 0);
     const description = document.getElementById('description').value;
     const featured = document.getElementById('featured').value === 'yes';
-    const photosCount = document.getElementById('photos').files.length;
-    const videoUploaded = document.getElementById('video').files.length > 0;
+    const photoFiles = Array.from(photosInput?.files || []);
+    const photosCount = photoFiles.length;
+    const videoFile = videoInput?.files?.[0] || null;
+    const videoUploaded = Boolean(videoFile);
+    if (photosCount < 5) {
+      window.alert('Minimum 5 photos required for professional listing upload.');
+      return;
+    }
+    if (photosCount > 25) {
+      window.alert('Maximum 25 photos allowed in one listing.');
+      return;
+    }
+    if (videoFile && !String(videoFile.type || '').startsWith('video/')) {
+      window.alert('Invalid video format. Please upload a valid video file.');
+      return;
+    }
+    if (videoFile && numberFrom(videoFile.size, 0) > 150 * 1024 * 1024) {
+      window.alert('Video size should be 150MB or less.');
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const featuredUntil = featured ? new Date(Date.now() + (7 * 86400000)).toISOString() : null;
+    const listingExpiresAt = new Date(Date.now() + (30 * 86400000)).toISOString();
+    const uploadedNames = photoFiles.map((file) => file.name).slice(0, 25);
 
     const localPayload = {
       id: `seller-${Date.now()}`,
@@ -204,10 +467,18 @@ button:hover { background:#092f6d; }
       price,
       description,
       featured,
+      featuredUntil,
+      listingExpiresAt,
       city: 'Udaipur',
       status: 'Pending Approval',
-      createdAt: new Date().toISOString(),
-      media: { photosCount, videoUploaded },
+      createdAt: nowIso,
+      analytics: { views: 0, saves: 0, inquiries: 0 },
+      media: {
+        photosCount,
+        videoUploaded,
+        uploads: uploadedNames.map((name, index) => ({ id: `local-photo-${Date.now()}-${index}`, name, category: 'photo' })),
+        videoName: videoFile?.name || '',
+      },
       aiReview: { fraudRiskScore: photosCount >= 5 ? 20 : 65 },
       ownerId: getSessionId() || null,
     };
@@ -226,7 +497,15 @@ button:hover { background:#092f6d; }
             price,
             description,
             city: 'Udaipur',
-            media: { photosCount, videoUploaded },
+            featured,
+            featuredUntil,
+            media: {
+              photosCount,
+              videoUploaded,
+              uploads: uploadedNames.map((name, index) => ({ id: `local-photo-${Date.now()}-${index}`, name, category: 'photo' })),
+              videoName: videoFile?.name || '',
+            },
+            analytics: { views: 0, saves: 0, inquiries: 0 },
             aiReview: { fraudRiskScore: photosCount >= 5 ? 20 : 65 },
           },
         });
@@ -235,6 +514,7 @@ button:hover { background:#092f6d; }
           : { ...localPayload, ...(response?.property || {}) };
         if (normalized) upsertLocal(normalized);
         form.reset();
+        describeMediaSelection();
         render();
         window.alert('Property live API me submit ho gayi.');
         return;
@@ -248,9 +528,14 @@ button:hover { background:#092f6d; }
 
     upsertLocal(localPayload);
     form.reset();
+    describeMediaSelection();
     render();
     window.alert('Live unavailable. Property local mode me save ho gayi.');
   });
+
+  photosInput?.addEventListener('change', describeMediaSelection);
+  videoInput?.addEventListener('change', describeMediaSelection);
+  describeMediaSelection();
 
   syncMineFromApi().finally(render);
 
@@ -260,6 +545,10 @@ button:hover { background:#092f6d; }
     const action = target.getAttribute('data-action');
     const id = target.getAttribute('data-id');
     if (action !== 'boost' || !id) return;
+    const planSelect = propertyList.querySelector(`select[data-plan-for="${id}"]`);
+    const planId = String(planSelect?.value || 'featured-7');
+    const cycleDays = planId === 'featured-30' ? 30 : 7;
+    const amount = planId === 'featured-30' ? 999 : 299;
 
     const token = live.getAnyToken ? live.getAnyToken() : '';
     if (!token || !live.request) return window.alert('Boost ke liye login required.');
@@ -268,12 +557,30 @@ button:hover { background:#092f6d; }
       await live.request('/subscriptions/activate', {
         method: 'POST',
         token,
-        data: { planId: 'featured-7', propertyId: id },
+        data: { planId, propertyId: id },
       });
       await syncMineFromApi();
       render();
-      window.alert('Listing boosted for 7 days.');
+      pushNotification('Listing Boosted', `Paid featured boost activated (${cycleDays} days) for listing ${id}.`, 'success');
+      window.alert(`Listing boosted for ${cycleDays} days. Amount: ₹${amount}.`);
     } catch (error) {
+      if (live.shouldFallbackToLocal && live.shouldFallbackToLocal(error)) {
+        const all = readJson(LISTINGS_KEY, []);
+        const next = all.map((item) => {
+          if (item.id !== id) return item;
+          return {
+            ...item,
+            featured: true,
+            featuredUntil: new Date(Date.now() + cycleDays * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+        writeJson(LISTINGS_KEY, next);
+        pushNotification('Boost Queued', `Live payment unavailable. Local featured boost queued (${cycleDays} days) for ${id}.`, 'warn');
+        render();
+        window.alert(`Live payment unavailable. Local featured boost applied for ${cycleDays} days.`);
+        return;
+      }
       window.alert(error.message || 'Boost failed.');
     }
   });

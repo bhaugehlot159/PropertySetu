@@ -10,6 +10,7 @@
   const RECENTLY_VIEWED_KEY = 'propertySetu:recentlyViewed';
   const FILTER_STATE_KEY = 'propertySetu:marketFilters';
   const VIDEO_VISIT_KEY = 'propertySetu:videoVisits';
+  const SELLER_ENGAGEMENT_KEY = 'propertySetu:sellerEngagement';
 
   const statActiveListings = document.getElementById('statActiveListings');
   const statVerifiedListings = document.getElementById('statVerifiedListings');
@@ -390,6 +391,41 @@
   let aiRefreshTimer = null;
   let aiLastKey = '';
 
+  const readSellerEngagement = () => {
+    const store = readJson(SELLER_ENGAGEMENT_KEY, {});
+    return store && typeof store === 'object' ? store : {};
+  };
+
+  const writeSellerEngagement = (store) => {
+    writeJson(SELLER_ENGAGEMENT_KEY, store);
+  };
+
+  const trackSellerEngagement = (listingId, eventType, source = 'marketplace') => {
+    const id = String(listingId || '').trim();
+    if (!id) return;
+    const store = readSellerEngagement();
+    const row = store[id] && typeof store[id] === 'object'
+      ? { ...store[id] }
+      : { views: 0, saves: 0, inquiries: 0, history: [] };
+
+    if (eventType === 'view') row.views = numberFrom(row.views, 0) + 1;
+    if (eventType === 'inquiry') row.inquiries = numberFrom(row.inquiries, 0) + 1;
+    if (eventType === 'save') row.saves = numberFrom(row.saves, 0) + 1;
+    if (eventType === 'unsave') row.saves = Math.max(0, numberFrom(row.saves, 0) - 1);
+
+    const history = Array.isArray(row.history) ? row.history : [];
+    history.unshift({
+      at: new Date().toISOString(),
+      eventType,
+      source,
+    });
+    row.history = history.slice(0, 80);
+    row.updatedAt = new Date().toISOString();
+
+    store[id] = row;
+    writeSellerEngagement(store);
+  };
+
   const getFilters = () => ({
     query: String(marketQuery?.value || '').trim(),
     locality: String(marketLocality?.value || '').trim(),
@@ -497,6 +533,7 @@
     if (index >= 0) state.wishlist.splice(index, 1);
     else state.wishlist.push(listingId);
     writeJson(MARKET_STATE_KEY, state);
+    trackSellerEngagement(listingId, index >= 0 ? 'unsave' : 'save', 'wishlist');
     const listing = listings.find((item) => item.id === listingId);
     pushNotification(
       `${listing?.title || 'Listing'} ${index >= 0 ? 'removed from' : 'added to'} wishlist.`,
@@ -1172,12 +1209,14 @@
 
     if (action === 'details') {
       pushRecent(listingId);
+      trackSellerEngagement(listingId, 'view', 'details');
       window.location.href = `property-details.html?id=${encodeURIComponent(listingId)}`;
       return;
     }
 
     if (action === 'chat') {
       pushRecent(listingId);
+      trackSellerEngagement(listingId, 'inquiry', 'chat');
       window.location.href = `user-dashboard.html?propertyId=${encodeURIComponent(listingId)}`;
       return;
     }
@@ -1186,6 +1225,7 @@
       const item = listings.find((entry) => entry.id === listingId);
       const phone = String(item?.ownerPhone || DEFAULT_WHATSAPP_NUMBER).replace(/\D+/g, '');
       const text = encodeURIComponent(`Hi PropertySetu, mujhe ${item?.title || 'is listing'} (${item?.locality || 'Udaipur'}) ke baare me details chahiye.`);
+      trackSellerEngagement(listingId, 'inquiry', 'whatsapp');
       window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
       return;
     }
@@ -1196,6 +1236,7 @@
         ? `${numberFrom(item?.lat, 0)},${numberFrom(item?.lng, 0)}`
         : `${item?.locality || 'Udaipur'}, Udaipur`;
       const query = encodeURIComponent(coords);
+      trackSellerEngagement(listingId, 'view', 'map');
       window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
       return;
     }
@@ -1239,6 +1280,7 @@
         window.alert('Virtual tour abhi available nahi hai. Seller 30 sec video pending hai.');
         return;
       }
+      trackSellerEngagement(listingId, 'inquiry', 'virtual-tour');
       const slot = item.virtualTourSlot ? new Date(item.virtualTourSlot).toLocaleString() : 'Slot will be shared after request';
       window.alert(`Virtual Tour Option: ${item.virtualTourOption || 'Recorded Video Tour'}\nPreferred Slot: ${slot}`);
       pushNotification(
@@ -1257,6 +1299,7 @@
         window.alert('Live video visit available nahi hai. Seller 30 sec video required hai.');
         return;
       }
+      trackSellerEngagement(listingId, 'inquiry', 'video-visit');
       const preferredAt = item.liveVideoVisitSlot || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       const liveDone = await bookLiveVideoVisit(listingId, preferredAt);
       const videoVisits = readJson(VIDEO_VISIT_KEY, []);
@@ -1284,6 +1327,7 @@
       const listing = listings.find((entry) => entry.id === listingId);
       const preferredAt = getPreferredVisitIso(listing?.title);
       if (!preferredAt) return;
+      trackSellerEngagement(listingId, 'inquiry', 'visit');
       state.visits.unshift({ listingId, preferredAt, at: new Date().toISOString() });
       state.visits = state.visits.slice(0, 30);
       writeJson(MARKET_STATE_KEY, state);
