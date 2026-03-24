@@ -23,7 +23,7 @@ This upgrade adds a modern React + Node/Express layer without editing legacy fil
 
 ```bash
 cd server
-node professional-server.js
+npm run pro:start
 ```
 
 Health:
