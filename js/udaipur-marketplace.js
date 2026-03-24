@@ -23,6 +23,7 @@
 
   const compareCount = document.getElementById('compareCount');
   const compareList = document.getElementById('compareList');
+  const compareTableWrap = document.getElementById('compareTableWrap');
   const clearCompareBtn = document.getElementById('clearCompareBtn');
   const savedSearchList = document.getElementById('savedSearchList');
   const recentList = document.getElementById('recentList');
@@ -48,6 +49,11 @@
   const marketMaxPrice = document.getElementById('marketMaxPrice');
   const marketSort = document.getElementById('marketSort');
   const marketVerifiedOnly = document.getElementById('marketVerifiedOnly');
+  const marketRadiusKm = document.getElementById('marketRadiusKm');
+  const marketBhk = document.getElementById('marketBhk');
+  const marketFurnishing = document.getElementById('marketFurnishing');
+  const marketConstruction = document.getElementById('marketConstruction');
+  const marketLoanAvailable = document.getElementById('marketLoanAvailable');
   const aiPricingSummary = document.getElementById('aiPricingSummary');
   const aiTrendCanvas = document.getElementById('aiTrendCanvas');
   const aiTrendMeta = document.getElementById('aiTrendMeta');
@@ -96,6 +102,20 @@
   });
 
   const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`;
+  const DEFAULT_WHATSAPP_NUMBER = '919876543210';
+  const UDAIPUR_CENTER = { lat: 24.5854, lng: 73.7125 };
+  const LOCALITY_COORDINATES = {
+    ambamata: { lat: 24.5795, lng: 73.6843 },
+    'pratap nagar': { lat: 24.6192, lng: 73.7484 },
+    '100 feet road udaipur': { lat: 24.6021, lng: 73.7341 },
+    'bedla road': { lat: 24.6351, lng: 73.6884 },
+    bhuwana: { lat: 24.6187, lng: 73.6895 },
+    sukher: { lat: 24.6569, lng: 73.7185 },
+    fatehpura: { lat: 24.6012, lng: 73.7045 },
+    'hiran magri sector 4': { lat: 24.5639, lng: 73.7299 },
+    'hiran magri': { lat: 24.5665, lng: 73.7281 },
+    'shobhagpura circle': { lat: 24.605, lng: 73.7219 },
+  };
   const PURPOSE_CATEGORY_MAP = {
     House: 'House',
     Flat: 'Flat',
@@ -113,6 +133,47 @@
     'Home Maintenance': 'Property Care',
     'Home Watch': 'Property Care',
   };
+  const normalizeText = (value) => String(value || '').trim().toLowerCase();
+  const normalizeFurnishing = (value) => {
+    const raw = normalizeText(value);
+    if (raw.includes('semi')) return 'Semi Furnished';
+    if (raw.includes('unfurnished') || raw.includes('without')) return 'Unfurnished';
+    if (raw.includes('furnished') || raw === 'full') return 'Furnished';
+    return '';
+  };
+  const normalizeConstructionStatus = (value) => {
+    const raw = normalizeText(value);
+    if (!raw) return '';
+    if (raw.includes('ready')) return 'Ready to Move';
+    if (raw.includes('under') || raw.includes('construction') || raw.includes('ongoing')) return 'Under Construction';
+    return '';
+  };
+  const normalizeLoanAvailability = (value) => {
+    if (typeof value === 'boolean') return value;
+    const raw = normalizeText(value);
+    if (!raw) return false;
+    return ['yes', 'true', 'available', 'loan available', '1'].includes(raw);
+  };
+  const getCoordsFromLocality = (locality) => {
+    const key = normalizeText(locality);
+    if (!key) return null;
+    if (LOCALITY_COORDINATES[key]) return LOCALITY_COORDINATES[key];
+    const entry = Object.entries(LOCALITY_COORDINATES).find(([name]) => key.includes(name) || name.includes(key));
+    return entry ? entry[1] : null;
+  };
+  const haversineKm = (a, b) => {
+    if (!a || !b) return Number.POSITIVE_INFINITY;
+    const toRad = (value) => (value * Math.PI) / 180;
+    const dLat = toRad(numberFrom(b.lat, 0) - numberFrom(a.lat, 0));
+    const dLng = toRad(numberFrom(b.lng, 0) - numberFrom(a.lng, 0));
+    const lat1 = toRad(numberFrom(a.lat, 0));
+    const lat2 = toRad(numberFrom(b.lat, 0));
+    const sinLat = Math.sin(dLat / 2);
+    const sinLng = Math.sin(dLng / 2);
+    const h = (sinLat * sinLat) + (Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng);
+    const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    return 6371 * c;
+  };
 
   const seededListings = [
     {
@@ -124,6 +185,11 @@
       price: 32000000,
       areaSqft: 4200,
       beds: 5,
+      furnishing: 'Furnished',
+      constructionStatus: 'Ready to Move',
+      loanAvailable: true,
+      lat: 24.5795,
+      lng: 73.6843,
       city: 'Udaipur',
       verified: true,
       premium: true,
@@ -140,6 +206,11 @@
       price: 19500,
       areaSqft: 1180,
       beds: 2,
+      furnishing: 'Semi Furnished',
+      constructionStatus: 'Ready to Move',
+      loanAvailable: true,
+      lat: 24.6192,
+      lng: 73.7484,
       city: 'Udaipur',
       verified: true,
       premium: false,
@@ -156,6 +227,11 @@
       price: 86000,
       areaSqft: 1850,
       beds: 0,
+      furnishing: 'Unfurnished',
+      constructionStatus: 'Ready to Move',
+      loanAvailable: true,
+      lat: 24.6021,
+      lng: 73.7341,
       city: 'Udaipur',
       verified: true,
       premium: true,
@@ -172,6 +248,11 @@
       price: 4800000,
       areaSqft: 2100,
       beds: 0,
+      furnishing: '',
+      constructionStatus: 'Under Construction',
+      loanAvailable: false,
+      lat: 24.6351,
+      lng: 73.6884,
       city: 'Udaipur',
       verified: false,
       premium: false,
@@ -203,16 +284,30 @@
     const duplicatePhotoDetected = Boolean(entry?.aiReview?.duplicatePhotoDetected || numberFrom(entry?.media?.duplicatePhotoMatches, 0) > 0);
     const suspiciousPricingAlert = Boolean(entry?.aiReview?.suspiciousPricingAlert);
     const fakeListingSignal = Boolean(entry?.aiReview?.fakeListingSignal || duplicatePhotoDetected || suspiciousPricingAlert);
+    const locality = entry.location || entry.locality || 'Udaipur';
+    const coords = {
+      lat: Number.isFinite(numberFrom(entry.latitude, Number.NaN)) ? numberFrom(entry.latitude, Number.NaN) : null,
+      lng: Number.isFinite(numberFrom(entry.longitude, Number.NaN)) ? numberFrom(entry.longitude, Number.NaN) : null,
+    };
+    const fallbackCoords = getCoordsFromLocality(locality);
+    const lat = Number.isFinite(coords.lat) ? coords.lat : (fallbackCoords?.lat ?? UDAIPUR_CENTER.lat);
+    const lng = Number.isFinite(coords.lng) ? coords.lng : (fallbackCoords?.lng ?? UDAIPUR_CENTER.lng);
     return {
       id: entry.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       title: entry.title || 'Untitled Listing',
-      locality: entry.location || entry.locality || 'Udaipur',
+      locality,
       category: entry.category || 'House',
       purpose: entry.purpose || normalizePurpose(entry.type),
       price: numberFrom(entry.price, 0),
       areaSqft: numberFrom(entry.builtUpArea || entry.plotSize || entry.carpetArea || entry.areaSqft, 0),
       beds: numberFrom(entry.bedrooms || entry.beds, 0),
+      furnishing: normalizeFurnishing(entry.furnished || entry.furnishing),
+      constructionStatus: normalizeConstructionStatus(entry.readyToMove || entry.constructionStatus || entry.statusTag || entry.possessionStatus),
+      loanAvailable: normalizeLoanAvailability(entry.loanAvailable || entry.homeLoanAvailable),
       city: 'Udaipur',
+      lat,
+      lng,
+      ownerPhone: String(entry.ownerPhone || entry.contactPhone || '').replace(/\D+/g, ''),
       verifiedByPropertySetu: trustModelEligible,
       verified: Boolean(entry.verified || entry.status === 'Approved' || trustModelEligible),
       premium: Boolean(entry.featured || photosCount >= 8),
@@ -244,7 +339,13 @@
       price: numberFrom(entry.price, 0),
       areaSqft: numberFrom(entry.areaSqft, 0),
       beds: numberFrom(entry.beds, 0),
+      furnishing: normalizeFurnishing(entry.furnished || entry.furnishing),
+      constructionStatus: normalizeConstructionStatus(entry.readyToMove || entry.constructionStatus || entry.possessionStatus),
+      loanAvailable: normalizeLoanAvailability(entry.loanAvailable || entry.homeLoanAvailable),
       city: 'Udaipur',
+      lat: getCoordsFromLocality(locality)?.lat ?? UDAIPUR_CENTER.lat,
+      lng: getCoordsFromLocality(locality)?.lng ?? UDAIPUR_CENTER.lng,
+      ownerPhone: String(entry.ownerPhone || entry.contactPhone || '').replace(/\D+/g, ''),
       verifiedByPropertySetu: Boolean(entry.verifiedByPropertySetu || isTrustModelEligible(entry)),
       verified: Boolean(entry.verified || entry.featured || entry.verifiedByPropertySetu || isTrustModelEligible(entry)),
       premium: Boolean(entry.featured),
@@ -298,6 +399,11 @@
     maxPrice: numberFrom(marketMaxPrice?.value, Number.MAX_SAFE_INTEGER),
     sort: marketSort?.value || 'relevance',
     verifiedOnly: String(marketVerifiedOnly?.value || '0') === '1',
+    radiusKm: numberFrom(marketRadiusKm?.value, 0),
+    bhk: marketBhk?.value || 'all',
+    furnishing: marketFurnishing?.value || 'all',
+    constructionStatus: marketConstruction?.value || 'all',
+    loanAvailable: marketLoanAvailable?.value || 'all',
   });
 
   const setFilters = (filters) => {
@@ -313,6 +419,11 @@
     }
     if (marketSort) marketSort.value = filters.sort || 'relevance';
     if (marketVerifiedOnly) marketVerifiedOnly.value = filters.verifiedOnly ? '1' : '0';
+    if (marketRadiusKm) marketRadiusKm.value = numberFrom(filters.radiusKm, 0) ? String(numberFrom(filters.radiusKm, 0)) : '0';
+    if (marketBhk) marketBhk.value = filters.bhk || 'all';
+    if (marketFurnishing) marketFurnishing.value = filters.furnishing || 'all';
+    if (marketConstruction) marketConstruction.value = filters.constructionStatus || 'all';
+    if (marketLoanAvailable) marketLoanAvailable.value = filters.loanAvailable || 'all';
   };
 
   const getLocalityMap = () => {
@@ -398,12 +509,48 @@
 
   const renderCompare = () => {
     if (compareCount) compareCount.textContent = `${state.compare.length}`;
-    if (!compareList) return;
-    const rows = state.compare
+    const compareItems = state.compare
       .map((id) => listings.find((item) => item.id === id))
-      .filter(Boolean)
-      .map((item) => `<li><strong>${item.title}</strong><br>${item.locality} • ${formatPrice(item.price)}</li>`);
-    compareList.innerHTML = rows.length ? rows.join('') : '<li>No compare selection yet.</li>';
+      .filter(Boolean);
+    if (compareList) {
+      const rows = compareItems.map((item) => `<li><strong>${item.title}</strong><br>${item.locality} • ${formatPrice(item.price)}</li>`);
+      compareList.innerHTML = rows.length ? rows.join('') : '<li>No compare selection yet.</li>';
+    }
+    if (!compareTableWrap) return;
+    if (!compareItems.length) {
+      compareTableWrap.innerHTML = '2-3 properties add karte hi detailed comparison table yahan show hoga.';
+      return;
+    }
+    const headers = compareItems.map((item) => `<th style="padding:8px;border:1px solid #d9e6f4;background:#f5faff;">${item.title}</th>`).join('');
+    const tableRow = (label, formatter) => `<tr>
+      <th style="padding:8px;border:1px solid #d9e6f4;background:#f7fbff;text-align:left;white-space:nowrap;">${label}</th>
+      ${compareItems.map((item) => `<td style="padding:8px;border:1px solid #d9e6f4;">${formatter(item)}</td>`).join('')}
+    </tr>`;
+    compareTableWrap.innerHTML = `
+      <div style="overflow:auto;margin:10px 0 12px;">
+        <table style="width:100%;min-width:720px;border-collapse:collapse;font-size:0.92rem;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #d9e6f4;background:#ecf5ff;text-align:left;">Feature</th>
+              ${headers}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRow('Price', (item) => formatPrice(item.price))}
+            ${tableRow('Locality', (item) => item.locality || 'Udaipur')}
+            ${tableRow('Category', (item) => item.category || 'N/A')}
+            ${tableRow('Purpose', (item) => item.purpose || 'N/A')}
+            ${tableRow('Area', (item) => (item.areaSqft ? `${item.areaSqft} sq.ft.` : 'N/A'))}
+            ${tableRow('BHK', (item) => (item.beds ? `${item.beds} BHK` : 'Flexible'))}
+            ${tableRow('Furnishing', (item) => item.furnishing || 'N/A')}
+            ${tableRow('Construction', (item) => item.constructionStatus || 'N/A')}
+            ${tableRow('Loan', (item) => (item.loanAvailable ? 'Available' : 'Not Marked'))}
+            ${tableRow('Verification', (item) => (item.verifiedByPropertySetu ? 'Verified by PropertySetu' : (item.verified ? 'Verified' : 'Pending')))}
+            ${tableRow('Trust Score', (item) => `${Math.round(numberFrom(item.trustScore, 0))}%`)}
+          </tbody>
+        </table>
+      </div>
+    `;
   };
 
   const renderSavedSearches = () => {
@@ -434,7 +581,7 @@
     const q = filters.query.toLowerCase();
     const loc = filters.locality.toLowerCase();
 
-    if (q) filtered = filtered.filter((item) => `${item.title} ${item.locality} ${item.category}`.toLowerCase().includes(q));
+    if (q) filtered = filtered.filter((item) => `${item.title} ${item.locality} ${item.category} ${item.purpose}`.toLowerCase().includes(q));
     if (loc) filtered = filtered.filter((item) => item.locality.toLowerCase().includes(loc));
     if (filters.category !== 'all') {
       filtered = filtered.filter((item) => String(item.category).toLowerCase() === String(filters.category).toLowerCase());
@@ -448,6 +595,31 @@
       }
     }
     if (filters.verifiedOnly) filtered = filtered.filter((item) => !!item.verified);
+    if (filters.bhk !== 'all') {
+      const bhkValue = numberFrom(filters.bhk, 0);
+      filtered = filtered.filter((item) => (bhkValue >= 4 ? numberFrom(item.beds, 0) >= 4 : numberFrom(item.beds, 0) === bhkValue));
+    }
+    if (filters.furnishing !== 'all') {
+      filtered = filtered.filter((item) => normalizeFurnishing(item.furnishing) === normalizeFurnishing(filters.furnishing));
+    }
+    if (filters.constructionStatus !== 'all') {
+      filtered = filtered.filter((item) => normalizeConstructionStatus(item.constructionStatus) === normalizeConstructionStatus(filters.constructionStatus));
+    }
+    if (filters.loanAvailable === 'yes') filtered = filtered.filter((item) => !!item.loanAvailable);
+    if (filters.loanAvailable === 'no') filtered = filtered.filter((item) => !item.loanAvailable);
+    if (numberFrom(filters.radiusKm, 0) > 0) {
+      const center = getCoordsFromLocality(filters.locality) || UDAIPUR_CENTER;
+      filtered = filtered.filter((item) => {
+        const itemCoords = {
+          lat: numberFrom(item.lat, Number.NaN),
+          lng: numberFrom(item.lng, Number.NaN),
+        };
+        const resolvedCoords = (Number.isFinite(itemCoords.lat) && Number.isFinite(itemCoords.lng))
+          ? itemCoords
+          : (getCoordsFromLocality(item.locality) || UDAIPUR_CENTER);
+        return haversineKm(center, resolvedCoords) <= numberFrom(filters.radiusKm, 0);
+      });
+    }
     filtered = filtered.filter((item) => item.price >= filters.minPrice && item.price <= filters.maxPrice);
 
     switch (filters.sort) {
@@ -479,6 +651,11 @@
     if (filters.minPrice) tags.push(`Min: ${formatPrice(filters.minPrice)}`);
     if (Number.isFinite(filters.maxPrice) && filters.maxPrice !== Number.MAX_SAFE_INTEGER) tags.push(`Max: ${formatPrice(filters.maxPrice)}`);
     if (filters.verifiedOnly) tags.push('Verified Only');
+    if (numberFrom(filters.radiusKm, 0) > 0) tags.push(`Radius: ${numberFrom(filters.radiusKm, 0)} km`);
+    if (filters.bhk !== 'all') tags.push(`BHK: ${filters.bhk === '4' ? '4+' : filters.bhk}`);
+    if (filters.furnishing !== 'all') tags.push(`Furnishing: ${filters.furnishing}`);
+    if (filters.constructionStatus !== 'all') tags.push(`Construction: ${filters.constructionStatus}`);
+    if (filters.loanAvailable !== 'all') tags.push(`Loan: ${filters.loanAvailable === 'yes' ? 'Available' : 'No'}`);
     if (filters.sort !== 'relevance') tags.push(`Sort: ${filters.sort}`);
     activeFilterTags.innerHTML = tags.map((tag) => `<span class="tag-chip">${tag}</span>`).join('');
   };
@@ -509,6 +686,9 @@
               <li>${item.category}</li>
               <li>${item.areaSqft ? `${item.areaSqft} sq.ft.` : 'Area N/A'}</li>
               <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
+              <li>${item.furnishing || 'Furnishing N/A'}</li>
+              <li>${item.constructionStatus || 'Construction N/A'}</li>
+              <li>${item.loanAvailable ? 'Loan Available' : 'Loan Info N/A'}</li>
               <li>Trust ${Math.round(item.trustScore)}%</li>
               <li>${item.videoTourReady ? `Video ${Math.round(item.videoDurationSec || 30)} sec` : 'Video Tour Pending'}</li>
               <li>${item.fakeListingSignal ? 'Fraud Signal: Review Needed' : 'AI Fraud: Clear'}</li>
@@ -519,6 +699,8 @@
               <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
               <button class="action-btn primary" data-action="virtualTour" data-id="${item.id}" type="button">Virtual Tour</button>
               <button class="action-btn" data-action="videoVisit" data-id="${item.id}" type="button">Live Video Visit</button>
+              <button class="action-btn" data-action="chat" data-id="${item.id}" type="button">Chat Owner</button>
+              <button class="action-btn" data-action="whatsapp" data-id="${item.id}" type="button">WhatsApp</button>
               <button class="action-btn" data-action="details" data-id="${item.id}" type="button">View Details</button>
               <button class="action-btn" data-action="map" data-id="${item.id}" type="button">Map</button>
               <button class="action-btn" data-action="report" data-id="${item.id}" type="button">Report</button>
@@ -781,7 +963,29 @@
     renderSavedSearches();
   };
 
-  const bookLiveVisit = async (listingId) => {
+  const toLocalInputValue = (date) => {
+    const safe = new Date(date);
+    safe.setMinutes(safe.getMinutes() - safe.getTimezoneOffset());
+    return safe.toISOString().slice(0, 16);
+  };
+
+  const getPreferredVisitIso = (title) => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const defaultLocal = toLocalInputValue(tomorrow);
+    const raw = window.prompt(
+      `Preferred visit date-time enter karein (${title || 'listing'})\nFormat: YYYY-MM-DDTHH:mm`,
+      defaultLocal,
+    );
+    if (raw === null) return null;
+    const parsed = new Date(raw);
+    if (!Number.isFinite(parsed.getTime())) {
+      window.alert('Invalid date-time format. Example: 2026-03-25T16:30');
+      return null;
+    }
+    return parsed.toISOString();
+  };
+
+  const bookLiveVisit = async (listingId, preferredAt) => {
     const token = live.getAnyToken ? live.getAnyToken() : '';
     if (!token || !live.request) return false;
     try {
@@ -789,7 +993,7 @@
         method: 'POST',
         token,
         data: {
-          preferredAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          preferredAt,
           note: 'Visit requested from marketplace',
         },
       });
@@ -880,7 +1084,21 @@
     document.getElementById('marketplace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
-  [marketQuery, marketLocality, marketCategory, marketPurpose, marketMinPrice, marketMaxPrice, marketSort, marketVerifiedOnly].forEach((field) => {
+  [
+    marketQuery,
+    marketLocality,
+    marketCategory,
+    marketPurpose,
+    marketMinPrice,
+    marketMaxPrice,
+    marketSort,
+    marketVerifiedOnly,
+    marketRadiusKm,
+    marketBhk,
+    marketFurnishing,
+    marketConstruction,
+    marketLoanAvailable,
+  ].forEach((field) => {
     field?.addEventListener('input', runPipeline);
     field?.addEventListener('change', runPipeline);
   });
@@ -902,6 +1120,11 @@
       maxPrice: Number.MAX_SAFE_INTEGER,
       sort: 'relevance',
       verifiedOnly: false,
+      radiusKm: 0,
+      bhk: 'all',
+      furnishing: 'all',
+      constructionStatus: 'all',
+      loanAvailable: 'all',
     });
     if (quickLocality) quickLocality.value = '';
     if (quickBudget) quickBudget.value = '';
@@ -953,9 +1176,26 @@
       return;
     }
 
+    if (action === 'chat') {
+      pushRecent(listingId);
+      window.location.href = `user-dashboard.html?propertyId=${encodeURIComponent(listingId)}`;
+      return;
+    }
+
+    if (action === 'whatsapp') {
+      const item = listings.find((entry) => entry.id === listingId);
+      const phone = String(item?.ownerPhone || DEFAULT_WHATSAPP_NUMBER).replace(/\D+/g, '');
+      const text = encodeURIComponent(`Hi PropertySetu, mujhe ${item?.title || 'is listing'} (${item?.locality || 'Udaipur'}) ke baare me details chahiye.`);
+      window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+      return;
+    }
+
     if (action === 'map') {
       const item = listings.find((entry) => entry.id === listingId);
-      const query = encodeURIComponent(`${item?.locality || 'Udaipur'}, Udaipur`);
+      const coords = (Number.isFinite(numberFrom(item?.lat, Number.NaN)) && Number.isFinite(numberFrom(item?.lng, Number.NaN)))
+        ? `${numberFrom(item?.lat, 0)},${numberFrom(item?.lng, 0)}`
+        : `${item?.locality || 'Udaipur'}, Udaipur`;
+      const query = encodeURIComponent(coords);
       window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
       return;
     }
@@ -1041,24 +1281,26 @@
 
     if (action === 'visit') {
       pushRecent(listingId);
-      state.visits.unshift({ listingId, at: new Date().toISOString() });
+      const listing = listings.find((entry) => entry.id === listingId);
+      const preferredAt = getPreferredVisitIso(listing?.title);
+      if (!preferredAt) return;
+      state.visits.unshift({ listingId, preferredAt, at: new Date().toISOString() });
       state.visits = state.visits.slice(0, 30);
       writeJson(MARKET_STATE_KEY, state);
-      const liveDone = await bookLiveVisit(listingId);
-      const listing = listings.find((entry) => entry.id === listingId);
+      const liveDone = await bookLiveVisit(listingId, preferredAt);
       if (liveDone) {
         window.alert('Visit request live submit ho gayi.');
         pushNotification(
-          `Visit request submitted for ${listing?.title || listingId}.`,
-          ['customer', 'admin'],
+          `Visit request submitted for ${listing?.title || listingId}. Preferred time: ${new Date(preferredAt).toLocaleString()}.`,
+          ['customer', 'seller', 'admin'],
           'Visit Requested',
           'success',
         );
       } else {
         window.alert('Visit request local queue me save ho gayi. Login se live submit hoga.');
         pushNotification(
-          `Visit request queued for ${listing?.title || listingId}.`,
-          ['customer', 'admin'],
+          `Visit request queued for ${listing?.title || listingId}. Preferred time: ${new Date(preferredAt).toLocaleString()}.`,
+          ['customer', 'seller', 'admin'],
           'Visit Queued',
           'info',
         );

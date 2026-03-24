@@ -477,6 +477,51 @@
                 <option value="1">Verified Listings Only</option>
               </select>
             </div>
+            <div class="field">
+              <label for="marketRadiusKm">Location Radius</label>
+              <select id="marketRadiusKm">
+                <option value="0">Any Radius</option>
+                <option value="2">Within 2 km</option>
+                <option value="5">Within 5 km</option>
+                <option value="10">Within 10 km</option>
+                <option value="20">Within 20 km</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketBhk">BHK</label>
+              <select id="marketBhk">
+                <option value="all">Any BHK</option>
+                <option value="1">1 BHK</option>
+                <option value="2">2 BHK</option>
+                <option value="3">3 BHK</option>
+                <option value="4">4+ BHK</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketFurnishing">Furnishing</label>
+              <select id="marketFurnishing">
+                <option value="all">All</option>
+                <option value="Furnished">Furnished</option>
+                <option value="Semi Furnished">Semi Furnished</option>
+                <option value="Unfurnished">Unfurnished</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketConstruction">Construction</label>
+              <select id="marketConstruction">
+                <option value="all">All</option>
+                <option value="Ready to Move">Ready to Move</option>
+                <option value="Under Construction">Under Construction</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="marketLoanAvailable">Loan Available</label>
+              <select id="marketLoanAvailable">
+                <option value="all">All</option>
+                <option value="yes">Loan Available</option>
+                <option value="no">No Loan</option>
+              </select>
+            </div>
           </div>
           <div class="filter-actions">
             <button id="saveSearchBtn" class="solid-btn" type="button">Save This Search</button>
@@ -519,6 +564,7 @@
           <h3>Compare Board (<span id="compareCount">0</span>/3)</h3>
           <p>Best 3 shortlisted listings side-by-side compare karo before final call.</p>
           <ul id="compareList" class="stack-list"></ul>
+          <div id="compareTableWrap" class="tiny-note">2-3 properties add karte hi detailed comparison table yahan show hoga.</div>
           <button id="clearCompareBtn" class="outline-btn dark-outline" type="button">Clear Compare</button>
         </article>
 
