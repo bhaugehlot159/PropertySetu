@@ -91,9 +91,26 @@ Professional upload rules (applied when professional payload fields are present)
 - `GET /api/v3/subscriptions/me` (auth)
 - `GET /api/v3/subscriptions` (admin)
 
+Subscription payload supports:
+
+- `planType` (`featured | care | verification | agent | subscription`)
+- `propertyId` (required for featured plans)
+- Optional payment refs: `paymentProvider`, `paymentOrderId`, `paymentId`, `paymentStatus`
+
+Featured listing behavior:
+
+- On featured subscription, target property is auto-marked `featured: true`
+- `featuredUntil` is auto-derived from subscription duration
+
 ### Health
 
 - `GET /api/v3/health`
+
+## Business Features
+
+- Verified badge: admin verification updates property verification metadata and badge eligibility.
+- Payment bridge: Razorpay order/verify endpoints remain on `/api/v2/payments/*` and are bridged by live adapter routes `/payments/order` and `/payments/verify`.
+- AI phase 2: smart pricing, recommendations, and fraud scan continue through `/api/ai/*` + `/api/recommendations`.
 
 ## Security
 

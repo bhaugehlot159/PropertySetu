@@ -95,6 +95,10 @@ const corePropertySchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    featuredUntil: {
+      type: Date,
+      default: null
+    },
     createdAt: {
       type: Date,
       default: Date.now

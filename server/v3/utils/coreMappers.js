@@ -99,6 +99,7 @@ export function normalizeCoreProperty(doc) {
     ownerId: toId(row.ownerId),
     verified: Boolean(row.verified),
     featured: Boolean(row.featured),
+    featuredUntil: asIso(row.featuredUntil),
     createdAt: asIso(row.createdAt),
     updatedAt: asIso(row.updatedAt)
   };
@@ -129,7 +130,13 @@ export function normalizeCoreSubscription(doc) {
     id: toId(row._id || row.id),
     userId: toId(row.userId),
     planName: row.planName || "",
+    planType: row.planType || "",
     amount: Number(row.amount || 0),
+    propertyId: toId(row.propertyId),
+    paymentProvider: row.paymentProvider || "",
+    paymentOrderId: row.paymentOrderId || "",
+    paymentId: row.paymentId || "",
+    paymentStatus: row.paymentStatus || "",
     startDate: asIso(row.startDate),
     endDate: asIso(row.endDate),
     createdAt: asIso(row.createdAt),

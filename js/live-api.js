@@ -1,5 +1,6 @@
 (function () {
   const API_BASE = `${window.location.origin}/api`;
+  const PRO_API_BASE = `${window.location.origin}/api/v2`;
   const CORE_API_BASE = `${window.location.origin}/api/v3`;
   const LISTINGS_KEY = 'propertySetu:listings';
   const SESSION_KEYS = {
@@ -9,13 +10,13 @@
   };
 
   const PLAN_CATALOG = {
-    'featured-7': { name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7 },
-    'featured-30': { name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30 },
-    'verified-badge-charge': { name: 'Verified Badge Charge', amount: 799, cycleDays: 30 },
-    'care-basic': { name: 'Property Care Basic Visit', amount: 2500, cycleDays: 30 },
-    'care-plus': { name: 'Property Care Cleaning + Visit', amount: 5500, cycleDays: 30 },
-    'care-full': { name: 'Property Care Full Maintenance', amount: 10000, cycleDays: 30 },
-    'agent-pro': { name: 'Trusted Agent Membership', amount: 1999, cycleDays: 30 },
+    'featured-7': { name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7, type: 'featured' },
+    'featured-30': { name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30, type: 'featured' },
+    'verified-badge-charge': { name: 'Verified Badge Charge', amount: 799, cycleDays: 30, type: 'verification' },
+    'care-basic': { name: 'Property Care Basic Visit', amount: 2500, cycleDays: 30, type: 'care' },
+    'care-plus': { name: 'Property Care Cleaning + Visit', amount: 5500, cycleDays: 30, type: 'care' },
+    'care-full': { name: 'Property Care Full Maintenance', amount: 10000, cycleDays: 30, type: 'care' },
+    'agent-pro': { name: 'Trusted Agent Membership', amount: 1999, cycleDays: 30, type: 'agent' },
   };
 
   const readJson = (key, fallback) => {
@@ -162,6 +163,15 @@
     return 'House';
   };
 
+  const inferPlanType = (planName, fallback = 'subscription') => {
+    const raw = text(planName).toLowerCase();
+    if (raw.includes('featured')) return 'featured';
+    if (raw.includes('care')) return 'care';
+    if (raw.includes('verified')) return 'verification';
+    if (raw.includes('agent')) return 'agent';
+    return fallback;
+  };
+
   const parseSizeToNumber = (value) => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     const raw = String(value || '').replace(/,/g, '');
@@ -188,6 +198,13 @@
     const status = text(entry.status, verified ? 'Approved' : 'Pending Approval');
     const aiReview = toObject(entry.aiReview);
     const fraudRisk = numberFrom(aiReview.fraudRiskScore, verified ? 15 : 38);
+    const verification = toObject(entry.verification);
+    const verifiedByPropertySetu = Boolean(
+      entry.verifiedByPropertySetu
+      || verification.badgeEligible
+      || verification.adminApproved
+      || verified
+    );
 
     return {
       id: text(entry.id || entry._id, `api-${Date.now()}`),
@@ -210,7 +227,9 @@
       bathrooms: numberFrom(entry.bathrooms, 0),
       status,
       verified,
+      verifiedByPropertySetu,
       featured: Boolean(entry.featured),
+      featuredUntil: text(entry.featuredUntil),
       premium: Boolean(entry.featured),
       trustScore: Math.max(35, numberFrom(entry.trustScore, 100 - fraudRisk)),
       listedAt: createdAt,
@@ -276,6 +295,7 @@
       aiReview: toObject(payload.aiReview),
       verified: Boolean(payload.verified),
       featured: Boolean(payload.featured),
+      featuredUntil: text(payload.featuredUntil),
     };
   };
 
@@ -332,6 +352,7 @@
     if (typeof payload.aiReview !== 'undefined') updates.aiReview = toObject(payload.aiReview);
     if (typeof payload.verified !== 'undefined') updates.verified = Boolean(payload.verified);
     if (typeof payload.featured !== 'undefined') updates.featured = Boolean(payload.featured);
+    if (typeof payload.featuredUntil !== 'undefined') updates.featuredUntil = text(payload.featuredUntil);
 
     return updates;
   };
@@ -491,12 +512,31 @@
         return null;
       }
 
+      if (rawPath === '/payments/order' && method === 'POST') {
+        return requestJson(PRO_API_BASE, '/payments/order', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: options.data || {},
+        });
+      }
+
+      if (rawPath === '/payments/verify' && method === 'POST') {
+        return requestJson(PRO_API_BASE, '/payments/verify', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: options.data || {},
+        });
+      }
+
       if (rawPath === '/subscriptions/activate' && method === 'POST') {
         const payload = options.data || {};
         const planFromCatalog = PLAN_CATALOG[text(payload.planId)];
         const planName = text(payload.planName || planFromCatalog?.name || payload.planId || 'Basic Plan');
         const amount = numberFrom(payload.amount, numberFrom(planFromCatalog?.amount, 0));
         const durationDays = Math.max(1, numberFrom(payload.durationDays, numberFrom(planFromCatalog?.cycleDays, 30)));
+        const planType = text(payload.planType || planFromCatalog?.type || inferPlanType(planName, 'subscription'));
 
         const response = await requestJson(CORE_API_BASE, '/subscriptions', {
           method: 'POST',
@@ -504,8 +544,14 @@
           timeoutMs: options.timeoutMs,
           data: {
             planName,
+            planType,
             amount,
             durationDays,
+            propertyId: text(payload.propertyId),
+            paymentProvider: text(payload.paymentProvider),
+            paymentOrderId: text(payload.paymentOrderId),
+            paymentId: text(payload.paymentId),
+            paymentStatus: text(payload.paymentStatus),
           },
         });
 
@@ -516,7 +562,9 @@
             ...(response?.subscription || {}),
             status: 'active',
             planId: text(payload.planId),
+            planType,
           },
+          property: mapCorePropertyToLegacy(response?.property),
           user: mapCoreUserToLegacy(response?.user || {}),
         };
       }
@@ -772,6 +820,7 @@
 
   window.PropertySetuLive = {
     API_BASE,
+    PRO_API_BASE,
     CORE_API_BASE,
     LISTINGS_KEY,
     SESSION_KEYS,
@@ -791,5 +840,9 @@
     mergeById,
     syncLocalListingsFromApi,
     ai,
+    payments: {
+      createOrder: async (payload = {}) => request('/payments/order', { method: 'POST', data: payload }),
+      verify: async (payload = {}) => request('/payments/verify', { method: 'POST', data: payload }),
+    },
   };
 })();

@@ -28,6 +28,13 @@ function parseBool(value) {
   return undefined;
 }
 
+function normalizeDateValue(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
 function normalizeType(type) {
   const value = text(type, "buy").toLowerCase();
   return PROPERTY_TYPES.has(value) ? value : "buy";
@@ -220,7 +227,8 @@ function normalizeCreatePayload(body = {}) {
     videoVisit: normalizeMixedObject(body.videoVisit),
     aiReview: normalizeMixedObject(body.aiReview),
     verified: Boolean(body.verified),
-    featured: Boolean(body.featured)
+    featured: Boolean(body.featured),
+    featuredUntil: normalizeDateValue(body.featuredUntil)
   };
   if (!payload.description) {
     payload.description = buildAutoDescription(payload);
@@ -263,6 +271,9 @@ function normalizeUpdatePayload(body = {}, existing = null) {
   if (typeof body.aiReview !== "undefined") updates.aiReview = normalizeMixedObject(body.aiReview);
   if (typeof body.verified !== "undefined") updates.verified = Boolean(body.verified);
   if (typeof body.featured !== "undefined") updates.featured = Boolean(body.featured);
+  if (typeof body.featuredUntil !== "undefined") {
+    updates.featuredUntil = normalizeDateValue(body.featuredUntil);
+  }
 
   const merged = {
     ...(existing && typeof existing === "object" ? existing : {}),
@@ -597,12 +608,32 @@ export async function verifyCoreProperty(req, res, next) {
     const propertyId = text(req.params.propertyId);
     const verified =
       typeof req.body?.verified === "undefined" ? true : Boolean(req.body?.verified);
+    const existing = await findCorePropertyById(propertyId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+
+    const previousVerification =
+      existing?.verification && typeof existing.verification === "object"
+        ? existing.verification
+        : {};
+    const nextVerification = {
+      ...previousVerification,
+      status: verified ? "Verified" : "Pending Approval",
+      adminApproved: verified,
+      badgeEligible: verified,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: toId(req.coreUser?.id)
+    };
 
     let updated;
     if (proRuntime.dbConnected) {
       updated = await CoreProperty.findByIdAndUpdate(
         propertyId,
-        { $set: { verified } },
+        { $set: { verified, verification: nextVerification } },
         { new: true }
       );
     } else {
@@ -611,17 +642,11 @@ export async function verifyCoreProperty(req, res, next) {
         proMemoryStore.coreProperties[index] = {
           ...proMemoryStore.coreProperties[index],
           verified,
+          verification: nextVerification,
           updatedAt: new Date().toISOString()
         };
         updated = proMemoryStore.coreProperties[index];
       }
-    }
-
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        message: "Property not found."
-      });
     }
 
     return res.json({
@@ -638,12 +663,16 @@ export async function featureCoreProperty(req, res, next) {
     const propertyId = text(req.params.propertyId);
     const featured =
       typeof req.body?.featured === "undefined" ? true : Boolean(req.body?.featured);
+    const durationDays = Math.max(1, numberValue(req.body?.durationDays, 30));
+    const featuredUntil = featured
+      ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000)
+      : null;
 
     let updated;
     if (proRuntime.dbConnected) {
       updated = await CoreProperty.findByIdAndUpdate(
         propertyId,
-        { $set: { featured } },
+        { $set: { featured, featuredUntil } },
         { new: true }
       );
     } else {
@@ -652,6 +681,7 @@ export async function featureCoreProperty(req, res, next) {
         proMemoryStore.coreProperties[index] = {
           ...proMemoryStore.coreProperties[index],
           featured,
+          featuredUntil: featuredUntil ? featuredUntil.toISOString() : null,
           updatedAt: new Date().toISOString()
         };
         updated = proMemoryStore.coreProperties[index];

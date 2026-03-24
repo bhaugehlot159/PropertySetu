@@ -1,9 +1,11 @@
 import mongoose from "mongoose";
 import CoreSubscription from "../models/CoreSubscription.js";
+import CoreProperty from "../models/CoreProperty.js";
 import CoreUser from "../models/CoreUser.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import {
+  normalizeCoreProperty,
   normalizeCoreSubscription,
   normalizeCoreUser,
   toId
@@ -19,11 +21,74 @@ function numberValue(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function inferPlanTypeFromPlanName(planName = "") {
+  const raw = text(planName).toLowerCase();
+  if (raw.includes("featured")) return "featured";
+  if (raw.includes("care")) return "care";
+  if (raw.includes("verified")) return "verification";
+  if (raw.includes("agent")) return "agent";
+  return "subscription";
+}
+
+function normalizePlanType(planType, planName = "") {
+  const raw = text(planType).toLowerCase();
+  if (["featured", "care", "verification", "agent", "subscription"].includes(raw)) {
+    return raw;
+  }
+  return inferPlanTypeFromPlanName(planName);
+}
+
 function normalizeDate(value) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
+}
+
+async function getCorePropertyById(propertyId) {
+  if (!propertyId) return null;
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(propertyId)) return null;
+    return CoreProperty.findById(propertyId);
+  }
+  return proMemoryStore.coreProperties.find((item) => item._id === propertyId) || null;
+}
+
+async function applyFeaturedToProperty(property, endDate) {
+  if (!property) return null;
+  const propertyId = toId(property._id || property.id);
+  const nextFeaturedUntil = endDate instanceof Date ? endDate.toISOString() : endDate;
+  const currentVerification = property?.verification || {};
+  const nextVerification = {
+    ...currentVerification,
+    featuredPlanActive: true,
+    featuredUntil: nextFeaturedUntil
+  };
+
+  if (proRuntime.dbConnected) {
+    return CoreProperty.findByIdAndUpdate(
+      propertyId,
+      {
+        $set: {
+          featured: true,
+          featuredUntil: endDate,
+          verification: nextVerification
+        }
+      },
+      { new: true }
+    );
+  }
+
+  const index = proMemoryStore.coreProperties.findIndex((item) => item._id === propertyId);
+  if (index < 0) return null;
+  proMemoryStore.coreProperties[index] = {
+    ...proMemoryStore.coreProperties[index],
+    featured: true,
+    featuredUntil: nextFeaturedUntil,
+    verification: nextVerification,
+    updatedAt: new Date().toISOString()
+  };
+  return proMemoryStore.coreProperties[index];
 }
 
 async function getCoreUserById(userId) {
@@ -58,7 +123,13 @@ export async function createCoreSubscription(req, res, next) {
   try {
     const userId = toId(req.coreUser?.id);
     const planName = text(req.body?.planName);
+    const planType = normalizePlanType(req.body?.planType, planName);
     const amount = numberValue(req.body?.amount, 0);
+    const propertyIdInput = text(req.body?.propertyId);
+    const paymentProvider = text(req.body?.paymentProvider);
+    const paymentOrderId = text(req.body?.paymentOrderId);
+    const paymentId = text(req.body?.paymentId);
+    const paymentStatus = text(req.body?.paymentStatus);
     const startDate = normalizeDate(req.body?.startDate) || new Date();
     const endDateInput = normalizeDate(req.body?.endDate);
     const durationDays = Math.max(1, numberValue(req.body?.durationDays, 30));
@@ -94,12 +165,48 @@ export async function createCoreSubscription(req, res, next) {
       });
     }
 
+    const currentRole = text(req.coreUser?.role).toLowerCase();
+    const isAdmin = currentRole === "admin";
+    let targetProperty = null;
+    if (propertyIdInput) {
+      targetProperty = await getCorePropertyById(propertyIdInput);
+      if (!targetProperty) {
+        return res.status(404).json({
+          success: false,
+          message: "Target property not found."
+        });
+      }
+    }
+
+    if (planType === "featured") {
+      if (!propertyIdInput) {
+        return res.status(400).json({
+          success: false,
+          message: "propertyId is required for featured listing subscription."
+        });
+      }
+      const propertyOwnerId = toId(targetProperty?.ownerId);
+      if (!isAdmin && propertyOwnerId !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: "You can activate featured listing only on your own property."
+        });
+      }
+    }
+
     let created;
+    const propertyIdForCreate = targetProperty ? toId(targetProperty._id || targetProperty.id) : null;
     if (proRuntime.dbConnected) {
       created = await CoreSubscription.create({
         userId,
         planName,
+        planType,
         amount,
+        propertyId: propertyIdForCreate || null,
+        paymentProvider,
+        paymentOrderId,
+        paymentId,
+        paymentStatus,
         startDate,
         endDate
       });
@@ -108,7 +215,13 @@ export async function createCoreSubscription(req, res, next) {
         _id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId,
         planName,
+        planType,
         amount,
+        propertyId: propertyIdForCreate || null,
+        paymentProvider,
+        paymentOrderId,
+        paymentId,
+        paymentStatus,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         createdAt: new Date().toISOString(),
@@ -117,13 +230,19 @@ export async function createCoreSubscription(req, res, next) {
       proMemoryStore.coreSubscriptions.push(created);
     }
 
+    let updatedProperty = null;
+    if (planType === "featured" && targetProperty) {
+      updatedProperty = await applyFeaturedToProperty(targetProperty, endDate);
+    }
+
     const updatedUser = await updateUserPlan(userId, planName);
 
     return res.status(201).json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       subscription: normalizeCoreSubscription(created),
-      user: normalizeCoreUser(updatedUser)
+      user: normalizeCoreUser(updatedUser),
+      property: updatedProperty ? normalizeCoreProperty(updatedProperty) : undefined
     });
   } catch (error) {
     return next(error);
