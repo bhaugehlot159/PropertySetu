@@ -75,6 +75,18 @@ Legacy bridge endpoints for old UI:
 - `/api/uploads/property-media`
 - `/api/ai/*` + `/api/insights/locality` + `/api/recommendations`
 
+Core v3 systems:
+
+- `/api/v3/health`
+- `/api/v3/auth/*`
+- `/api/v3/properties/*`
+- `/api/v3/reviews/*`
+- `/api/v3/subscriptions/*`
+
+Detailed v3 reference:
+
+- `docs/professional-upgrade/CORE_SYSTEMS_V3.md`
+
 ## Deploy (Vercel + Render)
 
 ### Frontend on Vercel

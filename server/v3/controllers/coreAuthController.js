@@ -1,0 +1,321 @@
+import CoreUser from "../models/CoreUser.js";
+import { proRuntime } from "../../config/proRuntime.js";
+import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import {
+  compareCorePassword,
+  hashCorePassword,
+  signCoreToken
+} from "../utils/coreAuth.js";
+import { normalizeCoreUser, toId } from "../utils/coreMappers.js";
+
+function text(value, fallback = "") {
+  const normalized = String(value || "").trim();
+  return normalized || fallback;
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""));
+}
+
+function isValidPhone(phone) {
+  return /^[0-9]{8,15}$/.test(String(phone || ""));
+}
+
+function normalizeRole(role) {
+  const raw = text(role, "buyer").toLowerCase();
+  if (["buyer", "seller", "admin"].includes(raw)) return raw;
+  return "buyer";
+}
+
+async function findUserByIdentity({ email = "", phone = "", emailOrPhone = "" } = {}) {
+  const normalizedEmail = text(email).toLowerCase();
+  const normalizedPhone = text(phone);
+  const identity = text(emailOrPhone).toLowerCase();
+
+  if (proRuntime.dbConnected) {
+    if (normalizedEmail || normalizedPhone) {
+      return CoreUser.findOne({
+        $or: [
+          ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+          ...(normalizedPhone ? [{ phone: normalizedPhone }] : [])
+        ]
+      });
+    }
+
+    if (identity) {
+      return CoreUser.findOne({
+        $or: [{ email: identity }, { phone: identity }]
+      });
+    }
+    return null;
+  }
+
+  const users = proMemoryStore.coreUsers;
+  if (normalizedEmail || normalizedPhone) {
+    return (
+      users.find(
+        (item) =>
+          (normalizedEmail && String(item.email || "").toLowerCase() === normalizedEmail) ||
+          (normalizedPhone && String(item.phone || "") === normalizedPhone)
+      ) || null
+    );
+  }
+
+  if (identity) {
+    return (
+      users.find(
+        (item) =>
+          String(item.email || "").toLowerCase() === identity ||
+          String(item.phone || "").toLowerCase() === identity
+      ) || null
+    );
+  }
+
+  return null;
+}
+
+async function findUserById(userId) {
+  if (!userId) return null;
+  if (proRuntime.dbConnected) {
+    return CoreUser.findById(userId);
+  }
+  return proMemoryStore.coreUsers.find((item) => item._id === userId) || null;
+}
+
+export async function registerCoreUser(req, res, next) {
+  try {
+    const name = text(req.body?.name);
+    const email = text(req.body?.email).toLowerCase();
+    const phone = text(req.body?.phone);
+    const password = text(req.body?.password);
+    const role = normalizeRole(req.body?.role);
+    const adminSecret = text(req.body?.adminSecret);
+
+    if (!name || !email || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "name, email, phone and password are required."
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format."
+      });
+    }
+
+    if (!isValidPhone(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone must contain 8 to 15 digits."
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters."
+      });
+    }
+
+    if (role === "admin") {
+      const envSecret = text(process.env.ADMIN_REGISTRATION_KEY);
+      if (!envSecret || envSecret !== adminSecret) {
+        return res.status(403).json({
+          success: false,
+          message: "Admin registration requires valid adminSecret."
+        });
+      }
+    }
+
+    const existing = await findUserByIdentity({ email, phone });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists with this email or phone."
+      });
+    }
+
+    const passwordHash = await hashCorePassword(password);
+    let created;
+
+    if (proRuntime.dbConnected) {
+      created = await CoreUser.create({
+        name,
+        email,
+        phone,
+        password: passwordHash,
+        role,
+        verified: false,
+        subscriptionPlan: "free"
+      });
+    } else {
+      created = {
+        _id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        email,
+        phone,
+        password: passwordHash,
+        role,
+        verified: false,
+        subscriptionPlan: "free",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      proMemoryStore.coreUsers.push(created);
+    }
+
+    const safeUser = normalizeCoreUser(created);
+    const token = signCoreToken(safeUser);
+
+    return res.status(201).json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      user: safeUser,
+      token
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists with this email or phone."
+      });
+    }
+    return next(error);
+  }
+}
+
+export async function loginCoreUser(req, res, next) {
+  try {
+    const emailOrPhone = text(req.body?.emailOrPhone || req.body?.email || req.body?.phone);
+    const password = text(req.body?.password);
+
+    if (!emailOrPhone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "emailOrPhone and password are required."
+      });
+    }
+
+    const user = await findUserByIdentity({ emailOrPhone });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials."
+      });
+    }
+
+    const fullUser = normalizeCoreUser(user, { includePassword: true });
+    const isPasswordValid = await compareCorePassword(password, fullUser.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials."
+      });
+    }
+
+    const safeUser = normalizeCoreUser(user);
+    const token = signCoreToken(safeUser);
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      user: safeUser,
+      token
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getCoreMe(req, res, next) {
+  try {
+    const userId = toId(req.coreUser?.id);
+    const user = await findUserById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: normalizeCoreUser(user)
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCoreUsers(req, res, next) {
+  try {
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit || 50)));
+
+    let users;
+    if (proRuntime.dbConnected) {
+      users = await CoreUser.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+    } else {
+      users = [...proMemoryStore.coreUsers]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, limit);
+    }
+
+    const items = users.map((item) => normalizeCoreUser(item));
+    return res.json({
+      success: true,
+      total: items.length,
+      items
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function setCoreUserVerified(req, res, next) {
+  try {
+    const userId = text(req.params.userId);
+    const verified = Boolean(req.body?.verified);
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required."
+      });
+    }
+
+    let updated;
+    if (proRuntime.dbConnected) {
+      updated = await CoreUser.findByIdAndUpdate(
+        userId,
+        { $set: { verified } },
+        { new: true }
+      );
+    } else {
+      const index = proMemoryStore.coreUsers.findIndex((item) => item._id === userId);
+      if (index >= 0) {
+        proMemoryStore.coreUsers[index] = {
+          ...proMemoryStore.coreUsers[index],
+          verified,
+          updatedAt: new Date().toISOString()
+        };
+        updated = proMemoryStore.coreUsers[index];
+      }
+    }
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: normalizeCoreUser(updated)
+    });
+  } catch (error) {
+    return next(error);
+  }
+}

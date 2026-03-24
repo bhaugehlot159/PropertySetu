@@ -13,6 +13,11 @@ import proLegacyBridgeRoutes from "./routes/proLegacyBridgeRoutes.js";
 import proPaymentRoutes from "./routes/proPaymentRoutes.js";
 import proPropertyRoutes from "./routes/proPropertyRoutes.js";
 import proStorageRoutes from "./routes/proStorageRoutes.js";
+import coreAuthRoutes from "./v3/routes/coreAuthRoutes.js";
+import coreHealthRoutes from "./v3/routes/coreHealthRoutes.js";
+import corePropertyRoutes from "./v3/routes/corePropertyRoutes.js";
+import coreReviewRoutes from "./v3/routes/coreReviewRoutes.js";
+import coreSubscriptionRoutes from "./v3/routes/coreSubscriptionRoutes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +28,7 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PRO_PORT || process.env.PORT || 5200);
 const apiPrefix = "/api/v2";
+const apiV3Prefix = "/api/v3";
 const clientDistPath = path.resolve(__dirname, "../client/dist");
 const legacyWebRoot = path.resolve(__dirname, "..");
 
@@ -53,6 +59,12 @@ app.use(`${apiPrefix}/payments`, proPaymentRoutes);
 app.use(`${apiPrefix}/storage`, proStorageRoutes);
 app.use("/api", proLegacyBridgeRoutes);
 app.use("/legacy", express.static(legacyWebRoot));
+
+app.use(`${apiV3Prefix}/health`, coreHealthRoutes);
+app.use(`${apiV3Prefix}/auth`, coreAuthRoutes);
+app.use(`${apiV3Prefix}/properties`, corePropertyRoutes);
+app.use(`${apiV3Prefix}/reviews`, coreReviewRoutes);
+app.use(`${apiV3Prefix}/subscriptions`, coreSubscriptionRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));

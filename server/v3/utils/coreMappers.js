@@ -1,0 +1,112 @@
+export function toId(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value._id) return toId(value._id);
+  return String(value);
+}
+
+function asIso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function toPlain(doc) {
+  if (!doc) return null;
+  return typeof doc.toObject === "function" ? doc.toObject() : doc;
+}
+
+export function normalizeCoreUser(doc, { includePassword = false } = {}) {
+  const row = toPlain(doc);
+  if (!row) return null;
+
+  const user = {
+    _id: toId(row._id || row.id),
+    id: toId(row._id || row.id),
+    name: row.name || "",
+    email: row.email || "",
+    phone: row.phone || "",
+    role: row.role || "buyer",
+    verified: Boolean(row.verified),
+    subscriptionPlan: row.subscriptionPlan || "free",
+    createdAt: asIso(row.createdAt),
+    updatedAt: asIso(row.updatedAt)
+  };
+
+  if (includePassword) {
+    user.password = row.password || "";
+  }
+
+  return user;
+}
+
+export function normalizeCoreProperty(doc) {
+  const row = toPlain(doc);
+  if (!row) return null;
+
+  return {
+    _id: toId(row._id || row.id),
+    id: toId(row._id || row.id),
+    title: row.title || "",
+    description: row.description || "",
+    city: row.city || "",
+    location: row.location || "",
+    type: row.type || "buy",
+    category: row.category || "house",
+    price: Number(row.price || 0),
+    size: Number(row.size || 0),
+    images: Array.isArray(row.images) ? row.images : [],
+    video: row.video || "",
+    ownerId: toId(row.ownerId),
+    verified: Boolean(row.verified),
+    featured: Boolean(row.featured),
+    createdAt: asIso(row.createdAt),
+    updatedAt: asIso(row.updatedAt)
+  };
+}
+
+export function normalizeCoreReview(doc) {
+  const row = toPlain(doc);
+  if (!row) return null;
+
+  return {
+    _id: toId(row._id || row.id),
+    id: toId(row._id || row.id),
+    propertyId: toId(row.propertyId),
+    userId: toId(row.userId),
+    rating: Number(row.rating || 0),
+    comment: row.comment || "",
+    createdAt: asIso(row.createdAt),
+    updatedAt: asIso(row.updatedAt)
+  };
+}
+
+export function normalizeCoreSubscription(doc) {
+  const row = toPlain(doc);
+  if (!row) return null;
+
+  return {
+    _id: toId(row._id || row.id),
+    id: toId(row._id || row.id),
+    userId: toId(row.userId),
+    planName: row.planName || "",
+    amount: Number(row.amount || 0),
+    startDate: asIso(row.startDate),
+    endDate: asIso(row.endDate),
+    createdAt: asIso(row.createdAt),
+    updatedAt: asIso(row.updatedAt)
+  };
+}
+
+export function reviewsSummary(items = []) {
+  const ratings = items
+    .map((item) => Number(item?.rating || 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const total = ratings.length;
+  const average =
+    total > 0
+      ? Number((ratings.reduce((sum, value) => sum + value, 0) / total).toFixed(2))
+      : 0;
+  return { total, average };
+}
