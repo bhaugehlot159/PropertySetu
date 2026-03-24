@@ -38,7 +38,14 @@ button:hover { background:#092f6d; }
 .queue-meta { font-size:12px; color:#44627d; margin-top:4px; line-height:1.45; }
 .queue-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .queue-actions button { padding:4px 8px; font-size:12px; }
+.ops-toolbar { display:grid; gap:8px; grid-template-columns:2fr 1fr 1fr auto auto auto; align-items:center; margin:10px 0; }
+.ops-toolbar input, .ops-toolbar select { width:100%; padding:7px; border:1px solid #c7d9ef; border-radius:8px; }
+.ops-toolbar button { white-space:nowrap; }
+.queue-pagination { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.queue-pagination .controls { display:flex; gap:6px; align-items:center; }
+.queue-pagination button { padding:4px 8px; font-size:12px; }
 @media (max-width: 900px) { .ops-grid { grid-template-columns:1fr; } }
+@media (max-width: 1200px) { .ops-toolbar { grid-template-columns:1fr 1fr; } }
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
@@ -126,6 +133,39 @@ button:hover { background:#092f6d; }
 
   <div class="property-card" style="margin-top:10px;">
     <h3>Ecosystem Operations Console</h3>
+    <div class="ops-toolbar">
+      <input id="opsSearchInput" placeholder="Search by ID, user, city, bank, service, status..." />
+      <select id="opsModuleFilter">
+        <option value="all">All Modules</option>
+        <option value="documentation">Documentation</option>
+        <option value="loan">Loan Leads</option>
+        <option value="booking">Service Bookings</option>
+        <option value="franchise">Franchise</option>
+        <option value="valuation">Valuation Logs</option>
+        <option value="rent">Rent Draft Logs</option>
+      </select>
+      <select id="opsStatusFilter">
+        <option value="all">All Status</option>
+        <option value="requested">Requested</option>
+        <option value="in-review">In Review</option>
+        <option value="in-progress">In Progress</option>
+        <option value="approved">Approved</option>
+        <option value="completed">Completed</option>
+        <option value="assigned">Assigned</option>
+        <option value="partner-confirmed">Partner Confirmed</option>
+        <option value="sanctioned">Sanctioned</option>
+        <option value="screening">Screening</option>
+        <option value="onboarding">Onboarding</option>
+        <option value="rejected">Rejected</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="logged">Logged (Valuation)</option>
+        <option value="generated">Generated (Rent Draft)</option>
+      </select>
+      <button id="clearOpsFiltersBtn" type="button">Clear Filters</button>
+      <button id="exportOpsFilteredBtn" type="button">Export Filtered CSV</button>
+      <button id="exportOpsFullBtn" type="button">Export Full CSV</button>
+    </div>
+    <p id="opsFilterStatus" class="mini-status">Showing all ecosystem records.</p>
     <div id="ecosystemOpsSummary" class="kpi-grid"></div>
     <div class="ops-grid">
       <div class="ops-card">
@@ -199,6 +239,13 @@ button:hover { background:#092f6d; }
   const adminReportList = document.getElementById('adminReportList');
   const analyticsDashboard = document.getElementById('analyticsDashboard');
   const ownerVerificationQueue = document.getElementById('ownerVerificationQueue');
+  const opsSearchInput = document.getElementById('opsSearchInput');
+  const opsModuleFilter = document.getElementById('opsModuleFilter');
+  const opsStatusFilter = document.getElementById('opsStatusFilter');
+  const clearOpsFiltersBtn = document.getElementById('clearOpsFiltersBtn');
+  const exportOpsFilteredBtn = document.getElementById('exportOpsFilteredBtn');
+  const exportOpsFullBtn = document.getElementById('exportOpsFullBtn');
+  const opsFilterStatus = document.getElementById('opsFilterStatus');
   const ecosystemOpsSummary = document.getElementById('ecosystemOpsSummary');
   const documentationQueue = document.getElementById('documentationQueue');
   const loanLeadQueue = document.getElementById('loanLeadQueue');
@@ -206,6 +253,36 @@ button:hover { background:#092f6d; }
   const valuationQueue = document.getElementById('valuationQueue');
   const rentAgreementQueue = document.getElementById('rentAgreementQueue');
   const franchiseQueue = document.getElementById('franchiseQueue');
+  const OPS_PAGE_SIZE = 6;
+  const opsState = {
+    query: '',
+    module: 'all',
+    status: 'all',
+    data: {
+      documentation: [],
+      loan: [],
+      booking: [],
+      valuation: [],
+      rent: [],
+      franchise: [],
+    },
+    page: {
+      documentation: 1,
+      loan: 1,
+      booking: 1,
+      valuation: 1,
+      rent: 1,
+      franchise: 1,
+    },
+    filteredTotals: {
+      documentation: 0,
+      loan: 0,
+      booking: 0,
+      valuation: 0,
+      rent: 0,
+      franchise: 0,
+    },
+  };
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -400,11 +477,72 @@ button:hover { background:#092f6d; }
       </table>
     `;
   };
+  const moduleLabelMap = {
+    documentation: 'Documentation',
+    loan: 'Loan Leads',
+    booking: 'Service Bookings',
+    valuation: 'Valuation Logs',
+    rent: 'Rent Draft Logs',
+    franchise: 'Franchise',
+  };
   const toDateLabel = (value) => {
     const dt = new Date(value || '');
     return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('en-IN');
   };
   const queueEmpty = (msg) => `<p class="mini-status">${msg}</p>`;
+  const textOf = (value) => String(value || '').trim();
+  const normalizeStatus = (value) => textOf(value).toLowerCase();
+  const resetOpsPages = () => {
+    Object.keys(opsState.page).forEach((key) => { opsState.page[key] = 1; });
+  };
+  const effectiveOpsStatus = (item, module) => {
+    if (module === 'valuation') return 'logged';
+    if (module === 'rent') return 'generated';
+    return normalizeStatus(item?.status || 'unknown');
+  };
+  const opsSearchBlob = (item, module) => [
+    module,
+    item?.id,
+    item?.status,
+    item?.userName,
+    item?.serviceName,
+    item?.serviceId,
+    item?.bankName,
+    item?.bankId,
+    item?.city,
+    item?.locality,
+    item?.propertyType,
+    item?.ownerName,
+    item?.tenantName,
+    item?.details,
+    item?.notes,
+    item?.propertyAddress,
+    item?.requestedAmount,
+    item?.estimatedPrice,
+    item?.investmentBudget,
+    item?.rentAmount,
+  ].map((value) => textOf(value).toLowerCase()).join(' ');
+  const moduleHiddenByFilter = (module) => opsState.module !== 'all' && opsState.module !== module;
+  const moduleItemsFiltered = (items = [], module) => {
+    if (moduleHiddenByFilter(module)) return [];
+    const query = normalizeStatus(opsState.query);
+    const statusFilter = normalizeStatus(opsState.status);
+    return (Array.isArray(items) ? items : []).filter((item) => {
+      if (statusFilter !== 'all' && effectiveOpsStatus(item, module) !== statusFilter) return false;
+      if (query && !opsSearchBlob(item, module).includes(query)) return false;
+      return true;
+    });
+  };
+  const queuePaginationMarkup = ({ module, total, page, totalPages, start, end }) => `
+    <div class="queue-pagination">
+      <span class="mini-status">Showing ${start}-${end} of ${total}</span>
+      <div class="controls">
+        <button type="button" data-queue-module="${module}" data-queue-nav="prev" ${page <= 1 ? 'disabled' : ''}>Prev</button>
+        <span class="mini-status">Page ${page}/${totalPages}</span>
+        <button type="button" data-queue-module="${module}" data-queue-nav="next" ${page >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>
+    </div>
+  `;
   const renderOpsSummary = (payload = {}) => {
     if (!ecosystemOpsSummary) return;
     const rows = [
@@ -422,11 +560,37 @@ button:hover { background:#092f6d; }
       </div>
     `).join('');
   };
-
-  const renderDocumentationQueue = (items = []) => {
-    if (!documentationQueue) return;
-    const list = Array.isArray(items) ? items : [];
-    documentationQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+  const renderQueueModule = ({ target, module, items, emptyText, rowRenderer }) => {
+    if (!target) return;
+    if (moduleHiddenByFilter(module)) {
+      opsState.filteredTotals[module] = 0;
+      target.innerHTML = queueEmpty(`Module filter active: ${moduleLabelMap[opsState.module] || 'selected module'}.`);
+      return;
+    }
+    const filtered = moduleItemsFiltered(items, module);
+    opsState.filteredTotals[module] = filtered.length;
+    if (!filtered.length) {
+      target.innerHTML = queueEmpty(emptyText);
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(filtered.length / OPS_PAGE_SIZE));
+    const currentPage = Math.min(Math.max(1, numberFrom(opsState.page[module], 1)), totalPages);
+    opsState.page[module] = currentPage;
+    const startIdx = (currentPage - 1) * OPS_PAGE_SIZE;
+    const paged = filtered.slice(startIdx, startIdx + OPS_PAGE_SIZE);
+    const start = startIdx + 1;
+    const end = startIdx + paged.length;
+    target.innerHTML = `
+      ${paged.map((item) => rowRenderer(item)).join('')}
+      ${queuePaginationMarkup({ module, total: filtered.length, page: currentPage, totalPages, start, end })}
+    `;
+  };
+  const renderDocumentationQueue = (items = []) => renderQueueModule({
+    target: documentationQueue,
+    module: 'documentation',
+    items,
+    emptyText: 'No documentation requests for current filters.',
+    rowRenderer: (item) => `
       <div class="queue-row">
         <b>${item.serviceName || item.serviceId || 'Documentation Request'}</b>
         <div class="queue-meta">
@@ -440,13 +604,14 @@ button:hover { background:#092f6d; }
           <button data-doc-id="${item.id}" data-doc-status="rejected">Reject</button>
         </div>
       </div>
-    `).join('') : queueEmpty('No documentation requests.');
-  };
-
-  const renderLoanQueue = (items = []) => {
-    if (!loanLeadQueue) return;
-    const list = Array.isArray(items) ? items : [];
-    loanLeadQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+    `,
+  });
+  const renderLoanQueue = (items = []) => renderQueueModule({
+    target: loanLeadQueue,
+    module: 'loan',
+    items,
+    emptyText: 'No loan assistance leads for current filters.',
+    rowRenderer: (item) => `
       <div class="queue-row">
         <b>${item.bankName || item.bankId || 'Bank Lead'} - ${item.id}</b>
         <div class="queue-meta">
@@ -460,13 +625,14 @@ button:hover { background:#092f6d; }
           <button data-loan-id="${item.id}" data-loan-status="rejected">Reject</button>
         </div>
       </div>
-    `).join('') : queueEmpty('No loan assistance leads.');
-  };
-
-  const renderServiceBookingQueue = (items = []) => {
-    if (!serviceBookingQueue) return;
-    const list = Array.isArray(items) ? items : [];
-    serviceBookingQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+    `,
+  });
+  const renderServiceBookingQueue = (items = []) => renderQueueModule({
+    target: serviceBookingQueue,
+    module: 'booking',
+    items,
+    emptyText: 'No partner service bookings for current filters.',
+    rowRenderer: (item) => `
       <div class="queue-row">
         <b>${item.serviceName || item.serviceId || 'Service Booking'} - ${item.id}</b>
         <div class="queue-meta">
@@ -480,13 +646,14 @@ button:hover { background:#092f6d; }
           <button data-booking-id="${item.id}" data-booking-status="cancelled">Cancel</button>
         </div>
       </div>
-    `).join('') : queueEmpty('No partner service bookings.');
-  };
-
-  const renderValuationQueue = (items = []) => {
-    if (!valuationQueue) return;
-    const list = Array.isArray(items) ? items : [];
-    valuationQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+    `,
+  });
+  const renderValuationQueue = (items = []) => renderQueueModule({
+    target: valuationQueue,
+    module: 'valuation',
+    items,
+    emptyText: 'No valuation logs for current filters.',
+    rowRenderer: (item) => `
       <div class="queue-row">
         <b>${item.propertyType || 'Property'} - ${item.locality || 'Udaipur'}</b>
         <div class="queue-meta">
@@ -494,13 +661,14 @@ button:hover { background:#092f6d; }
           Range: ${formatPrice(item?.suggestedBand?.min || 0)} - ${formatPrice(item?.suggestedBand?.max || 0)} | Confidence: ${numberFrom(item.confidence, 0)}% | ${toDateLabel(item.createdAt)}
         </div>
       </div>
-    `).join('') : queueEmpty('No valuation logs.');
-  };
-
-  const renderRentAgreementQueue = (items = []) => {
-    if (!rentAgreementQueue) return;
-    const list = Array.isArray(items) ? items : [];
-    rentAgreementQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+    `,
+  });
+  const renderRentAgreementQueue = (items = []) => renderQueueModule({
+    target: rentAgreementQueue,
+    module: 'rent',
+    items,
+    emptyText: 'No rent agreement drafts for current filters.',
+    rowRenderer: (item) => `
       <div class="queue-row">
         <b>${item.ownerName || 'Owner'} - ${item.tenantName || 'Tenant'}</b>
         <div class="queue-meta">
@@ -508,13 +676,14 @@ button:hover { background:#092f6d; }
           Start: ${item.startDate || '-'} | Duration: ${item.durationMonths || 0} months | ${toDateLabel(item.createdAt)}
         </div>
       </div>
-    `).join('') : queueEmpty('No rent agreement drafts.');
-  };
-
-  const renderFranchiseQueue = (items = []) => {
-    if (!franchiseQueue) return;
-    const list = Array.isArray(items) ? items : [];
-    franchiseQueue.innerHTML = list.length ? list.slice(0, 20).map((item) => `
+    `,
+  });
+  const renderFranchiseQueue = (items = []) => renderQueueModule({
+    target: franchiseQueue,
+    module: 'franchise',
+    items,
+    emptyText: 'No franchise requests for current filters.',
+    rowRenderer: (item) => `
       <div class="queue-row">
         <b>${item.city || 'City'} - ${item.id}</b>
         <div class="queue-meta">
@@ -528,7 +697,98 @@ button:hover { background:#092f6d; }
           <button data-franchise-id="${item.id}" data-franchise-status="rejected">Reject</button>
         </div>
       </div>
-    `).join('') : queueEmpty('No franchise requests.');
+    `,
+  });
+  const setOpsFilterStatusText = () => {
+    if (!opsFilterStatus) return;
+    const total = Object.values(opsState.filteredTotals).reduce((sum, value) => sum + numberFrom(value, 0), 0);
+    const moduleText = opsState.module === 'all' ? 'All modules' : (moduleLabelMap[opsState.module] || opsState.module);
+    const statusText = opsState.status === 'all' ? 'All status' : opsState.status;
+    const queryText = textOf(opsState.query) ? ` | Query: "${textOf(opsState.query)}"` : '';
+    opsFilterStatus.textContent = `Filter: ${moduleText} | ${statusText} | Records: ${total}${queryText}`;
+  };
+  const renderOpsQueues = () => {
+    renderDocumentationQueue(opsState.data.documentation);
+    renderLoanQueue(opsState.data.loan);
+    renderServiceBookingQueue(opsState.data.booking);
+    renderValuationQueue(opsState.data.valuation);
+    renderRentAgreementQueue(opsState.data.rent);
+    renderFranchiseQueue(opsState.data.franchise);
+    setOpsFilterStatusText();
+  };
+  const csvEscape = (value) => {
+    const raw = String(value ?? '');
+    if (raw.includes('"') || raw.includes(',') || raw.includes('\n')) return `"${raw.replace(/"/g, '""')}"`;
+    return raw;
+  };
+  const csvRowsFromModule = (module, items = []) => (Array.isArray(items) ? items : []).map((item) => ({
+    module,
+    id: textOf(item.id),
+    status: effectiveOpsStatus(item, module),
+    userName: textOf(item.userName || 'guest'),
+    primary: textOf(item.serviceName || item.bankName || item.propertyType || item.ownerName || item.city),
+    cityLocality: textOf(item.city || item.locality),
+    amount: numberFrom(item.amount || item.requestedAmount || item.serviceFee || item.estimatedPrice || item.rentAmount || item.investmentBudget, 0),
+    notes: textOf(item.details || item.notes || item.propertyAddress),
+    createdAt: textOf(item.createdAt),
+    updatedAt: textOf(item.updatedAt),
+  }));
+  const downloadCsv = (rows, fileName) => {
+    if (!Array.isArray(rows) || !rows.length) {
+      window.alert('No rows available for CSV export.');
+      return;
+    }
+    const headers = Object.keys(rows[0]);
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(',')),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+  const exportOpsCsv = (filteredOnly = true) => {
+    const modules = ['documentation', 'loan', 'booking', 'valuation', 'rent', 'franchise'];
+    const selectedModules = filteredOnly && opsState.module !== 'all' ? [opsState.module] : modules;
+    const rows = selectedModules.flatMap((module) => {
+      const source = opsState.data[module] || [];
+      const list = filteredOnly ? moduleItemsFiltered(source, module) : source;
+      return csvRowsFromModule(module, list);
+    });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const suffix = filteredOnly ? 'filtered' : 'full';
+    downloadCsv(rows, `propertysetu-ecosystem-${suffix}-${stamp}.csv`);
+  };
+  const handleQueuePaginationClick = (target) => {
+    if (!(target instanceof HTMLElement)) return false;
+    const module = target.getAttribute('data-queue-module');
+    const nav = target.getAttribute('data-queue-nav');
+    if (!module || !nav || !opsState.page[module]) return false;
+    const total = numberFrom(opsState.filteredTotals[module], 0);
+    const totalPages = Math.max(1, Math.ceil(total / OPS_PAGE_SIZE));
+    if (nav === 'prev') opsState.page[module] = Math.max(1, numberFrom(opsState.page[module], 1) - 1);
+    if (nav === 'next') opsState.page[module] = Math.min(totalPages, numberFrom(opsState.page[module], 1) + 1);
+    renderOpsQueues();
+    return true;
+  };
+  const syncOpsFiltersFromControls = ({ resetPages = false } = {}) => {
+    opsState.query = textOf(opsSearchInput?.value);
+    opsState.module = textOf(opsModuleFilter?.value || 'all') || 'all';
+    opsState.status = textOf(opsStatusFilter?.value || 'all') || 'all';
+    if (resetPages) resetOpsPages();
+    renderOpsQueues();
+  };
+  const clearOpsFilters = () => {
+    if (opsSearchInput) opsSearchInput.value = '';
+    if (opsModuleFilter) opsModuleFilter.value = 'all';
+    if (opsStatusFilter) opsStatusFilter.value = 'all';
+    syncOpsFiltersFromControls({ resetPages: true });
   };
 
   const setFeaturedPricingInputs = (pricingMap = {}) => {
@@ -654,12 +914,12 @@ button:hover { background:#092f6d; }
           </div>
         `).join('') || '<p>No owner verification requests.</p>';
       }
-      renderDocumentationQueue(documentationRequests?.items || []);
-      renderLoanQueue(loanAssistance?.items || []);
-      renderServiceBookingQueue(serviceBookings?.items || []);
-      renderValuationQueue(valuationRequests?.items || []);
-      renderRentAgreementQueue(rentAgreementDrafts?.items || []);
-      renderFranchiseQueue(franchiseRequests?.items || []);
+      opsState.data.documentation = Array.isArray(documentationRequests?.items) ? documentationRequests.items : [];
+      opsState.data.loan = Array.isArray(loanAssistance?.items) ? loanAssistance.items : [];
+      opsState.data.booking = Array.isArray(serviceBookings?.items) ? serviceBookings.items : [];
+      opsState.data.valuation = Array.isArray(valuationRequests?.items) ? valuationRequests.items : [];
+      opsState.data.rent = Array.isArray(rentAgreementDrafts?.items) ? rentAgreementDrafts.items : [];
+      opsState.data.franchise = Array.isArray(franchiseRequests?.items) ? franchiseRequests.items : [];
       renderOpsSummary({
         documentationRequests: documentationRequests?.total || 0,
         loanLeads: loanAssistance?.total || 0,
@@ -668,6 +928,7 @@ button:hover { background:#092f6d; }
         rentDrafts: rentAgreementDrafts?.total || 0,
         franchiseRequests: franchiseRequests?.total || 0,
       });
+      renderOpsQueues();
 
       renderAnalyticsDashboard({
         listings: await fetchListings(),
@@ -785,6 +1046,12 @@ button:hover { background:#092f6d; }
   document.getElementById('downloadLocalDataBtn')?.addEventListener('click', downloadLocalData);
   window.downloadLocalData = downloadLocalData;
   window.updateStatus = updateStatus;
+  opsSearchInput?.addEventListener('input', () => syncOpsFiltersFromControls({ resetPages: true }));
+  opsModuleFilter?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
+  opsStatusFilter?.addEventListener('change', () => syncOpsFiltersFromControls({ resetPages: true }));
+  clearOpsFiltersBtn?.addEventListener('click', clearOpsFilters);
+  exportOpsFilteredBtn?.addEventListener('click', () => exportOpsCsv(true));
+  exportOpsFullBtn?.addEventListener('click', () => exportOpsCsv(false));
 
   pendingDiv?.addEventListener('click', async (event) => {
     const target = event.target;
@@ -997,6 +1264,7 @@ button:hover { background:#092f6d; }
   documentationQueue?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (handleQueuePaginationClick(target)) return;
     const requestId = target.getAttribute('data-doc-id');
     const status = target.getAttribute('data-doc-status');
     if (!requestId || !status) return;
@@ -1023,6 +1291,7 @@ button:hover { background:#092f6d; }
   loanLeadQueue?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (handleQueuePaginationClick(target)) return;
     const leadId = target.getAttribute('data-loan-id');
     const status = target.getAttribute('data-loan-status');
     if (!leadId || !status) return;
@@ -1055,6 +1324,7 @@ button:hover { background:#092f6d; }
   serviceBookingQueue?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (handleQueuePaginationClick(target)) return;
     const bookingId = target.getAttribute('data-booking-id');
     const status = target.getAttribute('data-booking-status');
     if (!bookingId || !status) return;
@@ -1081,6 +1351,7 @@ button:hover { background:#092f6d; }
   franchiseQueue?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (handleQueuePaginationClick(target)) return;
     const requestId = target.getAttribute('data-franchise-id');
     const status = target.getAttribute('data-franchise-status');
     if (!requestId || !status) return;
@@ -1103,8 +1374,19 @@ button:hover { background:#092f6d; }
       window.alert(error.message || 'Franchise update failed.');
     }
   });
+  valuationQueue?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    handleQueuePaginationClick(target);
+  });
+  rentAgreementQueue?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    handleQueuePaginationClick(target);
+  });
 
   render();
+  syncOpsFiltersFromControls({ resetPages: true });
   loadAdminControls();
 })();
 </script>
