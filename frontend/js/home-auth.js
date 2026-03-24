@@ -1,5 +1,6 @@
 (() => {
   const API_BASE = `${window.location.origin}/api`;
+  const live = window.PropertySetuLive || null;
   const OTP_CODE = '123456';
   const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
@@ -122,7 +123,7 @@
     id: rawUser.id || `local-${role}-${Date.now()}`,
     name: rawUser.name || role,
     email: rawUser.email || '',
-    mobile: rawUser.mobile || '',
+    mobile: rawUser.mobile || rawUser.phone || '',
     role,
   });
 
@@ -162,6 +163,15 @@
   };
 
   const apiRequest = async (path, payload, token, timeoutMs = 7000) => {
+    if (live && typeof live.request === 'function') {
+      return live.request(path, {
+        method: payload ? 'POST' : 'GET',
+        data: payload || null,
+        token: token || '',
+        timeoutMs,
+      });
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
