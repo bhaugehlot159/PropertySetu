@@ -3,6 +3,7 @@
   const live = window.PropertySetuLive || null;
   const OTP_CODE = '123456';
   const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+  let expectedOtpCode = OTP_CODE;
 
   const customerAuthButton = document.getElementById('customerAuthButton');
   const adminAuthButton = document.getElementById('adminAuthButton');
@@ -248,11 +249,13 @@
         email,
         mobile,
       });
-      if (authOtpInput) authOtpInput.value = response?.otpHint || OTP_CODE;
+      expectedOtpCode = String(response?.otpHint || OTP_CODE).trim() || OTP_CODE;
+      if (authOtpInput) authOtpInput.value = expectedOtpCode;
       setAuthError(response?.message || `OTP sent (demo OTP: ${OTP_CODE})`);
     } catch (error) {
       if (shouldFallbackToLocal(error)) {
-        if (authOtpInput) authOtpInput.value = OTP_CODE;
+        expectedOtpCode = OTP_CODE;
+        if (authOtpInput) authOtpInput.value = expectedOtpCode;
         setAuthError(`Live OTP unavailable. Demo OTP ${OTP_CODE} use karein.`);
         return;
       }
@@ -328,7 +331,8 @@
     if (authEmailInput) authEmailInput.value = '';
     if (authMobileInput) authMobileInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
-    if (authOtpInput) authOtpInput.value = OTP_CODE;
+    expectedOtpCode = OTP_CODE;
+    if (authOtpInput) authOtpInput.value = expectedOtpCode;
     if (authErrorMessage) authErrorMessage.textContent = '';
     setAuthAction('login');
     authModal.classList.add('show');
@@ -354,7 +358,7 @@
     if (authAction === 'signup' && !name) return setAuthError('Signup ke liye full name required hai.');
     if (authAction === 'signup' && password.length < 6) return setAuthError('Password minimum 6 characters hona chahiye.');
     if (authAction === 'login' && password && password.length < 6) return setAuthError('Password blank rakhein ya minimum 6 characters rakhein.');
-    if (otp !== OTP_CODE) return setAuthError(`OTP ${OTP_CODE} enter kijiye.`);
+    if (otp !== expectedOtpCode) return setAuthError(`OTP ${expectedOtpCode} enter kijiye.`);
 
     const payload = { name, email, mobile, password, otp, role: authMode };
     const endpoint = authAction === 'signup' ? '/auth/register' : '/auth/login';

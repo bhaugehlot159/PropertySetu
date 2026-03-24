@@ -6,6 +6,9 @@ import { normalizeCoreProperty, toId } from "../utils/coreMappers.js";
 
 const PROPERTY_TYPES = new Set(["buy", "rent"]);
 const PROPERTY_CATEGORIES = new Set(["house", "plot", "commercial"]);
+const MIN_REQUIRED_PHOTOS = 5;
+const MIN_VIDEO_DURATION_SEC = 30;
+const MAX_VIDEO_DURATION_SEC = 60;
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -48,8 +51,156 @@ function normalizeImages(images) {
   return [];
 }
 
-function normalizeCreatePayload(body = {}) {
+function normalizeObject(value, fallback = {}) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { ...value };
+  }
+  return { ...fallback };
+}
+
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => text(item)).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => text(item))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeMedia(media = {}) {
+  const row = normalizeObject(media);
   return {
+    ...row,
+    photosCount: Math.max(
+      0,
+      numberValue(row.photosCount, normalizeStringArray(row.photoNames).length)
+    ),
+    videoUploaded:
+      typeof row.videoUploaded === "boolean"
+        ? row.videoUploaded
+        : Boolean(text(row.videoName || row.videoUrl)),
+    videoDurationSec: Math.max(0, numberValue(row.videoDurationSec, 0)),
+    photoNames: normalizeStringArray(row.photoNames),
+    videoName: text(row.videoName),
+    floorPlanName: text(row.floorPlanName)
+  };
+}
+
+function normalizePrivateDocs(privateDocs = {}) {
+  const row = normalizeObject(privateDocs);
+  const uploadedPrivateDocs = Array.isArray(row.uploadedPrivateDocs)
+    ? row.uploadedPrivateDocs
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          id: text(item.id),
+          category: text(item.category),
+          name: text(item.name),
+          url: text(item.url),
+          sizeBytes: numberValue(item.sizeBytes, 0)
+        }))
+    : [];
+
+  return {
+    ...row,
+    propertyDocuments: normalizeStringArray(row.propertyDocuments),
+    ownerIdProof: text(row.ownerIdProof),
+    addressProof: text(row.addressProof),
+    privateViewMode: text(row.privateViewMode, "Private View Only"),
+    uploadedPrivateDocs
+  };
+}
+
+function normalizeMixedObject(value) {
+  return normalizeObject(value);
+}
+
+function buildAutoDescription(payload = {}) {
+  const title = text(payload.title, "Property");
+  const category = text(payload.category, "house");
+  const type = text(payload.type, "buy");
+  const location = text(payload.location, "Udaipur");
+  const city = text(payload.city, "Udaipur");
+  const size = numberValue(payload.size, 0);
+  const price = numberValue(payload.price, 0);
+  const photosCount = Math.max(
+    normalizeImages(payload.images).length,
+    numberValue(payload?.media?.photosCount, 0)
+  );
+  const hasVideo = Boolean(text(payload.video) || payload?.media?.videoUploaded);
+  const documentsReady = Boolean(
+    normalizePrivateDocs(payload.privateDocs).propertyDocuments.length ||
+      normalizePrivateDocs(payload.privateDocs).uploadedPrivateDocs.length
+  );
+
+  return [
+    `${title} available for ${type} in ${location}, ${city}.`,
+    `${category} category with ${size} sqft built-up area and expected price INR ${price.toLocaleString(
+      "en-IN"
+    )}.`,
+    `${photosCount} photos and ${hasVideo ? "a short video tour" : "media details"} are attached for listing review.`,
+    `${documentsReady ? "Private documents are uploaded for verification." : "Private document verification is in progress."}`
+  ].join(" ");
+}
+
+function shouldApplyProfessionalUploadRules(payload = {}) {
+  return Boolean(
+    payload.media ||
+      payload.privateDocs ||
+      payload.detailStructure ||
+      payload.verification ||
+      payload.videoVisit
+  );
+}
+
+function validateProfessionalUploadRules(payload = {}) {
+  if (!shouldApplyProfessionalUploadRules(payload)) return "";
+
+  const media = normalizeMedia(payload.media);
+  const privateDocs = normalizePrivateDocs(payload.privateDocs);
+  const imageCount = normalizeImages(payload.images).length;
+  const photoCount = Math.max(
+    imageCount,
+    numberValue(media.photosCount, 0),
+    normalizeStringArray(media.photoNames).length
+  );
+
+  if (photoCount < MIN_REQUIRED_PHOTOS) {
+    return `Minimum ${MIN_REQUIRED_PHOTOS} photos are required for professional upload.`;
+  }
+
+  const hasSingleVideo =
+    Boolean(text(payload.video)) || Boolean(media.videoUploaded || text(media.videoName));
+  if (!hasSingleVideo) {
+    return "One short property video is required for professional upload.";
+  }
+
+  const duration = numberValue(media.videoDurationSec, 0);
+  if (
+    duration > 0 &&
+    (duration < MIN_VIDEO_DURATION_SEC || duration > MAX_VIDEO_DURATION_SEC)
+  ) {
+    return `Video duration must be between ${MIN_VIDEO_DURATION_SEC} and ${MAX_VIDEO_DURATION_SEC} seconds.`;
+  }
+
+  const hasPrivateDocs =
+    privateDocs.propertyDocuments.length > 0 ||
+    Boolean(privateDocs.ownerIdProof) ||
+    Boolean(privateDocs.addressProof) ||
+    privateDocs.uploadedPrivateDocs.length > 0;
+
+  if (!hasPrivateDocs) {
+    return "Private document upload is required for professional listing flow.";
+  }
+
+  return "";
+}
+
+function normalizeCreatePayload(body = {}) {
+  const payload = {
     title: text(body.title),
     description: text(body.description),
     city: text(body.city),
@@ -60,12 +211,24 @@ function normalizeCreatePayload(body = {}) {
     size: numberValue(body.size, 0),
     images: normalizeImages(body.images),
     video: text(body.video),
+    media: normalizeMedia(body.media),
+    privateDocs: normalizePrivateDocs(body.privateDocs),
+    detailStructure: normalizeMixedObject(body.detailStructure),
+    verification: normalizeMixedObject(body.verification),
+    virtualTour: normalizeMixedObject(body.virtualTour),
+    visitBooking: normalizeMixedObject(body.visitBooking),
+    videoVisit: normalizeMixedObject(body.videoVisit),
+    aiReview: normalizeMixedObject(body.aiReview),
     verified: Boolean(body.verified),
     featured: Boolean(body.featured)
   };
+  if (!payload.description) {
+    payload.description = buildAutoDescription(payload);
+  }
+  return payload;
 }
 
-function normalizeUpdatePayload(body = {}) {
+function normalizeUpdatePayload(body = {}, existing = null) {
   const updates = {};
 
   if (typeof body.title !== "undefined") updates.title = text(body.title);
@@ -78,8 +241,40 @@ function normalizeUpdatePayload(body = {}) {
   if (typeof body.size !== "undefined") updates.size = numberValue(body.size, 0);
   if (typeof body.images !== "undefined") updates.images = normalizeImages(body.images);
   if (typeof body.video !== "undefined") updates.video = text(body.video);
+  if (typeof body.media !== "undefined") updates.media = normalizeMedia(body.media);
+  if (typeof body.privateDocs !== "undefined") {
+    updates.privateDocs = normalizePrivateDocs(body.privateDocs);
+  }
+  if (typeof body.detailStructure !== "undefined") {
+    updates.detailStructure = normalizeMixedObject(body.detailStructure);
+  }
+  if (typeof body.verification !== "undefined") {
+    updates.verification = normalizeMixedObject(body.verification);
+  }
+  if (typeof body.virtualTour !== "undefined") {
+    updates.virtualTour = normalizeMixedObject(body.virtualTour);
+  }
+  if (typeof body.visitBooking !== "undefined") {
+    updates.visitBooking = normalizeMixedObject(body.visitBooking);
+  }
+  if (typeof body.videoVisit !== "undefined") {
+    updates.videoVisit = normalizeMixedObject(body.videoVisit);
+  }
+  if (typeof body.aiReview !== "undefined") updates.aiReview = normalizeMixedObject(body.aiReview);
   if (typeof body.verified !== "undefined") updates.verified = Boolean(body.verified);
   if (typeof body.featured !== "undefined") updates.featured = Boolean(body.featured);
+
+  const merged = {
+    ...(existing && typeof existing === "object" ? existing : {}),
+    ...updates
+  };
+  const shouldAutoGenerate =
+    typeof body.description !== "undefined"
+      ? !updates.description
+      : !text(merged.description);
+  if (shouldAutoGenerate) {
+    updates.description = buildAutoDescription(merged);
+  }
 
   return updates;
 }
@@ -90,7 +285,21 @@ function validatePropertyPayload(payload) {
   if (!payload.location) return "location is required.";
   if (!payload.price || payload.price <= 0) return "price must be greater than zero.";
   if (!payload.size || payload.size <= 0) return "size must be greater than zero.";
-  return "";
+  return validateProfessionalUploadRules(payload);
+}
+
+function validateUpdatePayload(existing = {}, updates = {}) {
+  const merged = { ...existing, ...updates };
+  if (!merged.title) return "title is required.";
+  if (!merged.city) return "city is required.";
+  if (!merged.location) return "location is required.";
+  if (!numberValue(merged.price, 0) || numberValue(merged.price, 0) <= 0) {
+    return "price must be greater than zero.";
+  }
+  if (!numberValue(merged.size, 0) || numberValue(merged.size, 0) <= 0) {
+    return "size must be greater than zero.";
+  }
+  return validateProfessionalUploadRules(merged);
 }
 
 function isAdmin(req) {
@@ -299,11 +508,20 @@ export async function updateCoreProperty(req, res, next) {
       });
     }
 
-    const updates = normalizeUpdatePayload(req.body);
+    const existingNormalized = normalizeCoreProperty(existing);
+    const updates = normalizeUpdatePayload(req.body, existingNormalized);
     if (!Object.keys(updates).length) {
       return res.status(400).json({
         success: false,
         message: "No valid update fields provided."
+      });
+    }
+
+    const validation = validateUpdatePayload(existingNormalized, updates);
+    if (validation) {
+      return res.status(400).json({
+        success: false,
+        message: validation
       });
     }
 

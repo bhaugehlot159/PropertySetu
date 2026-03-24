@@ -1,4 +1,5 @@
 import CoreUser from "../models/CoreUser.js";
+import crypto from "crypto";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import {
@@ -13,12 +14,87 @@ function text(value, fallback = "") {
   return normalized || fallback;
 }
 
+const OTP_TTL_MS = Math.max(60_000, Number(process.env.CORE_OTP_TTL_MS || 300_000));
+const OTP_MAX_ATTEMPTS = Math.max(1, Number(process.env.CORE_OTP_MAX_ATTEMPTS || 5));
+const coreOtpStore = new Map();
+
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""));
 }
 
 function isValidPhone(phone) {
   return /^[0-9]{8,15}$/.test(String(phone || ""));
+}
+
+function normalizeIdentity(value) {
+  const raw = text(value);
+  if (!raw) return "";
+  if (raw.includes("@")) return raw.toLowerCase();
+  return raw.replace(/\D/g, "");
+}
+
+function otpStorageKey(identity) {
+  return `otp:${normalizeIdentity(identity)}`;
+}
+
+function hashOtp(otpCode) {
+  return crypto.createHash("sha256").update(String(otpCode || "")).digest("hex");
+}
+
+function generateOtpCode() {
+  const configured = text(process.env.CORE_STATIC_OTP);
+  if (configured) return configured;
+  return String(Math.floor(100_000 + Math.random() * 900_000));
+}
+
+function shouldExposeOtpHint() {
+  return (
+    text(process.env.CORE_EXPOSE_OTP).toLowerCase() === "true" ||
+    text(process.env.NODE_ENV).toLowerCase() !== "production"
+  );
+}
+
+function pruneExpiredOtps() {
+  const now = Date.now();
+  for (const [key, value] of coreOtpStore.entries()) {
+    if (!value || now >= Number(value.expiresAt || 0)) {
+      coreOtpStore.delete(key);
+    }
+  }
+}
+
+function storeOtpForUser(user, otpCode) {
+  const identityKeys = [text(user?.email).toLowerCase(), text(user?.phone)]
+    .map(otpStorageKey)
+    .filter(Boolean);
+
+  const entry = {
+    otpHash: hashOtp(otpCode),
+    expiresAt: Date.now() + OTP_TTL_MS,
+    attempts: 0
+  };
+
+  identityKeys.forEach((key) => {
+    coreOtpStore.set(key, entry);
+  });
+}
+
+function clearOtpForUser(user) {
+  [text(user?.email).toLowerCase(), text(user?.phone)]
+    .map(otpStorageKey)
+    .filter(Boolean)
+    .forEach((key) => coreOtpStore.delete(key));
+}
+
+function getOtpEntryForUser(user) {
+  const keys = [text(user?.email).toLowerCase(), text(user?.phone)]
+    .map(otpStorageKey)
+    .filter(Boolean);
+  for (const key of keys) {
+    const value = coreOtpStore.get(key);
+    if (value) return value;
+  }
+  return null;
 }
 
 function normalizeRole(role) {
@@ -80,6 +156,61 @@ async function findUserById(userId) {
     return CoreUser.findById(userId);
   }
   return proMemoryStore.coreUsers.find((item) => item._id === userId) || null;
+}
+
+export async function requestCoreOtp(req, res, next) {
+  try {
+    pruneExpiredOtps();
+
+    const emailOrPhone = text(req.body?.emailOrPhone || req.body?.email || req.body?.phone);
+    if (!emailOrPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "emailOrPhone is required."
+      });
+    }
+
+    const identity = normalizeIdentity(emailOrPhone);
+    const looksLikeEmail = identity.includes("@");
+    if (looksLikeEmail && !isValidEmail(identity)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format."
+      });
+    }
+
+    if (!looksLikeEmail && !isValidPhone(identity)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone must contain 8 to 15 digits."
+      });
+    }
+
+    const user = await findUserByIdentity({ emailOrPhone: identity });
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: "If account exists, OTP has been sent.",
+        expiresInSec: Math.floor(OTP_TTL_MS / 1000)
+      });
+    }
+
+    const otpCode = generateOtpCode();
+    storeOtpForUser(user, otpCode);
+
+    const response = {
+      success: true,
+      message: "OTP generated successfully.",
+      expiresInSec: Math.floor(OTP_TTL_MS / 1000)
+    };
+    if (shouldExposeOtpHint()) {
+      response.otpHint = otpCode;
+    }
+
+    return res.json(response);
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function registerCoreUser(req, res, next) {
@@ -214,6 +345,78 @@ export async function loginCoreUser(req, res, next) {
         message: "Invalid credentials."
       });
     }
+
+    const safeUser = normalizeCoreUser(user);
+    const token = signCoreToken(safeUser);
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      user: safeUser,
+      token
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function loginCoreUserWithOtp(req, res, next) {
+  try {
+    pruneExpiredOtps();
+
+    const emailOrPhone = text(req.body?.emailOrPhone || req.body?.email || req.body?.phone);
+    const otp = text(req.body?.otp);
+
+    if (!emailOrPhone || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "emailOrPhone and otp are required."
+      });
+    }
+
+    const identity = normalizeIdentity(emailOrPhone);
+    const user = await findUserByIdentity({ emailOrPhone: identity });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid OTP credentials."
+      });
+    }
+
+    const entry = getOtpEntryForUser(user);
+    if (!entry) {
+      return res.status(401).json({
+        success: false,
+        message: "OTP not requested or expired."
+      });
+    }
+
+    if (Date.now() >= Number(entry.expiresAt || 0)) {
+      clearOtpForUser(user);
+      return res.status(401).json({
+        success: false,
+        message: "OTP expired. Please request a new OTP."
+      });
+    }
+
+    if (Number(entry.attempts || 0) >= OTP_MAX_ATTEMPTS) {
+      clearOtpForUser(user);
+      return res.status(429).json({
+        success: false,
+        message: "Too many invalid OTP attempts. Request a new OTP."
+      });
+    }
+
+    const otpValid = hashOtp(otp) === String(entry.otpHash || "");
+    if (!otpValid) {
+      entry.attempts = Number(entry.attempts || 0) + 1;
+      return res.status(401).json({
+        success: false,
+        message: "Invalid OTP."
+      });
+    }
+
+    clearOtpForUser(user);
 
     const safeUser = normalizeCoreUser(user);
     const token = signCoreToken(safeUser);

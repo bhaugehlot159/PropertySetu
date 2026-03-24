@@ -58,6 +58,44 @@ export function normalizeCoreProperty(doc) {
     size: Number(row.size || 0),
     images: Array.isArray(row.images) ? row.images : [],
     video: row.video || "",
+    media:
+      row.media && typeof row.media === "object" && !Array.isArray(row.media)
+        ? row.media
+        : {},
+    privateDocs:
+      row.privateDocs && typeof row.privateDocs === "object" && !Array.isArray(row.privateDocs)
+        ? row.privateDocs
+        : {},
+    detailStructure:
+      row.detailStructure &&
+      typeof row.detailStructure === "object" &&
+      !Array.isArray(row.detailStructure)
+        ? row.detailStructure
+        : {},
+    verification:
+      row.verification &&
+      typeof row.verification === "object" &&
+      !Array.isArray(row.verification)
+        ? row.verification
+        : {},
+    virtualTour:
+      row.virtualTour && typeof row.virtualTour === "object" && !Array.isArray(row.virtualTour)
+        ? row.virtualTour
+        : {},
+    visitBooking:
+      row.visitBooking &&
+      typeof row.visitBooking === "object" &&
+      !Array.isArray(row.visitBooking)
+        ? row.visitBooking
+        : {},
+    videoVisit:
+      row.videoVisit && typeof row.videoVisit === "object" && !Array.isArray(row.videoVisit)
+        ? row.videoVisit
+        : {},
+    aiReview:
+      row.aiReview && typeof row.aiReview === "object" && !Array.isArray(row.aiReview)
+        ? row.aiReview
+        : {},
     ownerId: toId(row.ownerId),
     verified: Boolean(row.verified),
     featured: Boolean(row.featured),

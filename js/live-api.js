@@ -175,6 +175,10 @@
     return 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg';
   };
 
+  const toObject = (value) => (
+    value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  );
+
   const mapCorePropertyToLegacy = (entry) => {
     if (!entry || typeof entry !== 'object') return null;
     const createdAt = text(entry.createdAt, new Date().toISOString());
@@ -182,6 +186,8 @@
     const size = numberFrom(entry.size, parseSizeToNumber(entry.areaSqft));
     const verified = Boolean(entry.verified);
     const status = text(entry.status, verified ? 'Approved' : 'Pending Approval');
+    const aiReview = toObject(entry.aiReview);
+    const fraudRisk = numberFrom(aiReview.fraudRiskScore, verified ? 15 : 38);
 
     return {
       id: text(entry.id || entry._id, `api-${Date.now()}`),
@@ -206,7 +212,7 @@
       verified,
       featured: Boolean(entry.featured),
       premium: Boolean(entry.featured),
-      trustScore: Math.max(35, numberFrom(entry.trustScore, verified ? 85 : 62)),
+      trustScore: Math.max(35, numberFrom(entry.trustScore, 100 - fraudRisk)),
       listedAt: createdAt,
       createdAt,
       updatedAt: text(entry.updatedAt, createdAt),
@@ -217,17 +223,30 @@
       ownerName: text(entry.ownerName),
       reviewCount: numberFrom(entry.reviewCount, 0),
       averageRating: numberFrom(entry.averageRating, 0),
-      media: entry.media || {},
-      aiReview: entry.aiReview || {},
+      media: toObject(entry.media),
+      privateDocs: toObject(entry.privateDocs),
+      detailStructure: toObject(entry.detailStructure),
+      verification: toObject(entry.verification),
+      virtualTour: toObject(entry.virtualTour),
+      visitBooking: toObject(entry.visitBooking),
+      videoVisit: toObject(entry.videoVisit),
+      aiReview,
     };
   };
 
   const mapLegacyPropertyToCore = (payload = {}) => {
+    const media = toObject(payload.media);
+    const uploadedPhotos = Array.isArray(media.uploads)
+      ? media.uploads
+        .filter((item) => text(item?.category).toLowerCase() === 'photo')
+        .map((item) => text(item?.url))
+        .filter(Boolean)
+      : [];
     const images = Array.isArray(payload.images)
       ? payload.images.filter(Boolean)
       : text(payload.image)
         ? [text(payload.image)]
-        : [];
+        : uploadedPhotos;
     const size = parseSizeToNumber(
       payload.size
       || payload.builtUpArea
@@ -246,7 +265,15 @@
       price: numberFrom(payload.price, 0),
       size: Math.max(1, size || 1),
       images,
-      video: text(payload.video),
+      video: text(payload.video || media.videoUrl || media.videoName),
+      media,
+      privateDocs: toObject(payload.privateDocs),
+      detailStructure: toObject(payload.detailStructure),
+      verification: toObject(payload.verification),
+      virtualTour: toObject(payload.virtualTour),
+      visitBooking: toObject(payload.visitBooking),
+      videoVisit: toObject(payload.videoVisit),
+      aiReview: toObject(payload.aiReview),
       verified: Boolean(payload.verified),
       featured: Boolean(payload.featured),
     };
@@ -287,6 +314,22 @@
       updates.images = Array.isArray(payload.images) ? payload.images.filter(Boolean) : [];
     }
     if (typeof payload.video !== 'undefined') updates.video = text(payload.video);
+    if (typeof payload.media !== 'undefined') {
+      updates.media = toObject(payload.media);
+      if (typeof payload.video === 'undefined') {
+        const mediaVideo = text(payload.media?.videoUrl || payload.media?.videoName);
+        if (mediaVideo) updates.video = mediaVideo;
+      }
+    }
+    if (typeof payload.privateDocs !== 'undefined') updates.privateDocs = toObject(payload.privateDocs);
+    if (typeof payload.detailStructure !== 'undefined') {
+      updates.detailStructure = toObject(payload.detailStructure);
+    }
+    if (typeof payload.verification !== 'undefined') updates.verification = toObject(payload.verification);
+    if (typeof payload.virtualTour !== 'undefined') updates.virtualTour = toObject(payload.virtualTour);
+    if (typeof payload.visitBooking !== 'undefined') updates.visitBooking = toObject(payload.visitBooking);
+    if (typeof payload.videoVisit !== 'undefined') updates.videoVisit = toObject(payload.videoVisit);
+    if (typeof payload.aiReview !== 'undefined') updates.aiReview = toObject(payload.aiReview);
     if (typeof payload.verified !== 'undefined') updates.verified = Boolean(payload.verified);
     if (typeof payload.featured !== 'undefined') updates.featured = Boolean(payload.featured);
 
@@ -327,7 +370,29 @@
     try {
       if (rawPath.startsWith('/auth/')) {
         if (rawPath === '/auth/request-otp' && method === 'POST') {
-          return { ok: true, otpHint: '123456', message: 'Demo OTP sent successfully.' };
+          const payload = options.data || {};
+          try {
+            const response = await requestJson(CORE_API_BASE, '/auth/request-otp', {
+              method: 'POST',
+              token: options.token,
+              timeoutMs: options.timeoutMs,
+              data: {
+                emailOrPhone: text(payload.emailOrPhone || payload.email || payload.mobile || payload.phone),
+              },
+            });
+            return {
+              ok: true,
+              success: true,
+              message: text(response?.message, 'OTP sent successfully.'),
+              otpHint: text(response?.otpHint, ''),
+              expiresInSec: numberFrom(response?.expiresInSec, 300),
+            };
+          } catch (error) {
+            if (Number(error?.status) === 404) {
+              return { ok: true, otpHint: '123456', message: 'Demo OTP sent successfully.' };
+            }
+            throw error;
+          }
         }
 
         if (rawPath === '/auth/register' && method === 'POST') {
@@ -366,17 +431,34 @@
         if (rawPath === '/auth/login' && method === 'POST') {
           const payload = options.data || {};
           const identity = text(payload.emailOrPhone || payload.email || payload.mobile || payload.phone);
+          const password = text(payload.password);
+          const otp = text(payload.otp);
+          if (!identity) return null;
+
           let response;
           try {
-            response = await requestJson(CORE_API_BASE, '/auth/login', {
-              method: 'POST',
-              data: {
-                emailOrPhone: identity,
-                password: text(payload.password),
-              },
-              token: options.token,
-              timeoutMs: options.timeoutMs,
-            });
+            if (password) {
+              response = await requestJson(CORE_API_BASE, '/auth/login', {
+                method: 'POST',
+                data: {
+                  emailOrPhone: identity,
+                  password,
+                },
+                token: options.token,
+                timeoutMs: options.timeoutMs,
+              });
+            } else {
+              if (!otp) return null;
+              response = await requestJson(CORE_API_BASE, '/auth/login-otp', {
+                method: 'POST',
+                data: {
+                  emailOrPhone: identity,
+                  otp,
+                },
+                token: options.token,
+                timeoutMs: options.timeoutMs,
+              });
+            }
           } catch (error) {
             if (Number(error?.status) === 401) return null;
             throw error;

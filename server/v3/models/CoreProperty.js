@@ -50,6 +50,38 @@ const corePropertySchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    media: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    privateDocs: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    detailStructure: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    verification: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    virtualTour: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    visitBooking: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    videoVisit: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    aiReview: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
     ownerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "CoreUser",

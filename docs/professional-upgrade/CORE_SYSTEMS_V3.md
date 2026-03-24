@@ -57,6 +57,8 @@ Professional additive API layer is available at:
 
 - `POST /api/v3/auth/register`
 - `POST /api/v3/auth/login`
+- `POST /api/v3/auth/request-otp`
+- `POST /api/v3/auth/login-otp`
 - `GET /api/v3/auth/me` (auth)
 - `GET /api/v3/auth/users` (admin)
 - `PATCH /api/v3/auth/users/:userId/verify` (admin)
@@ -70,6 +72,13 @@ Professional additive API layer is available at:
 - `DELETE /api/v3/properties/:propertyId` (owner/admin)
 - `POST /api/v3/properties/:propertyId/verify` (admin)
 - `POST /api/v3/properties/:propertyId/feature` (admin)
+
+Professional upload rules (applied when professional payload fields are present):
+
+- Minimum `5` photos
+- `1` short video (30-60 sec)
+- Private document metadata required
+- Auto description generated server-side when description is blank
 
 ### Reviews
 

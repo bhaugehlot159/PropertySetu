@@ -1,8 +1,10 @@
 import { Router } from "express";
 import {
   getCoreMe,
+  loginCoreUserWithOtp,
   listCoreUsers,
   loginCoreUser,
+  requestCoreOtp,
   registerCoreUser,
   setCoreUserVerified
 } from "../controllers/coreAuthController.js";
@@ -15,6 +17,8 @@ const router = Router();
 
 router.post("/register", registerCoreUser);
 router.post("/login", loginCoreUser);
+router.post("/request-otp", requestCoreOtp);
+router.post("/login-otp", loginCoreUserWithOtp);
 router.get("/me", coreAuthRequired, getCoreMe);
 router.get("/users", coreAuthRequired, coreRoleRequired("admin"), listCoreUsers);
 router.patch(
