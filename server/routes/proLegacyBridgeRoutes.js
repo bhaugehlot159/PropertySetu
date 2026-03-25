@@ -223,17 +223,33 @@ router.get("/system/capabilities", (_req, res) => {
   res.json({
     ok: true,
     capabilities: {
-      auth: false,
+      auth: true,
       listings: true,
       mediaUpload: true,
       ownerVerification: true,
       subscriptions: true,
+      payments: true,
+      chat: true,
       aiPricing: true,
       aiDescription: true,
       aiFraudScan: true,
       marketplaceRecommendations: true,
       sealedBids: true,
-      reports: true
+      reports: true,
+      citySeoStructure: true,
+      propertyCare: true
+    },
+    modules: {
+      auth: "/api/v3/auth/*",
+      listings: "/api/v3/properties/*",
+      mediaUpload: "/api/v3/uploads/*",
+      ownerVerification: "/api/v3/owner-verification/*",
+      subscriptions: "/api/v3/subscriptions/*",
+      payments: "/api/v2/payments/*",
+      chat: "/api/v3/chat/*",
+      ai: "/api/v3/ai/*",
+      citySeoStructure: "/api/v3/seo/city-structure",
+      propertyCare: "/api/v3/property-care/*"
     }
   });
 });

@@ -14,10 +14,16 @@ import proPaymentRoutes from "./routes/proPaymentRoutes.js";
 import proPropertyRoutes from "./routes/proPropertyRoutes.js";
 import proStorageRoutes from "./routes/proStorageRoutes.js";
 import coreAuthRoutes from "./v3/routes/coreAuthRoutes.js";
+import coreChatRoutes from "./v3/routes/coreChatRoutes.js";
 import coreHealthRoutes from "./v3/routes/coreHealthRoutes.js";
+import coreAiRoutes from "./v3/routes/coreAiRoutes.js";
+import coreOwnerVerificationRoutes from "./v3/routes/coreOwnerVerificationRoutes.js";
 import corePropertyRoutes from "./v3/routes/corePropertyRoutes.js";
+import corePropertyCareRoutes from "./v3/routes/corePropertyCareRoutes.js";
 import coreReviewRoutes from "./v3/routes/coreReviewRoutes.js";
+import coreSeoRoutes from "./v3/routes/coreSeoRoutes.js";
 import coreSubscriptionRoutes from "./v3/routes/coreSubscriptionRoutes.js";
+import coreUploadRoutes from "./v3/routes/coreUploadRoutes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +71,12 @@ app.use(`${apiV3Prefix}/auth`, coreAuthRoutes);
 app.use(`${apiV3Prefix}/properties`, corePropertyRoutes);
 app.use(`${apiV3Prefix}/reviews`, coreReviewRoutes);
 app.use(`${apiV3Prefix}/subscriptions`, coreSubscriptionRoutes);
+app.use(`${apiV3Prefix}/chat`, coreChatRoutes);
+app.use(`${apiV3Prefix}/uploads`, coreUploadRoutes);
+app.use(`${apiV3Prefix}/owner-verification`, coreOwnerVerificationRoutes);
+app.use(`${apiV3Prefix}/property-care`, corePropertyCareRoutes);
+app.use(`${apiV3Prefix}/ai`, coreAiRoutes);
+app.use(`${apiV3Prefix}/seo`, coreSeoRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));

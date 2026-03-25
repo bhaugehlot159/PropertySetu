@@ -10,5 +10,9 @@ export const proMemoryStore = {
   coreUsers: [],
   coreProperties: [],
   coreReviews: [],
-  coreSubscriptions: []
+  coreSubscriptions: [],
+  coreMessages: [],
+  coreUploads: [],
+  coreOwnerVerificationRequests: [],
+  corePropertyCareRequests: []
 };

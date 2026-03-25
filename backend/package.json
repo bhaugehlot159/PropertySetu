@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node src/server-entry.js",
-    "dev": "nodemon src/server-entry.js"
+    "dev": "nodemon src/server-entry.js",
+    "pro:start": "node src/professional-entry.js",
+    "pro:dev": "nodemon src/professional-entry.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -70,6 +70,9 @@ Detailed non-destructive production roadmap: `PRODUCTION_GRADE_BLUEPRINT.md`
 ## Real Backend Structure Plan
 Production-level backend + database-ready architecture map: `docs/REAL_BACKEND_STRUCTURE_PLAN.md`
 
+## Production Feature Backend Map
+Requested real features to backend endpoint mapping (OTP, upload, verification, chat, AI, property-care, city SEO): `docs/PRODUCTION_FEATURE_BACKEND_MAP.md`
+
 ## Direct Production Deploy
 Domain + PM2 + Nginx + SSL checklist: `docs/PRODUCTION_DEPLOY_CHECKLIST.md`
 
