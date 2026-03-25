@@ -1,5 +1,22 @@
 # PropertySetu
 
+## Beginner Option-2 (Root Commands, No Old Code Removed)
+Run from project root:
+```bash
+npm run option2:start
+```
+
+Then open:
+- Frontend + API: `http://localhost:5000`
+- Simple Admin Panel: `http://localhost:5000/admin-simple`
+
+Other root scripts:
+- `npm run option2:dev`
+- `npm run option1:start`
+- `npm run option1:dev`
+- `npm run pro:preflight`
+- `npm run client:dev`
+
 ## Quick Start (Fully Running)
 
 ### 1) Run website + API
@@ -13,6 +30,7 @@ Open:
 - Frontend: `http://localhost:5000/index.html`
 - API info: `http://localhost:5000/api`
 - Health check: `http://localhost:5000/api/health`
+- Simple admin panel: `http://localhost:5000/admin-simple`
 
 ### 2) Option-1 Professional Stack Mode (React + Node/Express + Mongo path)
 ```bash
@@ -88,6 +106,9 @@ Detailed non-destructive production roadmap: `PRODUCTION_GRADE_BLUEPRINT.md`
 ## Real Backend Structure Plan
 Production-level backend + database-ready architecture map: `docs/REAL_BACKEND_STRUCTURE_PLAN.md`
 
+## Option 2 Beginner Stack Plan
+HTML/CSS/JS + Node.js + MongoDB + simple admin path: `docs/OPTION_2_BEGINNER_STACK.md`
+
 ## Production Feature Backend Map
 Requested real features to backend endpoint mapping (OTP, upload, verification, chat, AI, property-care, city SEO): `docs/PRODUCTION_FEATURE_BACKEND_MAP.md`
 
@@ -122,6 +143,24 @@ Use this flow:
 3. Close/supersede the previous PR in GitHub if needed.
 ## Production Blueprint
 Detailed production roadmap/documentation is available at `PRODUCTION_BLUEPRINT.md`.
+
+## Professional Folder Structure (Current)
+```text
+PropertySetu/
+├── client/                 # React frontend (Option 1 path)
+│   ├── pages/
+│   ├── components/
+│   ├── services/
+│   └── utils/
+├── server/                 # Node.js backend (Option 2 live path)
+│   ├── controllers/
+│   ├── models/
+│   ├── routes/
+│   ├── middleware/
+│   └── config/
+├── database/               # Runtime/live data storage
+└── package.json            # Root run scripts
+```
 
 
 ```bash

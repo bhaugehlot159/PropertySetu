@@ -41,6 +41,7 @@ const liveRouteMap = [
   { path: "/property-details", file: "property-details.html", feature: "property-details", live: true },
   { path: "/customer-dashboard", file: "user-dashboard.html", feature: "customer-dashboard", live: true },
   { path: "/admin-dashboard", file: "admin-dashboard.html", feature: "admin-dashboard", live: true },
+  { path: "/admin-simple", file: "admin-simple.html", feature: "admin-simple", live: true },
   { path: "/seller-dashboard", file: "seller-dashboard.html", feature: "seller-dashboard", live: true },
   { path: "/jaipur", file: "pages/city-expansion.html", feature: "future-city-route", live: false },
   { path: "/jodhpur", file: "pages/city-expansion.html", feature: "future-city-route", live: false },

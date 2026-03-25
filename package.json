@@ -1,0 +1,16 @@
+{
+  "name": "propertysetu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PropertySetu unified run scripts (legacy + professional)",
+  "scripts": {
+    "option2:start": "npm --prefix server start",
+    "option2:dev": "npm --prefix server run dev",
+    "option1:start": "npm --prefix backend run pro:start",
+    "option1:dev": "npm --prefix backend run pro:dev",
+    "pro:preflight": "npm --prefix backend run pro:preflight",
+    "client:dev": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build",
+    "client:preview": "npm --prefix client run preview"
+  }
+}
