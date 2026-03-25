@@ -74,6 +74,7 @@ Legacy code preserved. No old flow removed or deleted.
 - System readiness:
   - `GET /api/v3/system/architecture-plan`
   - `GET /api/v3/system/stack-readiness`
+  - `GET /api/v3/system/database-structure`
 
 ## 4) Feature Mapping (Requested)
 - User dashboard: `user-dashboard.html`, `dashboard.html`, React app pages in `client/pages`
@@ -101,6 +102,11 @@ npm run pro:start
 ```bash
 cd backend
 npm run pro:preflight
+```
+- MongoDB structure contract check:
+```bash
+cd backend
+npm run pro:db:contract
 ```
 
 ## 6) Deployment Targets

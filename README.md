@@ -15,6 +15,7 @@ Other root scripts:
 - `npm run option1:start`
 - `npm run option1:dev`
 - `npm run pro:preflight`
+- `npm run pro:db:contract`
 - `npm run client:dev`
 
 ## Quick Start (Fully Running)
@@ -43,6 +44,7 @@ Open:
 - Professional API health: `http://localhost:5200/api/v3/health`
 - Stack readiness: `http://localhost:5200/api/v3/system/stack-readiness`
 - Architecture plan: `http://localhost:5200/api/v3/system/architecture-plan`
+- Database structure contract: `http://localhost:5200/api/v3/system/database-structure`
 
 Preflight before deployment:
 ```bash

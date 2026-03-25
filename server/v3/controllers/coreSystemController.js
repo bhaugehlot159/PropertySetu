@@ -4,6 +4,11 @@ import { fileURLToPath } from "url";
 import { proRuntime } from "../../config/proRuntime.js";
 import { getStorageProvider } from "../../config/proStorage.js";
 import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
+import CoreUser from "../models/CoreUser.js";
+import CoreProperty from "../models/CoreProperty.js";
+import CoreReview from "../models/CoreReview.js";
+import CoreSubscription from "../models/CoreSubscription.js";
+import { buildCoreDatabaseContract } from "../contracts/coreDatabaseContract.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +40,23 @@ function readJsonSafe(filePath) {
 
 function safeBool(value) {
   return Boolean(value);
+}
+
+function checkModelCoverage(model, requiredFields = []) {
+  const schemaPaths = model?.schema?.paths
+    ? Object.keys(model.schema.paths)
+    : [];
+
+  const missing = requiredFields.filter((field) => !schemaPaths.includes(field));
+  const present = requiredFields.filter((field) => schemaPaths.includes(field));
+
+  return {
+    present,
+    missing,
+    coveragePercent: requiredFields.length
+      ? Math.round((present.length / requiredFields.length) * 100)
+      : 100
+  };
 }
 
 export function getCoreSystemArchitecturePlan(_req, res) {
@@ -156,5 +178,28 @@ export function getCoreSystemStackReadiness(_req, res) {
       apiVersion: "v3"
     },
     checks
+  });
+}
+
+export function getCoreSystemDatabaseStructure(_req, res) {
+  const contract = buildCoreDatabaseContract(proRuntime);
+  const modelCoverage = {
+    users: checkModelCoverage(CoreUser, contract.collections.users.requiredFields),
+    properties: checkModelCoverage(CoreProperty, contract.collections.properties.requiredFields),
+    reviews: checkModelCoverage(CoreReview, contract.collections.reviews.requiredFields),
+    subscriptions: checkModelCoverage(CoreSubscription, contract.collections.subscriptions.requiredFields)
+  };
+
+  const missingRequired = Object.entries(modelCoverage).reduce(
+    (sum, [, details]) => sum + details.missing.length,
+    0
+  );
+
+  return res.json({
+    success: true,
+    source: proRuntime.dbConnected ? "mongodb" : "memory-fallback",
+    contract,
+    modelCoverage,
+    status: missingRequired === 0 ? "contract-aligned" : "contract-mismatch"
   });
 }

@@ -85,3 +85,12 @@ PropertySetu/
 - user block/unblock controls
 
 This panel uses existing backend APIs, so old system remains intact.
+
+## Mongo Contract Verification (Professional Check)
+Run:
+```bash
+npm run pro:db:contract
+```
+
+Live endpoint (professional server mode):
+- `GET /api/v3/system/database-structure`
