@@ -14,6 +14,24 @@ Open:
 - API info: `http://localhost:5000/api`
 - Health check: `http://localhost:5000/api/health`
 
+### 2) Option-1 Professional Stack Mode (React + Node/Express + Mongo path)
+```bash
+cd backend
+npm install
+npm run pro:start
+```
+
+Open:
+- Professional API health: `http://localhost:5200/api/v3/health`
+- Stack readiness: `http://localhost:5200/api/v3/system/stack-readiness`
+- Architecture plan: `http://localhost:5200/api/v3/system/architecture-plan`
+
+Preflight before deployment:
+```bash
+cd backend
+npm run pro:preflight
+```
+
 ## Secure Auth Demo (Customer/Admin)
 Demo OTP for both roles: `123456`
 

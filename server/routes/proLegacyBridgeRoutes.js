@@ -222,6 +222,14 @@ router.get("/system/live-roots", (_req, res) => {
 router.get("/system/capabilities", (_req, res) => {
   res.json({
     ok: true,
+    recommendedStack: {
+      frontend: "React / Next.js",
+      backend: "Node.js + Express",
+      database: "MongoDB",
+      fileStorage: "Cloudinary / AWS S3",
+      hosting: "Vercel + Render",
+      payment: "Razorpay"
+    },
     capabilities: {
       auth: true,
       listings: true,
@@ -249,7 +257,8 @@ router.get("/system/capabilities", (_req, res) => {
       chat: "/api/v3/chat/*",
       ai: "/api/v3/ai/*",
       citySeoStructure: "/api/v3/seo/city-structure",
-      propertyCare: "/api/v3/property-care/*"
+      propertyCare: "/api/v3/property-care/*",
+      system: "/api/v3/system/*"
     }
   });
 });

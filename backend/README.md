@@ -34,6 +34,8 @@ Starts: `server/professional-server.js`
 - `http://localhost:5200/api/v3/property-care/*`
 - `http://localhost:5200/api/v3/ai/*`
 - `http://localhost:5200/api/v3/seo/city-structure`
+- `http://localhost:5200/api/v3/system/architecture-plan`
+- `http://localhost:5200/api/v3/system/stack-readiness`
 
 ## Environment
 
@@ -44,3 +46,20 @@ cp .env.production.example ../server/.env.pro
 ```
 
 Then set real values for MongoDB, Razorpay, and storage keys.
+
+## Preflight (Production Check)
+
+Run this before deployment:
+
+```bash
+cd backend
+npm run pro:preflight
+```
+
+This verifies:
+- Mongo URI
+- JWT/Admin auth secrets
+- Cloudinary or S3 config
+- Razorpay keys
+- CORS domain config
+- Vercel/Render config files
