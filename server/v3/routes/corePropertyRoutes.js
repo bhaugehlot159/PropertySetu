@@ -1,11 +1,14 @@
 import { Router } from "express";
 import {
   createCoreProperty,
+  createCorePropertyProfessional,
   deleteCoreProperty,
   featureCoreProperty,
   getCorePropertyById,
   listCoreProperties,
+  previewCorePropertyDescription,
   updateCoreProperty,
+  updateCorePropertyProfessional,
   verifyCoreProperty
 } from "../controllers/corePropertyController.js";
 import {
@@ -16,8 +19,25 @@ import {
 const router = Router();
 
 router.get("/", listCoreProperties);
+router.post(
+  "/auto-description",
+  coreAuthRequired,
+  coreRoleRequired("seller", "admin"),
+  previewCorePropertyDescription
+);
+router.post(
+  "/professional",
+  coreAuthRequired,
+  coreRoleRequired("seller", "admin"),
+  createCorePropertyProfessional
+);
 router.get("/:propertyId", getCorePropertyById);
 router.post("/", coreAuthRequired, coreRoleRequired("seller", "admin"), createCoreProperty);
+router.patch(
+  "/:propertyId/professional",
+  coreAuthRequired,
+  updateCorePropertyProfessional
+);
 router.patch("/:propertyId", coreAuthRequired, updateCoreProperty);
 router.delete("/:propertyId", coreAuthRequired, deleteCoreProperty);
 router.post(

@@ -153,7 +153,8 @@ function buildAutoDescription(payload = {}) {
   ].join(" ");
 }
 
-function shouldApplyProfessionalUploadRules(payload = {}) {
+function shouldApplyProfessionalUploadRules(payload = {}, options = {}) {
+  if (Boolean(options.forceProfessionalRules)) return true;
   return Boolean(
     payload.media ||
       payload.privateDocs ||
@@ -163,8 +164,8 @@ function shouldApplyProfessionalUploadRules(payload = {}) {
   );
 }
 
-function validateProfessionalUploadRules(payload = {}) {
-  if (!shouldApplyProfessionalUploadRules(payload)) return "";
+function validateProfessionalUploadRules(payload = {}, options = {}) {
+  if (!shouldApplyProfessionalUploadRules(payload, options)) return "";
 
   const media = normalizeMedia(payload.media);
   const privateDocs = normalizePrivateDocs(payload.privateDocs);
@@ -290,16 +291,16 @@ function normalizeUpdatePayload(body = {}, existing = null) {
   return updates;
 }
 
-function validatePropertyPayload(payload) {
+function validatePropertyPayload(payload, options = {}) {
   if (!payload.title) return "title is required.";
   if (!payload.city) return "city is required.";
   if (!payload.location) return "location is required.";
   if (!payload.price || payload.price <= 0) return "price must be greater than zero.";
   if (!payload.size || payload.size <= 0) return "size must be greater than zero.";
-  return validateProfessionalUploadRules(payload);
+  return validateProfessionalUploadRules(payload, options);
 }
 
-function validateUpdatePayload(existing = {}, updates = {}) {
+function validateUpdatePayload(existing = {}, updates = {}, options = {}) {
   const merged = { ...existing, ...updates };
   if (!merged.title) return "title is required.";
   if (!merged.city) return "city is required.";
@@ -310,7 +311,7 @@ function validateUpdatePayload(existing = {}, updates = {}) {
   if (!numberValue(merged.size, 0) || numberValue(merged.size, 0) <= 0) {
     return "size must be greater than zero.";
   }
-  return validateProfessionalUploadRules(merged);
+  return validateProfessionalUploadRules(merged, options);
 }
 
 function isAdmin(req) {
@@ -460,10 +461,10 @@ export async function getCorePropertyById(req, res, next) {
   }
 }
 
-export async function createCoreProperty(req, res, next) {
+async function createCorePropertyInternal(req, res, next, options = {}) {
   try {
     const payload = normalizeCreatePayload(req.body);
-    const validation = validatePropertyPayload(payload);
+    const validation = validatePropertyPayload(payload, options);
     if (validation) {
       return res.status(400).json({
         success: false,
@@ -500,7 +501,7 @@ export async function createCoreProperty(req, res, next) {
   }
 }
 
-export async function updateCoreProperty(req, res, next) {
+async function updateCorePropertyInternal(req, res, next, options = {}) {
   try {
     const propertyId = text(req.params.propertyId);
     const existing = await findCorePropertyById(propertyId);
@@ -528,7 +529,7 @@ export async function updateCoreProperty(req, res, next) {
       });
     }
 
-    const validation = validateUpdatePayload(existingNormalized, updates);
+    const validation = validateUpdatePayload(existingNormalized, updates, options);
     if (validation) {
       return res.status(400).json({
         success: false,
@@ -562,6 +563,36 @@ export async function updateCoreProperty(req, res, next) {
   } catch (error) {
     return next(error);
   }
+}
+
+export async function previewCorePropertyDescription(req, res, next) {
+  try {
+    const payload = normalizeCreatePayload(req.body || {});
+    return res.json({
+      success: true,
+      source: "server-generator",
+      description: buildAutoDescription(payload),
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createCoreProperty(req, res, next) {
+  return createCorePropertyInternal(req, res, next, { forceProfessionalRules: false });
+}
+
+export async function createCorePropertyProfessional(req, res, next) {
+  return createCorePropertyInternal(req, res, next, { forceProfessionalRules: true });
+}
+
+export async function updateCoreProperty(req, res, next) {
+  return updateCorePropertyInternal(req, res, next, { forceProfessionalRules: false });
+}
+
+export async function updateCorePropertyProfessional(req, res, next) {
+  return updateCorePropertyInternal(req, res, next, { forceProfessionalRules: true });
 }
 
 export async function deleteCoreProperty(req, res, next) {

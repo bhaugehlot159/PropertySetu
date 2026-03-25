@@ -35,7 +35,10 @@ Legacy code preserved. No old flow removed or deleted.
 - Properties:
   - `GET /api/v3/properties`
   - `POST /api/v3/properties`
+  - `POST /api/v3/properties/professional`
+  - `POST /api/v3/properties/auto-description`
   - `PATCH /api/v3/properties/:propertyId`
+  - `PATCH /api/v3/properties/:propertyId/professional`
   - `DELETE /api/v3/properties/:propertyId`
   - `POST /api/v3/properties/:propertyId/verify` (admin)
   - `POST /api/v3/properties/:propertyId/feature` (admin)

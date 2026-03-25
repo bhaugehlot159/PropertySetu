@@ -34,6 +34,9 @@ Base URL: `http://localhost:5200/api/v3`
 4. Photo + video upload
 - `POST /uploads/property-media`
 - `GET /uploads/mine`
+- `POST /properties/professional` (strict professional validation)
+- `PATCH /properties/:propertyId/professional` (strict professional validation)
+- `POST /properties/auto-description` (server auto description preview)
 
 5. Subscription + payment-ready flow
 - `POST /subscriptions`
@@ -70,3 +73,8 @@ Base URL: `http://localhost:5200/api/v3`
 - Legacy working APIs remain untouched.
 - Professional APIs are additive and MongoDB-ready.
 - If MongoDB is unavailable, APIs gracefully run in memory mode for continuity.
+- Strict professional upload flow enforces:
+  - Minimum 5 photos
+  - 1 short video
+  - Private docs required
+  - Auto-generated description when blank

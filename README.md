@@ -45,6 +45,7 @@ Open:
 - Stack readiness: `http://localhost:5200/api/v3/system/stack-readiness`
 - Architecture plan: `http://localhost:5200/api/v3/system/architecture-plan`
 - Database structure contract: `http://localhost:5200/api/v3/system/database-structure`
+- Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
 
 Preflight before deployment:
 ```bash

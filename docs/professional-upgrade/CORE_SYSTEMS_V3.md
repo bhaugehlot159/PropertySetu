@@ -68,12 +68,15 @@ Professional additive API layer is available at:
 - `GET /api/v3/properties`
 - `GET /api/v3/properties/:propertyId`
 - `POST /api/v3/properties` (seller/admin)
+- `POST /api/v3/properties/professional` (seller/admin, strict professional rules)
+- `POST /api/v3/properties/auto-description` (seller/admin, preview auto-description)
 - `PATCH /api/v3/properties/:propertyId` (owner/admin)
+- `PATCH /api/v3/properties/:propertyId/professional` (owner/admin, strict professional rules)
 - `DELETE /api/v3/properties/:propertyId` (owner/admin)
 - `POST /api/v3/properties/:propertyId/verify` (admin)
 - `POST /api/v3/properties/:propertyId/feature` (admin)
 
-Professional upload rules (applied when professional payload fields are present):
+Professional upload rules (strict endpoints always enforce):
 
 - Minimum `5` photos
 - `1` short video (30-60 sec)
