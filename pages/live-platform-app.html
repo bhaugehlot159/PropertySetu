@@ -18,6 +18,20 @@
     .route-list { margin: 0; padding-left: 18px; color: #2f5370; max-height: 220px; overflow: auto; }
     .field { display: grid; gap: 6px; margin-top: 8px; }
     .field input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #c9d9ef; }
+    .matrix-summary { margin-top: 8px; color: #1b4f74; font-weight: 600; }
+    .matrix-table-wrap { overflow: auto; border: 1px solid #d6e4f7; border-radius: 10px; }
+    .matrix-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    .matrix-table th, .matrix-table td { padding: 9px 10px; border-bottom: 1px solid #e4edf9; text-align: left; vertical-align: top; font-size: .9rem; }
+    .matrix-table th { background: #f3f8ff; color: #164e77; font-size: .82rem; letter-spacing: .01em; text-transform: uppercase; }
+    .matrix-table tr:last-child td { border-bottom: none; }
+    .stack-chip { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; border: 1px solid #c8dbf0; background: #eef5ff; color: #174e77; }
+    .stack-chip.live { background: #e8f8ef; color: #1f7d44; border-color: #b9e5c6; }
+    .stack-chip.partial { background: #fff7ea; color: #915a16; border-color: #f0dbb8; }
+    .stack-chip.missing { background: #fff1f1; color: #8d1e1e; border-color: #f0c7c7; }
+    .matrix-links { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+    .matrix-links a { color: #0f4f84; font-weight: 700; text-decoration: none; border-bottom: 1px dashed #9ec1e7; }
+    .matrix-links a:hover { color: #08385f; border-bottom-color: #6e9fcb; }
+    .timeline-note { margin-top: 10px; padding: 9px 10px; border-radius: 8px; border: 1px solid #d2e2f6; background: #f6fbff; color: #285277; font-size: .84rem; }
     @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -39,6 +53,7 @@
       <section class="hero">
         <h1>Live Multi-page Web App + Backend Stack</h1>
         <p>Ye page prove karta hai ki project sirf index layout nahi hai. Backend, database, upload, verification, subscription, AI aur secure chat live endpoints ke saath integrated hain.</p>
+        <p><b>PART 1:</b> Layout + categories + hero. <b>PART 2 (Live):</b> Dashboard, Add Property, Photo/Video Upload, Verification, Reviews, Featured, Legal, Subscription, AI modules.</p>
       </section>
 
       <section class="grid">
@@ -88,6 +103,27 @@
             <li>Owner verification, subscriptions, AI insights, secure chat connected modules me run karte hain.</li>
           </ul>
         </article>
+
+        <article class="cardx" style="grid-column: 1 / -1;">
+          <h2>Part 2 Readiness Matrix (Required Modules)</h2>
+          <p class="matrix-summary" id="matrixSummary"><span class="pill">Building module readiness map...</span></p>
+          <div class="matrix-table-wrap">
+            <table class="matrix-table">
+              <thead>
+                <tr>
+                  <th>Module</th>
+                  <th>Live Status</th>
+                  <th>Proof Signals</th>
+                  <th>Open Module</th>
+                </tr>
+              </thead>
+              <tbody id="featureMatrixBody">
+                <tr><td colspan="4">Loading readiness matrix...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="timeline-note" id="matrixTimeline">Professional upgrade mode: live route + capability + endpoint probes verify each module. Working modules are preserved and only missing links are highlighted.</p>
+        </article>
       </section>
     </div>
   </main>
@@ -97,4 +133,3 @@
   <script src="../js/folder-command-dock.js"></script>
 </body>
 </html>
-
