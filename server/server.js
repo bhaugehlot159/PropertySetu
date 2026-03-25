@@ -590,6 +590,7 @@ const load = async () => {
       trustedAgents: safeArr(raw.trustedAgents).length ? safeArr(raw.trustedAgents) : fresh.trustedAgents,
       counters: { ...fresh.counters, ...(raw.counters || {}) },
     };
+    db.bids = safeArr(db.bids).map((entry) => normalizeBidRecord(entry));
     applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
   } catch {
     db = defaults();
@@ -633,6 +634,94 @@ const auth = (req, res, next) => {
 const admin = (req, res, next) => (req.user?.role === "admin" ? next() : res.status(403).json({ ok: false, message: "Admin access required." }));
 const userById = (id) => db.users.find((u) => u.id === id) || null;
 const pushNoti = (userId, title, message, type = "general") => db.notifications.unshift({ id: nextId("notification"), userId, title, message, type, isRead: false, createdAt: now() });
+const sealedBidAllowedRoles = new Set(["customer", "seller"]);
+const toEpoch = (iso) => {
+  const stamp = Date.parse(txt(iso));
+  return Number.isFinite(stamp) ? stamp : 0;
+};
+const normalizeBidStatus = (value) => {
+  const raw = txt(value).toLowerCase();
+  if (raw === "accepted") return "Accepted";
+  if (raw === "rejected") return "Rejected";
+  if (raw === "revealed") return "Revealed";
+  return "Submitted";
+};
+const normalizeBidRecord = (entry = {}) => {
+  const status = normalizeBidStatus(entry.status);
+  const revealed = !!entry.winnerRevealed || status === "Revealed";
+  return {
+    ...entry,
+    id: txt(entry.id),
+    propertyId: txt(entry.propertyId),
+    propertyTitle: txt(entry.propertyTitle),
+    amount: Math.round(num(entry.amount, 0)),
+    bidderId: txt(entry.bidderId),
+    bidderName: txt(entry.bidderName),
+    bidderRole: txt(entry.bidderRole).toLowerCase() || "customer",
+    status,
+    sealed: entry.sealed !== false,
+    adminVisible: entry.adminVisible !== false,
+    isWinningBid: !!entry.isWinningBid,
+    winnerRevealed: revealed,
+    createdAt: txt(entry.createdAt, now()),
+    updatedAt: txt(entry.updatedAt, entry.createdAt || now()),
+    decisionHistory: safeArr(entry.decisionHistory),
+  };
+};
+const sortBidsHighToLow = (a, b) => num(b.amount, 0) - num(a.amount, 0) || toEpoch(a.createdAt) - toEpoch(b.createdAt);
+const bidsByPropertyId = (propertyId) => db.bids.filter((b) => txt(b.propertyId) === txt(propertyId)).map(normalizeBidRecord);
+const resolveHighestBid = (items = []) => {
+  const sorted = [...safeArr(items)].sort(sortBidsHighToLow);
+  return sorted[0] || null;
+};
+const summarizeSealedBidStatus = (items = []) => {
+  const list = safeArr(items);
+  if (!list.length) return "No Bids";
+  if (list.some((b) => b.winnerRevealed)) return "Winning Bid Revealed";
+  if (list.some((b) => b.status === "Accepted")) return "Winner Accepted";
+  if (list.every((b) => b.status === "Rejected")) return "Rejected";
+  return "Bidding Active";
+};
+const sanitizeBidForBidder = (bid) => ({
+  id: bid.id,
+  propertyId: bid.propertyId,
+  propertyTitle: bid.propertyTitle,
+  status: bid.status,
+  createdAt: bid.createdAt,
+  updatedAt: bid.updatedAt,
+  isWinningBid: !!bid.isWinningBid,
+  winnerRevealed: !!bid.winnerRevealed,
+  sealed: true,
+  amountVisible: false,
+  ...(bid.winnerRevealed && bid.isWinningBid ? { revealedAmount: bid.amount } : {}),
+});
+const sanitizeBidForAdmin = (bid) => ({
+  id: bid.id,
+  propertyId: bid.propertyId,
+  propertyTitle: bid.propertyTitle,
+  amount: bid.amount,
+  bidderId: bid.bidderId,
+  bidderName: bid.bidderName,
+  bidderRole: bid.bidderRole,
+  status: bid.status,
+  sealed: true,
+  isWinningBid: !!bid.isWinningBid,
+  winnerRevealed: !!bid.winnerRevealed,
+  createdAt: bid.createdAt,
+  updatedAt: bid.updatedAt,
+  decisionByAdminId: txt(bid.decisionByAdminId),
+  decisionByAdminName: txt(bid.decisionByAdminName),
+  decisionAt: txt(bid.decisionAt),
+  decisionHistory: safeArr(bid.decisionHistory),
+});
+const publicWinnerSnapshot = (winner) => ({
+  bidId: winner.id,
+  propertyId: winner.propertyId,
+  propertyTitle: winner.propertyTitle,
+  winnerBidAmount: winner.amount,
+  winnerBidder: maskRef(winner.bidderName || winner.bidderId || "Bidder"),
+  revealedAt: winner.updatedAt || winner.createdAt,
+});
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
@@ -2137,53 +2226,246 @@ app.post("/api/insurance/tenant-damage", auth, async (req, res) => {
 });
 
 app.post("/api/sealed-bids", auth, async (req, res) => {
+  const requesterRole = txt(req.user?.role).toLowerCase();
+  if (!sealedBidAllowedRoles.has(requesterRole)) {
+    return res.status(403).json({ ok: false, message: "Only buyer/seller accounts can place sealed bids." });
+  }
   const propertyId = txt(req.body?.propertyId);
+  if (!propertyId) return res.status(400).json({ ok: false, message: "propertyId is required." });
   const p = db.properties.find((x) => x.id === propertyId);
   if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
-  const amount = num(req.body?.amount, 0);
+  if (txt(p.ownerId) && txt(p.ownerId) === txt(req.user.id)) {
+    return res.status(403).json({ ok: false, message: "Property owner cannot bid on own listing." });
+  }
+  const amount = Math.round(num(req.body?.amount, 0));
   if (amount <= 0) return res.status(400).json({ ok: false, message: "Valid positive bid amount required." });
-  const b = { id: nextId("bid"), propertyId, propertyTitle: p.title, amount, bidderId: req.user.id, bidderName: req.user.name, bidderRole: req.user.role, status: "Submitted", createdAt: now() };
+  const hasExistingActiveBid = db.bids.some((row) => {
+    const bid = normalizeBidRecord(row);
+    return bid.propertyId === propertyId && bid.bidderId === req.user.id && bid.status !== "Rejected";
+  });
+  if (hasExistingActiveBid) {
+    return res.status(409).json({ ok: false, message: "You already have an active sealed bid for this property." });
+  }
+
+  const createdAt = now();
+  const b = {
+    id: nextId("bid"),
+    propertyId,
+    propertyTitle: txt(p.title || "Property"),
+    amount,
+    bidderId: req.user.id,
+    bidderName: req.user.name,
+    bidderRole: requesterRole,
+    status: "Submitted",
+    sealed: true,
+    adminVisible: true,
+    isWinningBid: false,
+    winnerRevealed: false,
+    createdAt,
+    updatedAt: createdAt,
+    decisionHistory: [],
+  };
   db.bids.push(b);
+  if (p.ownerId && p.ownerId !== req.user.id) {
+    pushNoti(p.ownerId, "New Sealed Bid Submitted", `A hidden bid has been submitted for ${b.propertyTitle}.`, "bid");
+  }
+  db.users
+    .filter((u) => u.role === "admin")
+    .forEach((a) => pushNoti(a.id, "New Sealed Bid", `${req.user.name} placed a sealed bid on ${b.propertyTitle}.`, "bid"));
   await save();
-  res.status(201).json({ ok: true, bidId: b.id });
+  res.status(201).json({ ok: true, bidId: b.id, propertyId, status: b.status, sealed: true });
 });
 app.get("/api/sealed-bids/mine", auth, (req, res) => {
-  const items = db.bids.filter((b) => b.bidderId === req.user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const items = db.bids
+    .map((b) => normalizeBidRecord(b))
+    .filter((b) => b.bidderId === req.user.id)
+    .sort((a, b) => toEpoch(b.createdAt) - toEpoch(a.createdAt))
+    .map((b) => sanitizeBidForBidder(b));
   res.json({ ok: true, total: items.length, items });
 });
 app.get("/api/sealed-bids/summary", (_req, res) => {
-  const map = new Map();
-  db.bids.forEach((b) => map.set(b.propertyId, { propertyId: b.propertyId, propertyTitle: b.propertyTitle, totalBids: num(map.get(b.propertyId)?.totalBids, 0) + 1, status: b.status || "Submitted" }));
-  res.json({ ok: true, items: [...map.values()] });
-});
-app.get("/api/sealed-bids/reveal", auth, admin, (req, res) => {
   const grouped = new Map();
-  db.bids.forEach((b) => grouped.set(b.propertyId, [...(grouped.get(b.propertyId) || []), b]));
-  const winners = [...grouped.entries()].map(([propertyId, bids]) => {
-    const sorted = [...bids].sort((a, b) => b.amount - a.amount);
-    return { propertyId, propertyTitle: sorted[0].propertyTitle, winnerBid: sorted[0], totalBids: sorted.length };
+  db.bids.map((b) => normalizeBidRecord(b)).forEach((bid) => {
+    const bucket = grouped.get(bid.propertyId) || [];
+    bucket.push(bid);
+    grouped.set(bid.propertyId, bucket);
   });
+  const items = [...grouped.entries()].map(([propertyId, bids]) => {
+    const sorted = [...bids].sort(sortBidsHighToLow);
+    const top = sorted[0] || null;
+    const property = db.properties.find((p) => p.id === propertyId);
+    return {
+      propertyId,
+      propertyTitle: txt(property?.title || top?.propertyTitle || "Property"),
+      totalBids: bids.length,
+      status: summarizeSealedBidStatus(bids),
+      winningBidRevealed: !!top?.winnerRevealed,
+      updatedAt: top?.updatedAt || top?.createdAt || now(),
+    };
+  }).sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
+  res.json({ ok: true, totalProperties: items.length, items });
+});
+app.get("/api/sealed-bids/reveal", auth, admin, (_req, res) => {
+  const grouped = new Map();
+  db.bids.map((b) => normalizeBidRecord(b)).forEach((bid) => {
+    const bucket = grouped.get(bid.propertyId) || [];
+    bucket.push(bid);
+    grouped.set(bid.propertyId, bucket);
+  });
+  const winners = [...grouped.entries()].map(([propertyId, bids]) => {
+    const sorted = [...bids].sort(sortBidsHighToLow);
+    const winnerBid = sorted[0] || null;
+    return {
+      propertyId,
+      propertyTitle: txt(db.properties.find((p) => p.id === propertyId)?.title || winnerBid?.propertyTitle || "Property"),
+      totalBids: sorted.length,
+      status: summarizeSealedBidStatus(sorted),
+      winningBidRevealed: !!winnerBid?.winnerRevealed,
+      winnerBid: winnerBid ? sanitizeBidForAdmin(winnerBid) : null,
+      bids: sorted.map((bid) => sanitizeBidForAdmin(bid)),
+    };
+  }).sort((a, b) => toEpoch(b.winnerBid?.updatedAt || b.winnerBid?.createdAt) - toEpoch(a.winnerBid?.updatedAt || a.winnerBid?.createdAt));
   res.json({ ok: true, totalProperties: winners.length, winners });
+});
+app.get("/api/sealed-bids/admin", auth, admin, (_req, res) => {
+  const grouped = new Map();
+  db.bids.map((b) => normalizeBidRecord(b)).forEach((bid) => {
+    const bucket = grouped.get(bid.propertyId) || [];
+    bucket.push(bid);
+    grouped.set(bid.propertyId, bucket);
+  });
+  const items = [...grouped.entries()].map(([propertyId, bids]) => {
+    const sorted = [...bids].sort(sortBidsHighToLow);
+    const winnerBid = sorted[0] || null;
+    return {
+      propertyId,
+      propertyTitle: txt(db.properties.find((p) => p.id === propertyId)?.title || winnerBid?.propertyTitle || "Property"),
+      totalBids: sorted.length,
+      status: summarizeSealedBidStatus(sorted),
+      winningBidRevealed: !!winnerBid?.winnerRevealed,
+      winnerBid: winnerBid ? sanitizeBidForAdmin(winnerBid) : null,
+      bids: sorted.map((bid) => sanitizeBidForAdmin(bid)),
+    };
+  }).sort((a, b) => toEpoch(b.winnerBid?.updatedAt || b.winnerBid?.createdAt) - toEpoch(a.winnerBid?.updatedAt || a.winnerBid?.createdAt));
+  res.json({ ok: true, totalProperties: items.length, items });
+});
+app.get("/api/sealed-bids/winner/:propertyId", authOpt, (req, res) => {
+  const propertyId = txt(req.params.propertyId || req.query?.propertyId);
+  if (!propertyId) return res.status(400).json({ ok: false, message: "propertyId is required." });
+  const bids = bidsByPropertyId(propertyId);
+  if (!bids.length) return res.status(404).json({ ok: false, message: "No bids found for property." });
+  const winner = resolveHighestBid(bids);
+  if (!winner) return res.status(404).json({ ok: false, message: "No winning bid available." });
+  const isAdminUser = req.user?.role === "admin";
+  if (!isAdminUser && !winner.winnerRevealed) {
+    return res.status(403).json({ ok: false, message: "Winning bid not revealed by admin yet." });
+  }
+  const property = db.properties.find((p) => p.id === propertyId);
+  res.json({
+    ok: true,
+    propertyId,
+    propertyTitle: txt(property?.title || winner.propertyTitle || "Property"),
+    status: summarizeSealedBidStatus(bids),
+    totalBids: bids.length,
+    winner: isAdminUser ? sanitizeBidForAdmin(winner) : publicWinnerSnapshot(winner),
+  });
 });
 app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
   const propertyId = txt(req.body?.propertyId);
   const action = txt(req.body?.action).toLowerCase();
-  if (!propertyId || !["accept", "reject", "reveal"].includes(action)) return res.status(400).json({ ok: false, message: "propertyId and valid action required." });
-  const items = db.bids.filter((b) => b.propertyId === propertyId);
+  if (!propertyId || !["accept", "reject", "reveal"].includes(action)) {
+    return res.status(400).json({ ok: false, message: "propertyId and valid action required." });
+  }
+  const items = db.bids.filter((b) => txt(b.propertyId) === propertyId);
   if (!items.length) return res.status(404).json({ ok: false, message: "No bids found for property." });
-  const sorted = [...items].sort((a, b) => b.amount - a.amount);
-  const winner = sorted[0];
+  const normalizedItems = items.map((entry) => normalizeBidRecord(entry));
+  const winner = resolveHighestBid(normalizedItems);
+  if (!winner) return res.status(404).json({ ok: false, message: "No winning bid available." });
+  const winnerId = winner.id;
+  const decisionAt = now();
 
   if (action === "accept") {
-    items.forEach((b) => { b.status = b.id === winner.id ? "Accepted" : "Rejected"; b.updatedAt = now(); });
+    items.forEach((entry) => {
+      const isWinner = entry.id === winnerId;
+      entry.status = isWinner ? "Accepted" : "Rejected";
+      entry.isWinningBid = isWinner;
+      entry.winnerRevealed = false;
+      entry.updatedAt = decisionAt;
+      entry.decisionByAdminId = req.user.id;
+      entry.decisionByAdminName = req.user.name;
+      entry.decisionAt = decisionAt;
+      entry.decisionHistory = [...safeArr(entry.decisionHistory), { action: "accept", by: req.user.id, byName: req.user.name, at: decisionAt }];
+    });
   } else if (action === "reject") {
-    items.forEach((b) => { b.status = "Rejected"; b.updatedAt = now(); });
+    items.forEach((entry) => {
+      entry.status = "Rejected";
+      entry.isWinningBid = false;
+      entry.winnerRevealed = false;
+      entry.updatedAt = decisionAt;
+      entry.decisionByAdminId = req.user.id;
+      entry.decisionByAdminName = req.user.name;
+      entry.decisionAt = decisionAt;
+      entry.decisionHistory = [...safeArr(entry.decisionHistory), { action: "reject", by: req.user.id, byName: req.user.name, at: decisionAt }];
+    });
   } else {
-    items.forEach((b) => { if (b.id === winner.id) b.status = "Revealed"; b.updatedAt = now(); });
+    items.forEach((entry) => {
+      const isWinner = entry.id === winnerId;
+      entry.isWinningBid = isWinner;
+      if (isWinner) {
+        entry.winnerRevealed = true;
+        entry.status = normalizeBidStatus(entry.status) === "Accepted" ? "Accepted" : "Revealed";
+      } else if (normalizeBidStatus(entry.status) === "Revealed") {
+        entry.status = "Submitted";
+      }
+      entry.updatedAt = decisionAt;
+      entry.decisionByAdminId = req.user.id;
+      entry.decisionByAdminName = req.user.name;
+      entry.decisionAt = decisionAt;
+      entry.decisionHistory = [...safeArr(entry.decisionHistory), { action: "reveal", by: req.user.id, byName: req.user.name, at: decisionAt }];
+    });
+  }
+
+  const property = db.properties.find((x) => x.id === propertyId);
+  const bidders = [...new Set(items.map((entry) => txt(entry.bidderId)).filter(Boolean))];
+  if (action === "accept") {
+    bidders.forEach((bidderId) => {
+      const isWinner = items.some((entry) => entry.id === winnerId && txt(entry.bidderId) === bidderId);
+      pushNoti(
+        bidderId,
+        isWinner ? "Sealed Bid Accepted" : "Sealed Bid Result",
+        isWinner
+          ? `Your sealed bid for ${txt(property?.title || winner.propertyTitle)} has been accepted by admin.`
+          : `Your sealed bid for ${txt(property?.title || winner.propertyTitle)} was not selected.`,
+        "bid",
+      );
+    });
+    if (property?.ownerId) {
+      pushNoti(property.ownerId, "Winning Bid Accepted", `Admin accepted highest bid for ${txt(property.title || winner.propertyTitle)}.`, "bid");
+    }
+  } else if (action === "reject") {
+    bidders.forEach((bidderId) => pushNoti(bidderId, "Sealed Bids Rejected", `All sealed bids for ${txt(property?.title || winner.propertyTitle)} were rejected by admin.`, "bid"));
+    if (property?.ownerId) {
+      pushNoti(property.ownerId, "All Bids Rejected", `Admin rejected all bids for ${txt(property.title || winner.propertyTitle)}.`, "bid");
+    }
+  } else {
+    bidders.forEach((bidderId) => pushNoti(bidderId, "Winning Bid Revealed", `Admin revealed winning bid for ${txt(property?.title || winner.propertyTitle)}.`, "bid"));
+    if (property?.ownerId) {
+      pushNoti(property.ownerId, "Winning Bid Revealed", `Winning sealed bid has been revealed for ${txt(property.title || winner.propertyTitle)}.`, "bid");
+    }
   }
 
   await save();
-  res.json({ ok: true, action, propertyId, winnerBid: winner, totalBids: items.length, items });
+  const refreshed = bidsByPropertyId(propertyId).sort(sortBidsHighToLow);
+  const winnerBid = resolveHighestBid(refreshed);
+  res.json({
+    ok: true,
+    action,
+    propertyId,
+    status: summarizeSealedBidStatus(refreshed),
+    winnerBid: winnerBid ? sanitizeBidForAdmin(winnerBid) : null,
+    totalBids: refreshed.length,
+    items: refreshed.map((entry) => sanitizeBidForAdmin(entry)),
+  });
 });
 
 app.get("/api/notifications", auth, (req, res) => {

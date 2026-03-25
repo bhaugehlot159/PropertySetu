@@ -440,13 +440,15 @@
 
   const notify = (message) => {
     if (marketplaceMessage) marketplaceMessage.textContent = message;
-    pushNotification(message, ['customer', 'admin'], 'Marketplace Activity', 'info');
+    pushNotification(message, ['customer', 'seller', 'admin'], 'Marketplace Activity', 'info');
   };
 
-  const ensureCustomerSession = () => {
+  const ensureBidderSession = () => {
+    const seller = getState('seller');
+    if (seller) return seller;
     const customer = getState('customer');
     if (customer) return customer;
-    notify('Please login as Customer first to use this feature.');
+    notify('Please login as Buyer/Customer or Seller first to use this feature.');
     openAuthModal('customer');
     return null;
   };
@@ -458,8 +460,8 @@
     card.querySelectorAll('.action-btn').forEach((button) => {
       button.addEventListener('click', async () => {
         const action = button.dataset.action;
-        const customer = ensureCustomerSession();
-        if (!customer) return;
+        const bidderSession = ensureBidderSession();
+        if (!bidderSession) return;
 
         if (action === 'wishlist') {
           if (marketplaceState.wishlist.has(propertyId)) {
@@ -497,7 +499,7 @@
           }
 
           try {
-            await apiRequest('/sealed-bids', { propertyId, propertyTitle: title, amount }, customer.token);
+            await apiRequest('/sealed-bids', { propertyId, propertyTitle: title, amount }, bidderSession.token);
             marketplaceState.bids.push({ propertyId, title, amount, at: new Date().toISOString() });
             notify(`Sealed bid submitted for ${title}. Only admin can reveal winner.`);
           } catch (error) {
@@ -540,7 +542,12 @@
         notify('No bids available yet.');
         return;
       }
-      const summary = response.winners.map((entry) => `${entry.propertyTitle}: ₹${entry.amount.toLocaleString('en-IN')}`).join(' | ');
+      const summary = response.winners
+        .map((entry) => {
+          const amount = Number(entry?.winnerBid?.amount || entry?.amount || 0);
+          return `${entry.propertyTitle}: ₹${amount.toLocaleString('en-IN')}`;
+        })
+        .join(' | ');
       notify(`Winning sealed bids revealed by ${admin.name} → ${summary}`);
     } catch (error) {
       notify(error.message);

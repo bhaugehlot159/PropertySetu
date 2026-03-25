@@ -1,6 +1,6 @@
 (() => {
   const live = window.PropertySetuLive || {};
-  const auctionDiv = document.getElementById('auctionList');
+  const auctionDiv = document.getElementById("auctionList");
   if (!auctionDiv) return;
 
   const readJson = live.readJson || ((key, fallback) => {
@@ -12,39 +12,49 @@
     }
   });
   const writeJson = live.writeJson || ((key, value) => localStorage.setItem(key, JSON.stringify(value)));
-  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
-  const getToken = () => (live.getAnyToken ? live.getAnyToken() : '');
+  const formatPrice = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
+  const getAnyToken = () => (live.getAnyToken ? live.getAnyToken() : "");
+  const escapeHtml = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
 
-  const LOCAL_BID_KEY = 'propertySetu:sealedBids';
+  const LOCAL_BID_KEY = "propertySetu:sealedBids";
 
   let listings = [];
+  let summaryByPropertyId = new Map();
+  let winnerByPropertyId = new Map();
+  let adminBoardByPropertyId = new Map();
 
   const buildLocalAuctions = () => {
-    const fromLocal = readJson('propertySetu:listings', [])
-      .filter((item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur'))
+    const fromLocal = readJson("propertySetu:listings", [])
+      .filter((item) => String(item?.city || "Udaipur").toLowerCase().includes("udaipur"))
       .slice(0, 6)
       .map((item, idx) => ({
         id: item.id || `local-auction-${idx + 1}`,
-        title: item.title || 'Udaipur Property',
-        location: item.location || item.locality || 'Udaipur',
+        title: item.title || "Udaipur Property",
+        location: item.location || item.locality || "Udaipur",
         price: Number(item.price || 0),
       }));
 
     if (fromLocal.length) return fromLocal;
     return [
-      { id: 'demo-1', title: 'Luxury Villa Hiran Magri', location: 'Hiran Magri', price: 32000000 },
-      { id: 'demo-2', title: 'Farmhouse Ambamata', location: 'Ambamata', price: 14500000 },
+      { id: "demo-1", title: "Luxury Villa Hiran Magri", location: "Hiran Magri", price: 32000000 },
+      { id: "demo-2", title: "Farmhouse Ambamata", location: "Ambamata", price: 14500000 },
     ];
   };
 
   const fetchLiveAuctions = async () => {
     if (!live.request) return buildLocalAuctions();
     try {
-      const response = await live.request('/properties?city=Udaipur');
+      const response = await live.request("/properties?city=Udaipur");
       const items = (response?.items || []).slice(0, 20).map((item) => ({
         id: item.id,
-        title: item.title || 'Udaipur Property',
-        location: item.location || 'Udaipur',
+        title: item.title || "Udaipur Property",
+        location: item.location || "Udaipur",
         price: Number(item.price || 0),
       }));
       return items.length ? items : buildLocalAuctions();
@@ -53,77 +63,213 @@
     }
   };
 
+  const getSession = (role) => (live.getSession ? live.getSession(role) : null);
+  const getAdminSession = () => getSession("admin");
+  const getBidderSession = () => getSession("seller") || getSession("customer") || null;
+  const isAdminLoggedIn = () => Boolean(getAdminSession()?.token);
+
   const getLocalBids = () => readJson(LOCAL_BID_KEY, []);
 
   const countBids = (propertyId) => getLocalBids().filter((item) => item.propertyId === propertyId).length;
 
+  const loadSummary = async () => {
+    summaryByPropertyId = new Map();
+    if (!live.request) return;
+    try {
+      const response = await live.request("/sealed-bids/summary");
+      const items = response?.items || [];
+      summaryByPropertyId = new Map(
+        items
+          .filter((item) => item?.propertyId)
+          .map((item) => [item.propertyId, item]),
+      );
+    } catch {
+      summaryByPropertyId = new Map();
+    }
+  };
+
+  const loadAdminBoard = async () => {
+    adminBoardByPropertyId = new Map();
+    const adminSession = getAdminSession();
+    if (!live.request || !adminSession?.token) return;
+    try {
+      const response = await live.request("/sealed-bids/admin", { token: adminSession.token });
+      const items = response?.items || [];
+      adminBoardByPropertyId = new Map(
+        items
+          .filter((item) => item?.propertyId)
+          .map((item) => [item.propertyId, item]),
+      );
+    } catch {
+      adminBoardByPropertyId = new Map();
+    }
+  };
+
+  const loadPublicWinners = async () => {
+    winnerByPropertyId = new Map();
+    if (!live.request || !summaryByPropertyId.size) return;
+    const revealTargets = [...summaryByPropertyId.values()]
+      .filter((item) => item?.propertyId && item?.winningBidRevealed)
+      .map((item) => item.propertyId);
+    if (!revealTargets.length) return;
+    await Promise.all(revealTargets.map(async (propertyId) => {
+      try {
+        const response = await live.request(`/sealed-bids/winner/${encodeURIComponent(propertyId)}`, {
+          token: getAnyToken(),
+        });
+        if (response?.winner) winnerByPropertyId.set(propertyId, response.winner);
+      } catch {
+        // winner not available for this viewer
+      }
+    }));
+  };
+
+  const refreshData = async () => {
+    const fetchedListings = await fetchLiveAuctions();
+    listings = fetchedListings;
+    await Promise.all([loadSummary(), loadAdminBoard()]);
+    await loadPublicWinners();
+    renderAuctions();
+  };
+
   const placeBid = async (propertyId) => {
+    const bidderSession = getBidderSession();
+    if (!bidderSession?.token) {
+      window.alert("Bid place karne ke liye buyer ya seller login zaruri hai.");
+      return;
+    }
     const input = document.getElementById(`bidInput-${propertyId}`);
     const amount = Number(input?.value || 0);
     if (!amount || amount <= 0) {
-      window.alert('Valid bid amount enter karein.');
+      window.alert("Valid bid amount enter karein.");
       return;
     }
 
-    const token = getToken();
-    if (token && live.request) {
+    let persistedOnServer = false;
+    if (live.request) {
       try {
-        await live.request('/sealed-bids', {
-          method: 'POST',
-          token,
+        await live.request("/sealed-bids", {
+          method: "POST",
+          token: bidderSession.token,
           data: { propertyId, amount },
         });
+        persistedOnServer = true;
       } catch (error) {
         if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
-          window.alert(error.message || 'Bid submit failed.');
+          window.alert(error.message || "Bid submit failed.");
           return;
         }
       }
     }
 
-    const localBids = getLocalBids();
-    localBids.push({
-      propertyId,
-      amount,
-      bidder: (live.getAnySession ? live.getAnySession()?.name : '') || 'LocalUser',
-      publicVisible: false,
-      createdAt: new Date().toISOString(),
-    });
-    writeJson(LOCAL_BID_KEY, localBids);
+    if (!persistedOnServer) {
+      const localBids = getLocalBids();
+      localBids.push({
+        propertyId,
+        amount,
+        bidder: (live.getAnySession ? live.getAnySession()?.name : "") || "LocalUser",
+        bidderRole: bidderSession.role || "customer",
+        publicVisible: false,
+        createdAt: new Date().toISOString(),
+      });
+      writeJson(LOCAL_BID_KEY, localBids);
+    }
+
     if (input) input.value = '';
-    renderAuctions();
-    window.alert('Sealed bid placed successfully.');
+    await refreshData();
+    window.alert("Sealed bid placed successfully.");
   };
 
-  const getSummaryRow = (propertyId) => {
+  const runAdminDecision = async (propertyId, action) => {
+    const adminSession = getAdminSession();
+    if (!adminSession?.token) {
+      window.alert("Admin login required for sealed bid decisions.");
+      return;
+    }
+    if (!live.request) {
+      window.alert("Live API unavailable. Admin decision cannot be executed in offline mode.");
+      return;
+    }
+    try {
+      await live.request("/sealed-bids/decision", {
+        method: "POST",
+        token: adminSession.token,
+        data: { propertyId, action },
+      });
+      await refreshData();
+      window.alert(`Admin action '${action}' applied successfully.`);
+    } catch (error) {
+      window.alert(error.message || "Admin action failed.");
+    }
+  };
+
+  const getStatusMarkup = (propertyId) => {
+    const summary = summaryByPropertyId.get(propertyId);
     const localCount = countBids(propertyId);
-    return `${localCount} sealed bid(s) placed`;
+    const totalBids = Number(summary?.totalBids ?? localCount);
+    const status = summary?.status || "Bidding Active";
+    const winner = winnerByPropertyId.get(propertyId);
+
+    const parts = [
+      `<p><b>Total Bids:</b> ${totalBids}</p>`,
+      `<p><b>Status:</b> ${escapeHtml(status)}</p>`,
+      "<p><b>Visibility:</b> Bid amounts are hidden from buyer/seller. Only admin can view all bids.</p>",
+    ];
+
+    if (winner?.winnerBidAmount) {
+      parts.push(
+        `<p><b>Revealed Winner:</b> ${escapeHtml(winner.winnerBidder || "Bidder")} at ${formatPrice(winner.winnerBidAmount)}</p>`,
+      );
+    }
+    return parts.join("");
+  };
+
+  const getAdminControlsMarkup = (propertyId) => {
+    if (!isAdminLoggedIn()) return "<p><b>Admin Panel:</b> Login as admin to manage sealed bids.</p>";
+    const board = adminBoardByPropertyId.get(propertyId);
+    if (!board?.totalBids) return "<p><b>Admin Panel:</b> No bids available for decision.</p>";
+    const topBid = board?.winnerBid?.amount ? formatPrice(board.winnerBid.amount) : "N/A";
+    return `
+      <div class="sealed-admin-panel">
+        <p><b>Admin Panel:</b> Top bid ${topBid} | Total ${Number(board.totalBids || 0)}</p>
+        <button type="button" data-admin-action="accept" data-admin-property="${propertyId}">Accept Highest</button>
+        <button type="button" data-admin-action="reject" data-admin-property="${propertyId}">Reject All</button>
+        <button type="button" data-admin-action="reveal" data-admin-property="${propertyId}">Reveal Winner</button>
+      </div>
+    `;
   };
 
   const renderAuctions = () => {
+    const bidderSession = getBidderSession();
+    const isBidAllowed = Boolean(bidderSession?.token);
     auctionDiv.innerHTML = listings.map((item) => `
       <div class="auction-card">
-        <h3>${item.title}</h3>
-        <p><b>Location:</b> ${item.location}, Udaipur</p>
+        <h3>${escapeHtml(item.title)}</h3>
+        <p><b>Location:</b> ${escapeHtml(item.location)}, Udaipur</p>
         <p><b>Price:</b> ${formatPrice(item.price)}</p>
-        <p><b>Status:</b> Bids hidden (admin-only reveal)</p>
+        <div class="sealed-summary">${getStatusMarkup(item.id)}</div>
         <input type="number" placeholder="Enter sealed bid amount" id="bidInput-${item.id}" />
-        <button type="button" data-bid-property="${item.id}">Place Bid 🔒</button>
-        <div id="bids-${item.id}"><p>${getSummaryRow(item.id)}</p></div>
+        <button type="button" data-bid-property="${item.id}" ${isBidAllowed ? "" : "disabled"}>Place Sealed Bid</button>
+        ${isBidAllowed ? "" : "<p><small>Buyer/Seller login required for bidding.</small></p>"}
+        ${getAdminControlsMarkup(item.id)}
       </div>
     `).join('');
   };
 
-  auctionDiv.addEventListener('click', (event) => {
+  auctionDiv.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const propertyId = target.getAttribute('data-bid-property');
-    if (!propertyId) return;
-    placeBid(propertyId);
+    const propertyId = target.getAttribute("data-bid-property");
+    if (propertyId) {
+      placeBid(propertyId);
+      return;
+    }
+    const adminAction = target.getAttribute("data-admin-action");
+    const adminPropertyId = target.getAttribute("data-admin-property");
+    if (adminAction && adminPropertyId) {
+      runAdminDecision(adminPropertyId, adminAction);
+    }
   });
 
-  fetchLiveAuctions().then((items) => {
-    listings = items;
-    renderAuctions();
-  });
+  refreshData();
 })();
