@@ -194,6 +194,12 @@ export async function requestCoreOtp(req, res, next) {
         expiresInSec: Math.floor(OTP_TTL_MS / 1000)
       });
     }
+    if (normalizeCoreUser(user)?.blocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is blocked. Please contact admin."
+      });
+    }
 
     const otpCode = generateOtpCode();
     storeOtpForUser(user, otpCode);
@@ -279,6 +285,7 @@ export async function registerCoreUser(req, res, next) {
         password: passwordHash,
         role,
         verified: false,
+        blocked: false,
         subscriptionPlan: "free"
       });
     } else {
@@ -290,6 +297,7 @@ export async function registerCoreUser(req, res, next) {
         password: passwordHash,
         role,
         verified: false,
+        blocked: false,
         subscriptionPlan: "free",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -338,6 +346,12 @@ export async function loginCoreUser(req, res, next) {
     }
 
     const fullUser = normalizeCoreUser(user, { includePassword: true });
+    if (fullUser?.blocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is blocked. Please contact admin."
+      });
+    }
     const isPasswordValid = await compareCorePassword(password, fullUser.password);
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -380,6 +394,12 @@ export async function loginCoreUserWithOtp(req, res, next) {
       return res.status(401).json({
         success: false,
         message: "Invalid OTP credentials."
+      });
+    }
+    if (normalizeCoreUser(user)?.blocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is blocked. Please contact admin."
       });
     }
 

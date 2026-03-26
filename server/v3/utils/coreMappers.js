@@ -58,6 +58,7 @@ export function normalizeCoreUser(doc, { includePassword = false } = {}) {
     phone: row.phone || "",
     role: row.role || "buyer",
     verified: Boolean(row.verified),
+    blocked: Boolean(row.blocked),
     subscriptionPlan: row.subscriptionPlan || "free",
     createdAt: asIso(row.createdAt),
     updatedAt: asIso(row.updatedAt)

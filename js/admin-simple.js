@@ -1,4 +1,5 @@
 (function () {
+  const API_ROOT = "/api/v3";
   const storageKey = "propertysetu.admin.simple.token";
   const state = {
     token: localStorage.getItem(storageKey) || "",
@@ -68,7 +69,7 @@
       throw new Error("Email ya mobile required.");
     }
     if (identity.includes("@")) return { email: identity.toLowerCase() };
-    return { mobile: identity.replace(/\D/g, "").slice(-10) };
+    return { phone: identity.replace(/\D/g, "").slice(-10) };
   };
 
   const api = async (url, options) => {
@@ -78,7 +79,8 @@
       if (!state.token) throw new Error("Please login first.");
       headers.Authorization = `Bearer ${state.token}`;
     }
-    const res = await fetch(url, {
+    const path = String(url || "").startsWith("/") ? `${API_ROOT}${url}` : `${API_ROOT}/${url}`;
+    const res = await fetch(path, {
       method: opts.method || "GET",
       headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -89,7 +91,7 @@
     } catch (_err) {
       data = {};
     }
-    if (!res.ok || data.ok === false) {
+    if (!res.ok || data.ok === false || data.success === false) {
       throw new Error(data.message || `Request failed (${res.status})`);
     }
     return data;
@@ -114,12 +116,12 @@
   };
 
   const loadOverview = async () => {
-    const data = await api("/api/admin/overview", { auth: true });
+    const data = await api("/admin/overview", { auth: true });
     renderOverview(data.overview || {});
   };
 
   const loadPendingProperties = async () => {
-    const data = await api("/api/admin/properties?status=pending%20approval", { auth: true });
+    const data = await api("/admin/properties?status=pending%20approval", { auth: true });
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {
       el.pendingList.innerHTML = empty("No pending properties right now.");
@@ -140,7 +142,7 @@
   };
 
   const loadVerificationQueue = async () => {
-    const data = await api("/api/admin/owner-verification?status=pending%20review", { auth: true });
+    const data = await api("/admin/owner-verification?status=pending%20review", { auth: true });
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {
       el.verificationList.innerHTML = empty("No pending verification requests.");
@@ -162,7 +164,7 @@
   };
 
   const loadUsers = async () => {
-    const data = await api("/api/admin/users", { auth: true });
+    const data = await api("/admin/users", { auth: true });
     const items = (Array.isArray(data.items) ? data.items : []).slice(0, 30);
     if (!items.length) {
       el.usersList.innerHTML = empty("No users found.");
@@ -193,7 +195,7 @@
   };
 
   const requireAdmin = async () => {
-    const data = await api("/api/auth/me", { auth: true });
+    const data = await api("/auth/me", { auth: true });
     if (!data.user || data.user.role !== "admin") {
       throw new Error("Admin role required for this panel.");
     }
@@ -204,7 +206,7 @@
 
   const requestOtp = async () => {
     const identity = parseIdentity();
-    const data = await api("/api/auth/request-otp", {
+    const data = await api("/auth/request-otp", {
       method: "POST",
       body: { role: "admin", ...identity },
     });
@@ -219,7 +221,7 @@
       otp: txt(el.otpInput.value) || "123456",
       ...identity,
     };
-    const data = await api("/api/auth/login", { method: "POST", body });
+    const data = await api("/auth/login", { method: "POST", body });
     if (!data.user || data.user.role !== "admin") {
       throw new Error("This account is not admin.");
     }
@@ -244,14 +246,14 @@
   const actionDispatch = async (action, id) => {
     if (!action || !id) return;
     if (action === "approve") {
-      await api(`/api/properties/${encodeURIComponent(id)}/approve`, { method: "POST", auth: true, body: {} });
+      await api(`/properties/${encodeURIComponent(id)}/verify`, { method: "POST", auth: true, body: { verified: true } });
       status("Property approved.", "ok");
       await loadPendingProperties();
       await loadOverview();
       return;
     }
     if (action === "feature") {
-      await api(`/api/properties/${encodeURIComponent(id)}/feature`, { method: "POST", auth: true, body: { days: 30 } });
+      await api(`/properties/${encodeURIComponent(id)}/feature`, { method: "POST", auth: true, body: { featured: true, days: 30 } });
       status("Featured flag updated for 30 days.", "ok");
       await loadPendingProperties();
       await loadOverview();
@@ -263,7 +265,7 @@
         "reject-owner": "rejected",
         "needs-info-owner": "needs-info",
       };
-      await api(`/api/admin/owner-verification/${encodeURIComponent(id)}/decision`, {
+      await api(`/admin/owner-verification/${encodeURIComponent(id)}/decision`, {
         method: "POST",
         auth: true,
         body: { status: map[action] },
@@ -275,7 +277,7 @@
     }
     if (action === "block-user" || action === "unblock-user") {
       const endpoint = action === "block-user" ? "block" : "unblock";
-      await api(`/api/admin/users/${encodeURIComponent(id)}/${endpoint}`, { method: "POST", auth: true, body: {} });
+      await api(`/admin/users/${encodeURIComponent(id)}/${endpoint}`, { method: "POST", auth: true, body: {} });
       status("User status updated.", "ok");
       await loadUsers();
       await loadOverview();

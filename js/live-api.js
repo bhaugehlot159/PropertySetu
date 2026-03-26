@@ -632,6 +632,24 @@
         return null;
       }
 
+      if (
+        rawPath.startsWith('/admin')
+        || rawPath.startsWith('/documentation')
+        || rawPath.startsWith('/loan')
+        || rawPath.startsWith('/ecosystem')
+        || rawPath.startsWith('/valuation')
+        || rawPath.startsWith('/rent-agreement')
+        || rawPath.startsWith('/franchise')
+      ) {
+        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
+        return requestJson(CORE_API_BASE, forwardPath, {
+          method,
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
+        });
+      }
+
       if (rawPath === '/properties/taxonomy' && method === 'GET') {
         const response = await requestJson(CORE_API_BASE, '/properties/taxonomy', {
           method: 'GET',

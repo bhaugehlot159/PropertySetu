@@ -33,6 +33,10 @@ const coreUserSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    blocked: {
+      type: Boolean,
+      default: false
+    },
     subscriptionPlan: {
       type: String,
       default: "free"
