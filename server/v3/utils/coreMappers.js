@@ -17,6 +17,35 @@ function toPlain(doc) {
   return typeof doc.toObject === "function" ? doc.toObject() : doc;
 }
 
+function buildGoogleMapView({
+  city = "",
+  location = "",
+  coordinates = {}
+} = {}) {
+  const lat = Number(coordinates?.lat);
+  const lng = Number(coordinates?.lng);
+  const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng);
+  const query = hasCoordinates ? `${lat},${lng}` : `${location}, ${city}`.trim();
+  const encodedQuery = encodeURIComponent(query || city || location || "India");
+  const googleMapsUrl = hasCoordinates
+    ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
+  const googleDirectionsUrl = hasCoordinates
+    ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodedQuery}`;
+  const googleEmbedUrl = hasCoordinates
+    ? `https://www.google.com/maps?q=${lat},${lng}&output=embed`
+    : `https://www.google.com/maps?q=${encodedQuery}&output=embed`;
+
+  return {
+    query: query || "",
+    hasCoordinates,
+    googleMapsUrl,
+    googleDirectionsUrl,
+    googleEmbedUrl
+  };
+}
+
 export function normalizeCoreUser(doc, { includePassword = false } = {}) {
   const row = toPlain(doc);
   if (!row) return null;
@@ -78,6 +107,11 @@ export function normalizeCoreProperty(doc) {
     lat: Number.isFinite(lat) ? lat : null,
     lng: Number.isFinite(lng) ? lng : null
   };
+  const mapView = buildGoogleMapView({
+    city: row.city || "",
+    location: row.location || "",
+    coordinates
+  });
 
   return {
     _id: toId(row._id || row.id),
@@ -95,6 +129,7 @@ export function normalizeCoreProperty(doc) {
     constructionStatus: row.constructionStatus || "",
     loanAvailable: Boolean(row.loanAvailable),
     coordinates,
+    mapView,
     images: Array.isArray(row.images) ? row.images : [],
     video: row.video || "",
     media:

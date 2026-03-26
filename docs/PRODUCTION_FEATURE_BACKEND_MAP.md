@@ -61,6 +61,9 @@ Base URL: `http://localhost:5200/api/v3`
 - `POST /chat/send`
 - `GET /chat/:propertyId`
 - `GET /chat/mine`
+- `GET /chat/:propertyId/whatsapp-link`
+- Buyer -> seller direct flow is automatic on `POST /chat/send`
+- Seller/admin can pass `receiverId` in `POST /chat/send` for reply threads
 
 7. Customer smart filter system
 - `GET /properties?minPrice=&maxPrice=`
@@ -73,6 +76,8 @@ Base URL: `http://localhost:5200/api/v3`
 - `DELETE /wishlist/:propertyId`
 - `GET /wishlist`
 - `GET /wishlist/compare?propertyIds=<id1,id2,id3>`
+- `GET /properties/compare?propertyIds=<id1,id2,id3>`
+- `POST /properties/compare` with body `{ "propertyIds": ["id1","id2","id3"] }`
 
 9. Property visit booking + owner notifications
 - `POST /properties/:propertyId/visit`
@@ -88,6 +93,8 @@ Base URL: `http://localhost:5200/api/v3`
 10. AI pricing
 - `POST /ai/pricing-suggestion`
 - `POST /ai/smart-pricing`
+- `GET /ai/emi-calculator?loanAmount=&annualRatePercent=&tenureYears=`
+- `POST /ai/emi-calculator`
 
 11. Fraud detection
 - `POST /ai/fraud-scan`
@@ -97,16 +104,21 @@ Base URL: `http://localhost:5200/api/v3`
 - `GET /ai/recommendations`
 - `GET /ai/similar-properties`
 
-13. City-wise SEO structure
+13. Map integration
+- `GET /properties`
+- `GET /properties/:propertyId`
+- Property response includes `mapView.googleMapsUrl`, `mapView.googleDirectionsUrl`, `mapView.googleEmbedUrl`
+
+14. City-wise SEO structure
 - `GET /seo/city-structure`
 
-14. Property care subscription workflow
+15. Property care subscription workflow
 - `POST /property-care/requests`
 - `GET /property-care/requests/me`
 - `GET /property-care/requests` (admin)
 - `POST /property-care/requests/:requestId/status` (admin)
 
-15. System readiness + architecture checks
+16. System readiness + architecture checks
 - `GET /system/stack-options`
 - `GET /system/stack-readiness`
 - `GET /system/architecture-plan`
@@ -127,3 +139,4 @@ Base URL: `http://localhost:5200/api/v3`
 - Smart filter supports price, BHK, furnishing, construction status, loan flag, verified-only and geo radius filters.
 - Wishlist compare supports up to 3 properties with compare table output.
 - Visit booking creates owner notification and status-update notification to customer.
+- Verified badge is controlled by admin via `/properties/:propertyId/verify` and shown through `verifiedBadge` payload in property APIs.

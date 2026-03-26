@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  compareCoreProperties,
   createCoreProperty,
   createCorePropertyProfessional,
   deleteCoreProperty,
@@ -21,6 +22,8 @@ import {
 const router = Router();
 
 router.get("/", listCoreProperties);
+router.get("/compare", compareCoreProperties);
+router.post("/compare", compareCoreProperties);
 router.post(
   "/auto-description",
   coreAuthRequired,

@@ -12,6 +12,11 @@ const coreMessageSchema = new mongoose.Schema(
       ref: "CoreUser",
       required: true
     },
+    receiverId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
     senderRole: {
       type: String,
       enum: ["buyer", "seller", "admin"],
@@ -42,6 +47,7 @@ const coreMessageSchema = new mongoose.Schema(
 
 coreMessageSchema.index({ propertyId: 1, createdAt: -1 });
 coreMessageSchema.index({ senderId: 1, createdAt: -1 });
+coreMessageSchema.index({ receiverId: 1, createdAt: -1 });
 
 const CoreMessage =
   mongoose.models.CoreMessage ||

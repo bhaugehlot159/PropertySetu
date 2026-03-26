@@ -39,6 +39,8 @@ Filter keys:
 ### 3) Property Compare (2 to 3 properties)
 - `GET /wishlist/compare?propertyIds=<id1,id2,id3>`
 - If `propertyIds` not passed, API tries top wishlist properties.
+- `GET /properties/compare?propertyIds=<id1,id2,id3>`
+- `POST /properties/compare` with `propertyIds` in body for explicit compare.
 
 ### 4) Property Visit Booking
 - `POST /properties/:propertyId/visit`
@@ -60,6 +62,37 @@ Request payload example:
 - `GET /notifications/mine`
 - `POST /notifications/:notificationId/read`
 - `POST /notifications/read-all`
+
+### 6) Direct Chat + WhatsApp Handoff
+- `POST /chat/send`
+- `GET /chat/:propertyId`
+- `GET /chat/mine`
+- `GET /chat/:propertyId/whatsapp-link`
+
+Notes:
+- Buyer chat send automatically targets property owner.
+- Seller/admin replies can include `receiverId`.
+- Direct personal contact in message body is blocked by moderation rules.
+
+### 7) EMI Calculator
+- `GET /ai/emi-calculator?loanAmount=3500000&annualRatePercent=8.6&tenureYears=20`
+- `POST /ai/emi-calculator`
+
+Response includes:
+- `emi.monthlyEmi`
+- `emi.totalInterest`
+- `emi.totalAmount`
+
+### 8) Map Integration + Verified Badge
+- `GET /properties`
+- `GET /properties/:propertyId`
+
+Property response includes:
+- `mapView.googleMapsUrl`
+- `mapView.googleDirectionsUrl`
+- `mapView.googleEmbedUrl`
+- `verifiedBadge.show`
+- `verifiedBadge.label`
 
 ## Professional Upload Notes (for filter-ready property data)
 

@@ -4,14 +4,17 @@ import {
   getCoreAiFraudScan,
   getCoreAiMarketTrend,
   getCoreAiPricingSuggestion,
-  getCoreAiRecommendations
+  getCoreAiRecommendations,
+  getCoreEmiCalculator
 } from "../controllers/coreAiController.js";
 
 const router = Router();
 
 router.get("/market-trend", getCoreAiMarketTrend);
+router.get("/emi-calculator", getCoreEmiCalculator);
 router.post("/pricing-suggestion", getCoreAiPricingSuggestion);
 router.post("/smart-pricing", getCoreAiPricingSuggestion);
+router.post("/emi-calculator", getCoreEmiCalculator);
 router.post("/description-generate", getCoreAiDescription);
 router.post("/fraud-scan", getCoreAiFraudScan);
 router.post("/fake-listing-detection", getCoreAiFraudScan);

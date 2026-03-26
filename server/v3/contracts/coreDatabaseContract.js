@@ -143,12 +143,15 @@ export const coreSystemsBlueprint = [
     title: "In-app Chat",
     capabilities: [
       "Buyer seller secure chat",
-      "Role-aware protected access"
+      "Role-aware protected access",
+      "Receiver-aware direct messaging",
+      "WhatsApp handoff link support"
     ],
     endpoints: [
       "/api/v3/chat/send",
       "/api/v3/chat/:propertyId",
-      "/api/v3/chat/mine"
+      "/api/v3/chat/mine",
+      "/api/v3/chat/:propertyId/whatsapp-link"
     ],
     dependencies: ["authentication"]
   },
@@ -202,14 +205,44 @@ export const coreSystemsBlueprint = [
     capabilities: [
       "Save property to wishlist",
       "Remove from wishlist",
-      "Compare up to 3 properties"
+      "Compare up to 3 properties",
+      "Direct compare using propertyIds without wishlist dependency"
     ],
     endpoints: [
       "/api/v3/wishlist",
       "/api/v3/wishlist/:propertyId",
-      "/api/v3/wishlist/compare"
+      "/api/v3/wishlist/compare",
+      "/api/v3/properties/compare"
     ],
     dependencies: ["authentication", "database"]
+  },
+  {
+    id: "customer-emi-calculator-system",
+    title: "Customer EMI Calculator",
+    capabilities: [
+      "Loan amount input",
+      "Interest rate input",
+      "Tenure months/years input",
+      "Monthly EMI + total interest output"
+    ],
+    endpoints: [
+      "/api/v3/ai/emi-calculator"
+    ],
+    dependencies: ["database"]
+  },
+  {
+    id: "property-map-integration-system",
+    title: "Google Maps Property View",
+    capabilities: [
+      "Google Maps view URL in property response",
+      "Google Directions URL in property response",
+      "Google Embed URL in property response"
+    ],
+    endpoints: [
+      "/api/v3/properties",
+      "/api/v3/properties/:propertyId"
+    ],
+    dependencies: ["database"]
   },
   {
     id: "customer-visit-booking-system",

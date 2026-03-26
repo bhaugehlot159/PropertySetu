@@ -552,6 +552,41 @@ function sortRows(rows, sortKey) {
   return list;
 }
 
+function buildPropertyCompareSummary(item = {}) {
+  return {
+    id: toId(item.id || item._id),
+    title: text(item.title),
+    city: text(item.city),
+    location: text(item.location),
+    type: text(item.type),
+    category: text(item.category),
+    price: numberValue(item.price, 0),
+    size: numberValue(item.size, 0),
+    bhk: numberValue(item.bhk, 0),
+    furnishing: text(item.furnishing),
+    constructionStatus: text(item.constructionStatus),
+    loanAvailable: Boolean(item.loanAvailable),
+    verified: Boolean(item.verified),
+    featured: Boolean(item.featured),
+    mapView:
+      item.mapView && typeof item.mapView === "object" && !Array.isArray(item.mapView)
+        ? item.mapView
+        : {},
+    images: Array.isArray(item.images) ? item.images.slice(0, 3) : []
+  };
+}
+
+function buildCompareHighlights(items = []) {
+  if (!items.length) return {};
+  const bestPrice = [...items].sort((a, b) => numberValue(a.price, 0) - numberValue(b.price, 0))[0];
+  const largestSize = [...items].sort((a, b) => numberValue(b.size, 0) - numberValue(a.size, 0))[0];
+  return {
+    bestPrice: bestPrice ? { propertyId: bestPrice.id, price: bestPrice.price } : null,
+    largestSize: largestSize ? { propertyId: largestSize.id, size: largestSize.size } : null,
+    verifiedCount: items.filter((item) => item.verified).length
+  };
+}
+
 async function findCorePropertyById(propertyId) {
   if (!propertyId) return null;
   if (proRuntime.dbConnected) {
@@ -562,6 +597,85 @@ async function findCorePropertyById(propertyId) {
     proMemoryStore.coreProperties.find((item) => toId(item._id || item.id) === propertyId) ||
     null
   );
+}
+
+export async function compareCoreProperties(req, res, next) {
+  try {
+    const viewer = getViewerFromRequest(req);
+    const rawFromQuery = text(req.query?.propertyIds);
+    const rawFromBody = Array.isArray(req.body?.propertyIds)
+      ? req.body.propertyIds.join(",")
+      : text(req.body?.propertyIds);
+
+    const propertyIds = [...new Set(text(rawFromQuery || rawFromBody)
+      .split(",")
+      .map((item) => text(item))
+      .filter(Boolean))]
+      .slice(0, 3);
+
+    if (propertyIds.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "At least 2 propertyIds are required for compare."
+      });
+    }
+
+    let rows = [];
+    if (proRuntime.dbConnected) {
+      const validIds = propertyIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+      if (validIds.length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: "At least 2 valid propertyIds are required for compare."
+        });
+      }
+      rows = await CoreProperty.find({
+        _id: { $in: validIds }
+      }).lean();
+    } else {
+      rows = proMemoryStore.coreProperties.filter((item) =>
+        propertyIds.includes(toId(item._id || item.id))
+      );
+    }
+
+    const mapById = new Map(
+      rows.map((row) => {
+        const normalized = projectPropertyForViewer(row, viewer);
+        const summary = buildPropertyCompareSummary(normalized);
+        return [summary.id, summary];
+      })
+    );
+    const items = propertyIds.map((id) => mapById.get(id)).filter(Boolean);
+
+    if (items.length < 2) {
+      return res.status(404).json({
+        success: false,
+        message: "Compare properties not found."
+      });
+    }
+
+    return res.json({
+      success: true,
+      total: items.length,
+      items,
+      compareTable: [
+        { key: "price", label: "Price", values: items.map((item) => item.price) },
+        { key: "size", label: "Size", values: items.map((item) => item.size) },
+        { key: "bhk", label: "BHK", values: items.map((item) => item.bhk) },
+        { key: "furnishing", label: "Furnishing", values: items.map((item) => item.furnishing) },
+        {
+          key: "constructionStatus",
+          label: "Construction Status",
+          values: items.map((item) => item.constructionStatus)
+        },
+        { key: "loanAvailable", label: "Loan Available", values: items.map((item) => item.loanAvailable) },
+        { key: "verified", label: "Verified", values: items.map((item) => item.verified) }
+      ],
+      highlights: buildCompareHighlights(items)
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function listCoreProperties(req, res, next) {

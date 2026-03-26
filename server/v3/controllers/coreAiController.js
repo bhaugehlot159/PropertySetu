@@ -16,6 +16,11 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function roundTo(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(Number(value || 0) * factor) / factor;
+}
+
 function summarizePrices(prices = []) {
   const valid = prices.filter((item) => Number.isFinite(item) && item > 0).sort((a, b) => a - b);
   if (!valid.length) return { avgPrice: 0, medianPrice: 0, count: 0 };
@@ -53,6 +58,52 @@ function buildMarketTrend(basePrice = 6000000) {
   });
 }
 
+function calculateEmiBreakdown({
+  loanAmount,
+  annualRatePercent,
+  tenureMonths
+}) {
+  const monthlyRate = Number(annualRatePercent) / 12 / 100;
+  const n = Math.max(1, Math.round(Number(tenureMonths)));
+  const principal = Math.max(0, Number(loanAmount));
+
+  let monthlyEmi = 0;
+  if (monthlyRate <= 0) {
+    monthlyEmi = principal / n;
+  } else {
+    const factor = (1 + monthlyRate) ** n;
+    monthlyEmi = (principal * monthlyRate * factor) / (factor - 1);
+  }
+
+  const totalAmount = monthlyEmi * n;
+  const totalInterest = totalAmount - principal;
+
+  return {
+    monthlyRatePercent: roundTo(monthlyRate * 100, 4),
+    monthlyEmi: roundTo(monthlyEmi, 2),
+    totalAmount: roundTo(totalAmount, 2),
+    totalInterest: roundTo(totalInterest, 2)
+  };
+}
+
+function normalizeEmiInput(req = {}) {
+  const src = {
+    ...(req.query || {}),
+    ...(req.body || {})
+  };
+  const loanAmount = numberValue(src.loanAmount, 0);
+  const annualRatePercent = numberValue(src.annualRatePercent || src.interestRate, 0);
+  const tenureMonthsRaw = numberValue(src.tenureMonths, 0);
+  const tenureYearsRaw = numberValue(src.tenureYears, 0);
+  const tenureMonths = tenureMonthsRaw > 0 ? tenureMonthsRaw : tenureYearsRaw > 0 ? tenureYearsRaw * 12 : 0;
+
+  return {
+    loanAmount,
+    annualRatePercent,
+    tenureMonths
+  };
+}
+
 export async function getCoreAiMarketTrend(req, res, next) {
   try {
     const locality = text(req.query.locality || req.query.name, "Udaipur");
@@ -72,6 +123,45 @@ export async function getCoreAiMarketTrend(req, res, next) {
         medianPrice: stats.medianPrice
       },
       trend
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export function getCoreEmiCalculator(req, res, next) {
+  try {
+    const payload = normalizeEmiInput(req);
+    if (payload.loanAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "loanAmount must be greater than zero."
+      });
+    }
+    if (payload.annualRatePercent < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "annualRatePercent cannot be negative."
+      });
+    }
+    if (payload.tenureMonths <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "tenureMonths or tenureYears is required."
+      });
+    }
+
+    const emi = calculateEmiBreakdown(payload);
+    return res.json({
+      success: true,
+      input: {
+        loanAmount: roundTo(payload.loanAmount, 2),
+        annualRatePercent: roundTo(payload.annualRatePercent, 4),
+        tenureMonths: Math.round(payload.tenureMonths),
+        tenureYears: roundTo(payload.tenureMonths / 12, 2)
+      },
+      emi,
+      message: `Monthly EMI is ₹${emi.monthlyEmi.toLocaleString("en-IN")}.`
     });
   } catch (error) {
     return next(error);
