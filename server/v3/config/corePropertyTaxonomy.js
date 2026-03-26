@@ -100,6 +100,7 @@ function normalizeKey(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
+    .replace(/[^\w\s]+/g, " ")
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ");
 }
@@ -108,6 +109,20 @@ export function normalizeCorePropertyType(value, fallback = "buy") {
   const key = normalizeKey(value);
   const viaAlias = TYPE_ALIASES[key];
   if (viaAlias && CORE_PROPERTY_TYPE_SET.has(viaAlias)) return viaAlias;
+  if (key.includes("girvi") || key.includes("mortgage")) return "mortgage";
+  if (key.includes("lease")) return "lease";
+  if (key.includes("rent")) return "rent";
+  if (key.includes("sell") || key.includes("sale") || key.includes("resale")) return "sell";
+  if (key.includes("buy") || key.includes("purchase")) return "buy";
+  if (key.includes("auction") || key.includes("bid")) return "auction";
+  if (
+    key.includes("service") ||
+    key.includes("property care") ||
+    key.includes("home maintenance") ||
+    key.includes("home watch")
+  ) {
+    return "service";
+  }
   if (CORE_PROPERTY_TYPE_SET.has(key)) return key;
   return CORE_PROPERTY_TYPE_SET.has(fallback) ? fallback : "buy";
 }
@@ -116,6 +131,33 @@ export function normalizeCorePropertyCategory(value, fallback = "house") {
   const key = normalizeKey(value);
   const viaAlias = CATEGORY_ALIASES[key];
   if (viaAlias && CORE_PROPERTY_CATEGORY_SET.has(viaAlias)) return viaAlias;
+  if (key.includes("flat") || key.includes("apartment") || key.includes("condo")) {
+    return "apartment";
+  }
+  if (key.includes("villa")) return "villa";
+  if (key.includes("farm house") || key.includes("farmhouse")) return "farm-house";
+  if (key.includes("plot") || key.includes("vadi") || key.includes("site")) return "plot";
+  if (key.includes("warehouse") || key.includes("godown")) return "warehouse";
+  if (key.includes("pg") || key.includes("hostel")) return "pg-hostel";
+  if (
+    key.includes("agriculture") ||
+    key.includes("agricultural") ||
+    key.includes("farm land")
+  ) {
+    return "agriculture-land";
+  }
+  if (key.includes("property care")) return "property-care";
+  if (key.includes("home maintenance")) return "home-maintenance";
+  if (key.includes("home watch")) return "home-watch";
+  if (key.includes("industrial") || key.includes("factory")) return "industrial";
+  if (key.includes("co living") || key.includes("coliving")) return "co-living";
+  if (key.includes("office")) return "office";
+  if (key.includes("shop") || key.includes("retail")) return "shop";
+  if (key.includes("commercial")) return "commercial";
+  if (key.includes("other") || key.includes("misc")) return "other";
+  if (key.includes("house") || key.includes("home") || key.includes("residential")) {
+    return "house";
+  }
   if (CORE_PROPERTY_CATEGORY_SET.has(key)) return key;
   return CORE_PROPERTY_CATEGORY_SET.has(fallback) ? fallback : "house";
 }
@@ -134,4 +176,3 @@ export function getCorePropertyTaxonomy() {
     categories: CORE_PROPERTY_CATEGORY_OPTIONS
   };
 }
-

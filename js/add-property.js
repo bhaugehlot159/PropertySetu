@@ -51,6 +51,66 @@
     'old city': 6500000,
     udaipur: 6000000,
   };
+  const FALLBACK_TAXONOMY_TYPES = [
+    { value: 'buy', label: 'Buy' },
+    { value: 'sell', label: 'Sell' },
+    { value: 'rent', label: 'Rent' },
+    { value: 'lease', label: 'Lease' },
+    { value: 'mortgage', label: 'Girvi / Mortgage' },
+    { value: 'service', label: 'Service' },
+    { value: 'auction', label: 'Auction / Bid' },
+  ];
+  const FALLBACK_TAXONOMY_CATEGORIES = [
+    { value: 'house', label: 'House' },
+    { value: 'apartment', label: 'Apartment / Flat' },
+    { value: 'villa', label: 'Villa' },
+    { value: 'plot', label: 'Plot / Vadi' },
+    { value: 'farm-house', label: 'Farm House' },
+    { value: 'commercial', label: 'Commercial' },
+    { value: 'office', label: 'Office' },
+    { value: 'shop', label: 'Shop / Retail' },
+    { value: 'pg-hostel', label: 'PG / Hostel' },
+    { value: 'warehouse', label: 'Warehouse / Godown' },
+    { value: 'agriculture-land', label: 'Agriculture Land' },
+    { value: 'property-care', label: 'Property Care' },
+    { value: 'home-maintenance', label: 'Home Maintenance' },
+    { value: 'home-watch', label: 'Home Watch' },
+    { value: 'industrial', label: 'Industrial' },
+    { value: 'co-living', label: 'Co-living' },
+    { value: 'other', label: 'Other' },
+  ];
+  const CORE_TYPE_TO_LEGACY_LABEL = {
+    buy: 'Buy',
+    sell: 'Sell',
+    rent: 'Rent',
+    lease: 'Lease',
+    mortgage: 'Girvi',
+    service: 'Service',
+    auction: 'Auction',
+  };
+  const CORE_CATEGORY_TO_LEGACY_LABEL = {
+    house: 'House',
+    apartment: 'Flat',
+    villa: 'Villa',
+    plot: 'Plot',
+    'farm-house': 'Farm House',
+    commercial: 'Commercial',
+    office: 'Office',
+    shop: 'Shop',
+    'pg-hostel': 'PG / Hostel',
+    warehouse: 'Warehouse',
+    'agriculture-land': 'Agriculture Land',
+    'property-care': 'Property Care',
+    'home-maintenance': 'Home Maintenance',
+    'home-watch': 'Home Watch',
+    industrial: 'Industrial',
+    'co-living': 'Co-living',
+    other: 'Other',
+  };
+  const taxonomyState = {
+    types: FALLBACK_TAXONOMY_TYPES.slice(),
+    categories: FALLBACK_TAXONOMY_CATEGORIES.slice(),
+  };
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -98,6 +158,131 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   };
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const normalizeKey = (value) => text(value).toLowerCase();
+  const legacyTypeToCoreValue = (value) => {
+    const raw = normalizeKey(value);
+    if (!raw) return '';
+    if (raw.includes('rent')) return 'rent';
+    if (raw.includes('sell') || raw === 'sale' || raw.includes('resale')) return 'sell';
+    if (raw.includes('buy') || raw.includes('purchase')) return 'buy';
+    if (raw.includes('lease')) return 'lease';
+    if (raw.includes('girvi') || raw.includes('mortgage')) return 'mortgage';
+    if (raw.includes('auction') || raw.includes('bid')) return 'auction';
+    if (
+      raw.includes('service')
+      || raw.includes('property care')
+      || raw.includes('home maintenance')
+      || raw.includes('home watch')
+    ) return 'service';
+    return '';
+  };
+  const legacyCategoryToCoreValue = (value) => {
+    const raw = normalizeKey(value);
+    if (!raw) return '';
+    if (raw.includes('flat') || raw.includes('apartment') || raw.includes('condo')) return 'apartment';
+    if (raw.includes('villa')) return 'villa';
+    if (raw.includes('farm house') || raw.includes('farmhouse')) return 'farm-house';
+    if (raw.includes('plot') || raw.includes('vadi')) return 'plot';
+    if (raw.includes('warehouse') || raw.includes('godown')) return 'warehouse';
+    if (raw.includes('pg') || raw.includes('hostel')) return 'pg-hostel';
+    if (raw.includes('agriculture') || raw.includes('agricultural') || raw.includes('farm land')) return 'agriculture-land';
+    if (raw.includes('property care')) return 'property-care';
+    if (raw.includes('home maintenance')) return 'home-maintenance';
+    if (raw.includes('home watch')) return 'home-watch';
+    if (raw.includes('industrial') || raw.includes('factory')) return 'industrial';
+    if (raw.includes('co-living') || raw.includes('co living') || raw.includes('coliving')) return 'co-living';
+    if (raw.includes('office')) return 'office';
+    if (raw.includes('shop') || raw.includes('retail')) return 'shop';
+    if (raw.includes('commercial')) return 'commercial';
+    if (raw.includes('other') || raw.includes('misc')) return 'other';
+    return 'house';
+  };
+  const coreTypeToLegacyLabel = (value, fallbackLabel = '') => {
+    const raw = normalizeKey(value);
+    return CORE_TYPE_TO_LEGACY_LABEL[raw] || text(fallbackLabel) || 'Buy';
+  };
+  const coreCategoryToLegacyLabel = (value, fallbackLabel = '') => {
+    const raw = normalizeKey(value);
+    return CORE_CATEGORY_TO_LEGACY_LABEL[raw] || text(fallbackLabel) || 'House';
+  };
+  const normalizeLegacyTypeValue = (value) => {
+    const core = legacyTypeToCoreValue(value);
+    if (!core) return text(value);
+    return coreTypeToLegacyLabel(core, value);
+  };
+  const normalizeLegacyCategoryValue = (value) => {
+    const core = legacyCategoryToCoreValue(value);
+    if (!core) return text(value);
+    return coreCategoryToLegacyLabel(core, value);
+  };
+  const uniqueByValue = (items = []) => {
+    const seen = new Set();
+    return (items || []).filter((item) => {
+      const key = text(item?.value).toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const setSelectOptions = (selectEl, options, preferredValue = '') => {
+    if (!selectEl) return;
+    const current = text(preferredValue || selectEl.value);
+    const normalizedOptions = uniqueByValue(options)
+      .map((item) => ({ value: text(item.value), label: text(item.label) || text(item.value) }))
+      .filter((item) => item.value);
+    selectEl.innerHTML = '<option value="">Select</option>' + normalizedOptions
+      .map((item) => `<option value="${item.value}">${item.label}</option>`)
+      .join('');
+    if (current && normalizedOptions.some((item) => item.value === current)) {
+      selectEl.value = current;
+      return;
+    }
+    const normalizedCurrent = selectEl === categorySelect
+      ? normalizeLegacyCategoryValue(current)
+      : normalizeLegacyTypeValue(current);
+    if (normalizedCurrent && normalizedOptions.some((item) => item.value === normalizedCurrent)) {
+      selectEl.value = normalizedCurrent;
+    }
+  };
+  const buildTypeUiOptions = (types = []) =>
+    uniqueByValue((types || []).map((item) => ({
+      value: coreTypeToLegacyLabel(item?.value, item?.label),
+      label: coreTypeToLegacyLabel(item?.value, item?.label),
+    })));
+  const buildCategoryUiOptions = (categories = []) =>
+    uniqueByValue((categories || []).map((item) => ({
+      value: coreCategoryToLegacyLabel(item?.value, item?.label),
+      label: coreCategoryToLegacyLabel(item?.value, item?.label),
+    })));
+  const fetchLiveTaxonomy = async () => {
+    if (live?.properties && typeof live.properties.taxonomy === 'function') {
+      return live.properties.taxonomy();
+    }
+    if (typeof live?.request === 'function') {
+      return live.request('/properties/taxonomy');
+    }
+    return null;
+  };
+  const loadTaxonomyIntoForm = async () => {
+    let response = null;
+    try {
+      response = await fetchLiveTaxonomy();
+    } catch {
+      response = null;
+    }
+    const apiTypes = Array.isArray(response?.types) ? response.types : [];
+    const apiCategories = Array.isArray(response?.categories) ? response.categories : [];
+    taxonomyState.types = apiTypes.length ? apiTypes : FALLBACK_TAXONOMY_TYPES.slice();
+    taxonomyState.categories = apiCategories.length ? apiCategories : FALLBACK_TAXONOMY_CATEGORIES.slice();
+
+    const typeOptions = buildTypeUiOptions(taxonomyState.types);
+    const categoryOptions = buildCategoryUiOptions(taxonomyState.categories);
+
+    setSelectOptions(typeSelect, typeOptions, typeSelect?.value);
+    setSelectOptions(saleRentModeSelect, typeOptions, saleRentModeSelect?.value);
+    setSelectOptions(categorySelect, categoryOptions, categorySelect?.value);
+    setSelectOptions(propertyTypeCoreSelect, categoryOptions, propertyTypeCoreSelect?.value);
+  };
   const fileSizeLabel = (bytes) => {
     const value = numberFrom(bytes, 0);
     if (value < 1024) return `${value} B`;
@@ -994,8 +1179,8 @@
     const normalizedPlot = values.plotSize ? `${values.plotSize} ${values.plotSizeUnit || 'sq ft'}` : '';
     const normalizedBuilt = values.builtUpArea ? `${values.builtUpArea} ${values.builtUpAreaUnit || 'sq ft'}` : '';
     const normalizedCarpet = values.carpetArea ? `${values.carpetArea} ${values.carpetAreaUnit || 'sq ft'}` : '';
-    const normalizedPropertyTypeCore = values.propertyTypeCore || (['House', 'Plot', 'Commercial'].includes(values.category) ? values.category : '');
-    const normalizedSaleRentMode = values.saleRentMode || (values.type === 'Rent' ? 'Rent' : (values.type ? 'Sale' : ''));
+    const normalizedPropertyTypeCore = normalizeLegacyCategoryValue(values.propertyTypeCore || values.category);
+    const normalizedSaleRentMode = normalizeLegacyTypeValue(values.saleRentMode || values.type);
     return {
       id: `local-${Date.now()}`,
       ...values,
@@ -1113,22 +1298,21 @@
   };
 
   const syncCoreFromTypeCategory = () => {
-    const typeValue = text(typeSelect?.value);
-    const categoryValue = text(categorySelect?.value);
-    if (propertyTypeCoreSelect && ['House', 'Plot', 'Commercial'].includes(categoryValue)) {
+    const typeValue = normalizeLegacyTypeValue(typeSelect?.value);
+    const categoryValue = normalizeLegacyCategoryValue(categorySelect?.value);
+    if (propertyTypeCoreSelect && categoryValue) {
       propertyTypeCoreSelect.value = categoryValue;
     }
-    if (saleRentModeSelect) {
-      if (typeValue === 'Rent') saleRentModeSelect.value = 'Rent';
-      else if (typeValue) saleRentModeSelect.value = 'Sale';
+    if (saleRentModeSelect && typeValue) {
+      saleRentModeSelect.value = typeValue;
     }
   };
 
   const syncTypeCategoryFromCore = () => {
-    const coreType = text(propertyTypeCoreSelect?.value);
-    const saleRent = text(saleRentModeSelect?.value);
-    if (coreType && categorySelect) categorySelect.value = coreType;
-    if (saleRent && typeSelect) typeSelect.value = saleRent === 'Rent' ? 'Rent' : 'Sell';
+    const coreCategory = normalizeLegacyCategoryValue(propertyTypeCoreSelect?.value);
+    const mode = normalizeLegacyTypeValue(saleRentModeSelect?.value);
+    if (coreCategory && categorySelect) categorySelect.value = coreCategory;
+    if (mode && typeSelect) typeSelect.value = mode;
   };
 
   citySelect?.addEventListener('change', forceUdaipurCity);
@@ -1368,7 +1552,9 @@
 
   forceUdaipurCity();
   loadDraft();
-  syncCoreFromTypeCategory();
+  void loadTaxonomyIntoForm().finally(() => {
+    syncCoreFromTypeCategory();
+  });
   renderPhotoAiAudit();
   renderPrivateDocsStatus();
   renderVideoVisitStatus();

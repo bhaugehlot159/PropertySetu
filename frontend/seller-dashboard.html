@@ -111,6 +111,7 @@ button:hover { background:#092f6d; }
   const photosInput = document.getElementById('photos');
   const videoInput = document.getElementById('video');
   const mediaUploadMeta = document.getElementById('mediaUploadMeta');
+  const categorySelect = document.getElementById('category');
   const LISTINGS_KEY = 'propertySetu:listings';
   const MARKET_STATE_KEY = 'propertysetu-marketplace-state';
   const USER_VISIT_KEY = 'propertySetu:userVisits';
@@ -121,6 +122,62 @@ button:hover { background:#092f6d; }
   const featuredPlans = {
     'featured-7': { name: 'Featured Listing - 7 Days', amount: 299, cycleDays: 7 },
     'featured-30': { name: 'Featured Listing - 30 Days', amount: 999, cycleDays: 30 },
+  };
+  const fallbackTaxonomyTypes = [
+    { value: 'buy', label: 'Buy' },
+    { value: 'sell', label: 'Sell' },
+    { value: 'rent', label: 'Rent' },
+    { value: 'lease', label: 'Lease' },
+    { value: 'mortgage', label: 'Girvi / Mortgage' },
+    { value: 'service', label: 'Service' },
+    { value: 'auction', label: 'Auction / Bid' },
+  ];
+  const fallbackTaxonomyCategories = [
+    { value: 'house', label: 'House' },
+    { value: 'apartment', label: 'Apartment / Flat' },
+    { value: 'villa', label: 'Villa' },
+    { value: 'plot', label: 'Plot / Vadi' },
+    { value: 'farm-house', label: 'Farm House' },
+    { value: 'commercial', label: 'Commercial' },
+    { value: 'office', label: 'Office' },
+    { value: 'shop', label: 'Shop / Retail' },
+    { value: 'pg-hostel', label: 'PG / Hostel' },
+    { value: 'warehouse', label: 'Warehouse / Godown' },
+    { value: 'agriculture-land', label: 'Agriculture Land' },
+    { value: 'property-care', label: 'Property Care' },
+    { value: 'home-maintenance', label: 'Home Maintenance' },
+    { value: 'home-watch', label: 'Home Watch' },
+    { value: 'industrial', label: 'Industrial' },
+    { value: 'co-living', label: 'Co-living' },
+    { value: 'other', label: 'Other' },
+  ];
+  const typeLabelMap = {
+    buy: 'Buy',
+    sell: 'Sell',
+    rent: 'Rent',
+    lease: 'Lease',
+    mortgage: 'Girvi (Mortgage)',
+    service: 'Service',
+    auction: 'Auction',
+  };
+  const categoryLabelMap = {
+    house: 'House',
+    apartment: 'Flat',
+    villa: 'Villa',
+    plot: 'Vadi / Plot',
+    'farm-house': 'Farm House',
+    commercial: 'Commercial',
+    office: 'Office',
+    shop: 'Shop',
+    'pg-hostel': 'PG / Hostel',
+    warehouse: 'Warehouse',
+    'agriculture-land': 'Agriculture Land',
+    'property-care': 'Property Care',
+    'home-maintenance': 'Home Maintenance',
+    'home-watch': 'Home Watch',
+    industrial: 'Industrial',
+    'co-living': 'Co-living',
+    other: 'Other',
   };
 
   const readJson = live.readJson || ((key, fallback) => {
@@ -137,6 +194,54 @@ button:hover { background:#092f6d; }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   });
+  const asText = (value) => String(value || '').trim();
+  const uniqueStrings = (items = []) => {
+    const seen = new Set();
+    return (items || []).filter((item) => {
+      const key = asText(item).toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const toTypeLabel = (item = {}) => {
+    const value = asText(item.value).toLowerCase();
+    return typeLabelMap[value] || asText(item.label) || 'Buy';
+  };
+  const toCategoryLabel = (item = {}) => {
+    const value = asText(item.value).toLowerCase();
+    return categoryLabelMap[value] || asText(item.label) || 'House';
+  };
+  const hydrateCategoryOptions = async () => {
+    if (!categorySelect) return;
+    let taxonomy = null;
+    try {
+      if (live?.properties && typeof live.properties.taxonomy === 'function') {
+        taxonomy = await live.properties.taxonomy();
+      } else if (live.request) {
+        taxonomy = await live.request('/properties/taxonomy');
+      }
+    } catch {
+      taxonomy = null;
+    }
+    const typeItems = Array.isArray(taxonomy?.types) && taxonomy.types.length
+      ? taxonomy.types
+      : fallbackTaxonomyTypes;
+    const categoryItems = Array.isArray(taxonomy?.categories) && taxonomy.categories.length
+      ? taxonomy.categories
+      : fallbackTaxonomyCategories;
+    const labels = uniqueStrings([
+      ...typeItems.map(toTypeLabel),
+      ...categoryItems.map(toCategoryLabel),
+    ]);
+    const selected = asText(categorySelect.value);
+    categorySelect.innerHTML = '<option value="">Select Category</option>' + labels
+      .map((label) => `<option>${label}</option>`)
+      .join('');
+    if (selected && labels.includes(selected)) {
+      categorySelect.value = selected;
+    }
+  };
 
   const pushNotification = (title, message, type = 'info') => {
     if (!title || !message) return;
@@ -562,8 +667,10 @@ button:hover { background:#092f6d; }
   videoInput?.addEventListener('change', describeMediaSelection);
   describeMediaSelection();
 
-  syncFeaturedPlans().finally(() => {
-    syncMineFromApi().finally(render);
+  hydrateCategoryOptions().finally(() => {
+    syncFeaturedPlans().finally(() => {
+      syncMineFromApi().finally(render);
+    });
   });
 
   propertyList.addEventListener('click', async (event) => {
