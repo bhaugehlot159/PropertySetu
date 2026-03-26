@@ -4,9 +4,23 @@ set -euo pipefail
 DOMAIN="${DOMAIN:-propertysetu.in}"
 WWW_DOMAIN="${WWW_DOMAIN:-www.${DOMAIN}}"
 APP_DIR="${APP_DIR:-/var/www/propertysetu}"
-APP_PORT="${APP_PORT:-5000}"
-APP_NAME="${APP_NAME:-propertysetu-app}"
+APP_PROFILE="$(echo "${APP_PROFILE:-legacy}" | tr '[:upper:]' '[:lower:]')"
 BRANCH="${BRANCH:-main}"
+
+if [[ "${APP_PROFILE}" == "professional" || "${APP_PROFILE}" == "pro" ]]; then
+  APP_PROFILE="professional"
+  APP_PORT="${APP_PORT:-5200}"
+  APP_NAME="${APP_NAME:-propertysetu-pro-app}"
+  HEALTH_PATH="${HEALTH_PATH:-/api/v3/health}"
+elif [[ "${APP_PROFILE}" == "legacy" ]]; then
+  APP_PROFILE="legacy"
+  APP_PORT="${APP_PORT:-5000}"
+  APP_NAME="${APP_NAME:-propertysetu-app}"
+  HEALTH_PATH="${HEALTH_PATH:-/api/health}"
+else
+  echo "ERROR: APP_PROFILE must be legacy or professional."
+  exit 1
+fi
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -26,9 +40,11 @@ echo "== PropertySetu Production Preflight =="
 echo "Domain: ${DOMAIN}"
 echo "WWW: ${WWW_DOMAIN}"
 echo "App: ${APP_NAME}"
+echo "Profile: ${APP_PROFILE}"
 echo "App Dir: ${APP_DIR}"
 echo "Branch: ${BRANCH}"
 echo "Port: ${APP_PORT}"
+echo "Health Path: ${HEALTH_PATH}"
 echo
 
 require_cmd git

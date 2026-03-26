@@ -16,7 +16,9 @@ Use this on an Ubuntu server (22.04/24.04 recommended).
 - Server public IP available
 - SSH access available (`sudo` user)
 - App will run from: `/var/www/propertysetu`
-- Node app port: `5000`
+- Choose profile:
+  - `legacy`: port `5000`, health `/api/health`
+  - `professional` (Option 1): port `5200`, health `/api/v3/health`
 
 ## 1) Domain DNS mapping
 
@@ -66,7 +68,7 @@ git pull --ff-only origin main
 
 ## 4) Environment setup
 
-Create `server/.env`:
+Legacy profile (`APP_PROFILE=legacy`): create `server/.env`:
 
 ```env
 PORT=5000
@@ -75,6 +77,24 @@ JWT_SECRET=replace_with_long_random_secret
 MONGODB_URI=replace_with_mongodb_uri_if_used
 RAZORPAY_KEY_ID=replace_if_enabled
 RAZORPAY_KEY_SECRET=replace_if_enabled
+```
+
+Professional profile (`APP_PROFILE=professional`): create `server/.env.pro`:
+
+```env
+PRO_PORT=5200
+NODE_ENV=production
+MONGO_URI=replace_with_mongodb_uri
+JWT_SECRET=replace_with_long_random_secret
+ADMIN_REGISTRATION_KEY=replace_with_admin_registration_key
+CORE_EXPOSE_OTP=false
+STORAGE_PROVIDER=cloudinary
+CLOUDINARY_CLOUD_NAME=replace_with_cloud_name
+CLOUDINARY_API_KEY=replace_with_api_key
+CLOUDINARY_API_SECRET=replace_with_api_secret
+RAZORPAY_KEY_ID=replace_if_enabled
+RAZORPAY_KEY_SECRET=replace_if_enabled
+CORS_ORIGIN=https://propertysetu.in,https://www.propertysetu.in
 ```
 
 Install backend dependencies:
@@ -96,7 +116,15 @@ Start app with repo config:
 
 ```bash
 cd /var/www/propertysetu
-pm2 start deploy/ecosystem.config.cjs --env production
+APP_PROFILE=legacy APP_PORT=5000 APP_NAME=propertysetu-app pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+```
+
+Professional start:
+
+```bash
+cd /var/www/propertysetu
+APP_PROFILE=professional APP_PORT=5200 APP_NAME=propertysetu-pro-app pm2 start deploy/ecosystem.config.cjs --env production
 pm2 save
 ```
 
@@ -169,6 +197,11 @@ Expected:
 - `/api/health` returns `{ "ok": true, ... }`
 - PM2 app status is `online`
 
+Professional profile expected:
+- HTTPS works without browser warning
+- `/api/v3/health` returns `{ "ok": true, ... }`
+- PM2 app `propertysetu-pro-app` status is `online`
+
 ## 10) Next deploy command (repeat releases)
 
 Use the included deploy script:
@@ -176,7 +209,14 @@ Use the included deploy script:
 ```bash
 cd /var/www/propertysetu
 chmod +x deploy/scripts/deploy.sh
-./deploy/scripts/deploy.sh main
+APP_PROFILE=legacy ./deploy/scripts/deploy.sh main
+```
+
+Professional repeat deploy:
+
+```bash
+cd /var/www/propertysetu
+APP_PROFILE=professional APP_PORT=5200 HEALTH_PATH=/api/v3/health ./deploy/scripts/deploy.sh main
 ```
 
 ## 11) Rollback quick plan
@@ -188,7 +228,15 @@ cd /var/www/propertysetu
 git log --oneline -n 5
 git checkout <previous_commit_hash>
 cd server && npm ci --omit=dev && cd ..
-pm2 restart propertysetu-app
+APP_PROFILE=legacy pm2 restart propertysetu-app
+sudo systemctl reload nginx
+```
+
+Professional quick rollback restart:
+
+```bash
+cd /var/www/propertysetu
+APP_PROFILE=professional pm2 restart propertysetu-pro-app
 sudo systemctl reload nginx
 ```
 

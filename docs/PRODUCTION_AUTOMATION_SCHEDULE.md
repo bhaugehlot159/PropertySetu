@@ -17,8 +17,26 @@ chmod +x deploy/scripts/*.sh
 ```bash
 APP_DIR=/var/www/propertysetu \
 DOMAIN=propertysetu.in \
+APP_PROFILE=legacy \
 APP_PORT=5000 \
 APP_NAME=propertysetu-app \
+HEALTH_EVERY_MIN=10 \
+BACKUP_HOUR=2 \
+BACKUP_MIN=30 \
+BACKUP_ROOT=/var/backups/propertysetu \
+KEEP_DAYS=14 \
+./deploy/scripts/install-ops-cron.sh
+```
+
+Professional mode cron install:
+
+```bash
+APP_DIR=/var/www/propertysetu \
+DOMAIN=propertysetu.in \
+APP_PROFILE=professional \
+APP_PORT=5200 \
+APP_NAME=propertysetu-pro-app \
+HEALTH_PATH=/api/v3/health \
 HEALTH_EVERY_MIN=10 \
 BACKUP_HOUR=2 \
 BACKUP_MIN=30 \
@@ -51,6 +69,13 @@ Note: this adds only `certbot renew --quiet` job. Reload handling remains manage
 ## 6) Manual smoke checks
 
 ```bash
-DOMAIN=propertysetu.in APP_PORT=5000 ./deploy/scripts/verify-live.sh
+DOMAIN=propertysetu.in APP_PROFILE=legacy APP_PORT=5000 ./deploy/scripts/verify-live.sh
+./deploy/scripts/backup.sh
+```
+
+Professional smoke:
+
+```bash
+DOMAIN=propertysetu.in APP_PROFILE=professional APP_PORT=5200 HEALTH_PATH=/api/v3/health ./deploy/scripts/verify-live.sh
 ./deploy/scripts/backup.sh
 ```

@@ -32,14 +32,32 @@ ENABLE_MONGO_DUMP=1 ./deploy/scripts/backup.sh
 
 ```bash
 cd /var/www/propertysetu
-./deploy/scripts/deploy.sh main
+APP_PROFILE=legacy ./deploy/scripts/deploy.sh main
+```
+
+Professional deploy:
+
+```bash
+cd /var/www/propertysetu
+APP_PROFILE=professional APP_PORT=5200 HEALTH_PATH=/api/v3/health ./deploy/scripts/deploy.sh main
 ```
 
 ## 4) Verify live
 
 ```bash
 DOMAIN=propertysetu.in \
+APP_PROFILE=legacy \
 APP_PORT=5000 \
+./deploy/scripts/verify-live.sh
+```
+
+Professional verify:
+
+```bash
+DOMAIN=propertysetu.in \
+APP_PROFILE=professional \
+APP_PORT=5200 \
+HEALTH_PATH=/api/v3/health \
 ./deploy/scripts/verify-live.sh
 ```
 
@@ -56,7 +74,18 @@ Rollback to specific commit:
 
 ```bash
 DOMAIN=propertysetu.in \
+APP_PROFILE=legacy \
 APP_PORT=5000 \
+./deploy/scripts/rollback.sh <commit_or_tag>
+```
+
+Professional rollback:
+
+```bash
+DOMAIN=propertysetu.in \
+APP_PROFILE=professional \
+APP_PORT=5200 \
+HEALTH_PATH=/api/v3/health \
 ./deploy/scripts/rollback.sh <commit_or_tag>
 ```
 
@@ -66,7 +95,7 @@ APP_PORT=5000 \
 cd /var/www/propertysetu
 git checkout main
 git pull --ff-only origin main
-./deploy/scripts/deploy.sh main
+APP_PROFILE=legacy ./deploy/scripts/deploy.sh main
 ```
 
 ## 7) Recommended routine
@@ -89,5 +118,11 @@ Use the dedicated schedule guide:
 Quick install command:
 
 ```bash
-APP_DIR=/var/www/propertysetu DOMAIN=propertysetu.in APP_PORT=5000 ./deploy/scripts/install-ops-cron.sh
+APP_DIR=/var/www/propertysetu DOMAIN=propertysetu.in APP_PROFILE=legacy APP_PORT=5000 ./deploy/scripts/install-ops-cron.sh
+```
+
+Professional schedule install:
+
+```bash
+APP_DIR=/var/www/propertysetu DOMAIN=propertysetu.in APP_PROFILE=professional APP_PORT=5200 HEALTH_PATH=/api/v3/health ./deploy/scripts/install-ops-cron.sh
 ```

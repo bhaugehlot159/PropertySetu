@@ -145,6 +145,16 @@ Domain + PM2 + Nginx + SSL checklist: `docs/PRODUCTION_DEPLOY_CHECKLIST.md`
 ## One-Shot Server Provision
 Fast single-command VPS setup: `docs/PRODUCTION_ONE_SHOT_DEPLOY.md`
 
+Deploy profile modes:
+- `legacy` (default): `APP_PROFILE=legacy`, `APP_PORT=5000`, health path `/api/health`
+- `professional` (Option 1): `APP_PROFILE=professional`, `APP_PORT=5200`, health path `/api/v3/health`
+
+Example deploy commands:
+```bash
+APP_PROFILE=legacy ./deploy/scripts/deploy.sh main
+APP_PROFILE=professional APP_PORT=5200 HEALTH_PATH=/api/v3/health ./deploy/scripts/deploy.sh main
+```
+
 Production helper scripts:
 - `deploy/scripts/preflight.sh`
 - `deploy/scripts/provision-ubuntu.sh`
