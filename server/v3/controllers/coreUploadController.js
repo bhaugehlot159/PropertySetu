@@ -27,6 +27,36 @@ function asIso(value) {
   return date.toISOString();
 }
 
+const PRIVATE_DOC_CATEGORY_HINTS = [
+  "doc",
+  "document",
+  "agreement",
+  "registry",
+  "id-proof",
+  "address-proof",
+  "ownership",
+  "tax",
+  "legal"
+];
+
+function normalizeCategory(value) {
+  return text(value, "misc").toLowerCase();
+}
+
+function categoryImpliesPrivate(category) {
+  const raw = normalizeCategory(category);
+  return PRIVATE_DOC_CATEGORY_HINTS.some((hint) => raw.includes(hint));
+}
+
+function normalizePropertyId(propertyIdRaw) {
+  const value = text(propertyIdRaw);
+  if (!value) return null;
+  if (proRuntime.dbConnected) {
+    return mongoose.Types.ObjectId.isValid(value) ? value : null;
+  }
+  return value;
+}
+
 function normalizeUpload(doc) {
   const row = doc && typeof doc.toObject === "function" ? doc.toObject() : doc;
   if (!row) return null;
@@ -49,24 +79,31 @@ function normalizeUpload(doc) {
 
 function buildUploadRows(req, files = []) {
   const userId = text(req.coreUser?.id);
-  const propertyIdRaw = text(req.body?.propertyId);
-  const propertyId = propertyIdRaw && mongoose.Types.ObjectId.isValid(propertyIdRaw)
-    ? propertyIdRaw
-    : null;
+  const propertyId = normalizePropertyId(req.body?.propertyId);
 
   return files.map((file, index) => {
     const fileName = text(file?.name, `upload-${index + 1}.bin`);
     const encodedName = encodeURIComponent(fileName);
     const base64 = text(file?.dataBase64);
+    const category = normalizeCategory(file?.category);
+    const inferredPrivate = categoryImpliesPrivate(category);
+    const isPrivate =
+      typeof file?.isPrivate === "boolean" ? file.isPrivate : inferredPrivate;
+
     return {
       userId,
       propertyId,
-      category: text(file?.category, "misc"),
+      category,
       name: fileName,
       type: text(file?.type, "application/octet-stream"),
       sizeBytes: Math.max(numberValue(file?.sizeBytes, base64.length), 0),
-      url: text(file?.url, `https://cdn.propertysetu.local/uploads/${Date.now()}-${encodedName}`),
-      isPrivate: Boolean(file?.isPrivate),
+      url: text(
+        file?.url,
+        isPrivate
+          ? `https://secure-cdn.propertysetu.local/private/${Date.now()}-${encodedName}`
+          : `https://cdn.propertysetu.local/uploads/${Date.now()}-${encodedName}`
+      ),
+      isPrivate: Boolean(isPrivate),
       storageProvider: text(proRuntime.storageProvider || "memory", "memory")
     };
   });
@@ -89,6 +126,16 @@ export async function uploadCorePropertyMedia(req, res, next) {
     }
 
     const rows = buildUploadRows(req, files);
+    const nonPrivateDoc = rows.find(
+      (item) => categoryImpliesPrivate(item.category) && !item.isPrivate
+    );
+    if (nonPrivateDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Document uploads must be marked as private."
+      });
+    }
+
     let created = [];
     if (proRuntime.dbConnected) {
       created = await CoreUpload.insertMany(rows);

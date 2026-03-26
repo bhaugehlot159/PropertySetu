@@ -84,6 +84,7 @@ export const coreSystemsBlueprint = [
       "Minimum 5 photos validation",
       "1 video upload",
       "Document upload (private)",
+      "Private document visibility only for owner/admin",
       "Auto description generator"
     ],
     endpoints: [
@@ -111,6 +112,7 @@ export const coreSystemsBlueprint = [
     capabilities: [
       "Razorpay integration",
       "Featured listing system",
+      "Payment proof support for strict verification mode",
       "Property care monthly package"
     ],
     endpoints: [

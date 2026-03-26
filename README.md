@@ -50,6 +50,7 @@ Open:
 - Core systems blueprint: `http://localhost:5200/api/v3/system/core-systems`
 - Step execution plan: `http://localhost:5200/api/v3/system/execution-plan`
 - Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
+- Private docs (owner/admin only): `GET http://localhost:5200/api/v3/properties/:propertyId/private-docs`
 
 Preflight before deployment:
 ```bash

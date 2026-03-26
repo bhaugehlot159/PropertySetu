@@ -4,6 +4,7 @@ import {
   createCorePropertyProfessional,
   deleteCoreProperty,
   featureCoreProperty,
+  getCorePropertyPrivateDocs,
   getCorePropertyById,
   listCoreProperties,
   previewCorePropertyDescription,
@@ -32,6 +33,7 @@ router.post(
   createCorePropertyProfessional
 );
 router.get("/:propertyId", getCorePropertyById);
+router.get("/:propertyId/private-docs", coreAuthRequired, getCorePropertyPrivateDocs);
 router.post("/", coreAuthRequired, coreRoleRequired("seller", "admin"), createCoreProperty);
 router.patch(
   "/:propertyId/professional",

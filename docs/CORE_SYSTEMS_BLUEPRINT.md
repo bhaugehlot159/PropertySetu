@@ -75,5 +75,13 @@ Legacy code is preserved. No old working module removed.
 - Professional API:
   - `GET /api/v3/system/database-structure`
   - `GET /api/v3/system/core-systems`
+  - `GET /api/v3/properties/:propertyId/private-docs` (owner/admin only)
 - Legacy API:
   - `GET /api/system/core-systems`
+
+## Security Upgrades
+
+- Public property responses mask private document details.
+- Private docs are exposed only to property owner or admin.
+- Subscription payment verification returns `paymentProof` token for strict payment mode.
+- `care` plan activation auto-creates property-care service request.

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import CoreSubscription from "../models/CoreSubscription.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreUser from "../models/CoreUser.js";
+import CorePropertyCareRequest from "../models/CorePropertyCareRequest.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import {
@@ -25,6 +26,18 @@ function numberValue(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+
+const PAYMENT_SUCCESS_STATUSES = new Set(["captured", "paid", "success", "verified"]);
+const VERIFIED_PAYMENT_TTL_MS = Math.max(
+  60_000,
+  numberValue(process.env.CORE_PAYMENT_PROOF_TTL_MS, 20 * 60 * 1000)
+);
+const STRICT_PAYMENT_PROOF =
+  text(
+    process.env.CORE_STRICT_PAYMENT_PROOF,
+    text(process.env.NODE_ENV).toLowerCase() === "production" ? "true" : "false"
+  ).toLowerCase() === "true";
+const verifiedPaymentProofStore = new Map();
 
 const CORE_SUBSCRIPTION_PLANS = [
   {
@@ -126,6 +139,122 @@ function normalizeDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
+}
+
+function buildPaymentProof(userId, orderId, paymentId, keySecret) {
+  return crypto
+    .createHash("sha256")
+    .update(`${text(userId)}|${text(orderId)}|${text(paymentId)}|${text(keySecret)}`)
+    .digest("hex");
+}
+
+function cleanupExpiredPaymentProofs() {
+  const now = Date.now();
+  for (const [proof, details] of verifiedPaymentProofStore.entries()) {
+    if (!details || Number(details.expiresAt || 0) <= now) {
+      verifiedPaymentProofStore.delete(proof);
+    }
+  }
+}
+
+function registerVerifiedPaymentProof({ userId, orderId, paymentId, keySecret }) {
+  cleanupExpiredPaymentProofs();
+
+  const proof = buildPaymentProof(userId, orderId, paymentId, keySecret);
+  verifiedPaymentProofStore.set(proof, {
+    userId: text(userId),
+    orderId: text(orderId),
+    paymentId: text(paymentId),
+    expiresAt: Date.now() + VERIFIED_PAYMENT_TTL_MS
+  });
+  return proof;
+}
+
+function consumeVerifiedPaymentProof({ userId, orderId, paymentId, paymentProof }) {
+  cleanupExpiredPaymentProofs();
+
+  const proof = text(paymentProof);
+  if (!proof) return false;
+
+  const row = verifiedPaymentProofStore.get(proof);
+  if (!row) return false;
+
+  const matches =
+    text(row.userId) === text(userId) &&
+    text(row.orderId) === text(orderId) &&
+    text(row.paymentId) === text(paymentId);
+
+  if (!matches) return false;
+  if (Number(row.expiresAt || 0) <= Date.now()) {
+    verifiedPaymentProofStore.delete(proof);
+    return false;
+  }
+
+  verifiedPaymentProofStore.delete(proof);
+  return true;
+}
+
+function normalizePaymentStatus(status) {
+  return text(status).toLowerCase();
+}
+
+function isPaymentStatusSuccessful(status) {
+  return PAYMENT_SUCCESS_STATUSES.has(normalizePaymentStatus(status));
+}
+
+function normalizePropertyCareRequest(doc) {
+  const row = doc && typeof doc.toObject === "function" ? doc.toObject() : doc;
+  if (!row) return null;
+  const preferredDate = normalizeDate(row.preferredDate);
+  return {
+    _id: toId(row._id || row.id),
+    id: toId(row._id || row.id),
+    userId: toId(row.userId),
+    propertyId: toId(row.propertyId),
+    planName: text(row.planName, "care-monthly-basic"),
+    amount: numberValue(row.amount, 0),
+    issueType: text(row.issueType, "monthly-package"),
+    notes: text(row.notes),
+    preferredDate: preferredDate ? preferredDate.toISOString() : null,
+    status: text(row.status, "open"),
+    createdAt: normalizeDate(row.createdAt)?.toISOString() || null,
+    updatedAt: normalizeDate(row.updatedAt)?.toISOString() || null
+  };
+}
+
+async function createPropertyCareRequestFromSubscription({
+  userId,
+  propertyId = null,
+  planName,
+  amount = 0,
+  preferredDate = null
+}) {
+  const payload = {
+    userId,
+    propertyId: propertyId || null,
+    planName,
+    amount: Math.max(0, numberValue(amount, 0)),
+    issueType: "monthly-package",
+    notes: `Auto-created from ${planName} subscription activation.`,
+    preferredDate,
+    status: "open"
+  };
+
+  if (proRuntime.dbConnected) {
+    const created = await CorePropertyCareRequest.create(payload);
+    return normalizePropertyCareRequest(created);
+  }
+
+  const created = {
+    _id: `care-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    ...payload,
+    preferredDate: payload.preferredDate ? payload.preferredDate.toISOString() : null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  proMemoryStore.corePropertyCareRequests.unshift(created);
+  proMemoryStore.corePropertyCareRequests = proMemoryStore.corePropertyCareRequests.slice(0, 1500);
+  return normalizePropertyCareRequest(created);
 }
 
 async function getCorePropertyById(propertyId) {
@@ -292,9 +421,29 @@ export function verifyCoreSubscriptionPayment(req, res, next) {
       .digest("hex");
 
     const isValid = expected === razorpay_signature;
-    return res.status(isValid ? 200 : 400).json({
-      success: isValid,
-      message: isValid ? "Payment verified." : "Invalid payment signature."
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment signature."
+      });
+    }
+
+    const userId = toId(req.coreUser?.id);
+    const paymentProof = registerVerifiedPaymentProof({
+      userId,
+      orderId: razorpay_order_id,
+      paymentId: razorpay_payment_id,
+      keySecret
+    });
+
+    return res.json({
+      success: true,
+      message: "Payment verified.",
+      paymentProof,
+      paymentVerification: {
+        strictMode: STRICT_PAYMENT_PROOF,
+        proofExpiresInSec: Math.floor(VERIFIED_PAYMENT_TTL_MS / 1000)
+      }
     });
   } catch (error) {
     return next(error);
@@ -327,6 +476,7 @@ export async function createCoreSubscription(req, res, next) {
     const paymentOrderId = text(req.body?.paymentOrderId);
     const paymentId = text(req.body?.paymentId);
     const paymentStatus = text(req.body?.paymentStatus);
+    const paymentProof = text(req.body?.paymentProof);
     const startDate = normalizeDate(req.body?.startDate) || new Date();
     const endDateInput = normalizeDate(req.body?.endDate);
     const durationDays = Math.max(
@@ -354,6 +504,13 @@ export async function createCoreSubscription(req, res, next) {
       return res.status(400).json({
         success: false,
         message: "endDate must be after startDate."
+      });
+    }
+
+    if (paymentStatus && !isPaymentStatusSuccessful(paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "paymentStatus must represent a successful payment."
       });
     }
 
@@ -390,6 +547,30 @@ export async function createCoreSubscription(req, res, next) {
         return res.status(403).json({
           success: false,
           message: "You can activate featured listing only on your own property."
+        });
+      }
+    }
+
+    if (amount > 0 && !isAdmin && STRICT_PAYMENT_PROOF) {
+      if (!paymentOrderId || !paymentId || !paymentProof) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "For paid plans, paymentOrderId + paymentId + paymentProof are required in strict mode."
+        });
+      }
+
+      const proofValid = consumeVerifiedPaymentProof({
+        userId,
+        orderId: paymentOrderId,
+        paymentId,
+        paymentProof
+      });
+
+      if (!proofValid) {
+        return res.status(400).json({
+          success: false,
+          message: "paymentProof is invalid or expired. Verify payment again."
         });
       }
     }
@@ -435,6 +616,17 @@ export async function createCoreSubscription(req, res, next) {
       updatedProperty = await applyFeaturedToProperty(targetProperty, endDate);
     }
 
+    let propertyCareRequest = null;
+    if (planType === "care") {
+      propertyCareRequest = await createPropertyCareRequestFromSubscription({
+        userId,
+        propertyId: propertyIdForCreate,
+        planName,
+        amount,
+        preferredDate: startDate
+      });
+    }
+
     const updatedUser = await updateUserPlan(userId, planName);
 
     return res.status(201).json({
@@ -442,7 +634,12 @@ export async function createCoreSubscription(req, res, next) {
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       subscription: normalizeCoreSubscription(created),
       user: normalizeCoreUser(updatedUser),
-      property: updatedProperty ? normalizeCoreProperty(updatedProperty) : undefined
+      property: updatedProperty ? normalizeCoreProperty(updatedProperty) : undefined,
+      propertyCareRequest: propertyCareRequest || undefined,
+      paymentVerification: {
+        strictMode: STRICT_PAYMENT_PROOF,
+        requiredForPaidPlans: STRICT_PAYMENT_PROOF && amount > 0 && !isAdmin
+      }
     });
   } catch (error) {
     return next(error);

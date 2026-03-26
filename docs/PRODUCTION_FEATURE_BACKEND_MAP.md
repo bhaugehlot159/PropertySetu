@@ -38,6 +38,8 @@ Base URL: `http://localhost:5200/api/v3`
 - `POST /properties/professional` (strict professional validation)
 - `PATCH /properties/:propertyId/professional` (strict professional validation)
 - `POST /properties/auto-description` (server auto description preview)
+- `GET /properties/:propertyId/private-docs` (owner/admin private document access)
+- Public property APIs automatically mask private document details for non-owner users
 
 5. Subscription + payment-ready flow
 - `GET /subscriptions/plans`
@@ -49,6 +51,8 @@ Base URL: `http://localhost:5200/api/v3`
 - Payment order/verify (v2 bridge): `/api/v2/payments/*`
 - Featured listing activation is handled inside `/subscriptions` when `planType=featured`
 - Property care monthly plans are exposed via `/subscriptions/plans`
+- `planType=care` now auto-creates a property care request for monthly service lifecycle
+- Payment verify API now returns `paymentProof` (used when strict payment proof mode is enabled)
 
 6. In-app chat
 - `POST /chat/send`

@@ -3,6 +3,7 @@ import CoreProperty from "../models/CoreProperty.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import { normalizeCoreProperty, toId } from "../utils/coreMappers.js";
+import { verifyCoreToken } from "../utils/coreAuth.js";
 
 const PROPERTY_TYPES = new Set(["buy", "rent"]);
 const PROPERTY_CATEGORIES = new Set(["house", "plot", "commercial"]);
@@ -33,6 +34,34 @@ function normalizeDateValue(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
+}
+
+function extractBearerToken(authHeader = "") {
+  const raw = text(authHeader).trim();
+  if (!raw.toLowerCase().startsWith("bearer ")) return "";
+  return raw.slice(7).trim();
+}
+
+function getViewerFromRequest(req) {
+  if (req?.coreUser?.id) {
+    return {
+      id: toId(req.coreUser.id),
+      role: text(req.coreUser.role, "buyer").toLowerCase()
+    };
+  }
+
+  const token = extractBearerToken(req?.headers?.authorization);
+  if (!token) return null;
+
+  try {
+    const payload = verifyCoreToken(token);
+    return {
+      id: toId(payload?.userId),
+      role: text(payload?.role, "buyer").toLowerCase()
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeType(type) {
@@ -123,6 +152,86 @@ function normalizePrivateDocs(privateDocs = {}) {
 
 function normalizeMixedObject(value) {
   return normalizeObject(value);
+}
+
+function canViewerAccessPrivateDocs(property = {}, viewer = null) {
+  const viewerId = toId(viewer?.id);
+  const viewerRole = text(viewer?.role).toLowerCase();
+  const ownerId = toId(property?.ownerId);
+
+  if (!viewerId && viewerRole !== "admin") return false;
+  if (viewerRole === "admin") return true;
+  return Boolean(viewerId && ownerId && viewerId === ownerId);
+}
+
+function buildRestrictedPrivateDocs(privateDocs = {}) {
+  const docs =
+    privateDocs && typeof privateDocs === "object" && !Array.isArray(privateDocs)
+      ? privateDocs
+      : {};
+  const uploadedPrivateDocs = Array.isArray(docs.uploadedPrivateDocs)
+    ? docs.uploadedPrivateDocs
+    : [];
+  const propertyDocuments = Array.isArray(docs.propertyDocuments)
+    ? docs.propertyDocuments
+    : [];
+
+  const totalDocuments =
+    uploadedPrivateDocs.length +
+    propertyDocuments.length +
+    (text(docs.ownerIdProof) ? 1 : 0) +
+    (text(docs.addressProof) ? 1 : 0);
+
+  return {
+    privateViewMode: "Restricted",
+    totalDocuments,
+    hasOwnerIdProof: Boolean(text(docs.ownerIdProof)),
+    hasAddressProof: Boolean(text(docs.addressProof)),
+    uploadedPrivateDocs: uploadedPrivateDocs.map((item) => ({
+      id: text(item?.id),
+      category: text(item?.category),
+      name: text(item?.name)
+    })),
+    note: "Private documents are visible only to property owner or admin."
+  };
+}
+
+function normalizePrivateDocsForSecureView(privateDocs = {}) {
+  const docs =
+    privateDocs && typeof privateDocs === "object" && !Array.isArray(privateDocs)
+      ? privateDocs
+      : {};
+  return {
+    propertyDocuments: normalizeStringArray(docs.propertyDocuments),
+    ownerIdProof: text(docs.ownerIdProof),
+    addressProof: text(docs.addressProof),
+    privateViewMode: text(docs.privateViewMode, "Private View Only"),
+    uploadedPrivateDocs: Array.isArray(docs.uploadedPrivateDocs)
+      ? docs.uploadedPrivateDocs
+          .filter((item) => item && typeof item === "object")
+          .map((item) => ({
+            id: text(item.id),
+            category: text(item.category),
+            name: text(item.name),
+            url: text(item.url),
+            sizeBytes: numberValue(item.sizeBytes, 0)
+          }))
+      : []
+  };
+}
+
+function projectPropertyForViewer(property, viewer = null, options = {}) {
+  const normalized = normalizeCoreProperty(property);
+  if (!normalized) return null;
+
+  if (options.includePrivateDocs || canViewerAccessPrivateDocs(normalized, viewer)) {
+    return normalized;
+  }
+
+  return {
+    ...normalized,
+    privateDocs: buildRestrictedPrivateDocs(normalized.privateDocs)
+  };
 }
 
 function buildAutoDescription(payload = {}) {
@@ -353,6 +462,7 @@ function sortRows(rows, sortKey) {
 async function findCorePropertyById(propertyId) {
   if (!propertyId) return null;
   if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(propertyId)) return null;
     return CoreProperty.findById(propertyId);
   }
   return proMemoryStore.coreProperties.find((item) => item._id === propertyId) || null;
@@ -360,6 +470,7 @@ async function findCorePropertyById(propertyId) {
 
 export async function listCoreProperties(req, res, next) {
   try {
+    const viewer = getViewerFromRequest(req);
     const page = Math.max(1, numberValue(req.query.page, 1));
     const limit = Math.min(100, Math.max(1, numberValue(req.query.limit, 20)));
     const skip = (page - 1) * limit;
@@ -411,7 +522,7 @@ export async function listCoreProperties(req, res, next) {
         limit,
         total,
         count: rows.length,
-        items: rows.map((item) => normalizeCoreProperty(item))
+        items: rows.map((item) => projectPropertyForViewer(item, viewer))
       });
     }
 
@@ -441,7 +552,7 @@ export async function listCoreProperties(req, res, next) {
       limit,
       total: rows.length,
       count: paginated.length,
-      items: paginated.map((item) => normalizeCoreProperty(item))
+      items: paginated.map((item) => projectPropertyForViewer(item, viewer))
     });
   } catch (error) {
     return next(error);
@@ -450,6 +561,7 @@ export async function listCoreProperties(req, res, next) {
 
 export async function getCorePropertyById(req, res, next) {
   try {
+    const viewer = getViewerFromRequest(req);
     const propertyId = text(req.params.propertyId);
     const property = await findCorePropertyById(propertyId);
 
@@ -462,7 +574,7 @@ export async function getCorePropertyById(req, res, next) {
 
     return res.json({
       success: true,
-      item: normalizeCoreProperty(property)
+      item: projectPropertyForViewer(property, viewer)
     });
   } catch (error) {
     return next(error);
@@ -515,7 +627,9 @@ async function createCorePropertyInternal(req, res, next, options = {}) {
     return res.status(201).json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
-      item: normalizeCoreProperty(created)
+      item: projectPropertyForViewer(created, getViewerFromRequest(req), {
+        includePrivateDocs: true
+      })
     });
   } catch (error) {
     return next(error);
@@ -586,7 +700,9 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
 
     return res.json({
       success: true,
-      item: normalizeCoreProperty(updated)
+      item: projectPropertyForViewer(updated, getViewerFromRequest(req), {
+        includePrivateDocs: true
+      })
     });
   } catch (error) {
     return next(error);
@@ -662,6 +778,38 @@ export async function deleteCoreProperty(req, res, next) {
   }
 }
 
+export async function getCorePropertyPrivateDocs(req, res, next) {
+  try {
+    const propertyId = text(req.params.propertyId);
+    const property = await findCorePropertyById(propertyId);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+
+    const normalized = normalizeCoreProperty(property);
+    const viewer = getViewerFromRequest(req);
+
+    if (!canViewerAccessPrivateDocs(normalized, viewer)) {
+      return res.status(403).json({
+        success: false,
+        message: "Private documents are only accessible to owner or admin."
+      });
+    }
+
+    return res.json({
+      success: true,
+      propertyId: normalized.id,
+      privateDocs: normalizePrivateDocsForSecureView(normalized.privateDocs)
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function verifyCoreProperty(req, res, next) {
   try {
     const propertyId = text(req.params.propertyId);
@@ -726,7 +874,9 @@ export async function verifyCoreProperty(req, res, next) {
 
     return res.json({
       success: true,
-      item: normalizeCoreProperty(updated)
+      item: projectPropertyForViewer(updated, getViewerFromRequest(req), {
+        includePrivateDocs: true
+      })
     });
   } catch (error) {
     return next(error);
@@ -772,7 +922,9 @@ export async function featureCoreProperty(req, res, next) {
 
     return res.json({
       success: true,
-      item: normalizeCoreProperty(updated)
+      item: projectPropertyForViewer(updated, getViewerFromRequest(req), {
+        includePrivateDocs: true
+      })
     });
   } catch (error) {
     return next(error);
