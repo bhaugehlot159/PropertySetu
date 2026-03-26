@@ -416,6 +416,43 @@
     };
   };
 
+  const mapCoreVisitToLegacy = (entry = {}) => {
+    const id = text(entry.id || entry._id);
+    const propertyId = text(entry.propertyId);
+    const property = toObject(entry.property);
+    const legacyStatus = (() => {
+      const raw = text(entry.status, 'requested').toLowerCase();
+      if (raw === 'confirmed') return 'Confirmed';
+      if (raw === 'completed') return 'Completed';
+      if (raw === 'cancelled') return 'Cancelled';
+      if (raw === 'rejected') return 'Rejected';
+      return 'Scheduled';
+    })();
+
+    return {
+      id: id || `visit-${Date.now()}`,
+      _id: id || `visit-${Date.now()}`,
+      propertyId,
+      propertyTitle: text(property.title || entry.propertyTitle, propertyId),
+      customerId: text(entry.customerId),
+      customerName: text(entry.customerName || entry.customerId, 'Customer'),
+      ownerId: text(entry.ownerId || property.ownerId),
+      preferredAt: text(entry.preferredAt),
+      note: text(entry.note),
+      status: legacyStatus,
+      coreStatus: text(entry.status, 'requested'),
+      createdAt: text(entry.createdAt, new Date().toISOString()),
+      updatedAt: text(entry.updatedAt, text(entry.createdAt, new Date().toISOString())),
+      property: property && Object.keys(property).length ? {
+        id: text(property.id || property._id, propertyId),
+        title: text(property.title, propertyId),
+        city: text(property.city, 'Udaipur'),
+        location: text(property.location, 'Udaipur'),
+        ownerId: text(property.ownerId),
+      } : undefined,
+    };
+  };
+
   const mapCoreUserToLegacy = (entry = {}) => ({
     id: text(entry.id || entry._id),
     name: text(entry.name),
@@ -776,6 +813,33 @@
         return { ok: true, success: true, property, item: property };
       }
 
+      const propertyVisitMatch = rawPath.match(/^\/properties\/([^/]+)\/visit$/);
+      if (propertyVisitMatch && method === 'POST') {
+        const propertyId = propertyVisitMatch[1];
+        const payload = options.data || {};
+        const preferredAt = text(payload.preferredAt || payload.visitAt);
+        const visitDate = text(payload.visitDate);
+        const visitTime = text(payload.visitTime);
+        const response = await requestJson(CORE_API_BASE, `/properties/${propertyId}/visit`, {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: {
+            ...(preferredAt ? { preferredAt } : {}),
+            ...(!preferredAt && visitDate && visitTime ? { visitDate, visitTime } : {}),
+            note: text(payload.note),
+          },
+        });
+        const visit = mapCoreVisitToLegacy(response?.item || {});
+        return {
+          ok: true,
+          success: true,
+          visit,
+          item: visit,
+          ownerNotification: toObject(response?.ownerNotification),
+        };
+      }
+
       const propertyByIdMatch = rawPath.match(/^\/properties\/([^/]+)$/);
       if (propertyByIdMatch && method === 'GET') {
         const propertyId = propertyByIdMatch[1];
@@ -815,6 +879,86 @@
 
       if (rawPath.startsWith('/properties/')) {
         return null;
+      }
+
+      if (rawPath === '/visits/mine' && method === 'GET') {
+        const limit = text(query.get('limit'));
+        const response = await requestJson(
+          CORE_API_BASE,
+          `/visits/mine${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+        const items = (response?.items || []).map(mapCoreVisitToLegacy);
+        return {
+          ok: true,
+          success: true,
+          total: numberFrom(response?.total, items.length),
+          items,
+        };
+      }
+
+      if (rawPath === '/visits/owner' && method === 'GET') {
+        const limit = text(query.get('limit'));
+        const response = await requestJson(
+          CORE_API_BASE,
+          `/visits/owner${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+        const items = (response?.items || []).map(mapCoreVisitToLegacy);
+        return {
+          ok: true,
+          success: true,
+          total: numberFrom(response?.total, items.length),
+          items,
+        };
+      }
+
+      if (rawPath === '/visits' && method === 'GET') {
+        const limit = text(query.get('limit'));
+        const response = await requestJson(
+          CORE_API_BASE,
+          `/visits${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+        const items = (response?.items || []).map(mapCoreVisitToLegacy);
+        return {
+          ok: true,
+          success: true,
+          total: numberFrom(response?.total, items.length),
+          items,
+        };
+      }
+
+      const visitStatusMatch = rawPath.match(/^\/visits\/([^/]+)\/status$/);
+      if (visitStatusMatch && method === 'POST') {
+        const visitId = visitStatusMatch[1];
+        const payload = options.data || {};
+        const response = await requestJson(CORE_API_BASE, `/visits/${visitId}/status`, {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: { status: text(payload.status).toLowerCase() },
+        });
+        const item = mapCoreVisitToLegacy(response?.item || {});
+        return {
+          ok: true,
+          success: true,
+          item,
+          visit: item,
+          customerNotification: toObject(response?.customerNotification),
+        };
       }
 
       if (rawPath === '/chat/mine' && method === 'GET') {
@@ -1052,6 +1196,37 @@
     taxonomy: async () => request('/properties/taxonomy'),
   };
 
+  const visits = {
+    mine: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/visits/mine${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    owner: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/visits/owner${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    all: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/visits${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    updateStatus: async (visitId, status) => request(`/visits/${encodeURIComponent(text(visitId))}/status`, {
+      method: 'POST',
+      data: { status: text(status).toLowerCase() },
+    }),
+  };
+
   const ai = {
     pricingSuggestion: async (payload = {}) => request('/ai/pricing-suggestion', { method: 'POST', data: payload }),
     descriptionGenerate: async (payload = {}) => request('/ai/description-generate', { method: 'POST', data: payload }),
@@ -1161,6 +1336,7 @@
     mergeById,
     syncLocalListingsFromApi,
     properties,
+    visits,
     ai,
     sealedBids,
     documentation,
