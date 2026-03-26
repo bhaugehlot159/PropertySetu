@@ -77,6 +77,7 @@ Base URL: `http://localhost:5200/api/v3`
 - `POST /property-care/requests/:requestId/status` (admin)
 
 12. System readiness + architecture checks
+- `GET /system/stack-options`
 - `GET /system/stack-readiness`
 - `GET /system/architecture-plan`
 - `GET /system/execution-plan`

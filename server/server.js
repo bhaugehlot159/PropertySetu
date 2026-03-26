@@ -819,8 +819,78 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
       "/api/recommendations",
     ],
     chat: "/api/chat/*",
+    stackOptions: "/api/system/stack-options",
   },
 }));
+app.get("/api/system/stack-options", (_req, res) => {
+  const folderStructure = {
+    root: "PropertySetu/",
+    tree: [
+      "PropertySetu/",
+      "|",
+      "|-- client/              # Frontend (React)",
+      "|   |-- pages/",
+      "|   |-- components/",
+      "|   |-- services/",
+      "|   `-- utils/",
+      "|",
+      "|-- server/              # Backend",
+      "|   |-- controllers/",
+      "|   |-- models/",
+      "|   |-- routes/",
+      "|   |-- middleware/",
+      "|   `-- config/",
+      "|",
+      "|-- database/",
+      "|",
+      "`-- package.json",
+    ],
+  };
+
+  const requiredPaths = {
+    client: "client/",
+    clientPages: "client/pages/",
+    clientComponents: "client/components/",
+    clientServices: "client/services/",
+    clientUtils: "client/utils/",
+    server: "server/",
+    serverControllers: "server/controllers/",
+    serverModels: "server/models/",
+    serverRoutes: "server/routes/",
+    serverMiddleware: "server/middleware/",
+    serverConfig: "server/config/",
+    database: "database/",
+    rootPackageJson: "package.json",
+  };
+
+  const folderPresence = Object.fromEntries(
+    Object.entries(requiredPaths).map(([key, rel]) => [key, fs.existsSync(path.join(webRoot, rel))]),
+  );
+
+  res.json({
+    ok: true,
+    option1: {
+      label: "Best & Modern",
+      frontend: "React / Next.js",
+      backend: "Node.js + Express",
+      database: "MongoDB",
+      fileStorage: "Cloudinary / AWS S3",
+      hosting: "Vercel + Render",
+      payment: "Razorpay",
+    },
+    option2: {
+      label: "Easier for Beginner",
+      frontend: "HTML + CSS + JS",
+      backend: "Node.js",
+      database: "MongoDB",
+      adminPanel: "Simple admin panel",
+    },
+    recommendation: "If future app build is planned, Option 1 is best.",
+    folderStructure,
+    folderPresence,
+    source: "legacy-live-api",
+  });
+});
 
 app.post("/api/auth/register", async (req, res) => {
   const r = role(req.body?.role);

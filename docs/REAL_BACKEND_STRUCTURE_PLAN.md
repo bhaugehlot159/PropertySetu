@@ -82,6 +82,7 @@ Legacy code preserved. No old flow removed or deleted.
   - `GET /api/v3/seo/city-structure`
 - System readiness:
   - `GET /api/v3/system/architecture-plan`
+  - `GET /api/v3/system/stack-options`
   - `GET /api/v3/system/stack-readiness`
   - `GET /api/v3/system/database-structure`
   - `GET /api/v3/system/execution-plan`

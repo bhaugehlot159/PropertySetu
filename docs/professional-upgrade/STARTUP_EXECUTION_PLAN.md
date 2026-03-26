@@ -12,6 +12,7 @@ Goal: build and run startup-grade platform without deleting legacy code.
 - Health checks:
   - `GET /api/v2/health`
   - `GET /api/v3/health`
+  - `GET /api/v3/system/stack-options`
   - `GET /api/v3/system/execution-plan`
 
 ## Step 2: Database Connect

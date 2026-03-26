@@ -211,6 +211,76 @@ function buildExecutionSteps(checks) {
   ];
 }
 
+function getStackOptionsAndFolderStructure() {
+  const structure = {
+    root: "PropertySetu/",
+    tree: [
+      "PropertySetu/",
+      "|",
+      "|-- client/              # Frontend (React)",
+      "|   |-- pages/",
+      "|   |-- components/",
+      "|   |-- services/",
+      "|   `-- utils/",
+      "|",
+      "|-- server/              # Backend",
+      "|   |-- controllers/",
+      "|   |-- models/",
+      "|   |-- routes/",
+      "|   |-- middleware/",
+      "|   `-- config/",
+      "|",
+      "|-- database/",
+      "|",
+      "`-- package.json"
+    ],
+    requiredPaths: {
+      client: "client/",
+      clientPages: "client/pages/",
+      clientComponents: "client/components/",
+      clientServices: "client/services/",
+      clientUtils: "client/utils/",
+      server: "server/",
+      serverControllers: "server/controllers/",
+      serverModels: "server/models/",
+      serverRoutes: "server/routes/",
+      serverMiddleware: "server/middleware/",
+      serverConfig: "server/config/",
+      database: "database/",
+      rootPackageJson: "package.json"
+    }
+  };
+
+  const presence = Object.fromEntries(
+    Object.entries(structure.requiredPaths).map(([key, rel]) => [
+      key,
+      fs.existsSync(path.join(rootDir, rel))
+    ])
+  );
+
+  return {
+    option1: {
+      label: "Best & Modern",
+      frontend: "React / Next.js",
+      backend: "Node.js + Express",
+      database: "MongoDB",
+      fileStorage: "Cloudinary / AWS S3",
+      hosting: "Vercel + Render",
+      payment: "Razorpay"
+    },
+    option2: {
+      label: "Easier for Beginner",
+      frontend: "HTML + CSS + JS",
+      backend: "Node.js",
+      database: "MongoDB",
+      adminPanel: "Simple admin panel"
+    },
+    recommendation: "If you plan a future app build, Option 1 is best.",
+    folderStructure: structure,
+    folderPresence: presence
+  };
+}
+
 export function getCoreSystemArchitecturePlan(_req, res) {
   const recommendedStack = {
     frontend: "React / Next.js",
@@ -262,6 +332,15 @@ export function getCoreSystemArchitecturePlan(_req, res) {
       database: "database/ (legacy JSON persistence)",
       docs: "docs/ (deployment + architecture guides)"
     }
+  });
+}
+
+export function getCoreSystemStackOptions(_req, res) {
+  const payload = getStackOptionsAndFolderStructure();
+  return res.json({
+    success: true,
+    ...payload,
+    source: "professional-system-api"
   });
 }
 

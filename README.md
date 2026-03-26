@@ -45,6 +45,7 @@ Open:
 - Professional API health: `http://localhost:5200/api/v3/health`
 - Stack readiness: `http://localhost:5200/api/v3/system/stack-readiness`
 - Architecture plan: `http://localhost:5200/api/v3/system/architecture-plan`
+- Stack options + folder structure: `http://localhost:5200/api/v3/system/stack-options`
 - Database structure contract: `http://localhost:5200/api/v3/system/database-structure`
 - Step execution plan: `http://localhost:5200/api/v3/system/execution-plan`
 - Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
@@ -113,6 +114,9 @@ Production-level backend + database-ready architecture map: `docs/REAL_BACKEND_S
 
 ## Option 2 Beginner Stack Plan
 HTML/CSS/JS + Node.js + MongoDB + simple admin path: `docs/OPTION_2_BEGINNER_STACK.md`
+
+## Stack Options + Folder Structure
+Option 1 + Option 2 with professional folder structure: `docs/STACK_OPTIONS_AND_STRUCTURE.md`
 
 ## Production Feature Backend Map
 Requested real features to backend endpoint mapping (OTP, upload, verification, chat, AI, property-care, city SEO): `docs/PRODUCTION_FEATURE_BACKEND_MAP.md`
