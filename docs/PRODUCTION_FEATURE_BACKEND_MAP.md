@@ -19,6 +19,9 @@ Base URL: `http://localhost:5200/api/v3`
 - `GET /subscriptions/me`
 - `GET /chat/mine`
 - `GET /uploads/mine`
+- `GET /wishlist`
+- `GET /visits/mine`
+- `GET /notifications/mine`
 
 2. OTP login
 - `POST /auth/request-otp`
@@ -59,28 +62,51 @@ Base URL: `http://localhost:5200/api/v3`
 - `GET /chat/:propertyId`
 - `GET /chat/mine`
 
-7. AI pricing
+7. Customer smart filter system
+- `GET /properties?minPrice=&maxPrice=`
+- `GET /properties?bhk=&furnishing=&constructionStatus=&loanAvailable=`
+- `GET /properties?verifiedOnly=true`
+- `GET /properties?centerLat=&centerLng=&radiusKm=`
+
+8. Wishlist + compare
+- `POST /wishlist/:propertyId`
+- `DELETE /wishlist/:propertyId`
+- `GET /wishlist`
+- `GET /wishlist/compare?propertyIds=<id1,id2,id3>`
+
+9. Property visit booking + owner notifications
+- `POST /properties/:propertyId/visit`
+- `POST /visits` (propertyId in body)
+- `GET /visits/mine`
+- `GET /visits/owner`
+- `GET /visits` (admin)
+- `POST /visits/:visitId/status` (owner/admin)
+- `GET /notifications/mine`
+- `POST /notifications/:notificationId/read`
+- `POST /notifications/read-all`
+
+10. AI pricing
 - `POST /ai/pricing-suggestion`
 - `POST /ai/smart-pricing`
 
-8. Fraud detection
+11. Fraud detection
 - `POST /ai/fraud-scan`
 - `POST /ai/fake-listing-detection`
 
-9. Similar property recommendation
+12. Similar property recommendation
 - `GET /ai/recommendations`
 - `GET /ai/similar-properties`
 
-10. City-wise SEO structure
+13. City-wise SEO structure
 - `GET /seo/city-structure`
 
-11. Property care subscription workflow
+14. Property care subscription workflow
 - `POST /property-care/requests`
 - `GET /property-care/requests/me`
 - `GET /property-care/requests` (admin)
 - `POST /property-care/requests/:requestId/status` (admin)
 
-12. System readiness + architecture checks
+15. System readiness + architecture checks
 - `GET /system/stack-options`
 - `GET /system/stack-readiness`
 - `GET /system/architecture-plan`
@@ -97,3 +123,6 @@ Base URL: `http://localhost:5200/api/v3`
   - 1 short video
   - Private docs required
   - Auto-generated description when blank
+- Smart filter supports price, BHK, furnishing, construction status, loan flag, verified-only and geo radius filters.
+- Wishlist compare supports up to 3 properties with compare table output.
+- Visit booking creates owner notification and status-update notification to customer.

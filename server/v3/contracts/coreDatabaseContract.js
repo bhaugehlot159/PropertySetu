@@ -177,6 +177,56 @@ export const coreSystemsBlueprint = [
       "/api/v3/property-care/requests/:requestId/status"
     ],
     dependencies: ["authentication"]
+  },
+  {
+    id: "customer-smart-filter-system",
+    title: "Customer Smart Filter System",
+    capabilities: [
+      "Price range filter",
+      "Location radius filter",
+      "BHK filter",
+      "Furnished/Semi/Unfurnished filter",
+      "Ready to move/Under construction filter",
+      "Loan available filter",
+      "Verified property only filter"
+    ],
+    endpoints: [
+      "/api/v3/properties?minPrice=&maxPrice=&bhk=&furnishing=&constructionStatus=&loanAvailable=&verifiedOnly=",
+      "/api/v3/properties?centerLat=&centerLng=&radiusKm="
+    ],
+    dependencies: ["database"]
+  },
+  {
+    id: "customer-wishlist-compare-system",
+    title: "Customer Wishlist and Compare",
+    capabilities: [
+      "Save property to wishlist",
+      "Remove from wishlist",
+      "Compare up to 3 properties"
+    ],
+    endpoints: [
+      "/api/v3/wishlist",
+      "/api/v3/wishlist/:propertyId",
+      "/api/v3/wishlist/compare"
+    ],
+    dependencies: ["authentication", "database"]
+  },
+  {
+    id: "customer-visit-booking-system",
+    title: "Customer Visit Booking and Owner Notification",
+    capabilities: [
+      "Customer selects visit time",
+      "Owner receives notification",
+      "Owner/Admin can update visit status"
+    ],
+    endpoints: [
+      "/api/v3/properties/:propertyId/visit",
+      "/api/v3/visits/mine",
+      "/api/v3/visits/owner",
+      "/api/v3/visits/:visitId/status",
+      "/api/v3/notifications/mine"
+    ],
+    dependencies: ["authentication", "database"]
   }
 ];
 

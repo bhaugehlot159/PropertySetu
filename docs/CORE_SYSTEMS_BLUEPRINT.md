@@ -70,12 +70,36 @@ Legacy code is preserved. No old working module removed.
 - Similar property recommendation
 - Fake listing detection
 
+6. Customer Smart Filters
+- Price range
+- Radius-based location
+- BHK
+- Furnishing
+- Ready/under-construction
+- Loan available
+- Verified-only filter
+
+7. Customer Wishlist + Compare
+- Save property
+- Remove saved property
+- Compare up to 3 properties
+
+8. Customer Visit Booking + Notifications
+- Customer selects visit slot
+- Owner gets notification
+- Owner/admin updates booking status
+
 ## Live Endpoints
 
 - Professional API:
   - `GET /api/v3/system/database-structure`
   - `GET /api/v3/system/core-systems`
   - `GET /api/v3/properties/:propertyId/private-docs` (owner/admin only)
+  - `GET /api/v3/properties?bhk=&furnishing=&constructionStatus=&loanAvailable=&verifiedOnly=`
+  - `GET /api/v3/wishlist`
+  - `GET /api/v3/wishlist/compare`
+  - `POST /api/v3/properties/:propertyId/visit`
+  - `GET /api/v3/notifications/mine`
 - Legacy API:
   - `GET /api/system/core-systems`
 

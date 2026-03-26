@@ -42,6 +42,35 @@ const corePropertySchema = new mongoose.Schema(
       required: true,
       min: 1
     },
+    bhk: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    furnishing: {
+      type: String,
+      enum: ["furnished", "semi", "unfurnished", ""],
+      default: ""
+    },
+    constructionStatus: {
+      type: String,
+      enum: ["ready-to-move", "under-construction", ""],
+      default: ""
+    },
+    loanAvailable: {
+      type: Boolean,
+      default: false
+    },
+    coordinates: {
+      lat: {
+        type: Number,
+        default: null
+      },
+      lng: {
+        type: Number,
+        default: null
+      }
+    },
     images: {
       type: [String],
       default: []
@@ -124,6 +153,7 @@ const corePropertySchema = new mongoose.Schema(
 );
 
 corePropertySchema.index({ city: 1, category: 1, type: 1, verified: 1 });
+corePropertySchema.index({ bhk: 1, furnishing: 1, constructionStatus: 1, loanAvailable: 1 });
 
 const CoreProperty =
   mongoose.models.CoreProperty ||

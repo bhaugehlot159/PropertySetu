@@ -67,7 +67,17 @@ const checks = {
     hasFile("server/v3/controllers/coreSubscriptionController.js"),
   step7Ai:
     hasFile("server/v3/routes/coreAiRoutes.js") &&
-    hasFile("server/v3/controllers/coreAiController.js")
+    hasFile("server/v3/controllers/coreAiController.js"),
+  customerSmartFilter:
+    hasFile("server/v3/controllers/corePropertyController.js") &&
+    hasFile("server/v3/models/CoreProperty.js"),
+  customerWishlist:
+    hasFile("server/v3/routes/coreWishlistRoutes.js") &&
+    hasFile("server/v3/controllers/coreWishlistController.js"),
+  customerVisitBooking:
+    hasFile("server/v3/routes/coreVisitRoutes.js") &&
+    hasFile("server/v3/controllers/coreVisitController.js") &&
+    hasFile("server/v3/routes/coreNotificationRoutes.js")
 };
 
 console.log("PropertySetu Real Backend Structure - Step Check");
@@ -96,6 +106,9 @@ printStep(4, "Property CRUD", checks.step4PropertyCrud);
 printStep(5, "File upload", checks.step5FileUpload);
 printStep(6, "Subscription + payment", checks.step6Subscription);
 printStep(7, "AI features", checks.step7Ai);
+printStep(8, "Customer smart filter system", checks.customerSmartFilter);
+printStep(9, "Customer wishlist + compare", checks.customerWishlist);
+printStep(10, "Visit booking + notifications", checks.customerVisitBooking);
 
 console.log("");
 console.log("Required for startup-grade platform (not possible with HTML-only):");

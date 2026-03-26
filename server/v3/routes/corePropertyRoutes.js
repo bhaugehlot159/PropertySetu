@@ -12,6 +12,7 @@ import {
   updateCorePropertyProfessional,
   verifyCoreProperty
 } from "../controllers/corePropertyController.js";
+import { createCoreVisitBookingForProperty } from "../controllers/coreVisitController.js";
 import {
   coreAuthRequired,
   coreRoleRequired
@@ -32,6 +33,7 @@ router.post(
   coreRoleRequired("seller", "admin"),
   createCorePropertyProfessional
 );
+router.post("/:propertyId/visit", coreAuthRequired, createCoreVisitBookingForProperty);
 router.get("/:propertyId", getCorePropertyById);
 router.get("/:propertyId/private-docs", coreAuthRequired, getCorePropertyPrivateDocs);
 router.post("/", coreAuthRequired, coreRoleRequired("seller", "admin"), createCoreProperty);

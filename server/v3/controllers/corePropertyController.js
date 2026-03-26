@@ -7,6 +7,8 @@ import { verifyCoreToken } from "../utils/coreAuth.js";
 
 const PROPERTY_TYPES = new Set(["buy", "rent"]);
 const PROPERTY_CATEGORIES = new Set(["house", "plot", "commercial"]);
+const FURNISHING_TYPES = new Set(["furnished", "semi", "unfurnished"]);
+const CONSTRUCTION_STATUS_TYPES = new Set(["ready-to-move", "under-construction"]);
 const MIN_REQUIRED_PHOTOS = 5;
 const MIN_VIDEO_DURATION_SEC = 30;
 const MAX_VIDEO_DURATION_SEC = 60;
@@ -27,6 +29,11 @@ function parseBool(value) {
   if (raw === "true" || raw === "1") return true;
   if (raw === "false" || raw === "0") return false;
   return undefined;
+}
+
+function parseOptionalNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeDateValue(value) {
@@ -72,6 +79,54 @@ function normalizeType(type) {
 function normalizeCategory(category) {
   const value = text(category, "house").toLowerCase();
   return PROPERTY_CATEGORIES.has(value) ? value : "house";
+}
+
+function normalizeBhk(value) {
+  const parsed = Math.round(numberValue(value, 0));
+  return Math.max(0, Math.min(20, parsed));
+}
+
+function normalizeFurnishing(value) {
+  const normalized = text(value).toLowerCase();
+  return FURNISHING_TYPES.has(normalized) ? normalized : "";
+}
+
+function normalizeConstructionStatus(value) {
+  const normalized = text(value).toLowerCase();
+  return CONSTRUCTION_STATUS_TYPES.has(normalized) ? normalized : "";
+}
+
+function normalizeCoordinates(value = {}, fallback = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (fallback && typeof fallback === "object" && !Array.isArray(fallback)) {
+      return normalizeCoordinates(fallback, null);
+    }
+    return { lat: null, lng: null };
+  }
+  const lat = parseOptionalNumber(value.lat);
+  const lng = parseOptionalNumber(value.lng);
+  const validLat = lat !== null && lat >= -90 && lat <= 90 ? lat : null;
+  const validLng = lng !== null && lng >= -180 && lng <= 180 ? lng : null;
+  return { lat: validLat, lng: validLng };
+}
+
+function hasCoordinates(value = {}) {
+  return Number.isFinite(Number(value.lat)) && Number.isFinite(Number(value.lng));
+}
+
+function distanceInKm(from, to) {
+  if (!hasCoordinates(from) || !hasCoordinates(to)) return Number.POSITIVE_INFINITY;
+
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(Number(to.lat) - Number(from.lat));
+  const dLng = toRad(Number(to.lng) - Number(from.lng));
+  const lat1 = toRad(Number(from.lat));
+  const lat2 = toRad(Number(to.lat));
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return 6371 * c;
 }
 
 function normalizeImages(images) {
@@ -242,6 +297,10 @@ function buildAutoDescription(payload = {}) {
   const city = text(payload.city, "Udaipur");
   const size = numberValue(payload.size, 0);
   const price = numberValue(payload.price, 0);
+  const bhk = normalizeBhk(payload.bhk);
+  const furnishing = normalizeFurnishing(payload.furnishing);
+  const constructionStatus = normalizeConstructionStatus(payload.constructionStatus);
+  const loanAvailable = Boolean(parseBool(payload.loanAvailable));
   const photosCount = Math.max(
     normalizeImages(payload.images).length,
     numberValue(payload?.media?.photosCount, 0)
@@ -257,6 +316,8 @@ function buildAutoDescription(payload = {}) {
     `${category} category with ${size} sqft built-up area and expected price INR ${price.toLocaleString(
       "en-IN"
     )}.`,
+    `${bhk > 0 ? `${bhk} BHK configuration` : "Configuration details"} with ${furnishing || "flexible furnishing"} and ${constructionStatus || "ready timeline under review"}.`,
+    `${loanAvailable ? "Loan support is available for eligible buyers." : "Loan support details can be requested from owner."}`,
     `${photosCount} photos and ${hasVideo ? "a short video tour" : "media details"} are attached for listing review.`,
     `${documentsReady ? "Private documents are uploaded for verification." : "Private document verification is in progress."}`
   ].join(" ");
@@ -326,6 +387,16 @@ function normalizeCreatePayload(body = {}) {
     category: normalizeCategory(body.category),
     price: numberValue(body.price, 0),
     size: numberValue(body.size, 0),
+    bhk: normalizeBhk(body.bhk),
+    furnishing: normalizeFurnishing(body.furnishing),
+    constructionStatus: normalizeConstructionStatus(body.constructionStatus),
+    loanAvailable: Boolean(parseBool(body.loanAvailable)),
+    coordinates: normalizeCoordinates(
+      body.coordinates,
+      typeof body.latitude !== "undefined" || typeof body.longitude !== "undefined"
+        ? { lat: body.latitude, lng: body.longitude }
+        : null
+    ),
     images: normalizeImages(body.images),
     video: text(body.video),
     media: normalizeMedia(body.media),
@@ -359,6 +430,28 @@ function normalizeUpdatePayload(body = {}, existing = null) {
   if (typeof body.category !== "undefined") updates.category = normalizeCategory(body.category);
   if (typeof body.price !== "undefined") updates.price = numberValue(body.price, 0);
   if (typeof body.size !== "undefined") updates.size = numberValue(body.size, 0);
+  if (typeof body.bhk !== "undefined") updates.bhk = normalizeBhk(body.bhk);
+  if (typeof body.furnishing !== "undefined") {
+    updates.furnishing = normalizeFurnishing(body.furnishing);
+  }
+  if (typeof body.constructionStatus !== "undefined") {
+    updates.constructionStatus = normalizeConstructionStatus(body.constructionStatus);
+  }
+  if (typeof body.loanAvailable !== "undefined") {
+    updates.loanAvailable = Boolean(parseBool(body.loanAvailable));
+  }
+  if (
+    typeof body.coordinates !== "undefined" ||
+    typeof body.latitude !== "undefined" ||
+    typeof body.longitude !== "undefined"
+  ) {
+    updates.coordinates = normalizeCoordinates(
+      body.coordinates,
+      typeof body.latitude !== "undefined" || typeof body.longitude !== "undefined"
+        ? { lat: body.latitude, lng: body.longitude }
+        : null
+    );
+  }
   if (typeof body.images !== "undefined") updates.images = normalizeImages(body.images);
   if (typeof body.video !== "undefined") updates.video = text(body.video);
   if (typeof body.media !== "undefined") updates.media = normalizeMedia(body.media);
@@ -465,7 +558,10 @@ async function findCorePropertyById(propertyId) {
     if (!mongoose.Types.ObjectId.isValid(propertyId)) return null;
     return CoreProperty.findById(propertyId);
   }
-  return proMemoryStore.coreProperties.find((item) => item._id === propertyId) || null;
+  return (
+    proMemoryStore.coreProperties.find((item) => toId(item._id || item.id) === propertyId) ||
+    null
+  );
 }
 
 export async function listCoreProperties(req, res, next) {
@@ -475,14 +571,33 @@ export async function listCoreProperties(req, res, next) {
     const limit = Math.min(100, Math.max(1, numberValue(req.query.limit, 20)));
     const skip = (page - 1) * limit;
     const verified = parseBool(req.query.verified);
+    const verifiedOnly = parseBool(req.query.verifiedOnly);
     const featured = parseBool(req.query.featured);
     const city = text(req.query.city);
     const type = text(req.query.type).toLowerCase();
     const category = text(req.query.category).toLowerCase();
+    const bhk = Math.max(0, Math.round(numberValue(req.query.bhk, 0)));
+    const furnishing = normalizeFurnishing(req.query.furnishing);
+    const constructionStatus = normalizeConstructionStatus(
+      req.query.constructionStatus || req.query.readyStatus
+    );
+    const loanAvailable = parseBool(req.query.loanAvailable);
     const ownerId = text(req.query.ownerId);
     const minPrice = numberValue(req.query.minPrice, 0);
     const maxPrice = numberValue(req.query.maxPrice, 0);
+    const centerLat = parseOptionalNumber(req.query.centerLat || req.query.lat);
+    const centerLng = parseOptionalNumber(req.query.centerLng || req.query.lng);
+    const radiusKm = numberValue(req.query.radiusKm, 0);
     const sort = text(req.query.sort, "newest");
+    const radiusFilterActive =
+      Number.isFinite(centerLat) &&
+      Number.isFinite(centerLng) &&
+      Number.isFinite(radiusKm) &&
+      radiusKm > 0;
+    const radiusCenter = {
+      lat: centerLat,
+      lng: centerLng
+    };
 
     if (proRuntime.dbConnected) {
       const filters = {};
@@ -490,7 +605,12 @@ export async function listCoreProperties(req, res, next) {
       if (PROPERTY_TYPES.has(type)) filters.type = type;
       if (PROPERTY_CATEGORIES.has(category)) filters.category = category;
       if (typeof verified === "boolean") filters.verified = verified;
+      if (verifiedOnly === true) filters.verified = true;
       if (typeof featured === "boolean") filters.featured = featured;
+      if (bhk > 0) filters.bhk = bhk;
+      if (furnishing) filters.furnishing = furnishing;
+      if (constructionStatus) filters.constructionStatus = constructionStatus;
+      if (typeof loanAvailable === "boolean") filters.loanAvailable = loanAvailable;
       if (ownerId && mongoose.Types.ObjectId.isValid(ownerId)) {
         filters.ownerId = ownerId;
       }
@@ -510,6 +630,38 @@ export async function listCoreProperties(req, res, next) {
               ? { createdAt: 1 }
               : { createdAt: -1 };
 
+      if (radiusFilterActive) {
+        const allRows = await CoreProperty.find(filters).sort(sortObj).lean();
+        const filteredRows = allRows.filter((item) => {
+          const rowCoordinates = normalizeCoordinates(item.coordinates);
+          if (!hasCoordinates(rowCoordinates)) return false;
+          return distanceInKm(radiusCenter, rowCoordinates) <= radiusKm;
+        });
+        const paginatedRows = filteredRows.slice(skip, skip + limit);
+        return res.json({
+          success: true,
+          source: "mongodb",
+          page,
+          limit,
+          total: filteredRows.length,
+          count: paginatedRows.length,
+          filtersApplied: {
+            city,
+            type: PROPERTY_TYPES.has(type) ? type : "",
+            category: PROPERTY_CATEGORIES.has(category) ? category : "",
+            verified: typeof verified === "boolean" ? verified : undefined,
+            verifiedOnly: verifiedOnly === true,
+            featured: typeof featured === "boolean" ? featured : undefined,
+            bhk: bhk > 0 ? bhk : undefined,
+            furnishing: furnishing || undefined,
+            constructionStatus: constructionStatus || undefined,
+            loanAvailable,
+            radiusKm
+          },
+          items: paginatedRows.map((item) => projectPropertyForViewer(item, viewer))
+        });
+      }
+
       const [rows, total] = await Promise.all([
         CoreProperty.find(filters).sort(sortObj).skip(skip).limit(limit).lean(),
         CoreProperty.countDocuments(filters)
@@ -522,6 +674,19 @@ export async function listCoreProperties(req, res, next) {
         limit,
         total,
         count: rows.length,
+        filtersApplied: {
+          city,
+          type: PROPERTY_TYPES.has(type) ? type : "",
+          category: PROPERTY_CATEGORIES.has(category) ? category : "",
+          verified: typeof verified === "boolean" ? verified : undefined,
+          verifiedOnly: verifiedOnly === true,
+          featured: typeof featured === "boolean" ? featured : undefined,
+          bhk: bhk > 0 ? bhk : undefined,
+          furnishing: furnishing || undefined,
+          constructionStatus: constructionStatus || undefined,
+          loanAvailable,
+          radiusKm: undefined
+        },
         items: rows.map((item) => projectPropertyForViewer(item, viewer))
       });
     }
@@ -535,12 +700,34 @@ export async function listCoreProperties(req, res, next) {
     if (typeof verified === "boolean") {
       rows = rows.filter((item) => Boolean(item.verified) === verified);
     }
+    if (verifiedOnly === true) {
+      rows = rows.filter((item) => Boolean(item.verified));
+    }
     if (typeof featured === "boolean") {
       rows = rows.filter((item) => Boolean(item.featured) === featured);
+    }
+    if (bhk > 0) rows = rows.filter((item) => Math.round(numberValue(item.bhk, 0)) === bhk);
+    if (furnishing) {
+      rows = rows.filter((item) => normalizeFurnishing(item.furnishing) === furnishing);
+    }
+    if (constructionStatus) {
+      rows = rows.filter(
+        (item) => normalizeConstructionStatus(item.constructionStatus) === constructionStatus
+      );
+    }
+    if (typeof loanAvailable === "boolean") {
+      rows = rows.filter((item) => Boolean(item.loanAvailable) === loanAvailable);
     }
     if (ownerId) rows = rows.filter((item) => toId(item.ownerId) === ownerId);
     if (minPrice > 0) rows = rows.filter((item) => numberValue(item.price) >= minPrice);
     if (maxPrice > 0) rows = rows.filter((item) => numberValue(item.price) <= maxPrice);
+    if (radiusFilterActive) {
+      rows = rows.filter((item) => {
+        const rowCoordinates = normalizeCoordinates(item.coordinates);
+        if (!hasCoordinates(rowCoordinates)) return false;
+        return distanceInKm(radiusCenter, rowCoordinates) <= radiusKm;
+      });
+    }
 
     rows = sortRows(rows, sort);
     const paginated = rows.slice(skip, skip + limit);
@@ -552,6 +739,19 @@ export async function listCoreProperties(req, res, next) {
       limit,
       total: rows.length,
       count: paginated.length,
+      filtersApplied: {
+        city,
+        type: PROPERTY_TYPES.has(type) ? type : "",
+        category: PROPERTY_CATEGORIES.has(category) ? category : "",
+        verified: typeof verified === "boolean" ? verified : undefined,
+        verifiedOnly: verifiedOnly === true,
+        featured: typeof featured === "boolean" ? featured : undefined,
+        bhk: bhk > 0 ? bhk : undefined,
+        furnishing: furnishing || undefined,
+        constructionStatus: constructionStatus || undefined,
+        loanAvailable,
+        radiusKm: radiusFilterActive ? radiusKm : undefined
+      },
       items: paginated.map((item) => projectPropertyForViewer(item, viewer))
     });
   } catch (error) {
@@ -687,7 +887,9 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
         { new: true }
       );
     } else {
-      const index = proMemoryStore.coreProperties.findIndex((item) => item._id === propertyId);
+      const index = proMemoryStore.coreProperties.findIndex(
+        (item) => toId(item._id || item.id) === propertyId
+      );
       if (index >= 0) {
         proMemoryStore.coreProperties[index] = {
           ...proMemoryStore.coreProperties[index],
@@ -762,7 +964,7 @@ export async function deleteCoreProperty(req, res, next) {
       await CoreProperty.findByIdAndDelete(propertyId);
     } else {
       proMemoryStore.coreProperties = proMemoryStore.coreProperties.filter(
-        (item) => item._id !== propertyId
+        (item) => toId(item._id || item.id) !== propertyId
       );
       proMemoryStore.coreReviews = proMemoryStore.coreReviews.filter(
         (item) => toId(item.propertyId) !== propertyId
@@ -858,7 +1060,9 @@ export async function verifyCoreProperty(req, res, next) {
         { new: true }
       );
     } else {
-      const index = proMemoryStore.coreProperties.findIndex((item) => item._id === propertyId);
+      const index = proMemoryStore.coreProperties.findIndex(
+        (item) => toId(item._id || item.id) === propertyId
+      );
       if (index >= 0) {
         proMemoryStore.coreProperties[index] = {
           ...proMemoryStore.coreProperties[index],
@@ -901,7 +1105,9 @@ export async function featureCoreProperty(req, res, next) {
         { new: true }
       );
     } else {
-      const index = proMemoryStore.coreProperties.findIndex((item) => item._id === propertyId);
+      const index = proMemoryStore.coreProperties.findIndex(
+        (item) => toId(item._id || item.id) === propertyId
+      );
       if (index >= 0) {
         proMemoryStore.coreProperties[index] = {
           ...proMemoryStore.coreProperties[index],

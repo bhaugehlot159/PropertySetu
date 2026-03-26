@@ -68,6 +68,16 @@ export function normalizeCoreProperty(doc) {
     approvedBy: toId(verifiedBadgeRaw.approvedBy || verification.reviewedBy),
     status: verifiedByPropertySetu ? "Verified" : "Pending"
   };
+  const coordinatesRaw =
+    row.coordinates && typeof row.coordinates === "object" && !Array.isArray(row.coordinates)
+      ? row.coordinates
+      : {};
+  const lat = Number(coordinatesRaw.lat);
+  const lng = Number(coordinatesRaw.lng);
+  const coordinates = {
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null
+  };
 
   return {
     _id: toId(row._id || row.id),
@@ -80,6 +90,11 @@ export function normalizeCoreProperty(doc) {
     category: row.category || "house",
     price: Number(row.price || 0),
     size: Number(row.size || 0),
+    bhk: Number(row.bhk || 0),
+    furnishing: row.furnishing || "",
+    constructionStatus: row.constructionStatus || "",
+    loanAvailable: Boolean(row.loanAvailable),
+    coordinates,
     images: Array.isArray(row.images) ? row.images : [],
     video: row.video || "",
     media:

@@ -51,6 +51,11 @@ Open:
 - Step execution plan: `http://localhost:5200/api/v3/system/execution-plan`
 - Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
 - Private docs (owner/admin only): `GET http://localhost:5200/api/v3/properties/:propertyId/private-docs`
+- Smart filter API: `GET http://localhost:5200/api/v3/properties?minPrice=&maxPrice=&bhk=&furnishing=&constructionStatus=&loanAvailable=&verifiedOnly=&centerLat=&centerLng=&radiusKm=`
+- Wishlist API: `GET/POST/DELETE http://localhost:5200/api/v3/wishlist/*`
+- Compare API: `GET http://localhost:5200/api/v3/wishlist/compare?propertyIds=<id1,id2,id3>`
+- Visit booking API: `POST http://localhost:5200/api/v3/properties/:propertyId/visit`
+- Notifications API: `GET http://localhost:5200/api/v3/notifications/mine`
 
 Preflight before deployment:
 ```bash
@@ -125,6 +130,9 @@ MongoDB structure + core systems build map: `docs/CORE_SYSTEMS_BLUEPRINT.md`
 
 ## Production Feature Backend Map
 Requested real features to backend endpoint mapping (OTP, upload, verification, chat, AI, property-care, city SEO): `docs/PRODUCTION_FEATURE_BACKEND_MAP.md`
+
+## Customer Advanced Features
+Smart filters + wishlist + compare + visit booking + owner notifications (v3 APIs): `docs/CUSTOMER_ADVANCED_FEATURES.md`
 
 ## Direct Production Deploy
 Domain + PM2 + Nginx + SSL checklist: `docs/PRODUCTION_DEPLOY_CHECKLIST.md`

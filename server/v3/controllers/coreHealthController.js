@@ -6,13 +6,16 @@ import CoreMessage from "../models/CoreMessage.js";
 import CoreUpload from "../models/CoreUpload.js";
 import CoreOwnerVerification from "../models/CoreOwnerVerification.js";
 import CorePropertyCareRequest from "../models/CorePropertyCareRequest.js";
+import CoreWishlistItem from "../models/CoreWishlistItem.js";
+import CoreVisitBooking from "../models/CoreVisitBooking.js";
+import CoreNotification from "../models/CoreNotification.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests] = await Promise.all([
+      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreReview.countDocuments({}),
@@ -20,7 +23,10 @@ export async function getCoreHealth(_req, res, next) {
         CoreMessage.countDocuments({}),
         CoreUpload.countDocuments({}),
         CoreOwnerVerification.countDocuments({}),
-        CorePropertyCareRequest.countDocuments({})
+        CorePropertyCareRequest.countDocuments({}),
+        CoreWishlistItem.countDocuments({}),
+        CoreVisitBooking.countDocuments({}),
+        CoreNotification.countDocuments({})
       ]);
 
       return res.json({
@@ -34,7 +40,10 @@ export async function getCoreHealth(_req, res, next) {
           messages,
           uploads,
           ownerVerificationRequests,
-          propertyCareRequests
+          propertyCareRequests,
+          wishlistItems,
+          visitBookings,
+          notifications
         },
         timestamp: new Date().toISOString()
       });
@@ -51,7 +60,10 @@ export async function getCoreHealth(_req, res, next) {
         messages: proMemoryStore.coreMessages.length,
         uploads: proMemoryStore.coreUploads.length,
         ownerVerificationRequests: proMemoryStore.coreOwnerVerificationRequests.length,
-        propertyCareRequests: proMemoryStore.corePropertyCareRequests.length
+        propertyCareRequests: proMemoryStore.corePropertyCareRequests.length,
+        wishlistItems: proMemoryStore.coreWishlistItems.length,
+        visitBookings: proMemoryStore.coreVisitBookings.length,
+        notifications: proMemoryStore.coreNotifications.length
       },
       timestamp: new Date().toISOString()
     });
