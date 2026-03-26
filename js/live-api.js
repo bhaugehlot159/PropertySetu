@@ -249,9 +249,12 @@
       privateDocs: toObject(entry.privateDocs),
       detailStructure: toObject(entry.detailStructure),
       verification: toObject(entry.verification),
+      verifiedBadge: toObject(entry.verifiedBadge),
       virtualTour: toObject(entry.virtualTour),
       visitBooking: toObject(entry.visitBooking),
       videoVisit: toObject(entry.videoVisit),
+      mapView: toObject(entry.mapView),
+      coordinates: toObject(entry.coordinates),
       aiReview,
     };
   };
@@ -649,6 +652,34 @@
         };
       }
 
+      if (rawPath === '/properties/compare' && (method === 'GET' || method === 'POST')) {
+        const queryPropertyIds = text(query.get('propertyIds'));
+        const bodyPropertyIds = Array.isArray(options.data?.propertyIds)
+          ? options.data.propertyIds.map((item) => text(item)).filter(Boolean).join(',')
+          : text(options.data?.propertyIds);
+        const propertyIds = text(queryPropertyIds || bodyPropertyIds);
+        const response = await requestJson(
+          CORE_API_BASE,
+          method === 'GET'
+            ? `/properties/compare${propertyIds ? `?propertyIds=${encodeURIComponent(propertyIds)}` : ''}`
+            : '/properties/compare',
+          {
+            method,
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+            ...(method === 'POST' ? { data: { propertyIds } } : {}),
+          }
+        );
+        return {
+          ok: true,
+          success: true,
+          total: numberFrom(response?.total, 0),
+          items: Array.isArray(response?.items) ? response.items.map(mapCorePropertyToLegacy).filter(Boolean) : [],
+          compareTable: Array.isArray(response?.compareTable) ? response.compareTable : [],
+          highlights: toObject(response?.highlights),
+        };
+      }
+
       const propertyApproveMatch = rawPath.match(/^\/properties\/([^/]+)\/approve$/);
       if (propertyApproveMatch && method === 'POST') {
         const propertyId = propertyApproveMatch[1];
@@ -714,6 +745,64 @@
 
       if (rawPath.startsWith('/properties/')) {
         return null;
+      }
+
+      if (rawPath === '/chat/mine' && method === 'GET') {
+        return requestJson(CORE_API_BASE, '/chat/mine', {
+          method: 'GET',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+      }
+
+      if (rawPath === '/chat/send' && method === 'POST') {
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, '/chat/send', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: {
+            propertyId: text(payload.propertyId),
+            receiverId: text(payload.receiverId),
+            message: text(payload.message),
+            whatsappHandoff: Boolean(payload.whatsappHandoff),
+          },
+        });
+      }
+
+      const chatWhatsappMatch = rawPath.match(/^\/chat\/([^/]+)\/whatsapp-link$/);
+      if (chatWhatsappMatch && method === 'GET') {
+        const propertyId = chatWhatsappMatch[1];
+        const receiverId = text(query.get('receiverId'));
+        const message = text(query.get('message'));
+        const querySuffix = new URLSearchParams({
+          ...(receiverId ? { receiverId } : {}),
+          ...(message ? { message } : {}),
+        }).toString();
+        return requestJson(
+          CORE_API_BASE,
+          `/chat/${propertyId}/whatsapp-link${querySuffix ? `?${querySuffix}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      const chatByPropertyMatch = rawPath.match(/^\/chat\/([^/]+)$/);
+      if (chatByPropertyMatch && method === 'GET') {
+        const propertyId = chatByPropertyMatch[1];
+        const limit = text(query.get('limit'));
+        return requestJson(
+          CORE_API_BASE,
+          `/chat/${propertyId}${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
       }
 
       const reviewByPropertyMatch = rawPath.match(/^\/reviews\/([^/]+)$/);
@@ -811,6 +900,14 @@
     descriptionGenerate: async (payload = {}) => request('/ai/description-generate', { method: 'POST', data: payload }),
     fraudScan: async (payload = {}) => request('/ai/fraud-scan', { method: 'POST', data: payload }),
     marketTrend: async (locality = 'Udaipur') => request(`/ai/market-trend?locality=${encodeURIComponent(locality)}`),
+    emiCalculator: async (payload = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(payload || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/ai/emi-calculator${params.toString() ? `?${params.toString()}` : ''}`);
+    },
     recommendations: async (query = {}) => {
       const params = new URLSearchParams();
       Object.entries(query || {}).forEach(([key, value]) => {
