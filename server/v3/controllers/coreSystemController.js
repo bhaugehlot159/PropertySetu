@@ -81,10 +81,14 @@ function getStackChecksSnapshot() {
     isConfiguredCredential(process.env.AWS_S3_BUCKET);
   const storageConfigured =
     storageProvider === "cloudinary" ? cloudinaryConfigured : s3Configured;
+  const nodeEnv = text(process.env.NODE_ENV, "development").toLowerCase();
+  const developmentFallbackActive = nodeEnv !== "production";
+  const storageReady = storageConfigured || developmentFallbackActive;
 
   const razorpayConfigured =
     isConfiguredCredential(getRazorpayPublicKey()) &&
     isConfiguredCredential(process.env.RAZORPAY_KEY_SECRET);
+  const paymentReady = razorpayConfigured || developmentFallbackActive;
 
   const authConfigured =
     isConfiguredCredential(process.env.JWT_SECRET) &&
@@ -99,8 +103,11 @@ function getStackChecksSnapshot() {
     databaseMongoConfigured: mongoUriConfigured,
     databaseMongoConnected: Boolean(proRuntime.dbConnected),
     authConfigReady: authConfigured,
-    storageConfigReady: storageConfigured,
-    paymentConfigReady: razorpayConfigured,
+    storageConfigReady: storageReady,
+    storageExternalConfigured: storageConfigured,
+    paymentConfigReady: paymentReady,
+    paymentExternalConfigured: razorpayConfigured,
+    developmentFallbackActive,
     hostingFrontendVercelConfig: vercelConfigExists,
     hostingBackendRenderConfig: renderConfigExists
   };
@@ -108,8 +115,12 @@ function getStackChecksSnapshot() {
   return {
     checks,
     runtime: {
+      nodeEnv,
       dbMode: proRuntime.dbConnected ? "mongodb" : "memory-fallback",
       storageProvider,
+      readinessMode: developmentFallbackActive
+        ? "development-with-fallback"
+        : "production-strict",
       apiVersion: "v3"
     }
   };
@@ -160,11 +171,19 @@ function buildExecutionSteps(checks) {
   );
   const uploadStep = stepStatus(
     checks.storageConfigReady,
-    checks.storageConfigReady ? "" : "Storage provider credentials are missing."
+    checks.storageConfigReady
+      ? checks.storageExternalConfigured
+        ? ""
+        : "Running in development fallback mode. Add real storage credentials for production."
+      : "Storage provider credentials are missing."
   );
   const subscriptionStep = stepStatus(
     checks.paymentConfigReady,
-    checks.paymentConfigReady ? "" : "Razorpay keys are missing."
+    checks.paymentConfigReady
+      ? checks.paymentExternalConfigured
+        ? ""
+        : "Running in development fallback mode. Add Razorpay keys for production."
+      : "Razorpay keys are missing."
   );
 
   return [
@@ -378,16 +397,28 @@ export function getCoreSystemStackReadiness(_req, res) {
 
   const passedCount = Object.values(checks).filter(Boolean).length;
   const totalCount = Object.keys(checks).length;
-  const stage =
-    passedCount === totalCount
+  const productionExternalReady =
+    checks.storageExternalConfigured && checks.paymentExternalConfigured;
+  const coreOperationalReady =
+    checks.frontendReactOrNext &&
+    checks.backendExpress &&
+    checks.databaseMongoConfigured &&
+    checks.authConfigReady &&
+    checks.storageConfigReady &&
+    checks.paymentConfigReady &&
+    (checks.hostingFrontendVercelConfig || checks.hostingBackendRenderConfig);
+  const stage = coreOperationalReady
+    ? productionExternalReady
       ? "production-ready"
-      : passedCount >= Math.ceil(totalCount * 0.7)
-        ? "staging-ready"
-        : "setup-required";
+      : "development-ready"
+    : passedCount >= Math.ceil(totalCount * 0.7)
+      ? "staging-ready"
+      : "setup-required";
 
   return res.json({
     success: true,
     stage,
+    productionExternalReady,
     score: {
       passed: passedCount,
       total: totalCount
@@ -425,6 +456,9 @@ export function getCoreSystemBlueprint(_req, res) {
   const contract = buildCoreDatabaseContract(proRuntime);
   const systems = buildCoreSystemsStatus(snapshot.checks);
   const readyCount = systems.filter((item) => item.status === "ready").length;
+  const productionExternalReady =
+    snapshot.checks.storageExternalConfigured &&
+    snapshot.checks.paymentExternalConfigured;
 
   return res.json({
     success: true,
@@ -434,7 +468,13 @@ export function getCoreSystemBlueprint(_req, res) {
     summary: {
       ready: readyCount,
       total: systems.length,
-      stage: readyCount === systems.length ? "core-systems-ready" : "core-systems-setup-required"
+      stage:
+        readyCount === systems.length
+          ? productionExternalReady
+            ? "core-systems-ready"
+            : "core-systems-ready-development"
+          : "core-systems-setup-required",
+      productionExternalReady
     },
     runtime: snapshot.runtime
   });

@@ -27,6 +27,16 @@ function numberValue(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isConfiguredCredential(value) {
+  const raw = text(value).toLowerCase();
+  if (!raw) return false;
+  return (
+    !raw.includes("replace_with") &&
+    !raw.includes("placeholder") &&
+    !raw.startsWith("your_")
+  );
+}
+
 const PAYMENT_SUCCESS_STATUSES = new Set(["captured", "paid", "success", "verified"]);
 const VERIFIED_PAYMENT_TTL_MS = Math.max(
   60_000,
@@ -37,6 +47,7 @@ const STRICT_PAYMENT_PROOF =
     process.env.CORE_STRICT_PAYMENT_PROOF,
     text(process.env.NODE_ENV).toLowerCase() === "production" ? "true" : "false"
   ).toLowerCase() === "true";
+const PAYMENT_DEVELOPMENT_FALLBACK = text(process.env.NODE_ENV, "development").toLowerCase() !== "production";
 const verifiedPaymentProofStore = new Map();
 
 const CORE_SUBSCRIPTION_PLANS = [
@@ -139,6 +150,29 @@ function normalizeDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
+}
+
+function buildDemoOrderPayload({
+  amountInRupees,
+  userId,
+  selectedPlan,
+  planName,
+  propertyId
+}) {
+  return {
+    id: `order_demo_${Date.now()}`,
+    amount: Math.round(amountInRupees * 100),
+    currency: "INR",
+    status: "created",
+    receipt: `core_sub_demo_${Date.now()}`,
+    notes: {
+      userId,
+      planId: selectedPlan?.id || "",
+      planName: selectedPlan?.name || planName || "",
+      propertyId: propertyId || "",
+      provider: "demo"
+    }
+  };
 }
 
 function buildPaymentProof(userId, orderId, paymentId, keySecret) {
@@ -361,31 +395,73 @@ export async function createCoreSubscriptionPaymentOrder(req, res, next) {
       });
     }
 
+    const userId = toId(req.coreUser?.id);
+    const planName = text(req.body?.planName);
+    const propertyId = text(req.body?.propertyId);
     const client = getProRazorpayClient();
     if (!client) {
-      return res.status(503).json({
-        success: false,
-        message: "Razorpay keys missing in environment."
+      if (!PAYMENT_DEVELOPMENT_FALLBACK) {
+        return res.status(503).json({
+          success: false,
+          message: "Razorpay keys missing in environment."
+        });
+      }
+
+      const demoOrder = buildDemoOrderPayload({
+        amountInRupees,
+        userId,
+        selectedPlan,
+        planName,
+        propertyId
+      });
+
+      return res.status(201).json({
+        success: true,
+        keyId: getRazorpayPublicKey() || "rzp_test_demo_key",
+        order: demoOrder,
+        selectedPlan: selectedPlan || null,
+        paymentVerification: {
+          strictMode: STRICT_PAYMENT_PROOF,
+          mode: "development-fallback"
+        }
       });
     }
 
-    const order = await client.orders.create({
-      amount: Math.round(amountInRupees * 100),
-      currency: "INR",
-      receipt: `core_sub_${Date.now()}`,
-      notes: {
-        userId: toId(req.coreUser?.id),
-        planId: selectedPlan?.id || "",
-        planName: selectedPlan?.name || text(req.body?.planName),
-        propertyId: text(req.body?.propertyId)
+    let order;
+    try {
+      order = await client.orders.create({
+        amount: Math.round(amountInRupees * 100),
+        currency: "INR",
+        receipt: `core_sub_${Date.now()}`,
+        notes: {
+          userId,
+          planId: selectedPlan?.id || "",
+          planName: selectedPlan?.name || planName,
+          propertyId
+        }
+      });
+    } catch (error) {
+      if (!PAYMENT_DEVELOPMENT_FALLBACK) {
+        throw error;
       }
-    });
+      order = buildDemoOrderPayload({
+        amountInRupees,
+        userId,
+        selectedPlan,
+        planName,
+        propertyId
+      });
+    }
 
     return res.status(201).json({
       success: true,
-      keyId: getRazorpayPublicKey(),
+      keyId: getRazorpayPublicKey() || "rzp_test_demo_key",
       order,
-      selectedPlan: selectedPlan || null
+      selectedPlan: selectedPlan || null,
+      paymentVerification: {
+        strictMode: STRICT_PAYMENT_PROOF,
+        mode: "razorpay"
+      }
     });
   } catch (error) {
     return next(error);
@@ -394,20 +470,51 @@ export async function createCoreSubscriptionPaymentOrder(req, res, next) {
 
 export function verifyCoreSubscriptionPayment(req, res, next) {
   try {
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (!keySecret) {
-      return res.status(503).json({
-        success: false,
-        message: "Razorpay secret missing in environment."
-      });
-    }
+    const keySecret = isConfiguredCredential(process.env.RAZORPAY_KEY_SECRET)
+      ? process.env.RAZORPAY_KEY_SECRET
+      : "";
 
     const {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature
     } = req.body || {};
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    if (!razorpay_order_id || !razorpay_payment_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment verification payload incomplete."
+      });
+    }
+
+    if (!keySecret) {
+      if (!PAYMENT_DEVELOPMENT_FALLBACK) {
+        return res.status(503).json({
+          success: false,
+          message: "Razorpay secret missing in environment."
+        });
+      }
+
+      const userId = toId(req.coreUser?.id);
+      const paymentProof = registerVerifiedPaymentProof({
+        userId,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        keySecret: "development-demo-secret"
+      });
+
+      return res.json({
+        success: true,
+        message: "Payment verified in development fallback mode.",
+        paymentProof,
+        paymentVerification: {
+          strictMode: STRICT_PAYMENT_PROOF,
+          proofExpiresInSec: Math.floor(VERIFIED_PAYMENT_TTL_MS / 1000),
+          mode: "development-fallback"
+        }
+      });
+    }
+
+    if (!razorpay_signature) {
       return res.status(400).json({
         success: false,
         message: "Payment verification payload incomplete."
@@ -442,7 +549,8 @@ export function verifyCoreSubscriptionPayment(req, res, next) {
       paymentProof,
       paymentVerification: {
         strictMode: STRICT_PAYMENT_PROOF,
-        proofExpiresInSec: Math.floor(VERIFIED_PAYMENT_TTL_MS / 1000)
+        proofExpiresInSec: Math.floor(VERIFIED_PAYMENT_TTL_MS / 1000),
+        mode: "razorpay"
       }
     });
   } catch (error) {

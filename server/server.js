@@ -901,6 +901,8 @@ app.get("/api/system/stack-options", (_req, res) => {
   });
 });
 app.get("/api/system/core-systems", (_req, res) => {
+  const nodeEnv = txt(process.env.NODE_ENV || "development").toLowerCase();
+  const developmentFallbackActive = nodeEnv !== "production";
   const storageProvider = txt(process.env.STORAGE_PROVIDER || "cloudinary").toLowerCase();
   const cloudinaryConfigured =
     isConfiguredCredential(process.env.CLOUDINARY_CLOUD_NAME)
@@ -909,10 +911,12 @@ app.get("/api/system/core-systems", (_req, res) => {
   const s3Configured =
     isConfiguredCredential(process.env.AWS_REGION)
     && isConfiguredCredential(process.env.AWS_S3_BUCKET);
-  const storageReady = storageProvider === "s3" ? s3Configured : cloudinaryConfigured;
-  const paymentReady =
+  const storageExternalConfigured = storageProvider === "s3" ? s3Configured : cloudinaryConfigured;
+  const storageReady = storageExternalConfigured || developmentFallbackActive;
+  const paymentExternalConfigured =
     isConfiguredCredential(process.env.RAZORPAY_KEY_ID)
     && isConfiguredCredential(process.env.RAZORPAY_KEY_SECRET);
+  const paymentReady = paymentExternalConfigured || developmentFallbackActive;
   const authReady =
     isConfiguredCredential(process.env.JWT_SECRET)
     && isConfiguredCredential(process.env.ADMIN_REGISTRATION_KEY);
@@ -998,6 +1002,7 @@ app.get("/api/system/core-systems", (_req, res) => {
   ];
 
   const readyCount = coreSystems.filter((item) => item.status === "ready").length;
+  const productionExternalReady = storageExternalConfigured && paymentExternalConfigured;
 
   res.json({
     ok: true,
@@ -1007,7 +1012,19 @@ app.get("/api/system/core-systems", (_req, res) => {
     summary: {
       ready: readyCount,
       total: coreSystems.length,
-      stage: readyCount === coreSystems.length ? "core-systems-ready" : "core-systems-setup-required",
+      stage:
+        readyCount === coreSystems.length
+          ? productionExternalReady
+            ? "core-systems-ready"
+            : "core-systems-ready-development"
+          : "core-systems-setup-required",
+      productionExternalReady,
+    },
+    runtime: {
+      nodeEnv,
+      readinessMode: developmentFallbackActive ? "development-with-fallback" : "production-strict",
+      developmentFallbackActive,
+      storageProvider,
     },
     dependencies: {
       backendServer: true,

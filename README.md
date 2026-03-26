@@ -57,6 +57,11 @@ Open:
 - Visit booking API: `POST http://localhost:5200/api/v3/properties/:propertyId/visit`
 - Notifications API: `GET http://localhost:5200/api/v3/notifications/mine`
 
+Development fallback note:
+- If Cloudinary/S3 or Razorpay live keys are not configured, v3 runs in `development-with-fallback` mode.
+- Payment order/verify APIs stay runnable for local testing.
+- Production deployment still requires real storage + Razorpay credentials (`npm run pro:preflight`).
+
 Preflight before deployment:
 ```bash
 cd backend

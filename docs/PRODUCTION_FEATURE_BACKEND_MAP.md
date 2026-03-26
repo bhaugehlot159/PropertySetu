@@ -118,6 +118,7 @@ Base URL: `http://localhost:5200/api/v3`
 - Legacy working APIs remain untouched.
 - Professional APIs are additive and MongoDB-ready.
 - If MongoDB is unavailable, APIs gracefully run in memory mode for continuity.
+- If storage/payment credentials are not configured and `NODE_ENV` is not `production`, APIs use development fallback mode for local testing.
 - Strict professional upload flow enforces:
   - Minimum 5 photos
   - 1 short video
