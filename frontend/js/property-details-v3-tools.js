@@ -223,7 +223,7 @@
     }
 
     try {
-      const response = await coreRequest(`/chat/${encodeURIComponent(propertyId)}?limit=50`, {
+      const response = await coreRequest(`/chat/${encodeURIComponent(propertyId)}`, {
         method: 'GET',
         token,
       });

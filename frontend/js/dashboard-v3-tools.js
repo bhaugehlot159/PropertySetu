@@ -269,7 +269,7 @@
     }
 
     try {
-      const response = await requestV3(`/chat/${encodeURIComponent(propertyId)}?limit=50`, {
+      const response = await requestV3(`/chat/${encodeURIComponent(propertyId)}`, {
         method: 'GET',
         token,
       });
