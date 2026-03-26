@@ -90,6 +90,9 @@ Professional upload rules (strict endpoints always enforce):
 
 ### Subscriptions
 
+- `GET /api/v3/subscriptions/plans`
+- `POST /api/v3/subscriptions/payment/order` (auth, Razorpay order)
+- `POST /api/v3/subscriptions/payment/verify` (auth, Razorpay signature verify)
 - `POST /api/v3/subscriptions` (auth)
 - `GET /api/v3/subscriptions/me` (auth)
 - `GET /api/v3/subscriptions` (admin)
@@ -104,6 +107,7 @@ Featured listing behavior:
 
 - On featured subscription, target property is auto-marked `featured: true`
 - `featuredUntil` is auto-derived from subscription duration
+- Property care monthly plans are available in `/subscriptions/plans`
 
 ### Health
 
@@ -111,9 +115,12 @@ Featured listing behavior:
 
 ## Business Features
 
-- Verified badge: admin verification updates property verification metadata and badge eligibility.
-- Payment bridge: Razorpay order/verify endpoints remain on `/api/v2/payments/*` and are bridged by live adapter routes `/payments/order` and `/payments/verify`.
-- AI phase 2: smart pricing, recommendations, and fraud scan continue through `/api/ai/*` + `/api/recommendations`.
+- Verified badge: admin verification sets `verifiedByPropertySetu` + `verifiedBadge` (`Verified by PropertySetu`).
+- Razorpay: v3 subscription payment order/verify endpoints are available, and v2 bridge remains intact.
+- AI phase 2 endpoints:
+  - `POST /api/v3/ai/smart-pricing`
+  - `GET /api/v3/ai/similar-properties`
+  - `POST /api/v3/ai/fake-listing-detection`
 
 ## Security
 

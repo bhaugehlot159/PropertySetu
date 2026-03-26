@@ -44,6 +44,30 @@ export function normalizeCoreUser(doc, { includePassword = false } = {}) {
 export function normalizeCoreProperty(doc) {
   const row = toPlain(doc);
   if (!row) return null;
+  const verification =
+    row.verification &&
+    typeof row.verification === "object" &&
+    !Array.isArray(row.verification)
+      ? row.verification
+      : {};
+  const verifiedBadgeRaw =
+    row.verifiedBadge &&
+    typeof row.verifiedBadge === "object" &&
+    !Array.isArray(row.verifiedBadge)
+      ? row.verifiedBadge
+      : {};
+  const verifiedByPropertySetu =
+    Boolean(row.verifiedByPropertySetu) ||
+    Boolean(verifiedBadgeRaw.show) ||
+    String(verification.status || "").toLowerCase() === "verified" ||
+    Boolean(row.verified);
+  const verifiedBadge = {
+    show: verifiedByPropertySetu,
+    label: verifiedBadgeRaw.label || "Verified by PropertySetu",
+    approvedAt: asIso(verifiedBadgeRaw.approvedAt || verification.reviewedAt),
+    approvedBy: toId(verifiedBadgeRaw.approvedBy || verification.reviewedBy),
+    status: verifiedByPropertySetu ? "Verified" : "Pending"
+  };
 
   return {
     _id: toId(row._id || row.id),
@@ -72,12 +96,7 @@ export function normalizeCoreProperty(doc) {
       !Array.isArray(row.detailStructure)
         ? row.detailStructure
         : {},
-    verification:
-      row.verification &&
-      typeof row.verification === "object" &&
-      !Array.isArray(row.verification)
-        ? row.verification
-        : {},
+    verification,
     virtualTour:
       row.virtualTour && typeof row.virtualTour === "object" && !Array.isArray(row.virtualTour)
         ? row.virtualTour
@@ -98,6 +117,8 @@ export function normalizeCoreProperty(doc) {
         : {},
     ownerId: toId(row.ownerId),
     verified: Boolean(row.verified),
+    verifiedByPropertySetu,
+    verifiedBadge,
     featured: Boolean(row.featured),
     featuredUntil: asIso(row.featuredUntil),
     createdAt: asIso(row.createdAt),

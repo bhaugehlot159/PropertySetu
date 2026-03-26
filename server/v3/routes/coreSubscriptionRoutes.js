@@ -1,8 +1,11 @@
 import { Router } from "express";
 import {
+  createCoreSubscriptionPaymentOrder,
   createCoreSubscription,
   listAllCoreSubscriptions,
-  listMyCoreSubscriptions
+  listCoreSubscriptionPlans,
+  listMyCoreSubscriptions,
+  verifyCoreSubscriptionPayment
 } from "../controllers/coreSubscriptionController.js";
 import {
   coreAuthRequired,
@@ -11,6 +14,9 @@ import {
 
 const router = Router();
 
+router.get("/plans", listCoreSubscriptionPlans);
+router.post("/payment/order", coreAuthRequired, createCoreSubscriptionPaymentOrder);
+router.post("/payment/verify", coreAuthRequired, verifyCoreSubscriptionPayment);
 router.post("/", coreAuthRequired, createCoreSubscription);
 router.get("/me", coreAuthRequired, listMyCoreSubscriptions);
 router.get("/", coreAuthRequired, coreRoleRequired("admin"), listAllCoreSubscriptions);

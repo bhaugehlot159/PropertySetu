@@ -91,6 +91,20 @@ const corePropertySchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    verifiedByPropertySetu: {
+      type: Boolean,
+      default: false
+    },
+    verifiedBadge: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {
+        show: false,
+        label: "Verified by PropertySetu",
+        approvedAt: null,
+        approvedBy: null,
+        status: "Pending"
+      }
+    },
     featured: {
       type: Boolean,
       default: false

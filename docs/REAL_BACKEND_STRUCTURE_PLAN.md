@@ -46,6 +46,9 @@ Legacy code preserved. No old flow removed or deleted.
   - `POST /api/v3/reviews`
   - `GET /api/v3/reviews/:propertyId`
 - Subscriptions:
+  - `GET /api/v3/subscriptions/plans`
+  - `POST /api/v3/subscriptions/payment/order`
+  - `POST /api/v3/subscriptions/payment/verify`
   - `POST /api/v3/subscriptions`
   - `GET /api/v3/subscriptions/me`
   - `GET /api/v3/subscriptions` (admin)
@@ -68,10 +71,13 @@ Legacy code preserved. No old flow removed or deleted.
   - `POST /api/v3/property-care/requests/:requestId/status` (admin)
 - AI:
   - `POST /api/v3/ai/pricing-suggestion`
+  - `POST /api/v3/ai/smart-pricing`
   - `POST /api/v3/ai/description-generate`
   - `POST /api/v3/ai/fraud-scan`
+  - `POST /api/v3/ai/fake-listing-detection`
   - `GET /api/v3/ai/market-trend`
   - `GET /api/v3/ai/recommendations`
+  - `GET /api/v3/ai/similar-properties`
 - City SEO:
   - `GET /api/v3/seo/city-structure`
 - System readiness:

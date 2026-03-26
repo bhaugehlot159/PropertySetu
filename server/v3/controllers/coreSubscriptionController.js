@@ -1,9 +1,14 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 import CoreSubscription from "../models/CoreSubscription.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreUser from "../models/CoreUser.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import {
+  getProRazorpayClient,
+  getRazorpayPublicKey
+} from "../../config/proRazorpay.js";
 import {
   normalizeCoreProperty,
   normalizeCoreSubscription,
@@ -19,6 +24,84 @@ function text(value, fallback = "") {
 function numberValue(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const CORE_SUBSCRIPTION_PLANS = [
+  {
+    id: "basic",
+    name: "Basic Plan",
+    planType: "subscription",
+    amount: 1499,
+    cycleDays: 30
+  },
+  {
+    id: "pro",
+    name: "Pro Plan",
+    planType: "subscription",
+    amount: 3999,
+    cycleDays: 30
+  },
+  {
+    id: "premium",
+    name: "Premium Plan",
+    planType: "subscription",
+    amount: 7999,
+    cycleDays: 30
+  },
+  {
+    id: "featured-7",
+    name: "Featured Listing - 7 Days",
+    planType: "featured",
+    amount: 299,
+    cycleDays: 7,
+    requiresProperty: true
+  },
+  {
+    id: "featured-30",
+    name: "Featured Listing - 30 Days",
+    planType: "featured",
+    amount: 999,
+    cycleDays: 30,
+    requiresProperty: true
+  },
+  {
+    id: "care-monthly-basic",
+    name: "Property Care Monthly Basic",
+    planType: "care",
+    amount: 2500,
+    cycleDays: 30
+  },
+  {
+    id: "care-monthly-plus",
+    name: "Property Care Monthly Plus",
+    planType: "care",
+    amount: 5500,
+    cycleDays: 30
+  },
+  {
+    id: "care-monthly-full",
+    name: "Property Care Monthly Full",
+    planType: "care",
+    amount: 10000,
+    cycleDays: 30
+  },
+  {
+    id: "verified-badge",
+    name: "Verified by PropertySetu Badge",
+    planType: "verification",
+    amount: 799,
+    cycleDays: 30
+  }
+];
+
+function normalizePlanId(planId) {
+  return text(planId).toLowerCase();
+}
+
+function findPlanById(planId) {
+  const id = normalizePlanId(planId);
+  if (!id) return null;
+  return CORE_SUBSCRIPTION_PLANS.find((item) => item.id === id) || null;
 }
 
 function inferPlanTypeFromPlanName(planName = "") {
@@ -119,12 +202,126 @@ async function updateUserPlan(userId, planName) {
   return proMemoryStore.coreUsers[index];
 }
 
+export function listCoreSubscriptionPlans(_req, res) {
+  return res.json({
+    success: true,
+    total: CORE_SUBSCRIPTION_PLANS.length,
+    items: CORE_SUBSCRIPTION_PLANS
+  });
+}
+
+export async function createCoreSubscriptionPaymentOrder(req, res, next) {
+  try {
+    const planId = normalizePlanId(req.body?.planId);
+    const selectedPlan = findPlanById(planId);
+    if (planId && !selectedPlan) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid planId."
+      });
+    }
+
+    const amountInRupees = numberValue(
+      req.body?.amountInRupees,
+      selectedPlan?.amount || 0
+    );
+    if (!amountInRupees || amountInRupees <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "amountInRupees must be greater than zero."
+      });
+    }
+
+    const client = getProRazorpayClient();
+    if (!client) {
+      return res.status(503).json({
+        success: false,
+        message: "Razorpay keys missing in environment."
+      });
+    }
+
+    const order = await client.orders.create({
+      amount: Math.round(amountInRupees * 100),
+      currency: "INR",
+      receipt: `core_sub_${Date.now()}`,
+      notes: {
+        userId: toId(req.coreUser?.id),
+        planId: selectedPlan?.id || "",
+        planName: selectedPlan?.name || text(req.body?.planName),
+        propertyId: text(req.body?.propertyId)
+      }
+    });
+
+    return res.status(201).json({
+      success: true,
+      keyId: getRazorpayPublicKey(),
+      order,
+      selectedPlan: selectedPlan || null
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export function verifyCoreSubscriptionPayment(req, res, next) {
+  try {
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keySecret) {
+      return res.status(503).json({
+        success: false,
+        message: "Razorpay secret missing in environment."
+      });
+    }
+
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    } = req.body || {};
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment verification payload incomplete."
+      });
+    }
+
+    const signatureBody = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const expected = crypto
+      .createHmac("sha256", keySecret)
+      .update(signatureBody)
+      .digest("hex");
+
+    const isValid = expected === razorpay_signature;
+    return res.status(isValid ? 200 : 400).json({
+      success: isValid,
+      message: isValid ? "Payment verified." : "Invalid payment signature."
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function createCoreSubscription(req, res, next) {
   try {
     const userId = toId(req.coreUser?.id);
-    const planName = text(req.body?.planName);
-    const planType = normalizePlanType(req.body?.planType, planName);
-    const amount = numberValue(req.body?.amount, 0);
+    const planId = normalizePlanId(req.body?.planId);
+    const selectedPlan = findPlanById(planId);
+    if (planId && !selectedPlan) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid planId."
+      });
+    }
+
+    const planName = text(req.body?.planName || selectedPlan?.name);
+    const planType = normalizePlanType(
+      req.body?.planType || selectedPlan?.planType,
+      planName
+    );
+    const amount = numberValue(
+      typeof req.body?.amount !== "undefined" ? req.body.amount : selectedPlan?.amount,
+      0
+    );
     const propertyIdInput = text(req.body?.propertyId);
     const paymentProvider = text(req.body?.paymentProvider);
     const paymentOrderId = text(req.body?.paymentOrderId);
@@ -132,7 +329,10 @@ export async function createCoreSubscription(req, res, next) {
     const paymentStatus = text(req.body?.paymentStatus);
     const startDate = normalizeDate(req.body?.startDate) || new Date();
     const endDateInput = normalizeDate(req.body?.endDate);
-    const durationDays = Math.max(1, numberValue(req.body?.durationDays, 30));
+    const durationDays = Math.max(
+      1,
+      numberValue(req.body?.durationDays, selectedPlan?.cycleDays || 30)
+    );
     const endDate =
       endDateInput || new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
@@ -178,7 +378,7 @@ export async function createCoreSubscription(req, res, next) {
       }
     }
 
-    if (planType === "featured") {
+    if (planType === "featured" || selectedPlan?.requiresProperty) {
       if (!propertyIdInput) {
         return res.status(400).json({
           success: false,

@@ -228,6 +228,8 @@ function normalizeCreatePayload(body = {}) {
     videoVisit: normalizeMixedObject(body.videoVisit),
     aiReview: normalizeMixedObject(body.aiReview),
     verified: Boolean(body.verified),
+    verifiedByPropertySetu: Boolean(body.verifiedByPropertySetu),
+    verifiedBadge: normalizeMixedObject(body.verifiedBadge),
     featured: Boolean(body.featured),
     featuredUntil: normalizeDateValue(body.featuredUntil)
   };
@@ -271,6 +273,12 @@ function normalizeUpdatePayload(body = {}, existing = null) {
   }
   if (typeof body.aiReview !== "undefined") updates.aiReview = normalizeMixedObject(body.aiReview);
   if (typeof body.verified !== "undefined") updates.verified = Boolean(body.verified);
+  if (typeof body.verifiedByPropertySetu !== "undefined") {
+    updates.verifiedByPropertySetu = Boolean(body.verifiedByPropertySetu);
+  }
+  if (typeof body.verifiedBadge !== "undefined") {
+    updates.verifiedBadge = normalizeMixedObject(body.verifiedBadge);
+  }
   if (typeof body.featured !== "undefined") updates.featured = Boolean(body.featured);
   if (typeof body.featuredUntil !== "undefined") {
     updates.featuredUntil = normalizeDateValue(body.featuredUntil);
@@ -464,6 +472,19 @@ export async function getCorePropertyById(req, res, next) {
 async function createCorePropertyInternal(req, res, next, options = {}) {
   try {
     const payload = normalizeCreatePayload(req.body);
+    if (!isAdmin(req)) {
+      payload.verified = false;
+      payload.verifiedByPropertySetu = false;
+      payload.verifiedBadge = {
+        show: false,
+        label: "Verified by PropertySetu",
+        approvedAt: null,
+        approvedBy: null,
+        status: "Pending"
+      };
+      payload.featured = false;
+      payload.featuredUntil = null;
+    }
     const validation = validatePropertyPayload(payload, options);
     if (validation) {
       return res.status(400).json({
@@ -522,6 +543,13 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
 
     const existingNormalized = normalizeCoreProperty(existing);
     const updates = normalizeUpdatePayload(req.body, existingNormalized);
+    if (!isAdmin(req)) {
+      delete updates.verified;
+      delete updates.verifiedByPropertySetu;
+      delete updates.verifiedBadge;
+      delete updates.featured;
+      delete updates.featuredUntil;
+    }
     if (!Object.keys(updates).length) {
       return res.status(400).json({
         success: false,
@@ -659,12 +687,26 @@ export async function verifyCoreProperty(req, res, next) {
       reviewedAt: new Date().toISOString(),
       reviewedBy: toId(req.coreUser?.id)
     };
+    const nextBadge = {
+      show: verified,
+      label: "Verified by PropertySetu",
+      approvedAt: verified ? new Date().toISOString() : null,
+      approvedBy: toId(req.coreUser?.id),
+      status: verified ? "Verified" : "Pending"
+    };
 
     let updated;
     if (proRuntime.dbConnected) {
       updated = await CoreProperty.findByIdAndUpdate(
         propertyId,
-        { $set: { verified, verification: nextVerification } },
+        {
+          $set: {
+            verified,
+            verifiedByPropertySetu: verified,
+            verifiedBadge: nextBadge,
+            verification: nextVerification
+          }
+        },
         { new: true }
       );
     } else {
@@ -673,6 +715,8 @@ export async function verifyCoreProperty(req, res, next) {
         proMemoryStore.coreProperties[index] = {
           ...proMemoryStore.coreProperties[index],
           verified,
+          verifiedByPropertySetu: verified,
+          verifiedBadge: nextBadge,
           verification: nextVerification,
           updatedAt: new Date().toISOString()
         };
