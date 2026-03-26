@@ -8,7 +8,10 @@ import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreReview from "../models/CoreReview.js";
 import CoreSubscription from "../models/CoreSubscription.js";
-import { buildCoreDatabaseContract } from "../contracts/coreDatabaseContract.js";
+import {
+  buildCoreDatabaseContract,
+  coreSystemsBlueprint
+} from "../contracts/coreDatabaseContract.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,6 +113,31 @@ function getStackChecksSnapshot() {
       apiVersion: "v3"
     }
   };
+}
+
+function buildCoreSystemsStatus(checks = {}) {
+  const dependencyState = {
+    authentication: Boolean(checks.authConfigReady),
+    fileStorage: Boolean(checks.storageConfigReady),
+    paymentGateway: Boolean(checks.paymentConfigReady),
+    database: Boolean(checks.databaseMongoConfigured),
+    backendServer: Boolean(checks.backendExpress),
+    hosting: Boolean(checks.hostingBackendRenderConfig || checks.hostingFrontendVercelConfig)
+  };
+
+  return coreSystemsBlueprint.map((system) => {
+    const dependencyResults = (system.dependencies || []).map((dependency) => ({
+      dependency,
+      ready: Boolean(dependencyState[dependency])
+    }));
+    const status = dependencyResults.every((item) => item.ready) ? "ready" : "setup-required";
+
+    return {
+      ...system,
+      status,
+      dependencyResults
+    };
+  });
 }
 
 function buildExecutionSteps(checks) {
@@ -389,6 +417,26 @@ export function getCoreSystemDatabaseStructure(_req, res) {
     contract,
     modelCoverage,
     status: missingRequired === 0 ? "contract-aligned" : "contract-mismatch"
+  });
+}
+
+export function getCoreSystemBlueprint(_req, res) {
+  const snapshot = getStackChecksSnapshot();
+  const contract = buildCoreDatabaseContract(proRuntime);
+  const systems = buildCoreSystemsStatus(snapshot.checks);
+  const readyCount = systems.filter((item) => item.status === "ready").length;
+
+  return res.json({
+    success: true,
+    message: "MongoDB structure + core systems blueprint for real backend build.",
+    mongodbStructure: contract.collections,
+    coreSystems: systems,
+    summary: {
+      ready: readyCount,
+      total: systems.length,
+      stage: readyCount === systems.length ? "core-systems-ready" : "core-systems-setup-required"
+    },
+    runtime: snapshot.runtime
   });
 }
 

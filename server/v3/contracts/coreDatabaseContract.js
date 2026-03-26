@@ -60,12 +60,131 @@ export const coreMongoCollections = {
   }
 };
 
+export const coreSystemsBlueprint = [
+  {
+    id: "authentication-system",
+    title: "Authentication System",
+    capabilities: [
+      "OTP login",
+      "JWT token",
+      "Role based access"
+    ],
+    endpoints: [
+      "/api/v3/auth/request-otp",
+      "/api/v3/auth/login-otp",
+      "/api/v3/auth/login",
+      "/api/v3/auth/me"
+    ],
+    dependencies: ["authentication"]
+  },
+  {
+    id: "property-upload-system",
+    title: "Property Upload System",
+    capabilities: [
+      "Minimum 5 photos validation",
+      "1 video upload",
+      "Document upload (private)",
+      "Auto description generator"
+    ],
+    endpoints: [
+      "/api/v3/properties/professional",
+      "/api/v3/properties/auto-description",
+      "/api/v3/uploads/property-media"
+    ],
+    dependencies: ["fileStorage"]
+  },
+  {
+    id: "verified-badge-system",
+    title: "Verified Badge System",
+    capabilities: [
+      "Admin approve karega",
+      "Verified by PropertySetu badge show hoga"
+    ],
+    endpoints: [
+      "/api/v3/properties/:propertyId/verify"
+    ],
+    dependencies: ["authentication"]
+  },
+  {
+    id: "subscription-payment-system",
+    title: "Subscription and Payment",
+    capabilities: [
+      "Razorpay integration",
+      "Featured listing system",
+      "Property care monthly package"
+    ],
+    endpoints: [
+      "/api/v3/subscriptions/plans",
+      "/api/v3/subscriptions/payment/order",
+      "/api/v3/subscriptions/payment/verify",
+      "/api/v3/subscriptions"
+    ],
+    dependencies: ["paymentGateway"]
+  },
+  {
+    id: "ai-phase-2-system",
+    title: "AI Features (Phase 2)",
+    capabilities: [
+      "Smart pricing suggestion",
+      "Similar property recommendation",
+      "Fake listing detection"
+    ],
+    endpoints: [
+      "/api/v3/ai/smart-pricing",
+      "/api/v3/ai/similar-properties",
+      "/api/v3/ai/fake-listing-detection"
+    ],
+    dependencies: ["database"]
+  },
+  {
+    id: "chat-system",
+    title: "In-app Chat",
+    capabilities: [
+      "Buyer seller secure chat",
+      "Role-aware protected access"
+    ],
+    endpoints: [
+      "/api/v3/chat/send",
+      "/api/v3/chat/:propertyId",
+      "/api/v3/chat/mine"
+    ],
+    dependencies: ["authentication"]
+  },
+  {
+    id: "city-seo-system",
+    title: "City-wise SEO Structure",
+    capabilities: [
+      "Multi-city SEO structure endpoint",
+      "Locality aware data model"
+    ],
+    endpoints: [
+      "/api/v3/seo/city-structure"
+    ],
+    dependencies: ["database"]
+  },
+  {
+    id: "property-care-system",
+    title: "Property Care Subscription",
+    capabilities: [
+      "Monthly property care request flow",
+      "Admin status update"
+    ],
+    endpoints: [
+      "/api/v3/property-care/requests",
+      "/api/v3/property-care/requests/me",
+      "/api/v3/property-care/requests/:requestId/status"
+    ],
+    dependencies: ["authentication"]
+  }
+];
+
 export function buildCoreDatabaseContract(runtime = {}) {
   const mode = runtime.dbConnected ? "mongodb" : "memory-fallback";
 
   return {
     version: CORE_DATABASE_STRUCTURE_VERSION,
     mode,
-    collections: coreMongoCollections
+    collections: coreMongoCollections,
+    coreSystems: coreSystemsBlueprint
   };
 }

@@ -266,6 +266,15 @@ const email = (v) => txt(v).toLowerCase();
 const phone = (v) => String(v || "").replace(/\D/g, "");
 const num = (v, f = 0) => (Number.isFinite(Number(v)) ? Number(v) : f);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+const isConfiguredCredential = (value) => {
+  const raw = txt(value).toLowerCase();
+  if (!raw) return false;
+  return (
+    !raw.includes("replace_with")
+    && !raw.includes("placeholder")
+    && !raw.startsWith("your_")
+  );
+};
 const role = (v) => {
   const r = txt(v).toLowerCase();
   if (r === "admin" || r === "seller" || r === "agent") return r;
@@ -889,6 +898,125 @@ app.get("/api/system/stack-options", (_req, res) => {
     folderStructure,
     folderPresence,
     source: "legacy-live-api",
+  });
+});
+app.get("/api/system/core-systems", (_req, res) => {
+  const storageProvider = txt(process.env.STORAGE_PROVIDER || "cloudinary").toLowerCase();
+  const cloudinaryConfigured =
+    isConfiguredCredential(process.env.CLOUDINARY_CLOUD_NAME)
+    && isConfiguredCredential(process.env.CLOUDINARY_API_KEY)
+    && isConfiguredCredential(process.env.CLOUDINARY_API_SECRET);
+  const s3Configured =
+    isConfiguredCredential(process.env.AWS_REGION)
+    && isConfiguredCredential(process.env.AWS_S3_BUCKET);
+  const storageReady = storageProvider === "s3" ? s3Configured : cloudinaryConfigured;
+  const paymentReady =
+    isConfiguredCredential(process.env.RAZORPAY_KEY_ID)
+    && isConfiguredCredential(process.env.RAZORPAY_KEY_SECRET);
+  const authReady =
+    isConfiguredCredential(process.env.JWT_SECRET)
+    && isConfiguredCredential(process.env.ADMIN_REGISTRATION_KEY);
+
+  const mongodbStructure = {
+    users: [
+      "name",
+      "email",
+      "phone",
+      "password (hashed)",
+      "role (buyer/seller/admin)",
+      "verified",
+      "subscriptionPlan",
+      "createdAt",
+    ],
+    properties: [
+      "title",
+      "description",
+      "city",
+      "location",
+      "type (buy/rent)",
+      "category (house/plot/commercial)",
+      "price",
+      "size",
+      "images[]",
+      "video",
+      "ownerId",
+      "verified",
+      "featured",
+      "createdAt",
+    ],
+    reviews: [
+      "propertyId",
+      "userId",
+      "rating",
+      "comment",
+    ],
+    subscriptions: [
+      "userId",
+      "planName",
+      "amount",
+      "startDate",
+      "endDate",
+    ],
+  };
+
+  const coreSystems = [
+    {
+      id: "authentication-system",
+      title: "Authentication System",
+      capabilities: ["OTP login", "JWT token", "Role based access"],
+      status: authReady ? "ready" : "setup-required",
+      endpoints: ["/api/auth/request-otp", "/api/auth/login", "/api/auth/me", "/api/v3/auth/request-otp", "/api/v3/auth/login-otp"],
+    },
+    {
+      id: "property-upload-system",
+      title: "Property Upload System",
+      capabilities: ["Minimum 5 photos validation", "1 video upload", "Document upload (private)", "Auto description generator"],
+      status: storageReady ? "ready" : "setup-required",
+      endpoints: ["/api/properties", "/api/uploads/property-media", "/api/v3/properties/professional", "/api/v3/properties/auto-description"],
+    },
+    {
+      id: "verified-badge-system",
+      title: "Verified Badge System",
+      capabilities: ["Admin approve karega", "Verified by PropertySetu badge show hoga"],
+      status: authReady ? "ready" : "setup-required",
+      endpoints: ["/api/admin/owner-verification/:id/decision", "/api/properties/:id/approve", "/api/v3/properties/:propertyId/verify"],
+    },
+    {
+      id: "subscription-payment-system",
+      title: "Subscription and Payment",
+      capabilities: ["Razorpay integration", "Featured listing system", "Property care monthly package"],
+      status: paymentReady ? "ready" : "setup-required",
+      endpoints: ["/api/subscriptions/activate", "/api/v2/payments/order", "/api/v3/subscriptions", "/api/v3/subscriptions/payment/order"],
+    },
+    {
+      id: "ai-phase-2-system",
+      title: "AI Features (Phase 2)",
+      capabilities: ["Smart pricing suggestion", "Similar property recommendation", "Fake listing detection"],
+      status: "ready",
+      endpoints: ["/api/ai/pricing-suggestion", "/api/ai/recommendations", "/api/ai/fraud-scan", "/api/v3/ai/smart-pricing", "/api/v3/ai/similar-properties", "/api/v3/ai/fake-listing-detection"],
+    },
+  ];
+
+  const readyCount = coreSystems.filter((item) => item.status === "ready").length;
+
+  res.json({
+    ok: true,
+    message: "MongoDB structure and core systems blueprint for professional live build.",
+    mongodbStructure,
+    coreSystems,
+    summary: {
+      ready: readyCount,
+      total: coreSystems.length,
+      stage: readyCount === coreSystems.length ? "core-systems-ready" : "core-systems-setup-required",
+    },
+    dependencies: {
+      backendServer: true,
+      database: true,
+      authentication: true,
+      fileStorage: true,
+      paymentGateway: true,
+      hostingSetup: true,
+    },
   });
 });
 

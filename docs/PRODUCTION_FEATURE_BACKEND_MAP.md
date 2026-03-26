@@ -80,6 +80,7 @@ Base URL: `http://localhost:5200/api/v3`
 - `GET /system/stack-options`
 - `GET /system/stack-readiness`
 - `GET /system/architecture-plan`
+- `GET /system/core-systems`
 - `GET /system/execution-plan`
 
 ## Notes

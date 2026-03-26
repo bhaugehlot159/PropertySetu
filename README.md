@@ -47,6 +47,7 @@ Open:
 - Architecture plan: `http://localhost:5200/api/v3/system/architecture-plan`
 - Stack options + folder structure: `http://localhost:5200/api/v3/system/stack-options`
 - Database structure contract: `http://localhost:5200/api/v3/system/database-structure`
+- Core systems blueprint: `http://localhost:5200/api/v3/system/core-systems`
 - Step execution plan: `http://localhost:5200/api/v3/system/execution-plan`
 - Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
 
@@ -117,6 +118,9 @@ HTML/CSS/JS + Node.js + MongoDB + simple admin path: `docs/OPTION_2_BEGINNER_STA
 
 ## Stack Options + Folder Structure
 Option 1 + Option 2 with professional folder structure: `docs/STACK_OPTIONS_AND_STRUCTURE.md`
+
+## Core Systems Blueprint
+MongoDB structure + core systems build map: `docs/CORE_SYSTEMS_BLUEPRINT.md`
 
 ## Production Feature Backend Map
 Requested real features to backend endpoint mapping (OTP, upload, verification, chat, AI, property-care, city SEO): `docs/PRODUCTION_FEATURE_BACKEND_MAP.md`
