@@ -805,6 +805,89 @@
         );
       }
 
+      if (rawPath === '/sealed-bids' && method === 'POST') {
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, '/sealed-bids', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: {
+            propertyId: text(payload.propertyId),
+            amount: Math.max(0, numberFrom(payload.amount, 0)),
+          },
+        });
+      }
+
+      if (rawPath === '/sealed-bids/mine' && method === 'GET') {
+        const limit = text(query.get('limit'));
+        return requestJson(
+          CORE_API_BASE,
+          `/sealed-bids/mine${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      if (rawPath === '/sealed-bids/summary' && method === 'GET') {
+        const params = new URLSearchParams();
+        const propertyId = text(query.get('propertyId'));
+        const limit = text(query.get('limit'));
+        if (propertyId) params.set('propertyId', propertyId);
+        if (limit) params.set('limit', limit);
+        return requestJson(
+          CORE_API_BASE,
+          `/sealed-bids/summary${params.toString() ? `?${params.toString()}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      if (rawPath === '/sealed-bids/admin' && method === 'GET') {
+        const params = new URLSearchParams();
+        const propertyId = text(query.get('propertyId'));
+        const limit = text(query.get('limit'));
+        if (propertyId) params.set('propertyId', propertyId);
+        if (limit) params.set('limit', limit);
+        return requestJson(
+          CORE_API_BASE,
+          `/sealed-bids/admin${params.toString() ? `?${params.toString()}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      if (rawPath === '/sealed-bids/decision' && method === 'POST') {
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, '/sealed-bids/decision', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: {
+            propertyId: text(payload.propertyId),
+            action: text(payload.action).toLowerCase(),
+          },
+        });
+      }
+
+      const sealedBidWinnerMatch = rawPath.match(/^\/sealed-bids\/winner\/([^/]+)$/);
+      if (sealedBidWinnerMatch && method === 'GET') {
+        const propertyId = sealedBidWinnerMatch[1];
+        return requestJson(CORE_API_BASE, `/sealed-bids/winner/${propertyId}`, {
+          method: 'GET',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+      }
+
       const reviewByPropertyMatch = rawPath.match(/^\/reviews\/([^/]+)$/);
       if (reviewByPropertyMatch && method === 'GET') {
         const propertyId = reviewByPropertyMatch[1];
@@ -918,6 +1001,36 @@
     },
   };
 
+  const sealedBids = {
+    placeBid: async (payload = {}) => request('/sealed-bids', { method: 'POST', data: payload }),
+    mine: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/sealed-bids/mine${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    summary: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/sealed-bids/summary${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    admin: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/sealed-bids/admin${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    decision: async (payload = {}) => request('/sealed-bids/decision', { method: 'POST', data: payload }),
+    winner: async (propertyId) => request(`/sealed-bids/winner/${encodeURIComponent(text(propertyId))}`),
+  };
+
   window.PropertySetuLive = {
     API_BASE,
     PRO_API_BASE,
@@ -940,6 +1053,7 @@
     mergeById,
     syncLocalListingsFromApi,
     ai,
+    sealedBids,
     payments: {
       createOrder: async (payload = {}) => request('/payments/order', { method: 'POST', data: payload }),
       verify: async (payload = {}) => request('/payments/verify', { method: 'POST', data: payload }),
