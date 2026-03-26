@@ -7,6 +7,7 @@ import {
   featureCoreProperty,
   getCorePropertyPrivateDocs,
   getCorePropertyById,
+  getCorePropertyTaxonomyOptions,
   listCoreProperties,
   previewCorePropertyDescription,
   updateCoreProperty,
@@ -22,6 +23,7 @@ import {
 const router = Router();
 
 router.get("/", listCoreProperties);
+router.get("/taxonomy", getCorePropertyTaxonomyOptions);
 router.get("/compare", compareCoreProperties);
 router.post("/compare", compareCoreProperties);
 router.post(

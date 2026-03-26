@@ -52,6 +52,7 @@ Open:
 - Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
 - Private docs (owner/admin only): `GET http://localhost:5200/api/v3/properties/:propertyId/private-docs`
 - Smart filter API: `GET http://localhost:5200/api/v3/properties?minPrice=&maxPrice=&bhk=&furnishing=&constructionStatus=&loanAvailable=&verifiedOnly=&centerLat=&centerLng=&radiusKm=`
+- Property taxonomy API (Buy/Sell/Rent/Lease/Girvi + advanced categories): `GET http://localhost:5200/api/v3/properties/taxonomy`
 - Wishlist API: `GET/POST/DELETE http://localhost:5200/api/v3/wishlist/*`
 - Compare API: `GET http://localhost:5200/api/v3/wishlist/compare?propertyIds=<id1,id2,id3>`
 - Visit booking API: `POST http://localhost:5200/api/v3/properties/:propertyId/visit`

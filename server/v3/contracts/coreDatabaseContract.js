@@ -1,3 +1,8 @@
+import {
+  CORE_PROPERTY_CATEGORY_VALUES,
+  CORE_PROPERTY_TYPE_VALUES
+} from "../config/corePropertyTaxonomy.js";
+
 export const CORE_DATABASE_STRUCTURE_VERSION = "2026-03-26";
 
 export const coreMongoCollections = {
@@ -38,8 +43,8 @@ export const coreMongoCollections = {
       "featured",
       "createdAt"
     ],
-    typeEnum: ["buy", "rent"],
-    categoryEnum: ["house", "plot", "commercial"],
+    typeEnum: CORE_PROPERTY_TYPE_VALUES,
+    categoryEnum: CORE_PROPERTY_CATEGORY_VALUES,
     indexes: [
       "city",
       "category",

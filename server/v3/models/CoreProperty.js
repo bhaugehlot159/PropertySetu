@@ -1,4 +1,8 @@
 import mongoose from "mongoose";
+import {
+  CORE_PROPERTY_CATEGORY_VALUES,
+  CORE_PROPERTY_TYPE_VALUES
+} from "../config/corePropertyTaxonomy.js";
 
 const corePropertySchema = new mongoose.Schema(
   {
@@ -24,12 +28,12 @@ const corePropertySchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["buy", "rent"],
+      enum: CORE_PROPERTY_TYPE_VALUES,
       default: "buy"
     },
     category: {
       type: String,
-      enum: ["house", "plot", "commercial"],
+      enum: CORE_PROPERTY_CATEGORY_VALUES,
       default: "house"
     },
     price: {

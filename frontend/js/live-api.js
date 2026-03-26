@@ -149,20 +149,57 @@
   const coreTypeFromLegacy = (value) => {
     const raw = text(value).toLowerCase();
     if (raw.includes('rent')) return 'rent';
+    if (raw.includes('sell') || raw.includes('resale')) return 'sell';
+    if (raw.includes('lease')) return 'lease';
+    if (raw.includes('girvi') || raw.includes('mortgage')) return 'mortgage';
+    if (raw.includes('auction') || raw.includes('bid')) return 'auction';
+    if (
+      raw.includes('property care')
+      || raw.includes('home maintenance')
+      || raw.includes('home watch')
+      || raw.includes('service')
+    ) return 'service';
     return 'buy';
   };
 
   const coreCategoryFromLegacy = (value) => {
     const raw = text(value).toLowerCase();
-    if (raw.includes('plot')) return 'plot';
-    if (raw.includes('commercial') || raw.includes('office') || raw.includes('shop')) return 'commercial';
+    if (raw.includes('apartment') || raw.includes('flat') || raw.includes('condo')) return 'apartment';
+    if (raw.includes('villa')) return 'villa';
+    if (raw.includes('farm house') || raw.includes('farmhouse')) return 'farm-house';
+    if (raw.includes('plot') || raw.includes('vadi')) return 'plot';
+    if (raw.includes('warehouse') || raw.includes('godown')) return 'warehouse';
+    if (raw.includes('pg') || raw.includes('hostel')) return 'pg-hostel';
+    if (raw.includes('agriculture') || raw.includes('agricultural') || raw.includes('farm land')) return 'agriculture-land';
+    if (raw.includes('property care')) return 'property-care';
+    if (raw.includes('home maintenance')) return 'home-maintenance';
+    if (raw.includes('home watch')) return 'home-watch';
+    if (raw.includes('industrial') || raw.includes('factory')) return 'industrial';
+    if (raw.includes('co-living') || raw.includes('co living') || raw.includes('coliving')) return 'co-living';
+    if (raw.includes('office')) return 'office';
+    if (raw.includes('shop') || raw.includes('retail')) return 'shop';
+    if (raw.includes('commercial')) return 'commercial';
     return 'house';
   };
 
   const legacyCategoryFromCore = (value) => {
     const raw = text(value).toLowerCase();
+    if (raw === 'apartment') return 'Apartment';
+    if (raw === 'villa') return 'Villa';
     if (raw === 'plot') return 'Plot';
+    if (raw === 'farm-house') return 'Farm House';
     if (raw === 'commercial') return 'Commercial';
+    if (raw === 'office') return 'Office';
+    if (raw === 'shop') return 'Shop';
+    if (raw === 'pg-hostel') return 'PG / Hostel';
+    if (raw === 'warehouse') return 'Warehouse';
+    if (raw === 'agriculture-land') return 'Agriculture Land';
+    if (raw === 'property-care') return 'Property Care';
+    if (raw === 'home-maintenance') return 'Home Maintenance';
+    if (raw === 'home-watch') return 'Home Watch';
+    if (raw === 'industrial') return 'Industrial';
+    if (raw === 'co-living') return 'Co-living';
+    if (raw === 'other') return 'Other';
     return 'House';
   };
 
@@ -595,6 +632,21 @@
         return null;
       }
 
+      if (rawPath === '/properties/taxonomy' && method === 'GET') {
+        const response = await requestJson(CORE_API_BASE, '/properties/taxonomy', {
+          method: 'GET',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+        return {
+          ok: true,
+          success: true,
+          types: Array.isArray(response?.types) ? response.types : [],
+          categories: Array.isArray(response?.categories) ? response.categories : [],
+          defaults: toObject(response?.defaults),
+        };
+      }
+
       if (rawPath === '/properties' && method === 'GET') {
         const session = getAnySession();
         const mine = query.get('mine') === '1';
@@ -978,6 +1030,10 @@
     return merged;
   };
 
+  const properties = {
+    taxonomy: async () => request('/properties/taxonomy'),
+  };
+
   const ai = {
     pricingSuggestion: async (payload = {}) => request('/ai/pricing-suggestion', { method: 'POST', data: payload }),
     descriptionGenerate: async (payload = {}) => request('/ai/description-generate', { method: 'POST', data: payload }),
@@ -1052,6 +1108,7 @@
     normalizeApiListing,
     mergeById,
     syncLocalListingsFromApi,
+    properties,
     ai,
     sealedBids,
     payments: {

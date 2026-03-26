@@ -220,6 +220,7 @@ function buildExecutionSteps(checks) {
       blockedBy: "",
       endpoints: [
         "/api/v3/properties",
+        "/api/v3/properties/taxonomy",
         "/api/v3/properties/:propertyId",
         "/api/v3/properties/professional"
       ]

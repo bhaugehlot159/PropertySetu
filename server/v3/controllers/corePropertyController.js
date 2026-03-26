@@ -2,11 +2,18 @@ import mongoose from "mongoose";
 import CoreProperty from "../models/CoreProperty.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import {
+  CORE_PROPERTY_CATEGORY_VALUES,
+  CORE_PROPERTY_TYPE_VALUES,
+  getCorePropertyTaxonomy as getCorePropertyTaxonomyConfig,
+  normalizeCorePropertyCategory,
+  normalizeCorePropertyType
+} from "../config/corePropertyTaxonomy.js";
 import { normalizeCoreProperty, toId } from "../utils/coreMappers.js";
 import { verifyCoreToken } from "../utils/coreAuth.js";
 
-const PROPERTY_TYPES = new Set(["buy", "rent"]);
-const PROPERTY_CATEGORIES = new Set(["house", "plot", "commercial"]);
+const PROPERTY_TYPES = new Set(CORE_PROPERTY_TYPE_VALUES);
+const PROPERTY_CATEGORIES = new Set(CORE_PROPERTY_CATEGORY_VALUES);
 const FURNISHING_TYPES = new Set(["furnished", "semi", "unfurnished"]);
 const CONSTRUCTION_STATUS_TYPES = new Set(["ready-to-move", "under-construction"]);
 const MIN_REQUIRED_PHOTOS = 5;
@@ -72,13 +79,11 @@ function getViewerFromRequest(req) {
 }
 
 function normalizeType(type) {
-  const value = text(type, "buy").toLowerCase();
-  return PROPERTY_TYPES.has(value) ? value : "buy";
+  return normalizeCorePropertyType(type, "buy");
 }
 
 function normalizeCategory(category) {
-  const value = text(category, "house").toLowerCase();
-  return PROPERTY_CATEGORIES.has(value) ? value : "house";
+  return normalizeCorePropertyCategory(category, "house");
 }
 
 function normalizeBhk(value) {
@@ -599,6 +604,18 @@ async function findCorePropertyById(propertyId) {
   );
 }
 
+export function getCorePropertyTaxonomyOptions(_req, res) {
+  const taxonomy = getCorePropertyTaxonomyConfig();
+  return res.json({
+    success: true,
+    defaults: {
+      type: "buy",
+      category: "house"
+    },
+    ...taxonomy
+  });
+}
+
 export async function compareCoreProperties(req, res, next) {
   try {
     const viewer = getViewerFromRequest(req);
@@ -688,8 +705,10 @@ export async function listCoreProperties(req, res, next) {
     const verifiedOnly = parseBool(req.query.verifiedOnly);
     const featured = parseBool(req.query.featured);
     const city = text(req.query.city);
-    const type = text(req.query.type).toLowerCase();
-    const category = text(req.query.category).toLowerCase();
+    const typeQuery = text(req.query.type);
+    const categoryQuery = text(req.query.category);
+    const type = typeQuery ? normalizeType(typeQuery) : "";
+    const category = categoryQuery ? normalizeCategory(categoryQuery) : "";
     const bhk = Math.max(0, Math.round(numberValue(req.query.bhk, 0)));
     const furnishing = normalizeFurnishing(req.query.furnishing);
     const constructionStatus = normalizeConstructionStatus(
@@ -716,8 +735,8 @@ export async function listCoreProperties(req, res, next) {
     if (proRuntime.dbConnected) {
       const filters = {};
       if (city) filters.city = city;
-      if (PROPERTY_TYPES.has(type)) filters.type = type;
-      if (PROPERTY_CATEGORIES.has(category)) filters.category = category;
+      if (type && PROPERTY_TYPES.has(type)) filters.type = type;
+      if (category && PROPERTY_CATEGORIES.has(category)) filters.category = category;
       if (typeof verified === "boolean") filters.verified = verified;
       if (verifiedOnly === true) filters.verified = true;
       if (typeof featured === "boolean") filters.featured = featured;
@@ -761,8 +780,8 @@ export async function listCoreProperties(req, res, next) {
           count: paginatedRows.length,
           filtersApplied: {
             city,
-            type: PROPERTY_TYPES.has(type) ? type : "",
-            category: PROPERTY_CATEGORIES.has(category) ? category : "",
+            type: type && PROPERTY_TYPES.has(type) ? type : "",
+            category: category && PROPERTY_CATEGORIES.has(category) ? category : "",
             verified: typeof verified === "boolean" ? verified : undefined,
             verifiedOnly: verifiedOnly === true,
             featured: typeof featured === "boolean" ? featured : undefined,
@@ -790,8 +809,8 @@ export async function listCoreProperties(req, res, next) {
         count: rows.length,
         filtersApplied: {
           city,
-          type: PROPERTY_TYPES.has(type) ? type : "",
-          category: PROPERTY_CATEGORIES.has(category) ? category : "",
+          type: type && PROPERTY_TYPES.has(type) ? type : "",
+          category: category && PROPERTY_CATEGORIES.has(category) ? category : "",
           verified: typeof verified === "boolean" ? verified : undefined,
           verifiedOnly: verifiedOnly === true,
           featured: typeof featured === "boolean" ? featured : undefined,
@@ -807,8 +826,8 @@ export async function listCoreProperties(req, res, next) {
 
     let rows = [...proMemoryStore.coreProperties];
     if (city) rows = rows.filter((item) => item.city === city);
-    if (PROPERTY_TYPES.has(type)) rows = rows.filter((item) => item.type === type);
-    if (PROPERTY_CATEGORIES.has(category)) {
+    if (type && PROPERTY_TYPES.has(type)) rows = rows.filter((item) => item.type === type);
+    if (category && PROPERTY_CATEGORIES.has(category)) {
       rows = rows.filter((item) => item.category === category);
     }
     if (typeof verified === "boolean") {
@@ -855,8 +874,8 @@ export async function listCoreProperties(req, res, next) {
       count: paginated.length,
       filtersApplied: {
         city,
-        type: PROPERTY_TYPES.has(type) ? type : "",
-        category: PROPERTY_CATEGORIES.has(category) ? category : "",
+        type: type && PROPERTY_TYPES.has(type) ? type : "",
+        category: category && PROPERTY_CATEGORIES.has(category) ? category : "",
         verified: typeof verified === "boolean" ? verified : undefined,
         verifiedOnly: verifiedOnly === true,
         featured: typeof featured === "boolean" ? featured : undefined,
