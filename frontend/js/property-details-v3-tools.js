@@ -9,6 +9,34 @@
   if (!propertyId) return;
 
   const CORE_API_BASE = String(live.CORE_API_BASE || `${window.location.origin}/api/v3`);
+  const STYLE_ID = 'property-v3-tools-style';
+
+  if (!document.getElementById(STYLE_ID)) {
+    const styleEl = document.createElement('style');
+    styleEl.id = STYLE_ID;
+    styleEl.textContent = `
+#propertyV3ToolsRoot input,
+#propertyV3ToolsRoot textarea {
+  box-sizing: border-box;
+  border: 1px solid #cfdcf2;
+  border-radius: 6px;
+}
+#propertyV3ToolsRoot button { cursor: pointer; }
+@media (max-width: 768px) {
+  #propertyV3ToolsRoot .actions-row {
+    display: grid !important;
+    grid-template-columns: 1fr;
+  }
+  #propertyV3ToolsRoot .emi-grid {
+    grid-template-columns: 1fr !important;
+  }
+  #propertyV3ToolsRoot iframe {
+    height: 220px !important;
+  }
+}
+`;
+    document.head.appendChild(styleEl);
+  }
 
   const text = (value, fallback = '') => {
     const normalized = String(value || '').trim();
@@ -53,6 +81,7 @@
   }
 
   const block = document.createElement('section');
+  block.id = 'propertyV3ToolsRoot';
   block.style.maxWidth = '900px';
   block.style.margin = '18px auto 0';
   block.style.textAlign = 'left';
@@ -79,7 +108,7 @@
   <div style="display:grid;gap:8px;margin-top:10px;">
     <textarea id="chatMessageInput" placeholder="Type your message (direct phone/email allowed nahi hai)" style="width:100%;padding:8px;"></textarea>
     <input id="chatReceiverIdInput" placeholder="Optional receiverId (owner/admin reply use-case)" style="padding:8px;" />
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <div class="actions-row" style="display:flex;gap:8px;flex-wrap:wrap;">
       <button id="chatSendBtn" style="padding:8px 12px;background:#0b5c8a;color:#fff;border:none;border-radius:6px;">Send Message</button>
       <button id="chatRefreshBtn" style="padding:8px 12px;background:#3c5f8b;color:#fff;border:none;border-radius:6px;">Refresh Chat</button>
       <button id="chatWhatsAppBtn" style="padding:8px 12px;background:#25D366;color:#fff;border:none;border-radius:6px;">Get WhatsApp Link</button>
@@ -101,7 +130,7 @@
 
 <section style="border:1px solid #d6e1f5;border-radius:10px;padding:14px;background:#fff;">
   <h3 style="margin:0 0 10px;">EMI Calculator</h3>
-  <div style="display:grid;gap:8px;grid-template-columns:repeat(3,minmax(0,1fr));">
+  <div class="emi-grid" style="display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
     <input id="emiLoanInput" type="number" min="1" step="1000" value="3500000" placeholder="Loan Amount" style="padding:8px;" />
     <input id="emiRateInput" type="number" min="0" step="0.1" value="8.6" placeholder="Annual Rate %" style="padding:8px;" />
     <input id="emiYearsInput" type="number" min="1" step="1" value="20" placeholder="Tenure Years" style="padding:8px;" />

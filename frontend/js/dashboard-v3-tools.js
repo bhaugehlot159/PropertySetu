@@ -6,6 +6,42 @@
   if (!isUserPage && !isSellerPage) return;
 
   const LISTINGS_KEY = 'propertySetu:listings';
+  const STYLE_ID = 'dashboard-v3-tools-style';
+
+  if (!document.getElementById(STYLE_ID)) {
+    const styleEl = document.createElement('style');
+    styleEl.id = STYLE_ID;
+    styleEl.textContent = `
+.v3-tools-shell input,
+.v3-tools-shell textarea,
+.v3-tools-shell select {
+  box-sizing: border-box;
+}
+.v3-tools-shell button { cursor: pointer; }
+@media (max-width: 768px) {
+  .v3-tools-shell #v3TopBar {
+    display: grid !important;
+    grid-template-columns: 1fr;
+  }
+  .v3-tools-shell #v3TopBar > * {
+    width: 100%;
+    min-width: 0 !important;
+    margin: 0;
+  }
+  .v3-tools-shell .actions-row {
+    display: grid !important;
+    grid-template-columns: 1fr;
+  }
+  .v3-tools-shell .emi-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .v3-tools-shell iframe {
+    height: 220px !important;
+  }
+}
+`;
+    document.head.appendChild(styleEl);
+  }
 
   const text = (value, fallback = '') => {
     const normalized = String(value || '').trim();
@@ -113,13 +149,14 @@
   function createContainer() {
     const container = document.createElement('div');
     container.className = 'container';
+    container.classList.add('v3-tools-shell');
     container.id = isUserPage ? 'userV3ToolsContainer' : 'sellerV3ToolsContainer';
     container.innerHTML = `
       <h2>V3 Live Tools</h2>
       <div id="v3TopBar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <label for="v3PropertyIdInput" style="font-weight:700;">Property ID</label>
-        <input id="v3PropertyIdInput" type="text" placeholder="Enter property id" style="min-width:260px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;" />
-        <select id="v3PropertySelect" style="min-width:280px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;"></select>
+        <input id="v3PropertyIdInput" type="text" placeholder="Enter property id" style="flex:1 1 220px;min-width:180px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;" />
+        <select id="v3PropertySelect" style="flex:1 1 240px;min-width:180px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;"></select>
         <button id="v3LoadPropertyBtn" type="button">Load Meta + Chat</button>
       </div>
 
@@ -140,7 +177,7 @@
         <div id="v3ChatThread" style="max-height:200px;overflow:auto;border:1px solid #dae6fb;border-radius:6px;padding:8px;background:#f8fbff;"></div>
         <textarea id="v3ChatMessage" placeholder="Type message" style="width:100%;margin-top:8px;padding:8px;border:1px solid #ccd6e7;border-radius:4px;"></textarea>
         <input id="v3ChatReceiverId" type="text" placeholder="Optional receiverId (seller/admin reply flow)" style="width:100%;margin-top:6px;padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <div class="actions-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
           <button id="v3ChatSendBtn" type="button">Send</button>
           <button id="v3ChatRefreshBtn" type="button">Refresh</button>
           <button id="v3ChatWaBtn" type="button">WhatsApp Link</button>
@@ -158,7 +195,7 @@
 
       <div style="margin-top:14px;border:1px solid #d6e1f5;border-radius:8px;padding:10px;background:#fff;">
         <h3 style="margin:0 0 8px;">EMI Calculator</h3>
-        <div style="display:grid;gap:8px;grid-template-columns:repeat(3,minmax(0,1fr));">
+        <div class="emi-grid" style="display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
           <input id="v3EmiLoan" type="number" min="1" step="1000" value="3500000" placeholder="Loan Amount" style="padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
           <input id="v3EmiRate" type="number" min="0" step="0.1" value="8.6" placeholder="Rate %" style="padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
           <input id="v3EmiYears" type="number" min="1" step="1" value="20" placeholder="Years" style="padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />

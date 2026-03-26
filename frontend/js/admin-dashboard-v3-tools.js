@@ -6,6 +6,42 @@
 
   const CORE_BASE = `${window.location.origin}/api/v3`;
   const LISTINGS_KEY = 'propertySetu:listings';
+  const STYLE_ID = 'admin-v3-tools-style';
+
+  if (!document.getElementById(STYLE_ID)) {
+    const styleEl = document.createElement('style');
+    styleEl.id = STYLE_ID;
+    styleEl.textContent = `
+.admin-v3-shell input,
+.admin-v3-shell textarea,
+.admin-v3-shell select {
+  box-sizing: border-box;
+}
+.admin-v3-shell button { cursor: pointer; }
+@media (max-width: 768px) {
+  .admin-v3-shell .admin-v3-topbar {
+    display: grid !important;
+    grid-template-columns: 1fr;
+  }
+  .admin-v3-shell .admin-v3-topbar > * {
+    width: 100%;
+    min-width: 0 !important;
+    margin: 0;
+  }
+  .admin-v3-shell .actions-row {
+    display: grid !important;
+    grid-template-columns: 1fr;
+  }
+  .admin-v3-shell .emi-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .admin-v3-shell iframe {
+    height: 220px !important;
+  }
+}
+`;
+    document.head.appendChild(styleEl);
+  }
 
   const text = (value, fallback = '') => {
     const normalized = String(value || '').trim();
@@ -91,13 +127,14 @@
 
   const panel = document.createElement('div');
   panel.className = 'container';
+  panel.classList.add('admin-v3-shell');
   panel.id = 'adminV3ToolsPanel';
   panel.innerHTML = `
     <h2>Admin V3 Live Controls</h2>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <div class="admin-v3-topbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <label for="adminV3PropertyIdInput" style="font-weight:700;">Property ID</label>
-      <input id="adminV3PropertyIdInput" type="text" placeholder="Enter property id" style="min-width:260px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;" />
-      <select id="adminV3PropertySelect" style="min-width:280px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;"></select>
+      <input id="adminV3PropertyIdInput" type="text" placeholder="Enter property id" style="flex:1 1 220px;min-width:180px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;" />
+      <select id="adminV3PropertySelect" style="flex:1 1 240px;min-width:180px;padding:6px;border:1px solid #ccd6e7;border-radius:4px;"></select>
       <button id="adminV3LoadBtn" type="button">Load</button>
       <button id="adminV3VerifyBtn" type="button">Mark Verified Badge</button>
     </div>
@@ -119,7 +156,7 @@
       <div id="adminV3ChatThread" style="max-height:220px;overflow:auto;border:1px solid #dae6fb;border-radius:8px;padding:8px;background:#f8fbff;"></div>
       <textarea id="adminV3ChatMessage" placeholder="Type message" style="width:100%;margin-top:8px;padding:8px;border:1px solid #ccd6e7;border-radius:4px;"></textarea>
       <input id="adminV3ReceiverId" type="text" placeholder="Optional receiverId for admin message" style="width:100%;margin-top:6px;padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <div class="actions-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
         <button id="adminV3SendChatBtn" type="button">Send</button>
         <button id="adminV3RefreshChatBtn" type="button">Refresh</button>
         <button id="adminV3WaBtn" type="button">Get WhatsApp Link</button>
@@ -137,7 +174,7 @@
 
     <div style="margin-top:12px;border:1px solid #d6e1f5;border-radius:8px;padding:10px;background:#fff;">
       <h3 style="margin:0 0 8px;">EMI Calculator</h3>
-      <div style="display:grid;gap:8px;grid-template-columns:repeat(3,minmax(0,1fr));">
+      <div class="emi-grid" style="display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
         <input id="adminV3Loan" type="number" min="1" step="1000" value="3500000" placeholder="Loan amount" style="padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
         <input id="adminV3Rate" type="number" min="0" step="0.1" value="8.6" placeholder="Rate %" style="padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
         <input id="adminV3Years" type="number" min="1" step="1" value="20" placeholder="Years" style="padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
