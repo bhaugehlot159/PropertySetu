@@ -1105,6 +1105,40 @@
     winner: async (propertyId) => request(`/sealed-bids/winner/${encodeURIComponent(text(propertyId))}`),
   };
 
+  const documentation = {
+    services: async () => request('/documentation/services'),
+    createRequest: async (payload = {}) => request('/documentation/requests', { method: 'POST', data: payload }),
+    myRequests: async () => request('/documentation/requests'),
+  };
+
+  const loan = {
+    banks: async () => request('/loan/banks'),
+    createAssistance: async (payload = {}) => request('/loan/assistance', { method: 'POST', data: payload }),
+    myAssistance: async () => request('/loan/assistance'),
+  };
+
+  const ecosystem = {
+    services: async () => request('/ecosystem/services'),
+    createBooking: async (payload = {}) => request('/ecosystem/bookings', { method: 'POST', data: payload }),
+    myBookings: async () => request('/ecosystem/bookings'),
+  };
+
+  const valuation = {
+    estimate: async (payload = {}) => request('/valuation/estimate', { method: 'POST', data: payload }),
+    requests: async () => request('/valuation/requests'),
+  };
+
+  const rentAgreement = {
+    generate: async (payload = {}) => request('/rent-agreement/generate', { method: 'POST', data: payload }),
+    drafts: async () => request('/rent-agreement/drafts'),
+  };
+
+  const franchise = {
+    regions: async () => request('/franchise/regions'),
+    createRequest: async (payload = {}) => request('/franchise/requests', { method: 'POST', data: payload }),
+    myRequests: async () => request('/franchise/requests'),
+  };
+
   window.PropertySetuLive = {
     API_BASE,
     PRO_API_BASE,
@@ -1129,6 +1163,12 @@
     properties,
     ai,
     sealedBids,
+    documentation,
+    loan,
+    ecosystem,
+    valuation,
+    rentAgreement,
+    franchise,
     payments: {
       createOrder: async (payload = {}) => request('/payments/order', { method: 'POST', data: payload }),
       verify: async (payload = {}) => request('/payments/verify', { method: 'POST', data: payload }),

@@ -5,6 +5,7 @@ import CoreSubscription from "../models/CoreSubscription.js";
 import CoreUser from "../models/CoreUser.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import { notifyCoreServiceStatusUpdate } from "./coreServiceController.js";
 import { normalizeCoreProperty, normalizeCoreUser, toId } from "../utils/coreMappers.js";
 
 const FEATURED_PLAN_DEFAULTS = {
@@ -566,6 +567,13 @@ export function listCoreDocumentationRequests(_req, res) {
 export function updateCoreDocumentationRequestStatus(req, res) {
   const updated = setStoreStatus("documentationRequests", req.params.requestId, text(req.body?.status), { adminNote: text(req.body?.adminNote) });
   if (!updated) return res.status(404).json({ success: false, message: "Documentation request not found." });
+  notifyCoreServiceStatusUpdate({
+    userId: toId(updated.userId),
+    title: "Documentation Request Updated",
+    message: `Your documentation request is now "${text(updated.status)}".`,
+    category: "documentation",
+    metadata: { requestId: toId(updated.id || updated._id), status: text(updated.status) }
+  }).catch(() => {});
   return res.json({ success: true, request: updated });
 }
 
@@ -583,6 +591,13 @@ export function updateCoreLoanAssistanceStatus(req, res) {
         : Math.max(0, numberValue(req.body?.finalCommissionAmount, 0))
   });
   if (!updated) return res.status(404).json({ success: false, message: "Loan assistance lead not found." });
+  notifyCoreServiceStatusUpdate({
+    userId: toId(updated.userId),
+    title: "Loan Assistance Updated",
+    message: `Your loan assistance lead is now "${text(updated.status)}".`,
+    category: "loan",
+    metadata: { leadId: toId(updated.id || updated._id), status: text(updated.status) }
+  }).catch(() => {});
   return res.json({ success: true, lead: updated });
 }
 
@@ -594,6 +609,13 @@ export function listCoreEcosystemBookings(_req, res) {
 export function updateCoreEcosystemBookingStatus(req, res) {
   const updated = setStoreStatus("servicePartnerBookings", req.params.bookingId, text(req.body?.status), { adminNote: text(req.body?.adminNote) });
   if (!updated) return res.status(404).json({ success: false, message: "Ecosystem booking not found." });
+  notifyCoreServiceStatusUpdate({
+    userId: toId(updated.userId),
+    title: "Service Booking Updated",
+    message: `Your service booking is now "${text(updated.status)}".`,
+    category: "ecosystem",
+    metadata: { bookingId: toId(updated.id || updated._id), status: text(updated.status) }
+  }).catch(() => {});
   return res.json({ success: true, booking: updated });
 }
 
@@ -615,5 +637,12 @@ export function listCoreFranchiseRequests(_req, res) {
 export function updateCoreFranchiseRequestStatus(req, res) {
   const updated = setStoreStatus("franchiseRequests", req.params.requestId, text(req.body?.status), { adminNote: text(req.body?.adminNote) });
   if (!updated) return res.status(404).json({ success: false, message: "Franchise request not found." });
+  notifyCoreServiceStatusUpdate({
+    userId: toId(updated.userId),
+    title: "Franchise Request Updated",
+    message: `Your franchise request for ${text(updated.city, "your city")} is now "${text(updated.status)}".`,
+    category: "franchise",
+    metadata: { requestId: toId(updated.id || updated._id), status: text(updated.status) }
+  }).catch(() => {});
   return res.json({ success: true, request: updated });
 }

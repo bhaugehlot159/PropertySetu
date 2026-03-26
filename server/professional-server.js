@@ -27,6 +27,7 @@ import coreSystemRoutes from "./v3/routes/coreSystemRoutes.js";
 import coreSeoRoutes from "./v3/routes/coreSeoRoutes.js";
 import coreSealedBidRoutes from "./v3/routes/coreSealedBidRoutes.js";
 import coreSubscriptionRoutes from "./v3/routes/coreSubscriptionRoutes.js";
+import coreServiceRoutes from "./v3/routes/coreServiceRoutes.js";
 import coreUploadRoutes from "./v3/routes/coreUploadRoutes.js";
 import coreVisitRoutes from "./v3/routes/coreVisitRoutes.js";
 import coreWishlistRoutes from "./v3/routes/coreWishlistRoutes.js";
@@ -89,6 +90,7 @@ app.use(`${apiV3Prefix}/ai`, coreAiRoutes);
 app.use(`${apiV3Prefix}/sealed-bids`, coreSealedBidRoutes);
 app.use(`${apiV3Prefix}/seo`, coreSeoRoutes);
 app.use(`${apiV3Prefix}/system`, coreSystemRoutes);
+app.use(apiV3Prefix, coreServiceRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
