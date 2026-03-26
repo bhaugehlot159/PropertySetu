@@ -17,5 +17,6 @@ export const proMemoryStore = {
   corePropertyCareRequests: [],
   coreWishlistItems: [],
   coreVisitBookings: [],
-  coreNotifications: []
+  coreNotifications: [],
+  coreSealedBids: []
 };

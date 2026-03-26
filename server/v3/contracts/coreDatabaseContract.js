@@ -156,6 +156,25 @@ export const coreSystemsBlueprint = [
     dependencies: ["authentication"]
   },
   {
+    id: "sealed-bid-system",
+    title: "Sealed Bid (Hidden Bidding) System",
+    capabilities: [
+      "Buyer/seller can place hidden bids",
+      "Bid amount stays hidden for everyone except admin",
+      "Property owner cannot view hidden bids",
+      "Admin can accept highest, reject all, or reveal winner"
+    ],
+    endpoints: [
+      "/api/v3/sealed-bids",
+      "/api/v3/sealed-bids/mine",
+      "/api/v3/sealed-bids/summary",
+      "/api/v3/sealed-bids/admin",
+      "/api/v3/sealed-bids/decision",
+      "/api/v3/sealed-bids/winner/:propertyId"
+    ],
+    dependencies: ["authentication", "database"]
+  },
+  {
     id: "city-seo-system",
     title: "City-wise SEO Structure",
     capabilities: [

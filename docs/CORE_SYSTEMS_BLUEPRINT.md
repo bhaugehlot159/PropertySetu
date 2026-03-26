@@ -89,6 +89,12 @@ Legacy code is preserved. No old working module removed.
 - Owner gets notification
 - Owner/admin updates booking status
 
+9. Sealed Bid (Hidden Bidding)
+- Buyer/seller places hidden bid
+- Bid amount remains hidden for non-admin users
+- Property owner cannot view bid board
+- Admin can accept highest, reject all, or reveal winner
+
 ## Live Endpoints
 
 - Professional API:
@@ -100,6 +106,12 @@ Legacy code is preserved. No old working module removed.
   - `GET /api/v3/wishlist/compare`
   - `POST /api/v3/properties/:propertyId/visit`
   - `GET /api/v3/notifications/mine`
+  - `POST /api/v3/sealed-bids`
+  - `GET /api/v3/sealed-bids/mine`
+  - `GET /api/v3/sealed-bids/summary`
+  - `GET /api/v3/sealed-bids/admin` (admin only)
+  - `POST /api/v3/sealed-bids/decision` (admin only)
+  - `GET /api/v3/sealed-bids/winner/:propertyId`
 - Legacy API:
   - `GET /api/system/core-systems`
 

@@ -24,6 +24,7 @@ import corePropertyCareRoutes from "./v3/routes/corePropertyCareRoutes.js";
 import coreReviewRoutes from "./v3/routes/coreReviewRoutes.js";
 import coreSystemRoutes from "./v3/routes/coreSystemRoutes.js";
 import coreSeoRoutes from "./v3/routes/coreSeoRoutes.js";
+import coreSealedBidRoutes from "./v3/routes/coreSealedBidRoutes.js";
 import coreSubscriptionRoutes from "./v3/routes/coreSubscriptionRoutes.js";
 import coreUploadRoutes from "./v3/routes/coreUploadRoutes.js";
 import coreVisitRoutes from "./v3/routes/coreVisitRoutes.js";
@@ -83,6 +84,7 @@ app.use(`${apiV3Prefix}/visits`, coreVisitRoutes);
 app.use(`${apiV3Prefix}/wishlist`, coreWishlistRoutes);
 app.use(`${apiV3Prefix}/notifications`, coreNotificationRoutes);
 app.use(`${apiV3Prefix}/ai`, coreAiRoutes);
+app.use(`${apiV3Prefix}/sealed-bids`, coreSealedBidRoutes);
 app.use(`${apiV3Prefix}/seo`, coreSeoRoutes);
 app.use(`${apiV3Prefix}/system`, coreSystemRoutes);
 

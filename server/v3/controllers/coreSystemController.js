@@ -254,6 +254,21 @@ function buildExecutionSteps(checks) {
         "/api/v3/ai/similar-properties",
         "/api/v3/ai/fake-listing-detection"
       ]
+    },
+    {
+      step: 8,
+      title: "Sealed bid hidden bidding",
+      status: checks.authConfigReady && checks.databaseMongoConfigured ? "ready" : "setup-required",
+      blockedBy:
+        checks.authConfigReady && checks.databaseMongoConfigured
+          ? ""
+          : "Auth + database setup required for sealed hidden bidding.",
+      endpoints: [
+        "/api/v3/sealed-bids",
+        "/api/v3/sealed-bids/admin",
+        "/api/v3/sealed-bids/decision",
+        "/api/v3/sealed-bids/winner/:propertyId"
+      ]
     }
   ];
 }

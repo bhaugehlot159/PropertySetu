@@ -56,6 +56,11 @@ Open:
 - Compare API: `GET http://localhost:5200/api/v3/wishlist/compare?propertyIds=<id1,id2,id3>`
 - Visit booking API: `POST http://localhost:5200/api/v3/properties/:propertyId/visit`
 - Notifications API: `GET http://localhost:5200/api/v3/notifications/mine`
+- Sealed bid submit: `POST http://localhost:5200/api/v3/sealed-bids`
+- Sealed bid summary (hidden amounts): `GET http://localhost:5200/api/v3/sealed-bids/summary`
+- Sealed bid admin board: `GET http://localhost:5200/api/v3/sealed-bids/admin`
+- Sealed bid admin decision: `POST http://localhost:5200/api/v3/sealed-bids/decision`
+- Sealed bid winner reveal check: `GET http://localhost:5200/api/v3/sealed-bids/winner/:propertyId`
 
 Development fallback note:
 - If Cloudinary/S3 or Razorpay live keys are not configured, v3 runs in `development-with-fallback` mode.

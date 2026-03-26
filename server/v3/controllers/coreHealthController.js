@@ -9,13 +9,14 @@ import CorePropertyCareRequest from "../models/CorePropertyCareRequest.js";
 import CoreWishlistItem from "../models/CoreWishlistItem.js";
 import CoreVisitBooking from "../models/CoreVisitBooking.js";
 import CoreNotification from "../models/CoreNotification.js";
+import CoreSealedBid from "../models/CoreSealedBid.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications] = await Promise.all([
+      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreReview.countDocuments({}),
@@ -26,7 +27,8 @@ export async function getCoreHealth(_req, res, next) {
         CorePropertyCareRequest.countDocuments({}),
         CoreWishlistItem.countDocuments({}),
         CoreVisitBooking.countDocuments({}),
-        CoreNotification.countDocuments({})
+        CoreNotification.countDocuments({}),
+        CoreSealedBid.countDocuments({})
       ]);
 
       return res.json({
@@ -43,7 +45,8 @@ export async function getCoreHealth(_req, res, next) {
           propertyCareRequests,
           wishlistItems,
           visitBookings,
-          notifications
+          notifications,
+          sealedBids
         },
         timestamp: new Date().toISOString()
       });
@@ -63,7 +66,8 @@ export async function getCoreHealth(_req, res, next) {
         propertyCareRequests: proMemoryStore.corePropertyCareRequests.length,
         wishlistItems: proMemoryStore.coreWishlistItems.length,
         visitBookings: proMemoryStore.coreVisitBookings.length,
-        notifications: proMemoryStore.coreNotifications.length
+        notifications: proMemoryStore.coreNotifications.length,
+        sealedBids: proMemoryStore.coreSealedBids.length
       },
       timestamp: new Date().toISOString()
     });
