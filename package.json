@@ -10,6 +10,7 @@
     "option1:dev": "npm --prefix backend run pro:dev",
     "pro:preflight": "npm --prefix backend run pro:preflight",
     "pro:db:contract": "npm --prefix backend run pro:db:contract",
+    "pro:steps:check": "npm --prefix backend run pro:steps:check",
     "client:dev": "npm --prefix client run dev",
     "client:build": "npm --prefix client run build",
     "client:preview": "npm --prefix client run preview"

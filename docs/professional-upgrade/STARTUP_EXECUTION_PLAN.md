@@ -6,12 +6,13 @@ Goal: build and run startup-grade platform without deleting legacy code.
 
 - Use professional server entry: `server/professional-server.js`
 - Run:
-  - `cd server`
+  - `cd backend`
   - `npm install`
   - `npm run pro:start`
 - Health checks:
   - `GET /api/v2/health`
   - `GET /api/v3/health`
+  - `GET /api/v3/system/execution-plan`
 
 ## Step 2: Database Connect
 
@@ -37,7 +38,9 @@ Goal: build and run startup-grade platform without deleting legacy code.
 - Core CRUD:
   - `GET /api/v3/properties`
   - `POST /api/v3/properties`
+  - `POST /api/v3/properties/professional`
   - `PATCH /api/v3/properties/:propertyId`
+  - `PATCH /api/v3/properties/:propertyId/professional`
   - `DELETE /api/v3/properties/:propertyId`
 - Admin moderation:
   - `POST /api/v3/properties/:propertyId/verify`
@@ -56,26 +59,41 @@ Goal: build and run startup-grade platform without deleting legacy code.
 ## Step 6: Subscription and Payment
 
 - v3 subscriptions:
+  - `GET /api/v3/subscriptions/plans`
+  - `POST /api/v3/subscriptions/payment/order`
+  - `POST /api/v3/subscriptions/payment/verify`
   - `POST /api/v3/subscriptions`
   - `GET /api/v3/subscriptions/me`
 - Featured listing:
-  - pass `planType=featured` + `propertyId`
+  - pass `planId=featured-7` or `planId=featured-30` + `propertyId`
   - property auto-featured with `featuredUntil`
 - Property care:
-  - monthly care plans via subscription + care request flow
+  - monthly care plans via `/api/v3/subscriptions/plans`
+  - request flow via `/api/v3/property-care/requests`
 - Razorpay:
+  - `POST /api/v3/subscriptions/payment/order`
+  - `POST /api/v3/subscriptions/payment/verify`
+  - (legacy bridge also available)
   - `POST /api/v2/payments/order`
   - `POST /api/v2/payments/verify`
 
 ## Step 7: AI Features (Phase 2)
 
 - Smart pricing:
-  - `POST /api/ai/pricing-suggestion`
+  - `POST /api/v3/ai/pricing-suggestion`
+  - `POST /api/v3/ai/smart-pricing`
 - Similar recommendation:
-  - `GET /api/recommendations`
-  - `GET /api/ai/recommendations`
+  - `GET /api/v3/ai/recommendations`
+  - `GET /api/v3/ai/similar-properties`
 - Fake listing detection:
-  - `POST /api/ai/fraud-scan`
+  - `POST /api/v3/ai/fraud-scan`
+  - `POST /api/v3/ai/fake-listing-detection`
+
+## Step Check Commands
+
+- `npm run pro:preflight`
+- `npm run pro:db:contract`
+- `npm run pro:steps:check`
 
 ## Frontend Live Note
 

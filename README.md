@@ -16,6 +16,7 @@ Other root scripts:
 - `npm run option1:dev`
 - `npm run pro:preflight`
 - `npm run pro:db:contract`
+- `npm run pro:steps:check`
 - `npm run client:dev`
 
 ## Quick Start (Fully Running)
@@ -45,6 +46,7 @@ Open:
 - Stack readiness: `http://localhost:5200/api/v3/system/stack-readiness`
 - Architecture plan: `http://localhost:5200/api/v3/system/architecture-plan`
 - Database structure contract: `http://localhost:5200/api/v3/system/database-structure`
+- Step execution plan: `http://localhost:5200/api/v3/system/execution-plan`
 - Strict property upload: `POST http://localhost:5200/api/v3/properties/professional`
 
 Preflight before deployment:

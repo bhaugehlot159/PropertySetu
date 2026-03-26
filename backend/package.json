@@ -10,7 +10,8 @@
     "pro:start": "node src/professional-entry.js",
     "pro:dev": "nodemon src/professional-entry.js",
     "pro:preflight": "node src/pro-preflight.js",
-    "pro:db:contract": "node src/pro-db-contract.js"
+    "pro:db:contract": "node src/pro-db-contract.js",
+    "pro:steps:check": "node src/pro-steps-check.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

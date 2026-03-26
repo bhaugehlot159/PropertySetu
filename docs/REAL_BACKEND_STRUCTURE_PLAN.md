@@ -84,6 +84,7 @@ Legacy code preserved. No old flow removed or deleted.
   - `GET /api/v3/system/architecture-plan`
   - `GET /api/v3/system/stack-readiness`
   - `GET /api/v3/system/database-structure`
+  - `GET /api/v3/system/execution-plan`
 
 ## 4) Feature Mapping (Requested)
 - User dashboard: `user-dashboard.html`, `dashboard.html`, React app pages in `client/pages`
@@ -116,6 +117,11 @@ npm run pro:preflight
 ```bash
 cd backend
 npm run pro:db:contract
+```
+- Step-wise startup execution check:
+```bash
+cd backend
+npm run pro:steps:check
 ```
 
 ## 6) Deployment Targets

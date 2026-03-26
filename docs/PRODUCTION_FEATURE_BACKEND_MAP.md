@@ -79,6 +79,7 @@ Base URL: `http://localhost:5200/api/v3`
 12. System readiness + architecture checks
 - `GET /system/stack-readiness`
 - `GET /system/architecture-plan`
+- `GET /system/execution-plan`
 
 ## Notes
 
