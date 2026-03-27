@@ -70,13 +70,12 @@
 
   const getLocalBids = () => readJson(LOCAL_BID_KEY, []);
 
-  const countBids = (propertyId) => getLocalBids().filter((item) => item.propertyId === propertyId).length;
-
   const loadSummary = async () => {
     summaryByPropertyId = new Map();
-    if (!live.request) return;
+    const adminSession = getAdminSession();
+    if (!live.request || !adminSession?.token) return;
     try {
-      const response = await live.request("/sealed-bids/summary");
+      const response = await live.request("/sealed-bids/summary", { token: adminSession.token });
       const items = response?.items || [];
       summaryByPropertyId = new Map(
         items
@@ -105,12 +104,14 @@
     }
   };
 
-  const loadPublicWinners = async () => {
+  const loadPublicWinners = async (candidateListings = []) => {
     winnerByPropertyId = new Map();
-    if (!live.request || !summaryByPropertyId.size) return;
-    const revealTargets = [...summaryByPropertyId.values()]
-      .filter((item) => item?.propertyId && item?.winningBidRevealed)
-      .map((item) => item.propertyId);
+    if (!live.request) return;
+    const revealTargets = [...new Set(
+      (Array.isArray(candidateListings) ? candidateListings : [])
+        .map((item) => String(item?.id || "").trim())
+        .filter(Boolean),
+    )];
     if (!revealTargets.length) return;
     await Promise.all(revealTargets.map(async (propertyId) => {
       try {
@@ -128,7 +129,7 @@
     const fetchedListings = await fetchLiveAuctions();
     listings = fetchedListings;
     await Promise.all([loadSummary(), loadAdminBoard()]);
-    await loadPublicWinners();
+    await loadPublicWinners(fetchedListings);
     renderAuctions();
   };
 
@@ -205,20 +206,24 @@
 
   const getStatusMarkup = (propertyId) => {
     const summary = summaryByPropertyId.get(propertyId);
-    const localCount = countBids(propertyId);
-    const totalBids = Number(summary?.totalBids ?? localCount);
-    const status = summary?.status || "Bidding Active";
+    const adminBoard = adminBoardByPropertyId.get(propertyId);
+    const isAdminView = isAdminLoggedIn();
+    const totalBids = Number(adminBoard?.totalBids ?? summary?.totalBids ?? 0);
+    const status = adminBoard?.status || summary?.status || "Hidden";
     const winner = winnerByPropertyId.get(propertyId);
 
-    const parts = [
-      `<p><b>Total Bids:</b> ${totalBids}</p>`,
-      `<p><b>Status:</b> ${escapeHtml(status)}</p>`,
-      "<p><b>Visibility:</b> Bid amounts are hidden from buyer/seller. Only admin can view all bids.</p>",
-    ];
+    const parts = [];
+    if (isAdminView) {
+      parts.push(`<p><b>Total Bids:</b> ${totalBids}</p>`);
+      parts.push(`<p><b>Status:</b> ${escapeHtml(status)}</p>`);
+    }
+    parts.push("<p><b>Visibility:</b> Bid amounts and bid list are hidden for buyer/seller/owner. Only admin can view all bids.</p>");
 
-    if (winner?.winnerBidAmount) {
+    const winnerAmount = Number(winner?.amount ?? winner?.winnerBidAmount ?? 0);
+    const winnerName = winner?.bidderName || winner?.winnerBidder || "Bidder";
+    if (winnerAmount > 0) {
       parts.push(
-        `<p><b>Revealed Winner:</b> ${escapeHtml(winner.winnerBidder || "Bidder")} at ${formatPrice(winner.winnerBidAmount)}</p>`,
+        `<p><b>Revealed Winner:</b> ${escapeHtml(winnerName)} at ${formatPrice(winnerAmount)}</p>`,
       );
     }
     return parts.join("");

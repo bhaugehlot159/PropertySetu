@@ -16,7 +16,7 @@ const router = Router();
 
 router.post("/", coreAuthRequired, coreRoleRequired("buyer", "seller"), createCoreSealedBid);
 router.get("/mine", coreAuthRequired, listMyCoreSealedBids);
-router.get("/summary", coreAuthRequired, listCoreSealedBidSummary);
+router.get("/summary", coreAuthRequired, coreRoleRequired("admin"), listCoreSealedBidSummary);
 router.get("/admin", coreAuthRequired, coreRoleRequired("admin"), listAdminCoreSealedBids);
 router.get("/winner/:propertyId", coreAuthRequired, getCoreSealedBidWinner);
 router.post("/decision", coreAuthRequired, coreRoleRequired("admin"), applyCoreSealedBidDecision);

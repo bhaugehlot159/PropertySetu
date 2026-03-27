@@ -102,6 +102,7 @@
     if (raw === 'buyer' || raw === 'customer') return 'buyer';
     return '';
   })();
+  const isAdminViewer = role === 'admin';
 
   async function requestCore(pathname, options = {}) {
     const method = String(options.method || 'GET').toUpperCase();
@@ -249,12 +250,18 @@
     adminBoardWrap: document.getElementById('sbv3AdminBoardWrap'),
   };
 
-  if (role !== 'admin') {
+  if (!isAdminViewer) {
     ui.adminSection.style.opacity = '0.85';
     if (ui.adminStatus) {
       ui.adminStatus.textContent = 'Admin login required for full bid board and decision actions.';
       ui.adminStatus.style.color = '#8d1e1e';
     }
+    if (ui.summaryBtn) ui.summaryBtn.disabled = true;
+    if (ui.summaryWrap) {
+      ui.summaryWrap.innerHTML = '<p style="margin:0;color:#607da8;">Hidden bid summary is admin-only. Buyer/seller can track only their own bids.</p>';
+    }
+    if (ui.decisionBtn) ui.decisionBtn.disabled = true;
+    if (ui.adminBoardBtn) ui.adminBoardBtn.disabled = true;
   }
 
   function setStatus(el, message, isError = false) {
@@ -304,6 +311,14 @@
   }
 
   async function refreshSummary() {
+    if (!isAdminViewer) {
+      if (ui.summaryWrap) {
+        ui.summaryWrap.innerHTML = '<p style="margin:0;color:#607da8;">Summary is available only for admin.</p>';
+      }
+      setStatus(ui.topStatus, 'Summary is admin-only in sealed hidden bidding policy.');
+      return;
+    }
+
     const token = getToken();
     if (!token) {
       setStatus(ui.topStatus, 'Summary dekhne ke liye login required.', true);
@@ -401,7 +416,9 @@
       });
       setStatus(ui.placeStatus, 'Sealed bid submitted successfully.');
       await refreshMine();
-      await refreshSummary();
+      if (isAdminViewer) {
+        await refreshSummary();
+      }
     } catch (error) {
       setStatus(ui.placeStatus, `Bid submit failed: ${error.message || 'Unknown error'}`, true);
     }
@@ -425,13 +442,19 @@
         token,
       });
       const winner = response?.winner || {};
+      const totalBidsRow = Number.isFinite(Number(response?.totalBids))
+        ? `Total Bids: <b>${toNumber(response?.totalBids, 0)}</b><br>`
+        : '';
+      const winnerAmount = toNumber(winner.amount ?? winner.winnerBidAmount, 0);
+      const winnerBidLabel = winnerAmount > 0 ? inr(winnerAmount) : 'Hidden';
+      const winnerName = text(winner.bidderName || winner.winnerBidder || winner.bidderRole, 'Hidden');
       ui.winnerWrap.innerHTML = `
 <p style="margin:0;">
   <b>${escapeHtml(text(response?.propertyTitle, propertyId))}</b><br>
   Status: <b>${escapeHtml(statusLabel(response?.status))}</b><br>
-  Total Bids: <b>${toNumber(response?.totalBids, 0)}</b><br>
-  Winner Bid: <b>${inr(winner.amount)}</b><br>
-  Bidder: <b>${escapeHtml(text(winner.bidderName || winner.bidderRole, 'Hidden'))}</b>
+  ${totalBidsRow}
+  Winner Bid: <b>${winnerBidLabel}</b><br>
+  Bidder: <b>${escapeHtml(winnerName)}</b>
 </p>`;
     } catch (error) {
       ui.winnerWrap.innerHTML = `<p style="margin:0;color:#8d1e1e;">Winner unavailable: ${escapeHtml(error.message || 'Unknown error')}</p>`;
@@ -550,12 +573,14 @@
       return;
     }
 
-    await refreshSummary();
+    if (isAdminViewer) {
+      await refreshSummary();
+    }
     await refreshMine();
     if (selectedId) {
       await checkWinner();
     }
-    if (role === 'admin') {
+    if (isAdminViewer) {
       await refreshAdminBoard();
     }
   })();

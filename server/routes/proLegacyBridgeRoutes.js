@@ -790,7 +790,16 @@ router.get("/sealed-bids/mine", (req, res) => {
   });
 });
 
-router.get("/sealed-bids/summary", (_req, res) => {
+router.get("/sealed-bids/summary", (req, res) => {
+  const actor = extractActor(req);
+  const actorRole = text(actor.role).toLowerCase();
+  if (actorRole !== "admin") {
+    return res.status(403).json({
+      ok: false,
+      message: "Only admin can view sealed bid summary."
+    });
+  }
+
   const grouped = new Map();
   proMemoryStore.sealedBids.forEach((bid) => {
     const key = bid.propertyId;

@@ -570,7 +570,7 @@ export async function getCoreSealedBidWinner(req, res, next) {
       propertyId,
       propertyTitle: text(winner.propertyTitle, "Property"),
       status: summarizeSealedBidStatus(rows),
-      totalBids: rows.length,
+      ...(adminView ? { totalBids: rows.length } : {}),
       winner: adminView ? sanitizeBidForAdmin(winner) : sanitizeWinnerForPublic(winner)
     });
   } catch (error) {

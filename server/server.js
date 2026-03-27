@@ -2501,7 +2501,7 @@ app.get("/api/sealed-bids/mine", auth, (req, res) => {
     .map((b) => sanitizeBidForBidder(b));
   res.json({ ok: true, total: items.length, items });
 });
-app.get("/api/sealed-bids/summary", (_req, res) => {
+app.get("/api/sealed-bids/summary", auth, admin, (_req, res) => {
   const grouped = new Map();
   db.bids.map((b) => normalizeBidRecord(b)).forEach((bid) => {
     const bucket = grouped.get(bid.propertyId) || [];
@@ -2584,7 +2584,7 @@ app.get("/api/sealed-bids/winner/:propertyId", authOpt, (req, res) => {
     propertyId,
     propertyTitle: txt(property?.title || winner.propertyTitle || "Property"),
     status: summarizeSealedBidStatus(bids),
-    totalBids: bids.length,
+    ...(isAdminUser ? { totalBids: bids.length } : {}),
     winner: isAdminUser ? sanitizeBidForAdmin(winner) : publicWinnerSnapshot(winner),
   });
 });
