@@ -7,8 +7,10 @@ import {
   getCoreAiRecommendations,
   getCoreEmiCalculator
 } from "../controllers/coreAiController.js";
+import { coreAiRequestLimiter } from "../middleware/coreSecurityMiddleware.js";
 
 const router = Router();
+router.use(coreAiRequestLimiter);
 
 router.get("/market-trend", getCoreAiMarketTrend);
 router.get("/emi-calculator", getCoreEmiCalculator);

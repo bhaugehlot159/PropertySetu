@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import CoreProperty from "../models/CoreProperty.js";
 import CoreUpload from "../models/CoreUpload.js";
 
 function text(value, fallback = "") {
@@ -38,6 +39,19 @@ const PRIVATE_DOC_CATEGORY_HINTS = [
   "tax",
   "legal"
 ];
+const MAX_FILES_PER_REQUEST = 25;
+const MAX_FILE_BYTES = Math.max(2 * 1024 * 1024, Number(process.env.CORE_UPLOAD_MAX_FILE_BYTES || 20 * 1024 * 1024));
+const MAX_TOTAL_BYTES = Math.max(MAX_FILE_BYTES, Number(process.env.CORE_UPLOAD_MAX_TOTAL_BYTES || 80 * 1024 * 1024));
+const BLOCKED_FILE_EXTENSIONS = new Set(["exe", "bat", "cmd", "com", "scr", "msi", "dll", "js", "ps1", "sh"]);
+const ALLOWED_PRIVATE_DOC_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "application/octet-stream"
+]);
 
 function normalizeCategory(value) {
   return text(value, "misc").toLowerCase();
@@ -55,6 +69,65 @@ function normalizePropertyId(propertyIdRaw) {
     return mongoose.Types.ObjectId.isValid(value) ? value : null;
   }
   return value;
+}
+
+function extractExtension(filename = "") {
+  const safeName = text(filename);
+  const dotIndex = safeName.lastIndexOf(".");
+  if (dotIndex < 0) return "";
+  return safeName.slice(dotIndex + 1).toLowerCase();
+}
+
+function categoryLooksImage(category = "") {
+  const raw = normalizeCategory(category);
+  return raw.includes("photo") || raw.includes("image") || raw.includes("gallery");
+}
+
+function categoryLooksVideo(category = "") {
+  const raw = normalizeCategory(category);
+  return raw.includes("video");
+}
+
+function isAllowedMimeForUpload(row = {}) {
+  const type = text(row.type, "application/octet-stream").toLowerCase();
+  const category = normalizeCategory(row.category);
+  const privateDoc = categoryImpliesPrivate(category) || Boolean(row.isPrivate);
+
+  if (privateDoc) {
+    return ALLOWED_PRIVATE_DOC_TYPES.has(type) || type.startsWith("image/");
+  }
+
+  if (categoryLooksImage(category)) {
+    return type.startsWith("image/");
+  }
+  if (categoryLooksVideo(category)) {
+    return type.startsWith("video/");
+  }
+
+  return (
+    type.startsWith("image/") ||
+    type.startsWith("video/") ||
+    type === "application/octet-stream"
+  );
+}
+
+async function findPropertyOwnerId(propertyId) {
+  const normalizedPropertyId = normalizePropertyId(propertyId);
+  if (!normalizedPropertyId) return "";
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(normalizedPropertyId)) return "";
+    const row = await CoreProperty.findById(normalizedPropertyId)
+      .select({ ownerId: 1 })
+      .lean();
+    return toId(row?.ownerId);
+  }
+
+  const row =
+    proMemoryStore.coreProperties.find(
+      (item) => toId(item._id || item.id) === normalizedPropertyId
+    ) || null;
+  return toId(row?.ownerId);
 }
 
 function normalizeUpload(doc) {
@@ -112,17 +185,38 @@ function buildUploadRows(req, files = []) {
 export async function uploadCorePropertyMedia(req, res, next) {
   try {
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    const propertyId = normalizePropertyId(req.body?.propertyId);
+    const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorUserId = text(req.coreUser?.id);
+    const actorIsAdmin = actorRole === "admin";
+
     if (!files.length) {
       return res.status(400).json({
         success: false,
         message: "files[] is required."
       });
     }
-    if (files.length > 25) {
+    if (files.length > MAX_FILES_PER_REQUEST) {
       return res.status(400).json({
         success: false,
-        message: "Maximum 25 files allowed per request."
+        message: `Maximum ${MAX_FILES_PER_REQUEST} files allowed per request.`
       });
+    }
+
+    if (propertyId) {
+      const ownerId = await findPropertyOwnerId(propertyId);
+      if (!ownerId) {
+        return res.status(404).json({
+          success: false,
+          message: "Property not found for upload target."
+        });
+      }
+      if (!actorIsAdmin && ownerId !== actorUserId) {
+        return res.status(403).json({
+          success: false,
+          message: "You can upload media only for your own property."
+        });
+      }
     }
 
     const rows = buildUploadRows(req, files);
@@ -133,6 +227,42 @@ export async function uploadCorePropertyMedia(req, res, next) {
       return res.status(400).json({
         success: false,
         message: "Document uploads must be marked as private."
+      });
+    }
+
+    const blockedByExtension = rows.find((item) =>
+      BLOCKED_FILE_EXTENSIONS.has(extractExtension(item.name))
+    );
+    if (blockedByExtension) {
+      return res.status(400).json({
+        success: false,
+        message: "Executable/script file extensions are not allowed for upload."
+      });
+    }
+
+    const invalidSizeRow = rows.find(
+      (item) => numberValue(item.sizeBytes, 0) <= 0 || numberValue(item.sizeBytes, 0) > MAX_FILE_BYTES
+    );
+    if (invalidSizeRow) {
+      return res.status(400).json({
+        success: false,
+        message: `Each file size must be between 1 byte and ${Math.floor(MAX_FILE_BYTES / (1024 * 1024))}MB.`
+      });
+    }
+
+    const totalBytes = rows.reduce((sum, item) => sum + numberValue(item.sizeBytes, 0), 0);
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      return res.status(400).json({
+        success: false,
+        message: `Total upload size exceeds ${Math.floor(MAX_TOTAL_BYTES / (1024 * 1024))}MB limit.`
+      });
+    }
+
+    const invalidMimeRow = rows.find((item) => !isAllowedMimeForUpload(item));
+    if (invalidMimeRow) {
+      return res.status(400).json({
+        success: false,
+        message: "Unsupported file type for this upload category."
       });
     }
 

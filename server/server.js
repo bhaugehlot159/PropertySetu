@@ -8,12 +8,25 @@ import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import {
+  createProCorsOptions,
+  proApiPayloadGuard,
+  proApiRateLimiter,
+  proAttachRequestContext,
+  proAuthRateLimiter,
+  proSecurityHeaders
+} from "./middleware/proSecurityMiddleware.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
-const JWT_SECRET = process.env.JWT_SECRET || "propertysetu-dev-secret";
+const NODE_ENV = String(process.env.NODE_ENV || "development").trim().toLowerCase();
+const configuredJwtSecret = String(process.env.JWT_SECRET || "").trim();
+if (!configuredJwtSecret && NODE_ENV === "production") {
+  throw new Error("JWT_SECRET is required in production mode.");
+}
+const JWT_SECRET = configuredJwtSecret || "propertysetu-dev-secret";
 const OTP = "123456";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -612,7 +625,11 @@ const load = async () => {
   }
 };
 
-const sign = (u) => jwt.sign({ id: u.id, role: u.role, name: u.name, email: u.email || "", mobile: u.mobile || "" }, JWT_SECRET, { expiresIn: "24h" });
+const sign = (u) => jwt.sign(
+  { id: u.id, role: u.role, name: u.name, email: u.email || "", mobile: u.mobile || "" },
+  JWT_SECRET,
+  { expiresIn: "24h", algorithm: "HS256" }
+);
 const tokenOf = (req) => {
   const h = String(req.headers.authorization || "");
   return h.startsWith("Bearer ") ? h.slice(7).trim() : "";
@@ -622,7 +639,7 @@ const authOpt = (req, _res, next) => {
   const t = tokenOf(req);
   if (!t) return next();
   try {
-    const parsed = jwt.verify(t, JWT_SECRET);
+    const parsed = jwt.verify(t, JWT_SECRET, { algorithms: ["HS256"] });
     const u = userById(parsed.id);
     if (blocked(u)) return next();
     req.user = parsed;
@@ -635,7 +652,7 @@ const auth = (req, res, next) => {
   const t = tokenOf(req);
   if (!t) return res.status(401).json({ ok: false, message: "Missing auth token." });
   try {
-    const parsed = jwt.verify(t, JWT_SECRET);
+    const parsed = jwt.verify(t, JWT_SECRET, { algorithms: ["HS256"] });
     const u = userById(parsed.id);
     if (blocked(u)) return res.status(403).json({ ok: false, message: "Your account is blocked by admin." });
     req.user = parsed;
@@ -874,8 +891,15 @@ const publicWinnerSnapshot = (winner) => ({
   revealedAt: winner.updatedAt || winner.createdAt,
 });
 
-app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.disable("x-powered-by");
+app.set("trust proxy", Number(process.env.TRUST_PROXY || 1));
+app.use(proAttachRequestContext);
+app.use(proSecurityHeaders);
+app.use(cors(createProCorsOptions()));
+app.use(express.json({ limit: String(process.env.API_JSON_LIMIT || "2mb") }));
+app.use("/api", proApiRateLimiter);
+app.use("/api", proApiPayloadGuard);
+app.use("/api/auth", proAuthRateLimiter);
 app.use(express.static(activeWebRoot));
 if (activeWebRoot !== webRoot) {
   app.use(express.static(webRoot));

@@ -4,7 +4,17 @@ import jwt from "jsonwebtoken";
 const FALLBACK_JWT_SECRET = "propertysetu-core-secret";
 
 function jwtSecret() {
-  return process.env.JWT_SECRET || process.env.CORE_JWT_SECRET || FALLBACK_JWT_SECRET;
+  const configured =
+    String(process.env.CORE_JWT_SECRET || "").trim() ||
+    String(process.env.JWT_SECRET || "").trim();
+  if (configured) return configured;
+
+  const nodeEnv = String(process.env.NODE_ENV || "development").trim().toLowerCase();
+  if (nodeEnv === "production") {
+    throw new Error("CORE_JWT_SECRET/JWT_SECRET must be configured in production.");
+  }
+
+  return FALLBACK_JWT_SECRET;
 }
 
 export async function hashCorePassword(password) {
@@ -23,10 +33,13 @@ export function signCoreToken(user) {
     phone: user.phone || ""
   };
   return jwt.sign(payload, jwtSecret(), {
+    algorithm: "HS256",
     expiresIn: "7d"
   });
 }
 
 export function verifyCoreToken(token) {
-  return jwt.verify(String(token || ""), jwtSecret());
+  return jwt.verify(String(token || ""), jwtSecret(), {
+    algorithms: ["HS256"]
+  });
 }

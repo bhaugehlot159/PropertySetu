@@ -8,6 +8,14 @@ import { connectProDatabase } from "./config/proDatabase.js";
 import { proRuntime } from "./config/proRuntime.js";
 import { getStorageProvider } from "./config/proStorage.js";
 import { proErrorHandler, proNotFound } from "./middleware/proErrorMiddleware.js";
+import {
+  createProCorsOptions,
+  proApiPayloadGuard,
+  proApiRateLimiter,
+  proAttachRequestContext,
+  proAuthRateLimiter,
+  proSecurityHeaders
+} from "./middleware/proSecurityMiddleware.js";
 import proHealthRoutes from "./routes/proHealthRoutes.js";
 import proLegacyBridgeRoutes from "./routes/proLegacyBridgeRoutes.js";
 import proPaymentRoutes from "./routes/proPaymentRoutes.js";
@@ -44,19 +52,24 @@ const apiPrefix = "/api/v2";
 const apiV3Prefix = "/api/v3";
 const clientDistPath = path.resolve(__dirname, "../client/dist");
 const legacyWebRoot = path.resolve(__dirname, "..");
+const jsonLimit = String(process.env.API_JSON_LIMIT || "2mb");
+const formLimit = String(process.env.API_FORM_LIMIT || "2mb");
 
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",").map((item) => item.trim())
-  : "*";
+app.disable("x-powered-by");
+app.set("trust proxy", Number(process.env.TRUST_PROXY || 1));
+app.use(proAttachRequestContext);
+app.use(proSecurityHeaders);
 
 app.use(
-  cors({
-    origin: allowedOrigins
-  })
+  cors(createProCorsOptions())
 );
 
-app.use(express.json({ limit: "4mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: jsonLimit }));
+app.use(express.urlencoded({ extended: true, limit: formLimit }));
+app.use("/api", proApiRateLimiter);
+app.use("/api", proApiPayloadGuard);
+app.use(`${apiV3Prefix}/auth`, proAuthRateLimiter);
+app.use("/api/auth", proAuthRateLimiter);
 
 app.get("/", (_req, res) => {
   res.json({

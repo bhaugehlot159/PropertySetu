@@ -7,17 +7,41 @@ import {
   listProPropertyRecords,
   updateProPropertyRecord
 } from "../controllers/proPropertyController.js";
+import {
+  createProRateLimiter,
+  getProSecurityAuditEvents
+} from "../middleware/proSecurityMiddleware.js";
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
 
 const router = Router();
-const bridgeJwtSecrets = [
-  process.env.JWT_SECRET,
-  process.env.CORE_JWT_SECRET,
-  "propertysetu-core-secret",
-  "propertysetu-dev-secret"
-].map((item) => text(item)).filter(Boolean);
+const isBridgeProduction = String(process.env.NODE_ENV || "development")
+  .trim()
+  .toLowerCase() === "production";
+const configuredBridgeSecrets = [process.env.CORE_JWT_SECRET, process.env.JWT_SECRET]
+  .map((item) => text(item))
+  .filter(Boolean);
+const bridgeJwtSecrets = configuredBridgeSecrets.length
+  ? configuredBridgeSecrets
+  : isBridgeProduction
+    ? []
+    : ["propertysetu-core-secret", "propertysetu-dev-secret"];
 const bridgeAllowedBidderRoles = new Set(["buyer", "seller", "customer"]);
 const bridgeDecisionReasonMin = Math.max(8, Math.round(Number(process.env.SEALED_BID_DECISION_REASON_MIN || 12)));
+const bridgeTrustedRoles = new Set(["buyer", "seller", "customer", "admin"]);
+const bridgeWriteLimiter = createProRateLimiter({
+  scope: "legacy-bridge-write",
+  limit: Math.max(20, Math.round(Number(process.env.BRIDGE_WRITE_RATE_LIMIT || 120))),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.bridgeActor?.id, "anon")}:${text(req.path)}`,
+  message: "Too many write operations on bridge API. Please retry later."
+});
+const bridgeAdminActionLimiter = createProRateLimiter({
+  scope: "legacy-bridge-admin",
+  limit: Math.max(10, Math.round(Number(process.env.BRIDGE_ADMIN_RATE_LIMIT || 60))),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.bridgeActor?.id, "admin")}:${text(req.path)}`,
+  message: "Too many admin actions in short duration. Please retry later."
+});
 
 const DEFAULT_IMAGE =
   "https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?auto=format&fit=crop&w=1200&q=80";
@@ -149,25 +173,91 @@ function extractActor(req) {
   const token = authHeader.slice(7).trim();
   for (const secret of bridgeJwtSecrets) {
     try {
-      const parsed = jwt.verify(token, secret);
+      const parsed = jwt.verify(token, secret, { algorithms: ["HS256"] });
+      const role = text(parsed.role || "buyer").toLowerCase();
       return {
         id: text(parsed.userId || parsed.id || `user-${Date.now()}`),
         name: text(parsed.name || parsed.email || "PropertySetu User"),
-        role: text(parsed.role || "buyer").toLowerCase(),
-        trusted: true
+        role,
+        trusted: bridgeTrustedRoles.has(role)
       };
     } catch {
       // try next secret
     }
   }
 
-  const tokenTail = authHeader.slice(-6);
   return {
-    id: `user-${tokenTail}`,
-    name: `User ${tokenTail}`,
+    id: "guest-user",
+    name: "Guest User",
     role: "guest",
     trusted: false
   };
+}
+
+function attachBridgeActor(req, _res, next) {
+  req.bridgeActor = extractActor(req);
+  next();
+}
+
+function requireBridgeTrustedActor(req, res, next) {
+  const actor = req.bridgeActor || extractActor(req);
+  if (!actor.trusted) {
+    return res.status(401).json({
+      ok: false,
+      message: "Authentication required."
+    });
+  }
+  req.bridgeActor = actor;
+  return next();
+}
+
+function requireBridgeRole(...roles) {
+  const allowed = new Set(roles.map((item) => text(item).toLowerCase()).filter(Boolean));
+  return (req, res, next) => {
+    const actor = req.bridgeActor || extractActor(req);
+    const role = text(actor.role).toLowerCase();
+    if (!actor.trusted || !allowed.has(role)) {
+      return res.status(403).json({
+        ok: false,
+        message: "You do not have permission for this action."
+      });
+    }
+    req.bridgeActor = actor;
+    return next();
+  };
+}
+
+async function requireBridgePropertyOwnerOrAdmin(req, res, next) {
+  const actor = req.bridgeActor || extractActor(req);
+  if (!actor.trusted) {
+    return res.status(401).json({
+      ok: false,
+      message: "Authentication required."
+    });
+  }
+  if (text(actor.role).toLowerCase() === "admin") {
+    req.bridgeActor = actor;
+    return next();
+  }
+
+  const propertyId = text(req.params.propertyId);
+  const row = propertyId ? await findProPropertyRecordById(propertyId) : null;
+  if (!row) {
+    return res.status(404).json({
+      ok: false,
+      message: "Property not found."
+    });
+  }
+
+  if (text(row.ownerId) !== text(actor.id)) {
+    return res.status(403).json({
+      ok: false,
+      message: "Only owner or admin can update this property."
+    });
+  }
+
+  req.bridgeActor = actor;
+  return next();
 }
 
 async function computePricingStats(locality = "Udaipur") {
@@ -209,6 +299,8 @@ function buildMarketTrend(basePrice = 6000000) {
     };
   });
 }
+
+router.use(attachBridgeActor);
 
 router.get("/health", async (_req, res, next) => {
   try {
@@ -291,6 +383,27 @@ router.get("/system/capabilities", (_req, res) => {
   });
 });
 
+router.get(
+  "/system/security-audit",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const limit = Math.min(500, Math.max(1, toNumber(req.query.limit, 100)));
+    const actor = req.bridgeActor;
+    const items = getProSecurityAuditEvents(limit);
+    res.json({
+      ok: true,
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      total: items.length,
+      items
+    });
+  }
+);
+
 router.get("/properties", async (req, res, next) => {
   try {
     const page = Math.max(1, toNumber(req.query.page, 1));
@@ -315,12 +428,25 @@ router.get("/properties", async (req, res, next) => {
   }
 });
 
-router.post("/properties", async (req, res, next) => {
+router.post(
+  "/properties",
+  requireBridgeTrustedActor,
+  requireBridgeRole("seller", "admin"),
+  bridgeWriteLimiter,
+  async (req, res, next) => {
   try {
+    const actor = req.bridgeActor;
+    const actorRole = text(actor?.role).toLowerCase();
+    const resolvedOwnerId =
+      actorRole === "admin" ? text(req.body?.ownerId || actor?.id) : text(actor?.id);
+    const resolvedOwnerName =
+      actorRole === "admin" ? text(req.body?.ownerName || actor?.name) : text(actor?.name);
     const payload = {
       ...req.body,
       status: mapLegacyStatusToPro(req.body?.status),
-      location: req.body?.location || req.body?.locality || req.body?.city
+      location: req.body?.location || req.body?.locality || req.body?.city,
+      ownerId: resolvedOwnerId,
+      ownerName: resolvedOwnerName
     };
     const created = await createProPropertyRecord(payload);
     res.status(201).json({
@@ -332,7 +458,13 @@ router.post("/properties", async (req, res, next) => {
   }
 });
 
-router.patch("/properties/:propertyId", async (req, res, next) => {
+router.patch(
+  "/properties/:propertyId",
+  requireBridgeTrustedActor,
+  requireBridgeRole("seller", "admin"),
+  requireBridgePropertyOwnerOrAdmin,
+  bridgeWriteLimiter,
+  async (req, res, next) => {
   try {
     const updates = {
       ...req.body
@@ -365,7 +497,13 @@ router.patch("/properties/:propertyId", async (req, res, next) => {
   }
 });
 
-router.delete("/properties/:propertyId", async (req, res, next) => {
+router.delete(
+  "/properties/:propertyId",
+  requireBridgeTrustedActor,
+  requireBridgeRole("seller", "admin"),
+  requireBridgePropertyOwnerOrAdmin,
+  bridgeWriteLimiter,
+  async (req, res, next) => {
   try {
     const deleted = await deleteProPropertyRecord(req.params.propertyId);
     if (!deleted) {
@@ -384,7 +522,12 @@ router.delete("/properties/:propertyId", async (req, res, next) => {
   }
 });
 
-router.post("/properties/:propertyId/approve", async (req, res, next) => {
+router.post(
+  "/properties/:propertyId/approve",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  async (req, res, next) => {
   try {
     const updated = await updateProPropertyRecord(req.params.propertyId, {
       status: "published",
@@ -407,7 +550,12 @@ router.post("/properties/:propertyId/approve", async (req, res, next) => {
   }
 });
 
-router.post("/properties/:propertyId/feature", async (req, res, next) => {
+router.post(
+  "/properties/:propertyId/feature",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  async (req, res, next) => {
   try {
     const updated = await updateProPropertyRecord(req.params.propertyId, {
       featured: true,
@@ -429,29 +577,51 @@ router.post("/properties/:propertyId/feature", async (req, res, next) => {
   }
 });
 
-router.post("/properties/:propertyId/visit", (req, res) => {
-  const actor = extractActor(req);
-  const visit = {
-    id: `visit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    propertyId: req.params.propertyId,
-    userId: actor.id,
-    userName: actor.name,
-    preferredAt: req.body?.preferredAt || null,
-    mode: req.body?.mode || "in-person",
-    note: req.body?.note || "",
-    createdAt: nowIso()
-  };
+router.post(
+  "/properties/:propertyId/visit",
+  requireBridgeTrustedActor,
+  requireBridgeRole("buyer", "seller", "customer", "admin"),
+  bridgeWriteLimiter,
+  async (req, res, next) => {
+  try {
+    const actor = req.bridgeActor;
+    const propertyId = text(req.params.propertyId);
+    const property = await findProPropertyRecordById(propertyId);
+    if (!property) {
+      return res.status(404).json({
+        ok: false,
+        message: "Property not found."
+      });
+    }
 
-  proMemoryStore.visits.unshift(visit);
-  proMemoryStore.visits = proMemoryStore.visits.slice(0, 400);
+    const visit = {
+      id: `visit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      propertyId,
+      userId: actor.id,
+      userName: actor.name,
+      preferredAt: req.body?.preferredAt || null,
+      mode: req.body?.mode || "in-person",
+      note: req.body?.note || "",
+      createdAt: nowIso()
+    };
 
-  res.status(201).json({
-    ok: true,
-    visit
-  });
+    proMemoryStore.visits.unshift(visit);
+    proMemoryStore.visits = proMemoryStore.visits.slice(0, 400);
+
+    return res.status(201).json({
+      ok: true,
+      visit
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
-router.get("/admin/properties", async (req, res, next) => {
+router.get(
+  "/admin/properties",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  async (req, res, next) => {
   try {
     const status = text(req.query.status, "Pending Approval");
     const data = await fetchLegacyProperties(
@@ -471,7 +641,11 @@ router.get("/admin/properties", async (req, res, next) => {
   }
 });
 
-router.get("/admin/overview", async (_req, res, next) => {
+router.get(
+  "/admin/overview",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  async (_req, res, next) => {
   try {
     const data = await fetchLegacyProperties({}, 1, 500);
     const approved = data.items.filter((item) => item.status === "Approved").length;
@@ -493,12 +667,20 @@ router.get("/admin/overview", async (_req, res, next) => {
   }
 });
 
-router.post("/uploads/property-media", (req, res) => {
+router.post(
+  "/uploads/property-media",
+  requireBridgeTrustedActor,
+  requireBridgeRole("seller", "admin"),
+  bridgeWriteLimiter,
+  (req, res) => {
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  const actor = req.bridgeActor;
   const propertyId = req.body?.propertyId || "";
 
   const uploaded = files.map((file) => ({
     id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    userId: text(actor?.id),
+    userName: text(actor?.name),
     propertyId: propertyId || file.propertyId || "",
     name: text(file.name, "upload.bin"),
     category: text(file.category, "misc"),
@@ -519,15 +701,28 @@ router.post("/uploads/property-media", (req, res) => {
   });
 });
 
-router.get("/uploads/mine", (_req, res) => {
+router.get("/uploads/mine", requireBridgeTrustedActor, (req, res) => {
+  const actor = req.bridgeActor;
+  const actorRole = text(actor?.role).toLowerCase();
+  const items =
+    actorRole === "admin"
+      ? proMemoryStore.uploads.slice(0, 80)
+      : proMemoryStore.uploads
+          .filter((item) => text(item.userId) === text(actor?.id))
+          .slice(0, 80);
   res.json({
     ok: true,
-    items: proMemoryStore.uploads.slice(0, 80)
+    items
   });
 });
 
-router.post("/owner-verification/request", (req, res) => {
-  const actor = extractActor(req);
+router.post(
+  "/owner-verification/request",
+  requireBridgeTrustedActor,
+  requireBridgeRole("seller", "admin"),
+  bridgeWriteLimiter,
+  (req, res) => {
+  const actor = req.bridgeActor;
   const request = {
     id: `ov-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     propertyId: text(req.body?.propertyId),
@@ -554,10 +749,13 @@ router.post("/owner-verification/request", (req, res) => {
   });
 });
 
-router.get("/owner-verification/me", (req, res) => {
-  const actor = extractActor(req);
+router.get("/owner-verification/me", requireBridgeTrustedActor, (req, res) => {
+  const actor = req.bridgeActor;
+  const actorRole = text(actor?.role).toLowerCase();
   const items = proMemoryStore.ownerVerificationRequests
-    .filter((item) => item.userId === actor.id || actor.id === "guest-user")
+    .filter((item) =>
+      actorRole === "admin" ? true : text(item.userId) === text(actor.id)
+    )
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
   res.json({
@@ -704,8 +902,8 @@ router.get("/subscriptions/plans", (_req, res) => {
   });
 });
 
-router.post("/subscriptions/activate", (req, res) => {
-  const actor = extractActor(req);
+router.post("/subscriptions/activate", requireBridgeTrustedActor, bridgeWriteLimiter, (req, res) => {
+  const actor = req.bridgeActor;
   const planId = text(req.body?.planId);
   const plan =
     LEGACY_SUBSCRIPTION_PLANS.find((item) => item.id === planId) ||
@@ -732,8 +930,8 @@ router.post("/subscriptions/activate", (req, res) => {
   });
 });
 
-router.post("/property-care/requests", (req, res) => {
-  const actor = extractActor(req);
+router.post("/property-care/requests", requireBridgeTrustedActor, bridgeWriteLimiter, (req, res) => {
+  const actor = req.bridgeActor;
   const request = {
     id: `pc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     userId: actor.id,
@@ -753,8 +951,8 @@ router.post("/property-care/requests", (req, res) => {
   });
 });
 
-router.post("/reports", (req, res) => {
-  const actor = extractActor(req);
+router.post("/reports", requireBridgeTrustedActor, bridgeWriteLimiter, (req, res) => {
+  const actor = req.bridgeActor;
   const report = {
     id: `rp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     userId: actor.id,
@@ -773,8 +971,13 @@ router.post("/reports", (req, res) => {
   });
 });
 
-router.post("/sealed-bids", (req, res) => {
-  const actor = extractActor(req);
+router.post(
+  "/sealed-bids",
+  requireBridgeTrustedActor,
+  requireBridgeRole("buyer", "seller", "customer"),
+  bridgeWriteLimiter,
+  (req, res) => {
+  const actor = req.bridgeActor;
   if (!actor.trusted || !bridgeAllowedBidderRoles.has(text(actor.role).toLowerCase())) {
     return res.status(403).json({
       ok: false,
@@ -813,14 +1016,8 @@ router.post("/sealed-bids", (req, res) => {
   });
 });
 
-router.get("/sealed-bids/mine", (req, res) => {
-  const actor = extractActor(req);
-  if (!actor.trusted) {
-    return res.status(401).json({
-      ok: false,
-      message: "Authentication required for my sealed bids."
-    });
-  }
+router.get("/sealed-bids/mine", requireBridgeTrustedActor, (req, res) => {
+  const actor = req.bridgeActor;
   const mine = proMemoryStore.sealedBids.filter((item) => item.bidderId === actor.id);
   res.json({
     ok: true,
@@ -829,15 +1026,12 @@ router.get("/sealed-bids/mine", (req, res) => {
   });
 });
 
-router.get("/sealed-bids/summary", (req, res) => {
-  const actor = extractActor(req);
-  const actorRole = text(actor.role).toLowerCase();
-  if (!actor.trusted || actorRole !== "admin") {
-    return res.status(403).json({
-      ok: false,
-      message: "Only admin can view sealed bid summary."
-    });
-  }
+router.get(
+  "/sealed-bids/summary",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
 
   const grouped = new Map();
   proMemoryStore.sealedBids.forEach((bid) => {
@@ -860,14 +1054,12 @@ router.get("/sealed-bids/summary", (req, res) => {
   });
 });
 
-router.get("/sealed-bids/reveal", (_req, res) => {
-  const actor = extractActor(_req);
-  if (!actor.trusted || text(actor.role).toLowerCase() !== "admin") {
-    return res.status(403).json({
-      ok: false,
-      message: "Only admin can reveal sealed bid results."
-    });
-  }
+router.get(
+  "/sealed-bids/reveal",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (_req, res) => {
 
   const grouped = new Map();
   proMemoryStore.sealedBids.forEach((bid) => {
@@ -892,14 +1084,13 @@ router.get("/sealed-bids/reveal", (_req, res) => {
   });
 });
 
-router.post("/sealed-bids/decision", (req, res) => {
-  const actor = extractActor(req);
-  if (!actor.trusted || text(actor.role).toLowerCase() !== "admin") {
-    return res.status(403).json({
-      ok: false,
-      message: "Only admin can apply sealed bid decisions."
-    });
-  }
+router.post(
+  "/sealed-bids/decision",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+  const actor = req.bridgeActor;
 
   const propertyId = text(req.body?.propertyId);
   const action = text(req.body?.action, "reveal").toLowerCase();
@@ -957,7 +1148,12 @@ router.post("/sealed-bids/decision", (req, res) => {
 
   return res.json({
     ok: true,
-    message: "Bid decision applied."
+    message: "Bid decision applied.",
+    decisionBy: {
+      id: actor.id,
+      name: actor.name,
+      role: actor.role
+    }
   });
 });
 

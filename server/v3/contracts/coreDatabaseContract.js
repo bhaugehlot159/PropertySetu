@@ -3,7 +3,7 @@ import {
   CORE_PROPERTY_TYPE_VALUES
 } from "../config/corePropertyTaxonomy.js";
 
-export const CORE_DATABASE_STRUCTURE_VERSION = "2026-03-26";
+export const CORE_DATABASE_STRUCTURE_VERSION = "2026-03-28";
 
 export const coreMongoCollections = {
   users: {
@@ -181,6 +181,25 @@ export const coreSystemsBlueprint = [
       "/api/v3/sealed-bids/winner/:propertyId"
     ],
     dependencies: ["authentication", "database"]
+  },
+  {
+    id: "platform-security-system",
+    title: "Platform Security Hardening",
+    capabilities: [
+      "Global API security headers",
+      "Suspicious payload guard against operator injection patterns",
+      "Request ID tracing for audits",
+      "Brute-force protection on auth/OTP endpoints",
+      "High-risk route throttling for admin and write actions"
+    ],
+    endpoints: [
+      "/api/v3/auth/*",
+      "/api/v3/uploads/property-media",
+      "/api/v3/chat/send",
+      "/api/sealed-bids/*",
+      "/api/system/security-audit"
+    ],
+    dependencies: ["authentication", "backendServer"]
   },
   {
     id: "city-seo-system",

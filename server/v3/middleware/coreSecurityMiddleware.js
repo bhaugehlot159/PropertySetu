@@ -79,3 +79,59 @@ export const coreSealedBidAdminDecisionLimiter = createCoreRateLimiter({
   keyBuilder: (req) => `${text(req.coreUser?.id, "admin")}:${toIp(req)}`,
   message: "Too many admin decisions in a short duration. Please retry after a short pause."
 });
+
+export const coreAuthRegisterLimiter = createCoreRateLimiter({
+  scope: "auth-register",
+  limit: Math.max(5, Number(process.env.CORE_AUTH_REGISTER_RATE_LIMIT || 20)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${toIp(req)}:register`,
+  message: "Too many signup requests. Please retry later."
+});
+
+export const coreAuthLoginLimiter = createCoreRateLimiter({
+  scope: "auth-login",
+  limit: Math.max(8, Number(process.env.CORE_AUTH_LOGIN_RATE_LIMIT || 40)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${toIp(req)}:${text(req.body?.emailOrPhone || req.body?.email || req.body?.phone, "unknown")}`,
+  message: "Too many login attempts. Please wait and retry."
+});
+
+export const coreAuthOtpRequestLimiter = createCoreRateLimiter({
+  scope: "auth-request-otp",
+  limit: Math.max(4, Number(process.env.CORE_AUTH_OTP_REQUEST_RATE_LIMIT || 12)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${toIp(req)}:${text(req.body?.emailOrPhone || req.body?.email || req.body?.phone, "unknown")}`,
+  message: "Too many OTP requests. Please wait before requesting again."
+});
+
+export const coreAuthOtpVerifyLimiter = createCoreRateLimiter({
+  scope: "auth-login-otp",
+  limit: Math.max(6, Number(process.env.CORE_AUTH_OTP_VERIFY_RATE_LIMIT || 25)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${toIp(req)}:${text(req.body?.emailOrPhone || req.body?.email || req.body?.phone, "unknown")}`,
+  message: "Too many OTP verification attempts. Please retry later."
+});
+
+export const coreChatSendLimiter = createCoreRateLimiter({
+  scope: "chat-send",
+  limit: Math.max(15, Number(process.env.CORE_CHAT_SEND_RATE_LIMIT || 90)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "anon")}:${toIp(req)}`,
+  message: "Too many chat messages in a short duration. Please slow down."
+});
+
+export const coreUploadWriteLimiter = createCoreRateLimiter({
+  scope: "upload-write",
+  limit: Math.max(6, Number(process.env.CORE_UPLOAD_WRITE_RATE_LIMIT || 40)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "anon")}:${toIp(req)}`,
+  message: "Too many upload attempts. Please retry after a short pause."
+});
+
+export const coreAiRequestLimiter = createCoreRateLimiter({
+  scope: "ai-request",
+  limit: Math.max(20, Number(process.env.CORE_AI_REQUEST_RATE_LIMIT || 120)),
+  windowMs: 5 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "anon")}:${toIp(req)}`,
+  message: "AI request limit reached. Please retry after a short pause."
+});
