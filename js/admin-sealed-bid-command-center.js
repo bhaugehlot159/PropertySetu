@@ -764,6 +764,11 @@
       setStatus('Property ID and decision action required.', true);
       return;
     }
+    const decisionReason = text(note || ui.decisionNoteInput?.value);
+    if (decisionReason.length < 12) {
+      setStatus('Decision note minimum 12 characters required for security audit.', true);
+      return;
+    }
 
     if (normalizedAction === 'reject' && !window.confirm('Reject all bids for this property?')) return;
     if (normalizedAction === 'reveal' && !window.confirm('Reveal winning bid publicly for this property?')) return;
@@ -778,6 +783,7 @@
         data: {
           propertyId,
           action: normalizedAction,
+          decisionReason,
         },
       });
 
@@ -789,7 +795,7 @@
         action: normalizedAction,
         beforeStatus,
         afterStatus: text(response?.status, normalizedAction),
-        note: text(note),
+        note: decisionReason,
       });
 
       setStatus(`Decision applied: ${normalizedAction} for ${text(row?.propertyTitle, propertyId)}.`);

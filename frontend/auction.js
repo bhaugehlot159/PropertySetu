@@ -191,11 +191,16 @@
       window.alert("Live API unavailable. Admin decision cannot be executed in offline mode.");
       return;
     }
+    const decisionReason = String(window.prompt("Decision reason (minimum 12 characters):", "Security review completed and admin decision approved.") || "").trim();
+    if (decisionReason.length < 12) {
+      window.alert("Decision reason minimum 12 characters required.");
+      return;
+    }
     try {
       await live.request("/sealed-bids/decision", {
         method: "POST",
         token: adminSession.token,
-        data: { propertyId, action },
+        data: { propertyId, action, decisionReason },
       });
       await refreshData();
       window.alert(`Admin action '${action}' applied successfully.`);

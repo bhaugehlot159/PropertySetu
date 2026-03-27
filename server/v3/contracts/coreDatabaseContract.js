@@ -167,7 +167,10 @@ export const coreSystemsBlueprint = [
       "Buyer/seller can place hidden bids",
       "Bid amount stays hidden for everyone except admin",
       "Property owner cannot view hidden bids",
-      "Admin can accept highest, reject all, or reveal winner"
+      "Admin can accept highest, reject all, or reveal winner",
+      "Admin decision reason mandatory",
+      "Integrity hash trail for tamper detection",
+      "Rate-limited bid submission and admin decisions"
     ],
     endpoints: [
       "/api/v3/sealed-bids",

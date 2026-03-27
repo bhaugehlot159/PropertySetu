@@ -1,4 +1,5 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import {
   createProPropertyRecord,
   deleteProPropertyRecord,
@@ -9,6 +10,14 @@ import {
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
 
 const router = Router();
+const bridgeJwtSecrets = [
+  process.env.JWT_SECRET,
+  process.env.CORE_JWT_SECRET,
+  "propertysetu-core-secret",
+  "propertysetu-dev-secret"
+].map((item) => text(item)).filter(Boolean);
+const bridgeAllowedBidderRoles = new Set(["buyer", "seller", "customer"]);
+const bridgeDecisionReasonMin = Math.max(8, Math.round(Number(process.env.SEALED_BID_DECISION_REASON_MIN || 12)));
 
 const DEFAULT_IMAGE =
   "https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?auto=format&fit=crop&w=1200&q=80";
@@ -131,14 +140,33 @@ function extractActor(req) {
   if (!authHeader.startsWith("Bearer ")) {
     return {
       id: "guest-user",
-      name: "Guest User"
+      name: "Guest User",
+      role: "guest",
+      trusted: false
     };
+  }
+
+  const token = authHeader.slice(7).trim();
+  for (const secret of bridgeJwtSecrets) {
+    try {
+      const parsed = jwt.verify(token, secret);
+      return {
+        id: text(parsed.userId || parsed.id || `user-${Date.now()}`),
+        name: text(parsed.name || parsed.email || "PropertySetu User"),
+        role: text(parsed.role || "buyer").toLowerCase(),
+        trusted: true
+      };
+    } catch {
+      // try next secret
+    }
   }
 
   const tokenTail = authHeader.slice(-6);
   return {
     id: `user-${tokenTail}`,
-    name: `User ${tokenTail}`
+    name: `User ${tokenTail}`,
+    role: "guest",
+    trusted: false
   };
 }
 
@@ -747,6 +775,13 @@ router.post("/reports", (req, res) => {
 
 router.post("/sealed-bids", (req, res) => {
   const actor = extractActor(req);
+  if (!actor.trusted || !bridgeAllowedBidderRoles.has(text(actor.role).toLowerCase())) {
+    return res.status(403).json({
+      ok: false,
+      message: "Only authenticated buyer/seller accounts can place sealed bids."
+    });
+  }
+
   const propertyId = text(req.body?.propertyId);
   const amount = toNumber(req.body?.amount, 0);
 
@@ -780,9 +815,13 @@ router.post("/sealed-bids", (req, res) => {
 
 router.get("/sealed-bids/mine", (req, res) => {
   const actor = extractActor(req);
-  const mine = proMemoryStore.sealedBids.filter(
-    (item) => item.bidderId === actor.id || actor.id === "guest-user"
-  );
+  if (!actor.trusted) {
+    return res.status(401).json({
+      ok: false,
+      message: "Authentication required for my sealed bids."
+    });
+  }
+  const mine = proMemoryStore.sealedBids.filter((item) => item.bidderId === actor.id);
   res.json({
     ok: true,
     total: mine.length,
@@ -793,7 +832,7 @@ router.get("/sealed-bids/mine", (req, res) => {
 router.get("/sealed-bids/summary", (req, res) => {
   const actor = extractActor(req);
   const actorRole = text(actor.role).toLowerCase();
-  if (actorRole !== "admin") {
+  if (!actor.trusted || actorRole !== "admin") {
     return res.status(403).json({
       ok: false,
       message: "Only admin can view sealed bid summary."
@@ -822,6 +861,14 @@ router.get("/sealed-bids/summary", (req, res) => {
 });
 
 router.get("/sealed-bids/reveal", (_req, res) => {
+  const actor = extractActor(_req);
+  if (!actor.trusted || text(actor.role).toLowerCase() !== "admin") {
+    return res.status(403).json({
+      ok: false,
+      message: "Only admin can reveal sealed bid results."
+    });
+  }
+
   const grouped = new Map();
   proMemoryStore.sealedBids.forEach((bid) => {
     const key = bid.propertyId;
@@ -846,8 +893,23 @@ router.get("/sealed-bids/reveal", (_req, res) => {
 });
 
 router.post("/sealed-bids/decision", (req, res) => {
+  const actor = extractActor(req);
+  if (!actor.trusted || text(actor.role).toLowerCase() !== "admin") {
+    return res.status(403).json({
+      ok: false,
+      message: "Only admin can apply sealed bid decisions."
+    });
+  }
+
   const propertyId = text(req.body?.propertyId);
   const action = text(req.body?.action, "reveal").toLowerCase();
+  const decisionReason = text(req.body?.decisionReason || req.body?.note).replace(/\s+/g, " ").slice(0, 300);
+  if (decisionReason.length < bridgeDecisionReasonMin) {
+    return res.status(400).json({
+      ok: false,
+      message: `decisionReason must be at least ${bridgeDecisionReasonMin} characters.`
+    });
+  }
 
   const targets = proMemoryStore.sealedBids.filter((bid) => bid.propertyId === propertyId);
   if (!targets.length) {
@@ -863,7 +925,9 @@ router.post("/sealed-bids/decision", (req, res) => {
       bid.propertyId === propertyId
         ? {
             ...bid,
-            status: bid.id === highest.id ? "Accepted" : "Rejected"
+            status: bid.id === highest.id ? "Accepted" : "Rejected",
+            decisionReason,
+            decisionAt: nowIso()
           }
         : bid
     );
@@ -872,7 +936,9 @@ router.post("/sealed-bids/decision", (req, res) => {
       bid.propertyId === propertyId
         ? {
             ...bid,
-            status: "Rejected"
+            status: "Rejected",
+            decisionReason,
+            decisionAt: nowIso()
           }
         : bid
     );
@@ -881,7 +947,9 @@ router.post("/sealed-bids/decision", (req, res) => {
       bid.propertyId === propertyId
         ? {
             ...bid,
-            publicVisible: true
+            publicVisible: true,
+            decisionReason,
+            decisionAt: nowIso()
           }
         : bid
     );

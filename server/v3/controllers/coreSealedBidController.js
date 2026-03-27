@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import CoreProperty from "../models/CoreProperty.js";
@@ -18,6 +19,149 @@ function text(value, fallback = "") {
 function numberValue(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const SEALED_BID_MAX_AMOUNT = Math.max(
+  1_000,
+  numberValue(process.env.SEALED_BID_MAX_AMOUNT, 5_000_000_000)
+);
+const SEALED_BID_DECISION_REASON_MIN = Math.max(
+  8,
+  Math.round(numberValue(process.env.SEALED_BID_DECISION_REASON_MIN, 12))
+);
+const SEALED_BID_REPEAT_WINDOW_MS = Math.max(
+  5_000,
+  Math.round(numberValue(process.env.SEALED_BID_REPEAT_WINDOW_MS, 30_000))
+);
+const SEALED_BID_INTEGRITY_SECRET = text(
+  process.env.SEALED_BID_INTEGRITY_SECRET || process.env.JWT_SECRET || "propertysetu-sealed-bid-integrity"
+);
+
+function requestIp(req) {
+  const forwarded = req?.headers?.["x-forwarded-for"];
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return text(forwarded[0]).split(",")[0].trim();
+  }
+  if (text(forwarded)) {
+    return text(forwarded).split(",")[0].trim();
+  }
+  return text(req?.ip || req?.socket?.remoteAddress || "0.0.0.0");
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+function normalizeDecisionReason(value) {
+  return text(value).replace(/\s+/g, " ").slice(0, 300);
+}
+
+function createDecisionIntegrityHash({
+  bidId,
+  action,
+  by,
+  at,
+  reason,
+  prevIntegrityHash = ""
+} = {}) {
+  const payload = [
+    text(bidId),
+    normalizeDecisionAction(action),
+    text(by),
+    text(at),
+    normalizeDecisionReason(reason),
+    text(prevIntegrityHash),
+    SEALED_BID_INTEGRITY_SECRET
+  ].join("|");
+  return sha256(payload);
+}
+
+function createBidIntegrityHash({
+  propertyId,
+  bidderId,
+  amount,
+  createdAt,
+  bidNonceHash
+} = {}) {
+  const payload = [
+    text(propertyId),
+    text(bidderId),
+    Math.round(numberValue(amount, 0)),
+    text(createdAt),
+    text(bidNonceHash),
+    SEALED_BID_INTEGRITY_SECRET
+  ].join("|");
+  return sha256(payload);
+}
+
+function buildBidSecurityMeta({
+  req,
+  propertyId,
+  bidderId,
+  amount,
+  createdAt
+} = {}) {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const bidNonceHash = sha256(nonce);
+  return {
+    bidIpHash: sha256(requestIp(req)),
+    bidUserAgentHash: sha256(text(req?.headers?.["user-agent"]).slice(0, 512)),
+    bidNonceHash,
+    bidIntegrityHash: createBidIntegrityHash({
+      propertyId,
+      bidderId,
+      amount,
+      createdAt,
+      bidNonceHash
+    })
+  };
+}
+
+function evaluateBidRecordIntegrity(item = {}) {
+  const security = item && typeof item.security === "object" ? item.security : {};
+  const bidNonceHash = text(security.bidNonceHash);
+  const bidIntegrityHash = text(security.bidIntegrityHash);
+  if (!bidNonceHash || !bidIntegrityHash) return "legacy-unhashed";
+
+  const expected = createBidIntegrityHash({
+    propertyId: item.propertyId,
+    bidderId: item.bidderId,
+    amount: item.amount,
+    createdAt: item.createdAt,
+    bidNonceHash
+  });
+  return expected === bidIntegrityHash ? "verified" : "tamper-alert";
+}
+
+function evaluateDecisionHistoryIntegrity(item = {}) {
+  const history = Array.isArray(item?.decisionHistory) ? item.decisionHistory : [];
+  if (!history.length) return "no-decisions";
+
+  let previousHash = "";
+  for (const entry of history) {
+    const action = normalizeDecisionAction(entry?.action);
+    const by = text(toId(entry?.by) || entry?.by);
+    const at = text(asIso(entry?.at) || entry?.at);
+    const reason = normalizeDecisionReason(entry?.reason);
+    const storedPrev = text(entry?.prevIntegrityHash);
+    const storedHash = text(entry?.integrityHash);
+
+    if (!storedPrev && !storedHash) return "legacy-unhashed";
+    if (storedPrev !== previousHash) return "tamper-alert";
+
+    const expected = createDecisionIntegrityHash({
+      bidId: toId(item.id || item._id),
+      action,
+      by,
+      at,
+      reason,
+      prevIntegrityHash: previousHash
+    });
+    if (storedHash !== expected) return "tamper-alert";
+    previousHash = storedHash;
+  }
+
+  return "verified";
 }
 
 function asIso(value) {
@@ -81,7 +225,7 @@ function summarizeSealedBidStatus(bids = []) {
 function normalizeBid(doc) {
   const row = doc && typeof doc.toObject === "function" ? doc.toObject() : doc;
   if (!row) return null;
-  return {
+  const normalized = {
     _id: toId(row._id || row.id),
     id: toId(row._id || row.id),
     propertyId: toId(row.propertyId),
@@ -101,13 +245,46 @@ function normalizeBid(doc) {
     decisionHistory: Array.isArray(row.decisionHistory)
       ? row.decisionHistory.map((item) => ({
           action: normalizeDecisionAction(item?.action),
-          by: toId(item?.by),
+          by: toId(item?.by) || text(item?.by),
           byRole: text(item?.byRole, "admin"),
+          reason: normalizeDecisionReason(item?.reason),
+          prevIntegrityHash: text(item?.prevIntegrityHash),
+          integrityHash: text(item?.integrityHash),
           at: asIso(item?.at)
         }))
       : [],
+    security:
+      row.security && typeof row.security === "object" && !Array.isArray(row.security)
+        ? {
+            bidIpHash: text(row.security.bidIpHash),
+            bidUserAgentHash: text(row.security.bidUserAgentHash),
+            bidIntegrityHash: text(row.security.bidIntegrityHash),
+            bidNonceHash: text(row.security.bidNonceHash)
+          }
+        : {
+            bidIpHash: "",
+            bidUserAgentHash: "",
+            bidIntegrityHash: "",
+            bidNonceHash: ""
+          },
     createdAt: asIso(row.createdAt),
     updatedAt: asIso(row.updatedAt)
+  };
+
+  const bidRecordIntegrity = evaluateBidRecordIntegrity(normalized);
+  const decisionHistoryIntegrity = evaluateDecisionHistoryIntegrity(normalized);
+  const integrityStatus =
+    bidRecordIntegrity === "tamper-alert" || decisionHistoryIntegrity === "tamper-alert"
+      ? "tamper-alert"
+      : bidRecordIntegrity === "legacy-unhashed" || decisionHistoryIntegrity === "legacy-unhashed"
+        ? "legacy-unhashed"
+        : "verified";
+
+  return {
+    ...normalized,
+    bidRecordIntegrity,
+    decisionHistoryIntegrity,
+    integrityStatus
   };
 }
 
@@ -246,21 +423,54 @@ async function updateBidById(bidId, payload = {}, action = "") {
   if (typeof payload.status !== "undefined") {
     safePayload.status = normalizeBidStatus(payload.status);
   }
+  const decisionReason = normalizeDecisionReason(payload.decisionReason);
+
+  let decisionEntry = null;
+  if (normalizedAction) {
+    let previousHash = "";
+    if (proRuntime.dbConnected) {
+      const row = await CoreSealedBid.findById(bidId).select("decisionHistory").lean();
+      const history = Array.isArray(row?.decisionHistory) ? row.decisionHistory : [];
+      previousHash = text(history[history.length - 1]?.integrityHash);
+    } else {
+      const currentRecord = proMemoryStore.coreSealedBids.find(
+        (item) => toId(item._id || item.id) === bidId
+      );
+      const history = Array.isArray(currentRecord?.decisionHistory)
+        ? currentRecord.decisionHistory
+        : [];
+      previousHash = text(history[history.length - 1]?.integrityHash);
+    }
+
+    const decisionAt = text(payload.decisionAt || new Date().toISOString());
+    const decisionBy = toId(payload.decisionByAdminId) || text(payload.decisionByAdminId);
+    decisionEntry = {
+      action: normalizedAction,
+      by: decisionBy,
+      byRole: ADMIN_ROLE,
+      reason: decisionReason,
+      prevIntegrityHash: previousHash,
+      integrityHash: createDecisionIntegrityHash({
+        bidId,
+        action: normalizedAction,
+        by: decisionBy,
+        at: decisionAt,
+        reason: decisionReason,
+        prevIntegrityHash: previousHash
+      }),
+      at: decisionAt
+    };
+  }
 
   if (proRuntime.dbConnected) {
     await CoreSealedBid.findByIdAndUpdate(
       bidId,
       {
         $set: safePayload,
-        ...(normalizedAction
+        ...(decisionEntry
           ? {
               $push: {
-                decisionHistory: {
-                  action: normalizedAction,
-                  by: payload.decisionByAdminId,
-                  byRole: ADMIN_ROLE,
-                  at: payload.decisionAt
-                }
+                decisionHistory: decisionEntry
               }
             }
           : {})
@@ -279,15 +489,10 @@ async function updateBidById(bidId, payload = {}, action = "") {
   proMemoryStore.coreSealedBids[index] = {
     ...current,
     ...safePayload,
-    decisionHistory: normalizedAction
+    decisionHistory: decisionEntry
       ? [
           ...currentHistory,
-          {
-            action: normalizedAction,
-            by: payload.decisionByAdminId,
-            byRole: ADMIN_ROLE,
-            at: payload.decisionAt
-          }
+          decisionEntry
         ]
       : currentHistory
   };
@@ -315,6 +520,12 @@ async function notifyAdmins({
 export async function createCoreSealedBid(req, res, next) {
   try {
     const userId = toId(req.coreUser?.id);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required."
+      });
+    }
     const rawRole = text(req.coreUser?.role).toLowerCase();
     if (!ALLOWED_BIDDER_ROLES.has(rawRole)) {
       return res.status(403).json({
@@ -332,6 +543,12 @@ export async function createCoreSealedBid(req, res, next) {
         message: "propertyId and positive amount are required."
       });
     }
+    if (amount > SEALED_BID_MAX_AMOUNT) {
+      return res.status(400).json({
+        success: false,
+        message: `Bid amount is too high. Maximum allowed is ${SEALED_BID_MAX_AMOUNT.toLocaleString("en-IN")}.`
+      });
+    }
 
     const property = await findCorePropertyById(propertyId);
     if (!property) {
@@ -342,6 +559,13 @@ export async function createCoreSealedBid(req, res, next) {
     }
 
     const normalizedProperty = normalizeCoreProperty(property);
+    const propertyStatus = text(normalizedProperty?.status).toLowerCase();
+    if (propertyStatus && propertyStatus !== "approved") {
+      return res.status(403).json({
+        success: false,
+        message: "Bidding is allowed only on approved properties."
+      });
+    }
     const ownerId = toId(normalizedProperty?.ownerId);
     if (ownerId && ownerId === userId) {
       return res.status(403).json({
@@ -380,9 +604,32 @@ export async function createCoreSealedBid(req, res, next) {
       });
     }
 
+    const recentBid = proRuntime.dbConnected
+      ? await CoreSealedBid.findOne({ propertyId, bidderId: userId })
+          .sort({ createdAt: -1 })
+          .lean()
+      : [...proMemoryStore.coreSealedBids]
+          .map((item) => normalizeBid(item))
+          .filter((bid) => bid && bid.propertyId === propertyId && bid.bidderId === userId)
+          .sort((a, b) => toEpoch(b.createdAt) - toEpoch(a.createdAt))[0] || null;
+
+    if (recentBid && Date.now() - toEpoch(recentBid.createdAt) < SEALED_BID_REPEAT_WINDOW_MS) {
+      return res.status(429).json({
+        success: false,
+        message: "Repeated bid attempt detected. Please wait before submitting again."
+      });
+    }
+
     const bidder = await findCoreUserById(userId);
     const bidderName = text(bidder?.name, "PropertySetu User");
     const createdAt = new Date().toISOString();
+    const securityMeta = buildBidSecurityMeta({
+      req,
+      propertyId,
+      bidderId: userId,
+      amount,
+      createdAt
+    });
 
     let created = null;
     if (proRuntime.dbConnected) {
@@ -397,7 +644,8 @@ export async function createCoreSealedBid(req, res, next) {
         sealed: true,
         adminVisible: true,
         isWinningBid: false,
-        winnerRevealed: false
+        winnerRevealed: false,
+        security: securityMeta
       });
     } else {
       created = {
@@ -417,6 +665,7 @@ export async function createCoreSealedBid(req, res, next) {
         decisionByAdminName: "",
         decisionAt: null,
         decisionHistory: [],
+        security: securityMeta,
         createdAt,
         updatedAt: createdAt
       };
@@ -451,7 +700,12 @@ export async function createCoreSealedBid(req, res, next) {
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       item: sanitizeBidForBidder(created),
       policy:
-        "Bids remain hidden for buyer/seller/owner. Only admin can view all bids until winner is revealed."
+        "Bids remain hidden for buyer/seller/owner. Only admin can view all bids until winner is revealed.",
+      securityPolicy: {
+        bidVisibility: "admin-only",
+        antiReplay: `${Math.round(SEALED_BID_REPEAT_WINDOW_MS / 1000)}s cooldown`,
+        amountMax: SEALED_BID_MAX_AMOUNT
+      }
     });
   } catch (error) {
     return next(error);
@@ -582,10 +836,17 @@ export async function applyCoreSealedBidDecision(req, res, next) {
   try {
     const propertyId = text(req.body?.propertyId);
     const action = normalizeDecisionAction(req.body?.action);
+    const decisionReason = normalizeDecisionReason(req.body?.decisionReason || req.body?.note);
     if (!propertyId || !action) {
       return res.status(400).json({
         success: false,
         message: "propertyId and valid action (accept/reject/reveal) are required."
+      });
+    }
+    if (decisionReason.length < SEALED_BID_DECISION_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `decisionReason must be at least ${SEALED_BID_DECISION_REASON_MIN} characters.`
       });
     }
 
@@ -607,6 +868,12 @@ export async function applyCoreSealedBidDecision(req, res, next) {
 
     const adminId = toId(req.coreUser?.id);
     const adminName = text(req.coreUser?.name, "PropertySetu Admin");
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: "Admin authentication required."
+      });
+    }
     const decisionAt = new Date().toISOString();
 
     for (const bid of rows) {
@@ -614,7 +881,8 @@ export async function applyCoreSealedBidDecision(req, res, next) {
       const nextPayload = {
         decisionByAdminId: adminId,
         decisionByAdminName: adminName,
-        decisionAt
+        decisionAt,
+        decisionReason
       };
 
       if (action === "accept") {
@@ -662,7 +930,8 @@ export async function applyCoreSealedBidDecision(req, res, next) {
             category: "sealed-bid",
             metadata: {
               propertyId,
-              action
+              action,
+              decisionReason
             }
           })
         )
@@ -677,7 +946,8 @@ export async function applyCoreSealedBidDecision(req, res, next) {
             category: "sealed-bid",
             metadata: {
               propertyId,
-              action
+              action,
+              decisionReason
             }
           })
         )
@@ -692,7 +962,8 @@ export async function applyCoreSealedBidDecision(req, res, next) {
             category: "sealed-bid",
             metadata: {
               propertyId,
-              action
+              action,
+              decisionReason
             }
           })
         )
@@ -718,7 +989,8 @@ export async function applyCoreSealedBidDecision(req, res, next) {
         category: "sealed-bid",
         metadata: {
           propertyId,
-          action
+          action,
+          decisionReason
         }
       });
     }
@@ -727,6 +999,7 @@ export async function applyCoreSealedBidDecision(req, res, next) {
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       action,
+      decisionReason,
       propertyId,
       propertyTitle,
       status: currentStatus,

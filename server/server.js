@@ -7,6 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -647,6 +648,107 @@ const admin = (req, res, next) => (req.user?.role === "admin" ? next() : res.sta
 const userById = (id) => db.users.find((u) => u.id === id) || null;
 const pushNoti = (userId, title, message, type = "general") => db.notifications.unshift({ id: nextId("notification"), userId, title, message, type, isRead: false, createdAt: now() });
 const sealedBidAllowedRoles = new Set(["customer", "seller"]);
+const sealedBidMaxAmount = Math.max(1000, num(process.env.SEALED_BID_MAX_AMOUNT, 5000000000));
+const sealedBidDecisionReasonMin = Math.max(8, Math.round(num(process.env.SEALED_BID_DECISION_REASON_MIN, 12)));
+const sealedBidRepeatWindowMs = Math.max(5000, Math.round(num(process.env.SEALED_BID_REPEAT_WINDOW_MS, 30000)));
+const sealedBidIntegritySecret = txt(process.env.SEALED_BID_INTEGRITY_SECRET || JWT_SECRET || "propertysetu-sealed-bid-integrity");
+const sealedBidRateBuckets = new Map();
+const requestIp = (req) => {
+  const forwarded = req?.headers?.["x-forwarded-for"];
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return txt(forwarded[0]).split(",")[0].trim();
+  }
+  if (txt(forwarded)) {
+    return txt(forwarded).split(",")[0].trim();
+  }
+  return txt(req?.ip || req?.socket?.remoteAddress || "0.0.0.0");
+};
+const sha256 = (value) => crypto.createHash("sha256").update(String(value || "")).digest("hex");
+const normalizeDecisionReason = (value) => txt(value).replace(/\s+/g, " ").slice(0, 300);
+const createDecisionIntegrityHash = ({ bidId, action, by, at, reason, prevIntegrityHash = "" } = {}) =>
+  sha256([
+    txt(bidId),
+    txt(action).toLowerCase(),
+    txt(by),
+    txt(at),
+    normalizeDecisionReason(reason),
+    txt(prevIntegrityHash),
+    sealedBidIntegritySecret,
+  ].join("|"));
+const createBidIntegrityHash = ({ propertyId, bidderId, amount, createdAt, bidNonceHash } = {}) =>
+  sha256([
+    txt(propertyId),
+    txt(bidderId),
+    Math.round(num(amount, 0)),
+    txt(createdAt),
+    txt(bidNonceHash),
+    sealedBidIntegritySecret,
+  ].join("|"));
+const buildBidSecurityMeta = ({ req, propertyId, bidderId, amount, createdAt } = {}) => {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const bidNonceHash = sha256(nonce);
+  return {
+    bidIpHash: sha256(requestIp(req)),
+    bidUserAgentHash: sha256(txt(req?.headers?.["user-agent"]).slice(0, 512)),
+    bidNonceHash,
+    bidIntegrityHash: createBidIntegrityHash({ propertyId, bidderId, amount, createdAt, bidNonceHash }),
+  };
+};
+const evaluateBidRecordIntegrity = (bid = {}) => {
+  const security = bid && typeof bid.security === "object" ? bid.security : {};
+  const bidNonceHash = txt(security.bidNonceHash);
+  const bidIntegrityHash = txt(security.bidIntegrityHash);
+  if (!bidNonceHash || !bidIntegrityHash) return "legacy-unhashed";
+  const expected = createBidIntegrityHash({
+    propertyId: bid.propertyId,
+    bidderId: bid.bidderId,
+    amount: bid.amount,
+    createdAt: bid.createdAt,
+    bidNonceHash,
+  });
+  return expected === bidIntegrityHash ? "verified" : "tamper-alert";
+};
+const evaluateDecisionHistoryIntegrity = (bid = {}) => {
+  const history = safeArr(bid.decisionHistory);
+  if (!history.length) return "no-decisions";
+  let previousHash = "";
+  for (const item of history) {
+    const action = txt(item?.action).toLowerCase();
+    const by = txt(item?.by || item?.byName);
+    const at = txt(item?.at);
+    const reason = normalizeDecisionReason(item?.reason);
+    const storedPrev = txt(item?.prevIntegrityHash);
+    const storedHash = txt(item?.integrityHash);
+    if (!storedPrev && !storedHash) return "legacy-unhashed";
+    if (storedPrev !== previousHash) return "tamper-alert";
+    const expected = createDecisionIntegrityHash({
+      bidId: txt(bid.id),
+      action,
+      by,
+      at,
+      reason,
+      prevIntegrityHash: previousHash,
+    });
+    if (storedHash !== expected) return "tamper-alert";
+    previousHash = storedHash;
+  }
+  return "verified";
+};
+const enforceRateLimit = ({ scope = "sealed-bid", key = "", limit = 10, windowMs = 60000 } = {}) => {
+  const nowTs = Date.now();
+  const scopedKey = `${txt(scope)}:${txt(key, "anonymous")}`;
+  const current = sealedBidRateBuckets.get(scopedKey) || { hits: [] };
+  const minTs = nowTs - Math.max(1000, windowMs);
+  const hits = safeArr(current.hits).filter((stamp) => Number(stamp) >= minTs);
+  if (hits.length >= Math.max(1, limit)) {
+    const oldest = Math.min(...hits);
+    const retryAfterSec = Math.max(1, Math.ceil((windowMs - (nowTs - oldest)) / 1000));
+    return { allowed: false, retryAfterSec };
+  }
+  hits.push(nowTs);
+  sealedBidRateBuckets.set(scopedKey, { hits });
+  return { allowed: true, retryAfterSec: 0 };
+};
 const toEpoch = (iso) => {
   const stamp = Date.parse(txt(iso));
   return Number.isFinite(stamp) ? stamp : 0;
@@ -661,7 +763,7 @@ const normalizeBidStatus = (value) => {
 const normalizeBidRecord = (entry = {}) => {
   const status = normalizeBidStatus(entry.status);
   const revealed = !!entry.winnerRevealed || status === "Revealed";
-  return {
+  const normalized = {
     ...entry,
     id: txt(entry.id),
     propertyId: txt(entry.propertyId),
@@ -677,7 +779,41 @@ const normalizeBidRecord = (entry = {}) => {
     winnerRevealed: revealed,
     createdAt: txt(entry.createdAt, now()),
     updatedAt: txt(entry.updatedAt, entry.createdAt || now()),
-    decisionHistory: safeArr(entry.decisionHistory),
+    decisionHistory: safeArr(entry.decisionHistory).map((item) => ({
+      action: txt(item?.action).toLowerCase(),
+      by: txt(item?.by || item?.byName),
+      byName: txt(item?.byName),
+      byRole: txt(item?.byRole || "admin"),
+      at: txt(item?.at),
+      reason: normalizeDecisionReason(item?.reason),
+      prevIntegrityHash: txt(item?.prevIntegrityHash),
+      integrityHash: txt(item?.integrityHash),
+    })),
+    security: entry?.security && typeof entry.security === "object" && !Array.isArray(entry.security)
+      ? {
+          bidIpHash: txt(entry.security.bidIpHash),
+          bidUserAgentHash: txt(entry.security.bidUserAgentHash),
+          bidNonceHash: txt(entry.security.bidNonceHash),
+          bidIntegrityHash: txt(entry.security.bidIntegrityHash),
+        }
+      : {
+          bidIpHash: "",
+          bidUserAgentHash: "",
+          bidNonceHash: "",
+          bidIntegrityHash: "",
+        },
+  };
+  const bidRecordIntegrity = evaluateBidRecordIntegrity(normalized);
+  const decisionHistoryIntegrity = evaluateDecisionHistoryIntegrity(normalized);
+  return {
+    ...normalized,
+    bidRecordIntegrity,
+    decisionHistoryIntegrity,
+    integrityStatus: bidRecordIntegrity === "tamper-alert" || decisionHistoryIntegrity === "tamper-alert"
+      ? "tamper-alert"
+      : bidRecordIntegrity === "legacy-unhashed" || decisionHistoryIntegrity === "legacy-unhashed"
+        ? "legacy-unhashed"
+        : "verified",
   };
 };
 const sortBidsHighToLow = (a, b) => num(b.amount, 0) - num(a.amount, 0) || toEpoch(a.createdAt) - toEpoch(b.createdAt);
@@ -725,6 +861,9 @@ const sanitizeBidForAdmin = (bid) => ({
   decisionByAdminName: txt(bid.decisionByAdminName),
   decisionAt: txt(bid.decisionAt),
   decisionHistory: safeArr(bid.decisionHistory),
+  bidRecordIntegrity: txt(bid.bidRecordIntegrity || "legacy-unhashed"),
+  decisionHistoryIntegrity: txt(bid.decisionHistoryIntegrity || "legacy-unhashed"),
+  integrityStatus: txt(bid.integrityStatus || "legacy-unhashed"),
 });
 const publicWinnerSnapshot = (winner) => ({
   bidId: winner.id,
@@ -2448,15 +2587,41 @@ app.post("/api/sealed-bids", auth, async (req, res) => {
   if (!sealedBidAllowedRoles.has(requesterRole)) {
     return res.status(403).json({ ok: false, message: "Only buyer/seller accounts can place sealed bids." });
   }
+  const submitRate = enforceRateLimit({
+    scope: "sealed-bid-submit",
+    key: `${txt(req.user?.id)}:${requestIp(req)}`,
+    limit: 8,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!submitRate.allowed) {
+    res.setHeader("Retry-After", String(submitRate.retryAfterSec));
+    return res.status(429).json({ ok: false, message: "Too many bid submissions. Please wait and retry.", retryAfterSec: submitRate.retryAfterSec });
+  }
+
   const propertyId = txt(req.body?.propertyId);
   if (!propertyId) return res.status(400).json({ ok: false, message: "propertyId is required." });
   const p = db.properties.find((x) => x.id === propertyId);
   if (!p) return res.status(404).json({ ok: false, message: "Property not found." });
+  if (txt(p.status).toLowerCase() && txt(p.status).toLowerCase() !== "approved") {
+    return res.status(403).json({ ok: false, message: "Bidding is allowed only on approved properties." });
+  }
   if (txt(p.ownerId) && txt(p.ownerId) === txt(req.user.id)) {
     return res.status(403).json({ ok: false, message: "Property owner cannot bid on own listing." });
   }
   const amount = Math.round(num(req.body?.amount, 0));
   if (amount <= 0) return res.status(400).json({ ok: false, message: "Valid positive bid amount required." });
+  if (amount > sealedBidMaxAmount) {
+    return res.status(400).json({ ok: false, message: `Bid amount too high. Maximum allowed is ${sealedBidMaxAmount.toLocaleString("en-IN")}.` });
+  }
+
+  const recentBid = [...db.bids]
+    .map((entry) => normalizeBidRecord(entry))
+    .filter((entry) => entry.propertyId === propertyId && entry.bidderId === req.user.id)
+    .sort((a, b) => toEpoch(b.createdAt) - toEpoch(a.createdAt))[0] || null;
+  if (recentBid && Date.now() - toEpoch(recentBid.createdAt) < sealedBidRepeatWindowMs) {
+    return res.status(429).json({ ok: false, message: "Repeated bid attempt detected. Please wait before retrying." });
+  }
+
   const hasExistingActiveBid = db.bids.some((row) => {
     const bid = normalizeBidRecord(row);
     return bid.propertyId === propertyId && bid.bidderId === req.user.id && bid.status !== "Rejected";
@@ -2466,6 +2631,13 @@ app.post("/api/sealed-bids", auth, async (req, res) => {
   }
 
   const createdAt = now();
+  const security = buildBidSecurityMeta({
+    req,
+    propertyId,
+    bidderId: req.user.id,
+    amount,
+    createdAt,
+  });
   const b = {
     id: nextId("bid"),
     propertyId,
@@ -2482,6 +2654,7 @@ app.post("/api/sealed-bids", auth, async (req, res) => {
     createdAt,
     updatedAt: createdAt,
     decisionHistory: [],
+    security,
   };
   db.bids.push(b);
   if (p.ownerId && p.ownerId !== req.user.id) {
@@ -2591,9 +2764,24 @@ app.get("/api/sealed-bids/winner/:propertyId", authOpt, (req, res) => {
 app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
   const propertyId = txt(req.body?.propertyId);
   const action = txt(req.body?.action).toLowerCase();
+  const decisionReason = normalizeDecisionReason(req.body?.decisionReason || req.body?.note);
   if (!propertyId || !["accept", "reject", "reveal"].includes(action)) {
     return res.status(400).json({ ok: false, message: "propertyId and valid action required." });
   }
+  if (decisionReason.length < sealedBidDecisionReasonMin) {
+    return res.status(400).json({ ok: false, message: `decisionReason must be at least ${sealedBidDecisionReasonMin} characters.` });
+  }
+  const decisionRate = enforceRateLimit({
+    scope: "sealed-bid-decision",
+    key: `${txt(req.user?.id)}:${requestIp(req)}`,
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!decisionRate.allowed) {
+    res.setHeader("Retry-After", String(decisionRate.retryAfterSec));
+    return res.status(429).json({ ok: false, message: "Too many admin decisions. Please wait and retry.", retryAfterSec: decisionRate.retryAfterSec });
+  }
+
   const items = db.bids.filter((b) => txt(b.propertyId) === propertyId);
   if (!items.length) return res.status(404).json({ ok: false, message: "No bids found for property." });
   const normalizedItems = items.map((entry) => normalizeBidRecord(entry));
@@ -2601,6 +2789,28 @@ app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
   if (!winner) return res.status(404).json({ ok: false, message: "No winning bid available." });
   const winnerId = winner.id;
   const decisionAt = now();
+  const appendDecisionTrail = (entry, normalizedAction) => {
+    const currentHistory = safeArr(entry.decisionHistory);
+    const prevIntegrityHash = txt(currentHistory[currentHistory.length - 1]?.integrityHash);
+    const nextEntry = {
+      action: normalizedAction,
+      by: req.user.id,
+      byName: req.user.name,
+      byRole: "admin",
+      at: decisionAt,
+      reason: decisionReason,
+      prevIntegrityHash,
+      integrityHash: createDecisionIntegrityHash({
+        bidId: txt(entry.id),
+        action: normalizedAction,
+        by: req.user.id,
+        at: decisionAt,
+        reason: decisionReason,
+        prevIntegrityHash,
+      }),
+    };
+    entry.decisionHistory = [...currentHistory, nextEntry];
+  };
 
   if (action === "accept") {
     items.forEach((entry) => {
@@ -2612,7 +2822,7 @@ app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
       entry.decisionByAdminId = req.user.id;
       entry.decisionByAdminName = req.user.name;
       entry.decisionAt = decisionAt;
-      entry.decisionHistory = [...safeArr(entry.decisionHistory), { action: "accept", by: req.user.id, byName: req.user.name, at: decisionAt }];
+      appendDecisionTrail(entry, "accept");
     });
   } else if (action === "reject") {
     items.forEach((entry) => {
@@ -2623,7 +2833,7 @@ app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
       entry.decisionByAdminId = req.user.id;
       entry.decisionByAdminName = req.user.name;
       entry.decisionAt = decisionAt;
-      entry.decisionHistory = [...safeArr(entry.decisionHistory), { action: "reject", by: req.user.id, byName: req.user.name, at: decisionAt }];
+      appendDecisionTrail(entry, "reject");
     });
   } else {
     items.forEach((entry) => {
@@ -2639,7 +2849,7 @@ app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
       entry.decisionByAdminId = req.user.id;
       entry.decisionByAdminName = req.user.name;
       entry.decisionAt = decisionAt;
-      entry.decisionHistory = [...safeArr(entry.decisionHistory), { action: "reveal", by: req.user.id, byName: req.user.name, at: decisionAt }];
+      appendDecisionTrail(entry, "reveal");
     });
   }
 
@@ -2678,6 +2888,7 @@ app.post("/api/sealed-bids/decision", auth, admin, async (req, res) => {
   res.json({
     ok: true,
     action,
+    decisionReason,
     propertyId,
     status: summarizeSealedBidStatus(refreshed),
     winnerBid: winnerBid ? sanitizeBidForAdmin(winnerBid) : null,

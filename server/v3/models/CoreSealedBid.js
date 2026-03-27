@@ -17,6 +17,21 @@ const coreSealedBidDecisionSchema = new mongoose.Schema(
       enum: ["admin"],
       default: "admin"
     },
+    reason: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    prevIntegrityHash: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    integrityHash: {
+      type: String,
+      default: "",
+      trim: true
+    },
     at: {
       type: Date,
       default: Date.now
@@ -95,6 +110,28 @@ const coreSealedBidSchema = new mongoose.Schema(
     decisionHistory: {
       type: [coreSealedBidDecisionSchema],
       default: []
+    },
+    security: {
+      bidIpHash: {
+        type: String,
+        default: "",
+        trim: true
+      },
+      bidUserAgentHash: {
+        type: String,
+        default: "",
+        trim: true
+      },
+      bidIntegrityHash: {
+        type: String,
+        default: "",
+        trim: true
+      },
+      bidNonceHash: {
+        type: String,
+        default: "",
+        trim: true
+      }
     },
     createdAt: {
       type: Date,

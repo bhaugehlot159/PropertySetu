@@ -11,14 +11,19 @@ import {
   coreAuthRequired,
   coreRoleRequired
 } from "../middleware/coreAuthMiddleware.js";
+import {
+  coreSealedBidAdminDecisionLimiter,
+  coreSealedBidReadLimiter,
+  coreSealedBidSubmitLimiter
+} from "../middleware/coreSecurityMiddleware.js";
 
 const router = Router();
 
-router.post("/", coreAuthRequired, coreRoleRequired("buyer", "seller"), createCoreSealedBid);
-router.get("/mine", coreAuthRequired, listMyCoreSealedBids);
-router.get("/summary", coreAuthRequired, coreRoleRequired("admin"), listCoreSealedBidSummary);
-router.get("/admin", coreAuthRequired, coreRoleRequired("admin"), listAdminCoreSealedBids);
-router.get("/winner/:propertyId", coreAuthRequired, getCoreSealedBidWinner);
-router.post("/decision", coreAuthRequired, coreRoleRequired("admin"), applyCoreSealedBidDecision);
+router.post("/", coreAuthRequired, coreRoleRequired("buyer", "seller"), coreSealedBidSubmitLimiter, createCoreSealedBid);
+router.get("/mine", coreAuthRequired, coreSealedBidReadLimiter, listMyCoreSealedBids);
+router.get("/summary", coreAuthRequired, coreRoleRequired("admin"), coreSealedBidReadLimiter, listCoreSealedBidSummary);
+router.get("/admin", coreAuthRequired, coreRoleRequired("admin"), coreSealedBidReadLimiter, listAdminCoreSealedBids);
+router.get("/winner/:propertyId", coreAuthRequired, coreSealedBidReadLimiter, getCoreSealedBidWinner);
+router.post("/decision", coreAuthRequired, coreRoleRequired("admin"), coreSealedBidAdminDecisionLimiter, applyCoreSealedBidDecision);
 
 export default router;

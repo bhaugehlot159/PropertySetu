@@ -527,12 +527,17 @@
       setStatus(ui.adminStatus, 'Property ID and action required.', true);
       return;
     }
+    const decisionReason = text(window.prompt('Decision reason (minimum 12 characters):', 'Security review completed and admin decision approved.'));
+    if (decisionReason.length < 12) {
+      setStatus(ui.adminStatus, 'Decision reason minimum 12 characters required.', true);
+      return;
+    }
 
     try {
       await requestCore('/sealed-bids/decision', {
         method: 'POST',
         token,
-        data: { propertyId, action },
+        data: { propertyId, action, decisionReason },
       });
       setStatus(ui.adminStatus, `Decision applied: ${action}.`);
       await refreshAdminBoard();
