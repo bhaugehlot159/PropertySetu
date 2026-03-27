@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertySetu | Startup Revenue Engine</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/professional-folder.css" />
+  <style>
+    .shell { padding: 34px 0 58px; }
+    .hero {
+      border: 1px solid #c6dcef;
+      border-radius: 16px;
+      background: linear-gradient(118deg, #0f446a, #2a688d);
+      color: #eff8ff;
+      padding: 22px;
+    }
+    .hero p { margin: 8px 0 0; color: #dcedfb; }
+    .hero-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .hero-chips span {
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .grid {
+      margin-top: 14px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .cardx {
+      background: #fff;
+      border: 1px solid #cbdef0;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 7px 15px rgba(13, 61, 96, 0.08);
+    }
+    .cardx h2 { margin: 0 0 8px; color: #124b73; font-size: 1.04rem; }
+    .field { display: grid; gap: 6px; margin-top: 8px; }
+    .field input, .field textarea, .field select {
+      width: 100%;
+      padding: 9px;
+      border-radius: 8px;
+      border: 1px solid #c9d9ef;
+    }
+    .field textarea { min-height: 80px; resize: vertical; }
+    .muted { color: #3a5770; margin-top: 8px; white-space: pre-wrap; }
+    .divider { border-top: 1px dashed #cfe0f3; margin: 12px 0; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+    .kpi {
+      border: 1px solid #d2e3f7;
+      border-radius: 9px;
+      padding: 8px;
+      background: #f7fbff;
+    }
+    .kpi small { display: block; color: #547091; font-size: 0.72rem; }
+    .kpi b { color: #11466e; font-size: 1.06rem; }
+    .feed { margin: 10px 0 0; padding-left: 18px; color: #2f5370; max-height: 220px; overflow: auto; }
+    .feed li { margin: 6px 0; }
+    .must-grid { display: grid; gap: 8px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .must-item {
+      border: 1px solid #d4e4f6;
+      border-radius: 10px;
+      padding: 10px;
+      background: #f8fcff;
+      display: grid;
+      gap: 7px;
+    }
+    .must-item b { color: #11466e; font-size: 0.92rem; }
+    .must-item p { margin: 0; color: #43617f; font-size: 0.82rem; }
+    .quick-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .quick-links a { text-decoration: none; }
+    .full { grid-column: 1 / -1; }
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .must-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body class="ps-pro-surface">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="../index.html">PropertySetu Udaipur</a>
+      <nav>
+        <a href="../index.html">Home</a>
+        <a href="ecosystem-services.html">Ecosystem Services</a>
+        <a href="premium-services.html">Premium Services</a>
+        <a href="../user-dashboard.html">User Dashboard</a>
+        <a href="../seller-dashboard.html">Seller Dashboard</a>
+        <a href="../admin-dashboard.html">Admin Dashboard</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="container">
+      <section class="hero">
+        <h1>Startup Revenue Engine (Money-Making Features)</h1>
+        <p>Purane modules ko touch kiye bina, existing live APIs ko ek professional command center me combine kiya gaya hai.</p>
+        <p>Documentation, loan, insurance, movers/interior, valuation, rent agreement, auction, franchise aur must-have 5 features ek jagah.</p>
+        <div class="hero-chips">
+          <span>No legacy removal</span>
+          <span>Live API backed</span>
+          <span>Startup monetization ready</span>
+          <span>Admin pipeline visibility</span>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="cardx full">
+          <h2>Revenue Pipeline Pulse</h2>
+          <p id="srEnginePulseStatus" class="muted">Loading live revenue queues...</p>
+          <div id="srEngineKpiGrid" class="kpi-grid">
+            <div class="kpi"><small>Documentation</small><b>0</b></div>
+            <div class="kpi"><small>Loan Leads</small><b>0</b></div>
+            <div class="kpi"><small>Ecosystem Bookings</small><b>0</b></div>
+            <div class="kpi"><small>Insurance Tie-ups</small><b>0</b></div>
+            <div class="kpi"><small>Tenant Damage</small><b>0</b></div>
+            <div class="kpi"><small>Rent Drafts</small><b>0</b></div>
+            <div class="kpi"><small>Franchise Leads</small><b>0</b></div>
+            <div class="kpi"><small>Open Pipeline</small><b>0</b></div>
+          </div>
+          <div class="quick-links">
+            <button id="srEngineRefreshBtn" class="solid-btn" type="button">Refresh Live Pulse</button>
+            <a class="outline-btn dark-outline" href="ecosystem-services.html">Open Full Ecosystem Desk</a>
+          </div>
+          <ul id="srEngineFeed" class="feed">
+            <li>Loading recent actions...</li>
+          </ul>
+        </article>
+
+        <article class="cardx">
+          <h2>Property Documentation Service</h2>
+          <div class="field">
+            <label for="srDocService">Service</label>
+            <select id="srDocService"><option value="">Loading...</option></select>
+          </div>
+          <div class="field">
+            <label for="srDocPropertyId">Property ID (Optional)</label>
+            <input id="srDocPropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="srDocDetails">Details</label>
+            <textarea id="srDocDetails" placeholder="Agreement / Registry / Legal help details"></textarea>
+          </div>
+          <button id="srDocSubmitBtn" class="solid-btn" type="button">Submit Documentation Request</button>
+          <p id="srDocStatus" class="muted"></p>
+
+          <div class="divider"></div>
+
+          <h2 style="margin-top:0;">Loan Assistance (Bank Tie-up)</h2>
+          <div class="field">
+            <label for="srLoanBank">Partner Bank</label>
+            <select id="srLoanBank"><option value="">Loading...</option></select>
+          </div>
+          <div class="field">
+            <label for="srLoanAmount">Loan Amount (INR)</label>
+            <input id="srLoanAmount" type="number" min="0" placeholder="e.g. 3500000" />
+          </div>
+          <div class="field">
+            <label for="srPropertyValue">Property Value (INR)</label>
+            <input id="srPropertyValue" type="number" min="0" placeholder="e.g. 4700000" />
+          </div>
+          <div class="field">
+            <label for="srLoanLocality">Locality</label>
+            <input id="srLoanLocality" placeholder="e.g. Bhuwana" />
+          </div>
+          <button id="srLoanSubmitBtn" class="solid-btn" type="button">Submit Loan Lead</button>
+          <p id="srLoanStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Advanced Ecosystem Booking</h2>
+          <div class="field">
+            <label for="srEcoService">Service</label>
+            <select id="srEcoService"><option value="">Loading...</option></select>
+          </div>
+          <div class="field">
+            <label for="srEcoPropertyId">Property ID (Optional)</label>
+            <input id="srEcoPropertyId" placeholder="e.g. property-101" />
+          </div>
+          <div class="field">
+            <label for="srEcoLocality">Locality</label>
+            <input id="srEcoLocality" placeholder="e.g. Sukher" />
+          </div>
+          <div class="field">
+            <label for="srEcoDate">Preferred Date</label>
+            <input id="srEcoDate" type="datetime-local" />
+          </div>
+          <div class="field">
+            <label for="srEcoBudget">Budget (INR)</label>
+            <input id="srEcoBudget" type="number" min="0" placeholder="e.g. 12000" />
+          </div>
+          <button id="srEcoSubmitBtn" class="solid-btn" type="button">Submit Ecosystem Booking</button>
+          <p id="srEcoStatus" class="muted"></p>
+
+          <div class="divider"></div>
+
+          <h2 style="margin-top:0;">Home Insurance Tie-up</h2>
+          <div class="field">
+            <label for="srInsuranceCompany">Company Name</label>
+            <input id="srInsuranceCompany" placeholder="Insurance / Security partner" />
+          </div>
+          <div class="field">
+            <label for="srInsuranceType">Tie-up Type</label>
+            <select id="srInsuranceType">
+              <option value="insurance-security">Insurance + Security</option>
+              <option value="insurance">Insurance Only</option>
+              <option value="security">Security Audit Partner</option>
+              <option value="tenant-damage-protection">Tenant Damage Protection Partner</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="srCoverageAmount">Coverage Amount (INR)</label>
+            <input id="srCoverageAmount" type="number" min="0" placeholder="e.g. 500000" />
+          </div>
+          <button id="srInsuranceSubmitBtn" class="solid-btn" type="button">Submit Insurance Tie-up Lead</button>
+          <p id="srInsuranceStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Property Valuation Tool</h2>
+          <div class="field">
+            <label for="srValuationLocality">Locality</label>
+            <input id="srValuationLocality" value="Udaipur" />
+          </div>
+          <div class="field">
+            <label for="srValuationType">Property Type</label>
+            <select id="srValuationType">
+              <option>House</option>
+              <option>Flat</option>
+              <option>Plot</option>
+              <option>Commercial</option>
+              <option>Farm House</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="srValuationArea">Area (sqft)</label>
+            <input id="srValuationArea" type="number" min="100" value="1200" />
+          </div>
+          <div class="field">
+            <label for="srValuationBeds">Bedrooms</label>
+            <input id="srValuationBeds" type="number" min="0" value="2" />
+          </div>
+          <div class="field">
+            <label for="srValuationAge">Property Age (years)</label>
+            <input id="srValuationAge" type="number" min="0" value="2" />
+          </div>
+          <button id="srValuationRunBtn" class="solid-btn" type="button">Run Valuation</button>
+          <p id="srValuationStatus" class="muted"></p>
+
+          <div class="divider"></div>
+
+          <h2 style="margin-top:0;">Franchise Lead Intake</h2>
+          <div class="field">
+            <label for="srFranchiseCity">Target City</label>
+            <input id="srFranchiseCity" placeholder="e.g. Jaipur" />
+          </div>
+          <div class="field">
+            <label for="srFranchiseBudget">Investment Budget (INR)</label>
+            <input id="srFranchiseBudget" type="number" min="0" placeholder="e.g. 2500000" />
+          </div>
+          <div class="field">
+            <label for="srFranchiseExperience">Experience (years)</label>
+            <input id="srFranchiseExperience" type="number" min="0" value="1" />
+          </div>
+          <button id="srFranchiseSubmitBtn" class="solid-btn" type="button">Submit Franchise Lead</button>
+          <p id="srFranchiseStatus" class="muted"></p>
+        </article>
+
+        <article class="cardx">
+          <h2>Rent Agreement Generator</h2>
+          <div class="field">
+            <label for="srRentOwner">Owner Name</label>
+            <input id="srRentOwner" placeholder="Owner full name" />
+          </div>
+          <div class="field">
+            <label for="srRentTenant">Tenant Name</label>
+            <input id="srRentTenant" placeholder="Tenant full name" />
+          </div>
+          <div class="field">
+            <label for="srRentAddress">Property Address</label>
+            <textarea id="srRentAddress" placeholder="Full property address"></textarea>
+          </div>
+          <div class="field">
+            <label for="srRentAmount">Monthly Rent (INR)</label>
+            <input id="srRentAmount" type="number" min="0" placeholder="e.g. 18000" />
+          </div>
+          <div class="field">
+            <label for="srRentDeposit">Security Deposit (INR)</label>
+            <input id="srRentDeposit" type="number" min="0" placeholder="e.g. 36000" />
+          </div>
+          <button id="srRentGenerateBtn" class="solid-btn" type="button">Generate Draft</button>
+          <textarea id="srRentDraft" readonly placeholder="Generated rent agreement draft appears here"></textarea>
+          <p id="srRentStatus" class="muted"></p>
+
+          <div class="divider"></div>
+
+          <h2 style="margin-top:0;">Auction & Expansion</h2>
+          <div class="quick-links">
+            <a class="outline-btn dark-outline" href="../auction.html">Open Auction System</a>
+            <a class="outline-btn dark-outline" href="../seller-dashboard.html">Open Seller Auction Tools</a>
+            <a class="outline-btn dark-outline" href="../admin-dashboard.html">Open Admin Auction Control</a>
+          </div>
+        </article>
+
+        <article class="cardx full">
+          <h2>Must-Have 5 Features (Live Access)</h2>
+          <div class="must-grid">
+            <div class="must-item">
+              <b>Visit Booking</b>
+              <p>Customer selects slot, owner gets notification.</p>
+              <a class="solid-btn" href="../user-dashboard.html">Open Visit Booking</a>
+            </div>
+            <div class="must-item">
+              <b>Chat System</b>
+              <p>Buyer and seller secure chat with anti-spam flow.</p>
+              <a class="solid-btn" href="../user-dashboard.html">Open Chat</a>
+            </div>
+            <div class="must-item">
+              <b>Wishlist</b>
+              <p>Save and compare listings for conversion uplift.</p>
+              <a class="solid-btn" href="../user-dashboard.html">Open Wishlist</a>
+            </div>
+            <div class="must-item">
+              <b>EMI Calculator</b>
+              <p>Loan amount based EMI intelligence for buyers.</p>
+              <a class="solid-btn" href="../property-details.html">Open EMI Tools</a>
+            </div>
+            <div class="must-item">
+              <b>Featured Paid Boost</b>
+              <p>Seller paid boost and admin featured pricing control.</p>
+              <a class="solid-btn" href="../seller-dashboard.html">Open Boost Panel</a>
+            </div>
+          </div>
+          <div class="quick-links">
+            <a class="outline-btn dark-outline" href="../subscription.html">Subscription & Featured Plans</a>
+            <a class="outline-btn dark-outline" href="insurance-security.html">Insurance & Tenant Damage</a>
+            <a class="outline-btn dark-outline" href="ecosystem-services.html">Full Ecosystem Desk</a>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/live-api.js"></script>
+  <script src="../js/startup-revenue-engine.js"></script>
+  <script src="../js/folder-command-dock.js"></script>
+</body>
+</html>

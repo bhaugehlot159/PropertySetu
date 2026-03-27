@@ -15,6 +15,7 @@
     { "path": "/insurance-security", "file": "pages/insurance-security.html", "feature": "Insurance & Security", "status": "live" },
     { "path": "/premium-services", "file": "pages/premium-services.html", "feature": "Premium Services", "status": "live" },
     { "path": "/ecosystem-services", "file": "pages/ecosystem-services.html", "feature": "Advanced Ecosystem", "status": "live" },
+    { "path": "/startup-revenue-engine", "file": "pages/startup-revenue-engine.html", "feature": "Startup Revenue Engine", "status": "live" },
     { "path": "/add-property", "file": "add-property.html", "feature": "Listing Upload", "status": "live" },
     { "path": "/property-details", "file": "property-details.html", "feature": "Property Detail", "status": "live" },
     { "path": "/customer-dashboard", "file": "user-dashboard.html", "feature": "Customer Dashboard", "status": "live" },

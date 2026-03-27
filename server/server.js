@@ -35,6 +35,7 @@ const liveRouteMap = [
   { path: "/insurance-security", file: "pages/insurance-security.html", feature: "insurance-security", live: true },
   { path: "/premium-services", file: "pages/premium-services.html", feature: "premium-services", live: true },
   { path: "/ecosystem-services", file: "pages/ecosystem-services.html", feature: "ecosystem-services", live: true },
+  { path: "/startup-revenue-engine", file: "pages/startup-revenue-engine.html", feature: "startup-revenue-engine", live: true },
   { path: "/live-platform-app", file: "pages/live-platform-app.html", feature: "full-stack-live-app", live: true },
   { path: "/part-2-live-stack", file: "pages/live-platform-app.html", feature: "part-2-full-stack-proof", live: true },
   { path: "/add-property", file: "add-property.html", feature: "listing-upload", live: true },
