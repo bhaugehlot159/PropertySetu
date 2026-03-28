@@ -7,7 +7,9 @@ import {
   getCoreSystemBlueprint,
   getCoreSystemExecutionPlan,
   getCoreSystemSecurityAudit,
-  getCoreSystemSecurityIntelligence
+  getCoreSystemSecurityIntelligence,
+  quarantineCoreSystemSecurityThreatProfile,
+  releaseCoreSystemSecurityThreatProfile
 } from "../controllers/coreSystemController.js";
 import { coreAuthRequired, coreRoleRequired } from "../middleware/coreAuthMiddleware.js";
 
@@ -21,5 +23,7 @@ router.get("/core-systems", getCoreSystemBlueprint);
 router.get("/execution-plan", getCoreSystemExecutionPlan);
 router.get("/security-audit", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityAudit);
 router.get("/security-intelligence", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityIntelligence);
+router.post("/security-intelligence/release", coreAuthRequired, coreRoleRequired("admin"), releaseCoreSystemSecurityThreatProfile);
+router.post("/security-intelligence/quarantine", coreAuthRequired, coreRoleRequired("admin"), quarantineCoreSystemSecurityThreatProfile);
 
 export default router;

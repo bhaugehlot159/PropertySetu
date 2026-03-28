@@ -10,7 +10,11 @@ import {
 import {
   createProRateLimiter,
   getProSecurityAuditEvents,
-  getProSecurityThreatIntelligence
+  getProSecurityThreatIntelligence,
+  isValidProSecurityThreatFingerprint,
+  normalizeProSecurityThreatFingerprint,
+  quarantineProSecurityThreatProfile,
+  releaseProSecurityThreatProfile
 } from "../middleware/proSecurityMiddleware.js";
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
 
@@ -402,7 +406,16 @@ router.get("/system/capabilities", (_req, res) => {
       system: "/api/v3/system/*",
       securityAudit: "/api/system/security-audit",
       securityIntelligence: "/api/system/security-intelligence",
-      securityAuditV3: "/api/v3/system/security-audit"
+      securityIntelligenceManage: [
+        "/api/system/security-intelligence/release",
+        "/api/system/security-intelligence/quarantine"
+      ],
+      securityAuditV3: "/api/v3/system/security-audit",
+      securityIntelligenceV3: "/api/v3/system/security-intelligence",
+      securityIntelligenceManageV3: [
+        "/api/v3/system/security-intelligence/release",
+        "/api/v3/system/security-intelligence/quarantine"
+      ]
     }
   });
 });
@@ -444,6 +457,95 @@ router.get(
         role: actor.role
       },
       ...intelligence
+    });
+  }
+);
+
+router.post(
+  "/system/security-intelligence/release",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    const fingerprint = normalizeProSecurityThreatFingerprint(req.body?.fingerprint);
+    if (!fingerprint) {
+      return res.status(400).json({
+        ok: false,
+        message: "fingerprint is required."
+      });
+    }
+    if (!isValidProSecurityThreatFingerprint(fingerprint)) {
+      return res.status(400).json({
+        ok: false,
+        message: "Invalid fingerprint format."
+      });
+    }
+
+    const profile = releaseProSecurityThreatProfile(fingerprint);
+    if (!profile) {
+      return res.status(404).json({
+        ok: false,
+        message: "Threat profile not found for fingerprint."
+      });
+    }
+
+    return res.json({
+      ok: true,
+      action: "released",
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      profile
+    });
+  }
+);
+
+router.post(
+  "/system/security-intelligence/quarantine",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    const fingerprint = normalizeProSecurityThreatFingerprint(req.body?.fingerprint);
+    const durationMs = Math.max(60_000, Math.min(toNumber(req.body?.durationMs, 30 * 60 * 1000), 24 * 60 * 60 * 1000));
+    const reason = text(req.body?.reason || "manual-admin-quarantine").slice(0, 200);
+
+    if (!fingerprint) {
+      return res.status(400).json({
+        ok: false,
+        message: "fingerprint is required."
+      });
+    }
+    if (!isValidProSecurityThreatFingerprint(fingerprint)) {
+      return res.status(400).json({
+        ok: false,
+        message: "Invalid fingerprint format."
+      });
+    }
+
+    const profile = quarantineProSecurityThreatProfile(fingerprint, {
+      durationMs,
+      reason: reason || "manual-admin-quarantine"
+    });
+
+    if (!profile) {
+      return res.status(400).json({
+        ok: false,
+        message: "Unable to quarantine threat profile."
+      });
+    }
+
+    return res.json({
+      ok: true,
+      action: "quarantined",
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      profile
     });
   }
 );

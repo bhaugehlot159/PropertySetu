@@ -43,8 +43,65 @@ const THREAT_PROFILE_MAX_SIZE = Math.max(
   200,
   Number(process.env.THREAT_PROFILE_MAX_SIZE || 6000)
 );
+const THREAT_BURST_WINDOW_MS = Math.max(
+  5_000,
+  Number(process.env.THREAT_BURST_WINDOW_MS || 60_000)
+);
+const THREAT_BURST_REQUEST_THRESHOLD = Math.max(
+  10,
+  Number(process.env.THREAT_BURST_REQUEST_THRESHOLD || 75)
+);
+const THREAT_SCAN_WINDOW_MS = Math.max(
+  30_000,
+  Number(process.env.THREAT_SCAN_WINDOW_MS || 5 * 60 * 1000)
+);
+const THREAT_SCAN_PATH_THRESHOLD = Math.max(
+  5,
+  Number(process.env.THREAT_SCAN_PATH_THRESHOLD || 30)
+);
+const THREAT_CREDENTIAL_STUFFING_WINDOW_MS = Math.max(
+  60_000,
+  Number(process.env.THREAT_CREDENTIAL_STUFFING_WINDOW_MS || 10 * 60 * 1000)
+);
+const THREAT_CREDENTIAL_STUFFING_IDENTITY_THRESHOLD = Math.max(
+  3,
+  Number(process.env.THREAT_CREDENTIAL_STUFFING_IDENTITY_THRESHOLD || 15)
+);
+const THREAT_MANUAL_QUARANTINE_MAX_MS = Math.max(
+  THREAT_BLOCK_DURATION_MS,
+  Number(process.env.THREAT_MANUAL_QUARANTINE_MAX_MS || 24 * 60 * 60 * 1000)
+);
+const THREAT_FINGERPRINT_PATTERN = /^[a-f0-9]{24}$/i;
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const NULL_BYTE_PATTERN = /\0/;
+const SUSPICIOUS_USER_AGENT_PATTERNS = [
+  /sqlmap/i,
+  /nikto/i,
+  /acunetix/i,
+  /nmap/i,
+  /masscan/i,
+  /w3af/i,
+  /havij/i,
+  /python-requests\/\d+/i,
+  /curl\/\d+/i,
+  /wget\/\d+/i
+];
+const HONEYPOT_FIELD_NAMES = [
+  "website",
+  "url",
+  "homepage",
+  "honeypot",
+  "contact_time",
+  "middle_name",
+  "fax_number",
+  "bot_field",
+  "hp_token"
+];
+const ALLOWED_API_CONTENT_TYPES = [
+  "application/json",
+  "application/x-www-form-urlencoded",
+  "multipart/form-data"
+];
 const THREAT_DETECTION_RULES = [
   {
     id: "sql-injection-pattern",
@@ -82,6 +139,13 @@ const SENSITIVE_PUBLIC_PATH_RULES = [
   /^\/database\/.*\.json$/i,
   /^\/server\/.*\.(?:js|mjs|cjs|map)$/i,
   /^\/backend\/.*\.(?:js|mjs|cjs|map)$/i
+];
+const THREAT_DETECTION_EXCLUDED_PATHS = [
+  /^\/api\/health(?:\/|$)/i,
+  /^\/api\/v2\/health(?:\/|$)/i,
+  /^\/api\/v3\/health(?:\/|$)/i,
+  /^\/api\/system\/security-intelligence(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i
 ];
 
 function text(value, fallback = "") {
@@ -131,6 +195,62 @@ function requestFingerprint(req) {
   const ip = getClientIp(req);
   const ua = text(req?.headers?.["user-agent"]).slice(0, 256);
   return sha256(`${ip}|${ua}`).slice(0, 24);
+}
+
+export function normalizeProSecurityThreatFingerprint(value = "") {
+  return text(value).toLowerCase();
+}
+
+export function isValidProSecurityThreatFingerprint(value = "") {
+  const normalized = normalizeProSecurityThreatFingerprint(value);
+  return THREAT_FINGERPRINT_PATTERN.test(normalized);
+}
+
+function normalizeContentType(value) {
+  return text(value).split(";")[0].trim().toLowerCase();
+}
+
+function isApiBodyMethod(method = "") {
+  const raw = text(method).toUpperCase();
+  return raw === "POST" || raw === "PUT" || raw === "PATCH" || raw === "DELETE";
+}
+
+function hasBodyPayload(req) {
+  const contentLength = Number(req?.headers?.["content-length"] || 0);
+  if (Number.isFinite(contentLength) && contentLength > 0) return true;
+  const body = req?.body;
+  if (body === null || typeof body === "undefined") return false;
+  if (typeof body === "string") return body.trim().length > 0;
+  if (Array.isArray(body)) return body.length > 0;
+  if (typeof body === "object") return Object.keys(body).length > 0;
+  return false;
+}
+
+function isSuspiciousUserAgent(req) {
+  const ua = text(req?.headers?.["user-agent"]);
+  if (!ua) return false;
+  return SUSPICIOUS_USER_AGENT_PATTERNS.some((rule) => rule.test(ua));
+}
+
+function findHoneypotFieldHit(req) {
+  const body = req?.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  for (const fieldName of HONEYPOT_FIELD_NAMES) {
+    const value = body[fieldName];
+    if (!text(value)) continue;
+    return fieldName;
+  }
+  return "";
+}
+
+function extractAuthIdentitySample(req) {
+  const requestPath = String(req?.originalUrl || req?.path || "");
+  if (!requestPath.includes("/auth")) return "";
+  const identity = text(
+    req?.body?.emailOrPhone || req?.body?.email || req?.body?.phone || req?.body?.mobile
+  ).toLowerCase();
+  if (!identity) return "";
+  return identity.slice(0, 120);
 }
 
 function pruneThreatProfiles() {
@@ -230,6 +350,26 @@ function evaluateThreatScore(req) {
   if (totalPayloadSize > 200_000) score += 20;
   if (text(req?.method).toUpperCase() === "TRACE") score += 20;
 
+  if (isSuspiciousUserAgent(req)) {
+    score += 35;
+    matchedRules.push("suspicious-user-agent-pattern");
+  }
+
+  const honeypotField = findHoneypotFieldHit(req);
+  if (honeypotField) {
+    score += 55;
+    matchedRules.push(`honeypot-field-hit:${honeypotField}`);
+  }
+
+  if (isApiBodyMethod(req?.method) && hasBodyPayload(req)) {
+    const contentType = normalizeContentType(req?.headers?.["content-type"]);
+    const allowed = ALLOWED_API_CONTENT_TYPES.some((item) => contentType.startsWith(item));
+    if (!allowed) {
+      score += 28;
+      matchedRules.push(`unexpected-content-type:${contentType || "missing"}`);
+    }
+  }
+
   return {
     score,
     matchedRules,
@@ -242,7 +382,11 @@ function nextProfileState(current = {}, nowTs = Date.now()) {
     riskScore: Math.max(0, Number(current.riskScore || 0)),
     lastSeenAt: Number(current.lastSeenAt || nowTs),
     blockUntil: Number(current.blockUntil || 0),
-    incidentCount: Math.max(0, Number(current.incidentCount || 0))
+    incidentCount: Math.max(0, Number(current.incidentCount || 0)),
+    recentHits: Array.isArray(current.recentHits) ? current.recentHits : [],
+    recentPaths: Array.isArray(current.recentPaths) ? current.recentPaths : [],
+    authIdentityTrail: Array.isArray(current.authIdentityTrail) ? current.authIdentityTrail : [],
+    quarantineReason: text(current.quarantineReason)
   };
   const elapsed = Math.max(0, nowTs - previous.lastSeenAt);
   const decayFactor = Math.max(0, 1 - elapsed / THREAT_SCORE_DECAY_WINDOW_MS);
@@ -251,6 +395,154 @@ function nextProfileState(current = {}, nowTs = Date.now()) {
     ...previous,
     riskScore: decayedRisk,
     lastSeenAt: nowTs
+  };
+}
+
+function applyBehaviorSignals({ req, state, nowTs }) {
+  const matchedRules = [];
+  let score = 0;
+
+  const recentHits = [...state.recentHits, nowTs].filter(
+    (stamp) => Number(stamp) >= nowTs - THREAT_BURST_WINDOW_MS
+  );
+  if (recentHits.length >= THREAT_BURST_REQUEST_THRESHOLD) {
+    score += 28;
+    matchedRules.push("burst-traffic-pattern");
+  }
+
+  const requestPath = text(req?.originalUrl || req?.path || "/");
+  const recentPaths = [...state.recentPaths, { path: requestPath, at: nowTs }].filter(
+    (item) => Number(item?.at || 0) >= nowTs - THREAT_SCAN_WINDOW_MS
+  );
+  const distinctPathCount = new Set(recentPaths.map((item) => text(item.path))).size;
+  if (distinctPathCount >= THREAT_SCAN_PATH_THRESHOLD) {
+    score += 24;
+    matchedRules.push("endpoint-scan-pattern");
+  }
+
+  const authIdentity = extractAuthIdentitySample(req);
+  const authIdentityTrail = [...state.authIdentityTrail];
+  if (authIdentity) {
+    authIdentityTrail.push({ identity: authIdentity, at: nowTs });
+  }
+  const normalizedAuthTrail = authIdentityTrail.filter(
+    (item) => Number(item?.at || 0) >= nowTs - THREAT_CREDENTIAL_STUFFING_WINDOW_MS
+  );
+  const distinctIdentityCount = new Set(
+    normalizedAuthTrail.map((item) => text(item.identity)).filter(Boolean)
+  ).size;
+  if (distinctIdentityCount >= THREAT_CREDENTIAL_STUFFING_IDENTITY_THRESHOLD) {
+    score += 46;
+    matchedRules.push("credential-stuffing-pattern");
+  }
+
+  return {
+    score,
+    matchedRules,
+    recentHits,
+    recentPaths,
+    authIdentityTrail: normalizedAuthTrail
+  };
+}
+
+export function releaseProSecurityThreatProfile(fingerprint = "") {
+  const key = normalizeProSecurityThreatFingerprint(fingerprint);
+  if (!isValidProSecurityThreatFingerprint(key)) return null;
+
+  const current = proThreatProfiles.get(key);
+  if (!current) return null;
+
+  const nextState = {
+    ...current,
+    riskScore: Math.max(0, Math.round(Number(current.riskScore || 0) * 0.4)),
+    blockUntil: 0,
+    quarantineReason: "",
+    lastSeenAt: Date.now()
+  };
+  proThreatProfiles.set(key, nextState);
+  pushSecurityAuditEventInternal({
+    severity: "medium",
+    type: "manual-threat-profile-release",
+    fingerprint: key,
+    method: "POST",
+    path: "/api/system/security-intelligence/release",
+    details: {
+      riskScore: Math.max(0, Number(nextState.riskScore || 0)),
+      incidentCount: Math.max(0, Number(nextState.incidentCount || 0))
+    }
+  });
+  return {
+    fingerprint: key,
+    riskScore: Math.max(0, Number(nextState.riskScore || 0)),
+    blockUntil: 0,
+    incidentCount: Math.max(0, Number(nextState.incidentCount || 0)),
+    status: "released"
+  };
+}
+
+export function quarantineProSecurityThreatProfile(
+  fingerprint = "",
+  {
+    durationMs = THREAT_BLOCK_DURATION_MS,
+    reason = "manual-admin-quarantine",
+    minRiskScore = THREAT_SCORE_BLOCK_THRESHOLD
+  } = {}
+) {
+  const key = normalizeProSecurityThreatFingerprint(fingerprint);
+  if (!isValidProSecurityThreatFingerprint(key)) return null;
+
+  const nowTs = Date.now();
+  const safeDuration = Math.max(
+    60_000,
+    Math.min(THREAT_MANUAL_QUARANTINE_MAX_MS, Number(durationMs || THREAT_BLOCK_DURATION_MS))
+  );
+  const current = nextProfileState(proThreatProfiles.get(key), nowTs);
+  const nextState = {
+    ...current,
+    riskScore: Math.max(
+      Math.max(0, Number(current.riskScore || 0)),
+      Math.max(1, Number(minRiskScore || THREAT_SCORE_BLOCK_THRESHOLD))
+    ),
+    blockUntil: nowTs + safeDuration,
+    quarantineReason: text(reason, "manual-admin-quarantine"),
+    incidentCount: Math.max(0, Number(current.incidentCount || 0)) + 1,
+    lastSeenAt: nowTs
+  };
+  proThreatProfiles.set(key, nextState);
+  pruneThreatProfiles();
+
+  pushThreatIncident({
+    fingerprint: key,
+    ip: "",
+    requestId: "",
+    path: "manual-admin",
+    method: "POST",
+    riskScore: 0,
+    cumulativeRiskScore: nextState.riskScore,
+    blocked: true,
+    reason: nextState.quarantineReason,
+    rules: ["manual-admin-quarantine"]
+  });
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "manual-threat-profile-quarantine",
+    fingerprint: key,
+    method: "POST",
+    path: "/api/system/security-intelligence/quarantine",
+    details: {
+      riskScore: Math.max(0, Number(nextState.riskScore || 0)),
+      blockUntil: nextState.blockUntil,
+      reason: nextState.quarantineReason
+    }
+  });
+
+  return {
+    fingerprint: key,
+    riskScore: Math.max(0, Number(nextState.riskScore || 0)),
+    blockUntil: nextState.blockUntil,
+    incidentCount: Math.max(0, Number(nextState.incidentCount || 0)),
+    status: "quarantined",
+    reason: nextState.quarantineReason
   };
 }
 
@@ -263,7 +555,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       riskScore: Math.max(0, Number(profile?.riskScore || 0)),
       blockUntil: Number(profile?.blockUntil || 0),
       incidentCount: Math.max(0, Number(profile?.incidentCount || 0)),
-      lastSeenAt: Number(profile?.lastSeenAt || 0)
+      lastSeenAt: Number(profile?.lastSeenAt || 0),
+      quarantineReason: text(profile?.quarantineReason),
+      status: Number(profile?.blockUntil || 0) > Date.now() ? "blocked" : "watch"
     }))
     .sort((a, b) => b.riskScore - a.riskScore || b.lastSeenAt - a.lastSeenAt)
     .slice(0, Math.min(200, safeLimit));
@@ -431,6 +725,11 @@ function isSensitivePublicPath(requestPath) {
   return SENSITIVE_PUBLIC_PATH_RULES.some((rule) => rule.test(normalized));
 }
 
+function isThreatDetectionExcludedPath(requestPath) {
+  const normalized = normalizeRequestPath(requestPath);
+  return THREAT_DETECTION_EXCLUDED_PATHS.some((rule) => rule.test(normalized));
+}
+
 export function proBlockSensitivePublicFiles(req, res, next) {
   const requestPath = normalizeRequestPath(req.path || req.originalUrl || "/");
   if (requestPath.startsWith("/api")) return next();
@@ -578,6 +877,7 @@ export function proAiThreatAutoDetector(req, res, next) {
 
   const requestPath = String(req.originalUrl || req.baseUrl || req.path || "");
   if (!requestPath.startsWith("/api")) return next();
+  if (isThreatDetectionExcludedPath(requestPath)) return next();
 
   const fingerprint = requestFingerprint(req);
   const nowTs = Date.now();
@@ -603,36 +903,57 @@ export function proAiThreatAutoDetector(req, res, next) {
   }
 
   const evaluation = evaluateThreatScore(req);
-  if (evaluation.score <= 0) {
-    proThreatProfiles.set(fingerprint, current);
+  const behavior = applyBehaviorSignals({
+    req,
+    state: current,
+    nowTs
+  });
+
+  const riskScore = Math.max(0, Number(evaluation.score || 0)) + Math.max(0, Number(behavior.score || 0));
+  const matchedRules = [...new Set([
+    ...evaluation.matchedRules,
+    ...behavior.matchedRules
+  ])];
+
+  if (riskScore <= 0) {
+    proThreatProfiles.set(fingerprint, {
+      ...current,
+      recentHits: behavior.recentHits,
+      recentPaths: behavior.recentPaths,
+      authIdentityTrail: behavior.authIdentityTrail
+    });
     pruneThreatProfiles();
     return next();
   }
 
-  const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + evaluation.score;
+  const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + riskScore;
   const shouldQuarantine = cumulativeRiskScore >= THREAT_SCORE_BLOCK_THRESHOLD;
   const nextState = {
     ...current,
     riskScore: cumulativeRiskScore,
     lastSeenAt: nowTs,
     incidentCount: Math.max(0, Number(current.incidentCount || 0)) + 1,
-    blockUntil: shouldQuarantine ? nowTs + THREAT_BLOCK_DURATION_MS : Number(current.blockUntil || 0)
+    blockUntil: shouldQuarantine ? nowTs + THREAT_BLOCK_DURATION_MS : Number(current.blockUntil || 0),
+    recentHits: behavior.recentHits,
+    recentPaths: behavior.recentPaths,
+    authIdentityTrail: behavior.authIdentityTrail,
+    quarantineReason: shouldQuarantine ? "ai-auto-quarantine" : text(current.quarantineReason)
   };
   proThreatProfiles.set(fingerprint, nextState);
   pruneThreatProfiles();
 
-  if (evaluation.score >= THREAT_SCORE_ALERT_THRESHOLD || shouldQuarantine) {
+  if (riskScore >= THREAT_SCORE_ALERT_THRESHOLD || shouldQuarantine) {
     pushThreatIncident({
       fingerprint,
       ip: getClientIp(req),
       requestId: req.requestId,
       path: requestPath,
       method: req.method,
-      riskScore: evaluation.score,
+      riskScore,
       cumulativeRiskScore,
       blocked: shouldQuarantine,
       reason: shouldQuarantine ? "ai-auto-quarantine" : "ai-auto-alert",
-      rules: evaluation.matchedRules
+      rules: matchedRules
     });
 
     pushProSecurityAuditEvent(req, {
@@ -640,9 +961,9 @@ export function proAiThreatAutoDetector(req, res, next) {
       type: shouldQuarantine ? "ai-threat-quarantine" : "ai-threat-alert",
       details: {
         fingerprint,
-        riskScore: evaluation.score,
+        riskScore,
         cumulativeRiskScore,
-        rules: evaluation.matchedRules,
+        rules: matchedRules,
         payloadBytes: evaluation.totalPayloadSize
       }
     });

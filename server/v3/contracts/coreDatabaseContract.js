@@ -203,8 +203,12 @@ export const coreSystemsBlueprint = [
       "/api/sealed-bids/*",
       "/api/system/security-audit",
       "/api/system/security-intelligence",
+      "/api/system/security-intelligence/release",
+      "/api/system/security-intelligence/quarantine",
       "/api/v3/system/security-audit",
-      "/api/v3/system/security-intelligence"
+      "/api/v3/system/security-intelligence",
+      "/api/v3/system/security-intelligence/release",
+      "/api/v3/system/security-intelligence/quarantine"
     ],
     dependencies: ["authentication", "backendServer"]
   },

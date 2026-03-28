@@ -6,7 +6,11 @@ import { getStorageProvider } from "../../config/proStorage.js";
 import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
 import {
   getProSecurityAuditEvents,
-  getProSecurityThreatIntelligence
+  getProSecurityThreatIntelligence,
+  isValidProSecurityThreatFingerprint,
+  normalizeProSecurityThreatFingerprint,
+  quarantineProSecurityThreatProfile,
+  releaseProSecurityThreatProfile
 } from "../../middleware/proSecurityMiddleware.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
@@ -552,5 +556,83 @@ export function getCoreSystemSecurityIntelligence(req, res) {
       role: String(req.coreUser?.role || "")
     },
     ...intelligence
+  });
+}
+
+export function releaseCoreSystemSecurityThreatProfile(req, res) {
+  const fingerprint = normalizeProSecurityThreatFingerprint(req.body?.fingerprint);
+  if (!fingerprint) {
+    return res.status(400).json({
+      success: false,
+      message: "fingerprint is required."
+    });
+  }
+  if (!isValidProSecurityThreatFingerprint(fingerprint)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid fingerprint format."
+    });
+  }
+
+  const profile = releaseProSecurityThreatProfile(fingerprint);
+  if (!profile) {
+    return res.status(404).json({
+      success: false,
+      message: "Threat profile not found for fingerprint."
+    });
+  }
+
+  return res.json({
+    success: true,
+    action: "released",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    profile
+  });
+}
+
+export function quarantineCoreSystemSecurityThreatProfile(req, res) {
+  const fingerprint = normalizeProSecurityThreatFingerprint(req.body?.fingerprint);
+  const reason = text(req.body?.reason || "manual-admin-quarantine").slice(0, 200);
+  const durationMs = Math.max(
+    60_000,
+    Math.min(Number(req.body?.durationMs || 30 * 60 * 1000), 24 * 60 * 60 * 1000)
+  );
+
+  if (!fingerprint) {
+    return res.status(400).json({
+      success: false,
+      message: "fingerprint is required."
+    });
+  }
+  if (!isValidProSecurityThreatFingerprint(fingerprint)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid fingerprint format."
+    });
+  }
+
+  const profile = quarantineProSecurityThreatProfile(fingerprint, {
+    durationMs,
+    reason: reason || "manual-admin-quarantine"
+  });
+
+  if (!profile) {
+    return res.status(400).json({
+      success: false,
+      message: "Unable to quarantine threat profile."
+    });
+  }
+
+  return res.json({
+    success: true,
+    action: "quarantined",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    profile
   });
 }
