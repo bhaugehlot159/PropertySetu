@@ -12,9 +12,11 @@ import {
   createProSafeStaticOptions,
   proAiThreatAutoDetector,
   createProCorsOptions,
+  getProSecurityControlState,
   isValidProSecurityThreatFingerprint,
   normalizeProSecurityThreatFingerprint,
   quarantineProSecurityThreatProfile,
+  resetProSecurityControlState,
   releaseProSecurityThreatProfile,
   getProSecurityThreatIntelligence,
   getProSecurityAuditEvents,
@@ -26,6 +28,7 @@ import {
   proAuthRateLimiter,
   proBlockSensitivePublicFiles,
   proRequestFirewall,
+  updateProSecurityControlState,
   proTokenFirewall,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
@@ -1159,11 +1162,21 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
       "/api/system/security-intelligence/release",
       "/api/system/security-intelligence/quarantine"
     ],
+    securityControl: "/api/system/security-control",
+    securityControlManage: [
+      "/api/system/security-control",
+      "/api/system/security-control/reset"
+    ],
     securityAuditV3: "/api/v3/system/security-audit",
     securityIntelligenceV3: "/api/v3/system/security-intelligence",
     securityIntelligenceManageV3: [
       "/api/v3/system/security-intelligence/release",
       "/api/v3/system/security-intelligence/quarantine"
+    ],
+    securityControlV3: "/api/v3/system/security-control",
+    securityControlManageV3: [
+      "/api/v3/system/security-control",
+      "/api/v3/system/security-control/reset"
     ],
   },
 }));
@@ -1259,6 +1272,56 @@ app.get("/api/system/security-intelligence", auth, admin, (req, res) => {
       role: req.user.role,
     },
     ...intelligence,
+  });
+});
+app.get("/api/system/security-control", auth, admin, (req, res) => {
+  res.json({
+    ok: true,
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role,
+    },
+    state: getProSecurityControlState(),
+  });
+});
+app.patch("/api/system/security-control", auth, admin, (req, res) => {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const patch =
+    body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
+      ? body.patch
+      : body;
+  const result = updateProSecurityControlState(patch, {
+    actorId: req.user.id,
+    actorRole: req.user.role
+  });
+
+  return res.json({
+    ok: true,
+    action: "updated",
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role
+    },
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
+  });
+});
+app.post("/api/system/security-control/reset", auth, admin, (req, res) => {
+  const result = resetProSecurityControlState({
+    actorId: req.user.id,
+    actorRole: req.user.role
+  });
+  return res.json({
+    ok: true,
+    action: "reset",
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role
+    },
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
   });
 });
 app.post("/api/system/security-intelligence/release", auth, admin, (req, res) => {

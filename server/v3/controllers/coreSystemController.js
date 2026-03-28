@@ -6,11 +6,14 @@ import { getStorageProvider } from "../../config/proStorage.js";
 import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
 import {
   getProSecurityAuditEvents,
+  getProSecurityControlState,
   getProSecurityThreatIntelligence,
   isValidProSecurityThreatFingerprint,
   normalizeProSecurityThreatFingerprint,
   quarantineProSecurityThreatProfile,
-  releaseProSecurityThreatProfile
+  releaseProSecurityThreatProfile,
+  resetProSecurityControlState,
+  updateProSecurityControlState
 } from "../../middleware/proSecurityMiddleware.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
@@ -556,6 +559,58 @@ export function getCoreSystemSecurityIntelligence(req, res) {
       role: String(req.coreUser?.role || "")
     },
     ...intelligence
+  });
+}
+
+export function getCoreSystemSecurityControl(req, res) {
+  return res.json({
+    success: true,
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    state: getProSecurityControlState()
+  });
+}
+
+export function updateCoreSystemSecurityControl(req, res) {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const patch =
+    body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
+      ? body.patch
+      : body;
+  const result = updateProSecurityControlState(patch, {
+    actorId: String(req.coreUser?.id || ""),
+    actorRole: String(req.coreUser?.role || "")
+  });
+  return res.json({
+    success: true,
+    action: "updated",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
+  });
+}
+
+export function resetCoreSystemSecurityControl(req, res) {
+  const result = resetProSecurityControlState({
+    actorId: String(req.coreUser?.id || ""),
+    actorRole: String(req.coreUser?.role || "")
+  });
+  return res.json({
+    success: true,
+    action: "reset",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
   });
 }
 

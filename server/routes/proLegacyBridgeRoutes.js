@@ -10,11 +10,14 @@ import {
 import {
   createProRateLimiter,
   getProSecurityAuditEvents,
+  getProSecurityControlState,
   getProSecurityThreatIntelligence,
   isValidProSecurityThreatFingerprint,
   normalizeProSecurityThreatFingerprint,
   quarantineProSecurityThreatProfile,
-  releaseProSecurityThreatProfile
+  releaseProSecurityThreatProfile,
+  resetProSecurityControlState,
+  updateProSecurityControlState
 } from "../middleware/proSecurityMiddleware.js";
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
 
@@ -410,11 +413,21 @@ router.get("/system/capabilities", (_req, res) => {
         "/api/system/security-intelligence/release",
         "/api/system/security-intelligence/quarantine"
       ],
+      securityControl: "/api/system/security-control",
+      securityControlManage: [
+        "/api/system/security-control",
+        "/api/system/security-control/reset"
+      ],
       securityAuditV3: "/api/v3/system/security-audit",
       securityIntelligenceV3: "/api/v3/system/security-intelligence",
       securityIntelligenceManageV3: [
         "/api/v3/system/security-intelligence/release",
         "/api/v3/system/security-intelligence/quarantine"
+      ],
+      securityControlV3: "/api/v3/system/security-control",
+      securityControlManageV3: [
+        "/api/v3/system/security-control",
+        "/api/v3/system/security-control/reset"
       ]
     }
   });
@@ -457,6 +470,79 @@ router.get(
         role: actor.role
       },
       ...intelligence
+    });
+  }
+);
+
+router.get(
+  "/system/security-control",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    return res.json({
+      ok: true,
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      state: getProSecurityControlState()
+    });
+  }
+);
+
+router.patch(
+  "/system/security-control",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+    const patch = body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
+      ? body.patch
+      : body;
+    const result = updateProSecurityControlState(patch, {
+      actorId: actor.id,
+      actorRole: actor.role
+    });
+
+    return res.json({
+      ok: true,
+      action: "updated",
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      state: result.state
+    });
+  }
+);
+
+router.post(
+  "/system/security-control/reset",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    const result = resetProSecurityControlState({
+      actorId: actor.id,
+      actorRole: actor.role
+    });
+    return res.json({
+      ok: true,
+      action: "reset",
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      state: result.state
     });
   }
 );

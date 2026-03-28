@@ -194,7 +194,8 @@ export const coreSystemsBlueprint = [
       "Request ID tracing for audits",
       "Brute-force protection on auth/OTP endpoints",
       "High-risk route throttling for admin and write actions",
-      "AI auto-detected threat scoring and temporary quarantine"
+      "AI auto-detected threat scoring and temporary quarantine",
+      "Admin-controlled security control plane (modules, thresholds, trusted fingerprints)"
     ],
     endpoints: [
       "/api/v3/auth/*",
@@ -203,10 +204,14 @@ export const coreSystemsBlueprint = [
       "/api/sealed-bids/*",
       "/api/system/security-audit",
       "/api/system/security-intelligence",
+      "/api/system/security-control",
+      "/api/system/security-control/reset",
       "/api/system/security-intelligence/release",
       "/api/system/security-intelligence/quarantine",
       "/api/v3/system/security-audit",
       "/api/v3/system/security-intelligence",
+      "/api/v3/system/security-control",
+      "/api/v3/system/security-control/reset",
       "/api/v3/system/security-intelligence/release",
       "/api/v3/system/security-intelligence/quarantine"
     ],

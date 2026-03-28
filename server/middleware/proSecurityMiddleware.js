@@ -274,7 +274,9 @@ const THREAT_DETECTION_EXCLUDED_PATHS = [
   /^\/api\/v2\/health(?:\/|$)/i,
   /^\/api\/v3\/health(?:\/|$)/i,
   /^\/api\/system\/security-intelligence(?:\/|$)/i,
-  /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i
+  /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i,
+  /^\/api\/system\/security-control(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-control(?:\/|$)/i
 ];
 const API_SCANNER_PATH_RULES = [
   /^\/api\/(?:wp-admin|wp-login|wordpress)(?:\/|$)/i,
@@ -325,6 +327,45 @@ const ADMIN_MUTATION_PATH_RULES = [
   /^\/api\/v3\/admin(?:\/|$)/i,
   /^\/api\/export(?:\/|$)/i
 ];
+const MAX_TRUSTED_FINGERPRINTS = Math.max(
+  20,
+  Number(process.env.MAX_TRUSTED_FINGERPRINTS || 200)
+);
+
+const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
+  modules: {
+    requestFirewall: true,
+    tokenFirewall: TOKEN_FIREWALL_ENABLED,
+    aiThreatDetector: SECURITY_AI_AUTO_DETECT_ENABLED,
+    fakeListingAi: FAKE_LISTING_AI_ENABLED,
+    authFailureIntelligence: true,
+    autoQuarantine: true,
+    strictAdminMutationGuard: true
+  },
+  thresholds: {
+    threatAlert: THREAT_SCORE_ALERT_THRESHOLD,
+    threatBlock: THREAT_SCORE_BLOCK_THRESHOLD,
+    fakeListingAlert: FAKE_LISTING_ALERT_THRESHOLD,
+    fakeListingBlock: FAKE_LISTING_BLOCK_THRESHOLD,
+    auth401: AUTH_FAILURE_401_THRESHOLD,
+    auth403: AUTH_FAILURE_403_THRESHOLD,
+    tokenReplayEvents: TOKEN_REPLAY_EVENT_THRESHOLD,
+    tokenReplayDistinctFingerprints: TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD,
+    tokenReplayDistinctIps: TOKEN_REPLAY_DISTINCT_IP_THRESHOLD
+  },
+  adminControls: {
+    actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED
+  },
+  trustedFingerprints: [],
+  meta: {
+    updatedAt: "",
+    updatedById: "",
+    updatedByRole: "",
+    revision: 1
+  }
+});
+
+let proSecurityControlState = cloneSecurityControlState(DEFAULT_PRO_SECURITY_CONTROL_STATE);
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -334,6 +375,24 @@ function text(value, fallback = "") {
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toIntegerInRange(value, fallback, min, max) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function toBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  const normalized = text(value).toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  return fallback;
+}
+
+function cloneSecurityControlState(value = {}) {
+  return JSON.parse(JSON.stringify(value || {}));
 }
 
 function nowIso() {
@@ -415,6 +474,194 @@ export function normalizeProSecurityThreatFingerprint(value = "") {
 export function isValidProSecurityThreatFingerprint(value = "") {
   const normalized = normalizeProSecurityThreatFingerprint(value);
   return THREAT_FINGERPRINT_PATTERN.test(normalized);
+}
+
+function sanitizeTrustedFingerprints(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((item) => normalizeProSecurityThreatFingerprint(item))
+    .filter((item) => isValidProSecurityThreatFingerprint(item));
+  return [...new Set(normalized)].slice(0, MAX_TRUSTED_FINGERPRINTS);
+}
+
+function currentSecurityControlModules() {
+  return proSecurityControlState?.modules || DEFAULT_PRO_SECURITY_CONTROL_STATE.modules;
+}
+
+function currentSecurityThresholds() {
+  return proSecurityControlState?.thresholds || DEFAULT_PRO_SECURITY_CONTROL_STATE.thresholds;
+}
+
+function currentSecurityAdminControls() {
+  return proSecurityControlState?.adminControls || DEFAULT_PRO_SECURITY_CONTROL_STATE.adminControls;
+}
+
+function isTrustedSecurityFingerprint(fingerprint = "") {
+  const safe = normalizeProSecurityThreatFingerprint(fingerprint);
+  if (!safe) return false;
+  const trusted = Array.isArray(proSecurityControlState?.trustedFingerprints)
+    ? proSecurityControlState.trustedFingerprints
+    : [];
+  return trusted.includes(safe);
+}
+
+export function getProSecurityControlState() {
+  return cloneSecurityControlState(proSecurityControlState);
+}
+
+export function resetProSecurityControlState({
+  actorId = "",
+  actorRole = ""
+} = {}) {
+  const next = cloneSecurityControlState(DEFAULT_PRO_SECURITY_CONTROL_STATE);
+  next.meta = {
+    ...next.meta,
+    updatedAt: nowIso(),
+    updatedById: text(actorId),
+    updatedByRole: text(actorRole),
+    revision: Math.max(1, Number(proSecurityControlState?.meta?.revision || 1)) + 1
+  };
+  proSecurityControlState = next;
+  return {
+    state: getProSecurityControlState(),
+    warnings: []
+  };
+}
+
+export function updateProSecurityControlState(
+  patch = {},
+  {
+    actorId = "",
+    actorRole = ""
+  } = {}
+) {
+  const warnings = [];
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return {
+      state: getProSecurityControlState(),
+      warnings: ["Invalid patch payload. Existing security control state returned."]
+    };
+  }
+
+  const next = cloneSecurityControlState(proSecurityControlState);
+
+  if (patch.modules && typeof patch.modules === "object" && !Array.isArray(patch.modules)) {
+    const moduleKeys = [
+      "requestFirewall",
+      "tokenFirewall",
+      "aiThreatDetector",
+      "fakeListingAi",
+      "authFailureIntelligence",
+      "autoQuarantine",
+      "strictAdminMutationGuard"
+    ];
+    for (const key of moduleKeys) {
+      if (typeof patch.modules[key] === "undefined") continue;
+      next.modules[key] = toBoolean(patch.modules[key], Boolean(next.modules[key]));
+    }
+  }
+
+  if (patch.thresholds && typeof patch.thresholds === "object" && !Array.isArray(patch.thresholds)) {
+    const incoming = patch.thresholds;
+    if (typeof incoming.threatAlert !== "undefined") {
+      next.thresholds.threatAlert = toIntegerInRange(incoming.threatAlert, next.thresholds.threatAlert, 10, 300);
+    }
+    if (typeof incoming.threatBlock !== "undefined") {
+      next.thresholds.threatBlock = toIntegerInRange(incoming.threatBlock, next.thresholds.threatBlock, 20, 600);
+    }
+    if (typeof incoming.fakeListingAlert !== "undefined") {
+      next.thresholds.fakeListingAlert = toIntegerInRange(
+        incoming.fakeListingAlert,
+        next.thresholds.fakeListingAlert,
+        20,
+        100
+      );
+    }
+    if (typeof incoming.fakeListingBlock !== "undefined") {
+      next.thresholds.fakeListingBlock = toIntegerInRange(
+        incoming.fakeListingBlock,
+        next.thresholds.fakeListingBlock,
+        30,
+        100
+      );
+    }
+    if (typeof incoming.auth401 !== "undefined") {
+      next.thresholds.auth401 = toIntegerInRange(incoming.auth401, next.thresholds.auth401, 3, 200);
+    }
+    if (typeof incoming.auth403 !== "undefined") {
+      next.thresholds.auth403 = toIntegerInRange(incoming.auth403, next.thresholds.auth403, 2, 200);
+    }
+    if (typeof incoming.tokenReplayEvents !== "undefined") {
+      next.thresholds.tokenReplayEvents = toIntegerInRange(
+        incoming.tokenReplayEvents,
+        next.thresholds.tokenReplayEvents,
+        3,
+        200
+      );
+    }
+    if (typeof incoming.tokenReplayDistinctFingerprints !== "undefined") {
+      next.thresholds.tokenReplayDistinctFingerprints = toIntegerInRange(
+        incoming.tokenReplayDistinctFingerprints,
+        next.thresholds.tokenReplayDistinctFingerprints,
+        2,
+        50
+      );
+    }
+    if (typeof incoming.tokenReplayDistinctIps !== "undefined") {
+      next.thresholds.tokenReplayDistinctIps = toIntegerInRange(
+        incoming.tokenReplayDistinctIps,
+        next.thresholds.tokenReplayDistinctIps,
+        2,
+        50
+      );
+    }
+  }
+
+  if (typeof patch.trustedFingerprints !== "undefined") {
+    next.trustedFingerprints = sanitizeTrustedFingerprints(patch.trustedFingerprints);
+    if (Array.isArray(patch.trustedFingerprints) && patch.trustedFingerprints.length > next.trustedFingerprints.length) {
+      warnings.push("Some trusted fingerprints were ignored because they were invalid.");
+    }
+  }
+
+  if (patch.adminControls && typeof patch.adminControls === "object" && !Array.isArray(patch.adminControls)) {
+    if (typeof patch.adminControls.actionKeyEnforced !== "undefined") {
+      const desired = toBoolean(
+        patch.adminControls.actionKeyEnforced,
+        Boolean(next.adminControls.actionKeyEnforced)
+      );
+      const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+      if (desired && !hasConfiguredSecret) {
+        next.adminControls.actionKeyEnforced = false;
+        warnings.push("actionKeyEnforced not enabled because ADMIN_ACTION_KEY is missing.");
+      } else {
+        next.adminControls.actionKeyEnforced = desired;
+      }
+    }
+  }
+
+  if (next.thresholds.threatBlock < next.thresholds.threatAlert) {
+    next.thresholds.threatBlock = next.thresholds.threatAlert;
+    warnings.push("threatBlock was auto-adjusted to be >= threatAlert.");
+  }
+  if (next.thresholds.fakeListingBlock < next.thresholds.fakeListingAlert) {
+    next.thresholds.fakeListingBlock = next.thresholds.fakeListingAlert;
+    warnings.push("fakeListingBlock was auto-adjusted to be >= fakeListingAlert.");
+  }
+
+  next.meta = {
+    ...next.meta,
+    updatedAt: nowIso(),
+    updatedById: text(actorId),
+    updatedByRole: text(actorRole),
+    revision: Math.max(1, Number(proSecurityControlState?.meta?.revision || 1)) + 1
+  };
+
+  proSecurityControlState = next;
+  return {
+    state: getProSecurityControlState(),
+    warnings
+  };
 }
 
 function normalizeContentType(value) {
@@ -1008,6 +1255,15 @@ export function quarantineProSecurityThreatProfile(
 
 export function getProSecurityThreatIntelligence(limit = 200) {
   const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
+  const thresholds = currentSecurityThresholds();
+  const tokenReplayFingerprintThreshold = Math.max(
+    2,
+    Number(thresholds.tokenReplayDistinctFingerprints || TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD)
+  );
+  const tokenReplayIpThreshold = Math.max(
+    2,
+    Number(thresholds.tokenReplayDistinctIps || TOKEN_REPLAY_DISTINCT_IP_THRESHOLD)
+  );
   const incidents = proThreatIncidents.slice(0, safeLimit);
   const hotSignatures = hotFakeListingSignatures(Math.min(50, safeLimit));
   const hotTokens = hotTokenIntelligence(Math.min(50, safeLimit));
@@ -1041,6 +1297,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     hotProfiles,
     hotFakeListingSignatures: hotSignatures,
     hotTokenIntelligence: hotTokens,
+    controlState: getProSecurityControlState(),
     summary: {
       activeProfiles: proThreatProfiles.size,
       blockedProfiles: hotProfiles.filter((item) => item.blockUntil > Date.now()).length,
@@ -1052,8 +1309,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       tokenThreatIncidents: tokenIncidents.length,
       tokenReplayHotKeys: hotTokens.filter(
         (item) =>
-          item.distinctFingerprintCount >= TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD ||
-          item.distinctIpCount >= TOKEN_REPLAY_DISTINCT_IP_THRESHOLD
+          item.distinctFingerprintCount >= tokenReplayFingerprintThreshold ||
+          item.distinctIpCount >= tokenReplayIpThreshold
       ).length,
       auditEventCount: proSecurityAuditEvents.length,
       integrity: {
@@ -1454,7 +1711,10 @@ function scoreFakeListingPayload({ payload, state, nowTs, fingerprint = "" }) {
   };
 }
 
-function applyFakeListingReviewPatch(req, context, evaluation) {
+function applyFakeListingReviewPatch(req, context, evaluation, {
+  alertThreshold = FAKE_LISTING_ALERT_THRESHOLD,
+  blockThreshold = FAKE_LISTING_BLOCK_THRESHOLD
+} = {}) {
   if (!isPlainObject(req?.body)) return;
 
   const body = req.body;
@@ -1465,7 +1725,7 @@ function applyFakeListingReviewPatch(req, context, evaluation) {
   const combinedSignals = [...new Set([...existingSignals, ...evaluation.reasons])];
   const existingFraudRiskScore = Math.max(0, toNumber(existingAiReview.fraudRiskScore, 0));
   const nextFraudRiskScore = Math.max(existingFraudRiskScore, evaluation.score);
-  const autoModerationRequired = nextFraudRiskScore >= FAKE_LISTING_ALERT_THRESHOLD;
+  const autoModerationRequired = nextFraudRiskScore >= alertThreshold;
 
   body.aiReview = {
     ...existingAiReview,
@@ -1503,7 +1763,7 @@ function applyFakeListingReviewPatch(req, context, evaluation) {
     aiModelVersion: "propertysetu-fake-listing-guard-v2",
     scannedAt: nowIso(),
     recommendation:
-      nextFraudRiskScore >= FAKE_LISTING_BLOCK_THRESHOLD
+      nextFraudRiskScore >= blockThreshold
         ? "Blocked by AI fake listing security."
         : autoModerationRequired
           ? "Manual admin verification required."
@@ -1860,6 +2120,9 @@ function quarantineByFirewall(req, {
 }
 
 export function proRequestFirewall(req, res, next) {
+  const modules = currentSecurityControlModules();
+  if (!modules.requestFirewall) return next();
+
   const rawPath = String(req.originalUrl || req.baseUrl || req.path || "");
   if (!rawPath.startsWith("/api")) return next();
 
@@ -1956,7 +2219,7 @@ export function proRequestFirewall(req, res, next) {
     });
   }
 
-  if (isAdminMutationPath(pathForChecks, method)) {
+  if (modules.strictAdminMutationGuard && isAdminMutationPath(pathForChecks, method)) {
     const clientIp = getClientIp(req);
     if (!isAllowedAdminIp(clientIp)) {
       return reject({
@@ -1979,7 +2242,8 @@ export function proRequestFirewall(req, res, next) {
       });
     }
 
-    if (API_ADMIN_ACTION_KEY_ENFORCED) {
+    const adminControls = currentSecurityAdminControls();
+    if (adminControls.actionKeyEnforced) {
       const headerKey = text(req?.headers?.["x-admin-action-key"]);
       const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
       if (!hasConfiguredSecret || !timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY)) {
@@ -1997,7 +2261,8 @@ export function proRequestFirewall(req, res, next) {
 }
 
 export function proTokenFirewall(req, res, next) {
-  if (!TOKEN_FIREWALL_ENABLED) return next();
+  const modules = currentSecurityControlModules();
+  if (!modules.tokenFirewall) return next();
 
   const rawPath = String(req.originalUrl || req.baseUrl || req.path || "");
   if (!rawPath.startsWith("/api")) return next();
@@ -2026,9 +2291,21 @@ export function proTokenFirewall(req, res, next) {
 
   if (scheme && scheme !== "bearer") return next();
   if (!token) return next();
+  const fingerprint = requestFingerprint(req);
+  const isTrusted = isTrustedSecurityFingerprint(fingerprint);
 
   const evaluation = inspectJwtToken(token);
   if (evaluation.suspicious) {
+    if (isTrusted) {
+      pushProSecurityAuditEvent(req, {
+        severity: "medium",
+        type: "token-firewall-trusted-bypass",
+        details: {
+          reasons: evaluation.reasons.slice(0, 8)
+        }
+      });
+      return next();
+    }
     const reason = text(evaluation.reasons[0], "token-firewall-suspicious-token");
     req.proSecurityBlockSource = reason;
     const incident = quarantineByFirewall(req, {
@@ -2054,7 +2331,6 @@ export function proTokenFirewall(req, res, next) {
   const metadata = evaluation.metadata && typeof evaluation.metadata === "object"
     ? evaluation.metadata
     : {};
-  const fingerprint = requestFingerprint(req);
   const tokenKey = tokenKeyFromEvaluation(evaluation, token);
   const usage = registerTokenUsage({
     tokenKey,
@@ -2066,13 +2342,35 @@ export function proTokenFirewall(req, res, next) {
     audience: metadata.audience,
     nowTs: Date.now()
   });
+  const thresholds = currentSecurityThresholds();
   const replaySuspected =
-    usage.occurrences >= TOKEN_REPLAY_EVENT_THRESHOLD &&
+    usage.occurrences >= Math.max(2, Number(thresholds.tokenReplayEvents || TOKEN_REPLAY_EVENT_THRESHOLD)) &&
     (
-      usage.distinctFingerprintCount >= TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD ||
-      usage.distinctIpCount >= TOKEN_REPLAY_DISTINCT_IP_THRESHOLD
+      usage.distinctFingerprintCount >= Math.max(
+        2,
+        Number(thresholds.tokenReplayDistinctFingerprints || TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD)
+      ) ||
+      usage.distinctIpCount >= Math.max(
+        2,
+        Number(thresholds.tokenReplayDistinctIps || TOKEN_REPLAY_DISTINCT_IP_THRESHOLD)
+      )
     );
-  if (!replaySuspected) return next();
+  if (!replaySuspected || !modules.autoQuarantine || isTrusted) {
+    if (replaySuspected) {
+      pushProSecurityAuditEvent(req, {
+        severity: "high",
+        type: isTrusted ? "token-replay-trusted-bypass" : "token-replay-alert",
+        details: {
+          tokenKey,
+          occurrences: usage.occurrences,
+          distinctFingerprintCount: usage.distinctFingerprintCount,
+          distinctIpCount: usage.distinctIpCount,
+          trustedBypass: Boolean(isTrusted)
+        }
+      });
+    }
+    return next();
+  }
 
   req.proSecurityBlockSource = "token-replay-suspected";
   const incident = quarantineByFirewall(req, {
@@ -2242,13 +2540,16 @@ export function proApiPayloadGuard(req, res, next) {
 }
 
 export function proAiThreatAutoDetector(req, res, next) {
-  if (!SECURITY_AI_AUTO_DETECT_ENABLED) return next();
+  const modules = currentSecurityControlModules();
+  if (!modules.aiThreatDetector) return next();
 
   const requestPath = String(req.originalUrl || req.baseUrl || req.path || "");
   if (!requestPath.startsWith("/api")) return next();
   if (isThreatDetectionExcludedPath(requestPath)) return next();
 
   const fingerprint = requestFingerprint(req);
+  const isTrusted = isTrustedSecurityFingerprint(fingerprint);
+  const thresholds = currentSecurityThresholds();
   const nowTs = Date.now();
   const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
 
@@ -2297,7 +2598,21 @@ export function proAiThreatAutoDetector(req, res, next) {
   }
 
   const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + riskScore;
-  const shouldQuarantine = cumulativeRiskScore >= THREAT_SCORE_BLOCK_THRESHOLD;
+  const threatBlockThreshold = Math.max(
+    20,
+    Number(thresholds.threatBlock || THREAT_SCORE_BLOCK_THRESHOLD)
+  );
+  const threatAlertThreshold = Math.max(
+    10,
+    Math.min(
+      threatBlockThreshold,
+      Number(thresholds.threatAlert || THREAT_SCORE_ALERT_THRESHOLD)
+    )
+  );
+  const shouldQuarantine =
+    modules.autoQuarantine &&
+    !isTrusted &&
+    cumulativeRiskScore >= threatBlockThreshold;
   const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
   const quarantineDurationMs = shouldQuarantine
     ? computeAdaptiveBlockDurationMs(projectedIncidentCount)
@@ -2316,7 +2631,7 @@ export function proAiThreatAutoDetector(req, res, next) {
   proThreatProfiles.set(fingerprint, nextState);
   pruneThreatProfiles();
 
-  if (riskScore >= THREAT_SCORE_ALERT_THRESHOLD || shouldQuarantine) {
+  if (riskScore >= threatAlertThreshold || shouldQuarantine) {
     pushThreatIncident({
       fingerprint,
       ip: getClientIp(req),
@@ -2339,7 +2654,8 @@ export function proAiThreatAutoDetector(req, res, next) {
         cumulativeRiskScore,
         rules: matchedRules,
         payloadBytes: evaluation.totalPayloadSize,
-        quarantineDurationSec: shouldQuarantine ? Math.max(1, Math.ceil(quarantineDurationMs / 1000)) : 0
+        quarantineDurationSec: shouldQuarantine ? Math.max(1, Math.ceil(quarantineDurationMs / 1000)) : 0,
+        trustedBypass: Boolean(isTrusted)
       }
     });
   }
@@ -2360,7 +2676,8 @@ export function proAiThreatAutoDetector(req, res, next) {
 }
 
 export function proFakeListingAiGuard(req, res, next) {
-  if (!FAKE_LISTING_AI_ENABLED) return next();
+  const modules = currentSecurityControlModules();
+  if (!modules.fakeListingAi) return next();
 
   const context = parseListingMutationContext(req);
   if (!context) return next();
@@ -2368,6 +2685,16 @@ export function proFakeListingAiGuard(req, res, next) {
 
   const nowTs = Date.now();
   const fingerprint = requestFingerprint(req);
+  const isTrusted = isTrustedSecurityFingerprint(fingerprint);
+  const thresholds = currentSecurityThresholds();
+  const fakeListingAlertThreshold = Math.max(
+    20,
+    Number(thresholds.fakeListingAlert || FAKE_LISTING_ALERT_THRESHOLD)
+  );
+  const fakeListingBlockThreshold = Math.max(
+    fakeListingAlertThreshold,
+    Number(thresholds.fakeListingBlock || FAKE_LISTING_BLOCK_THRESHOLD)
+  );
   const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
   const payload = buildFakeListingPayload(req, context);
   const evaluation = scoreFakeListingPayload({
@@ -2380,8 +2707,12 @@ export function proFakeListingAiGuard(req, res, next) {
   const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
   const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + evaluation.score;
   const shouldBlock =
-    evaluation.score >= FAKE_LISTING_BLOCK_THRESHOLD ||
-    cumulativeRiskScore >= Math.max(THREAT_SCORE_BLOCK_THRESHOLD + 20, 150);
+    modules.autoQuarantine &&
+    !isTrusted &&
+    (
+      evaluation.score >= fakeListingBlockThreshold ||
+      cumulativeRiskScore >= Math.max(Number(thresholds.threatBlock || THREAT_SCORE_BLOCK_THRESHOLD) + 20, 150)
+    );
   const quarantineDurationMs = shouldBlock
     ? computeAdaptiveBlockDurationMs(projectedIncidentCount)
     : 0;
@@ -2400,7 +2731,7 @@ export function proFakeListingAiGuard(req, res, next) {
   proThreatProfiles.set(fingerprint, nextState);
   pruneThreatProfiles();
 
-  if (evaluation.score >= FAKE_LISTING_ALERT_THRESHOLD || shouldBlock) {
+  if (evaluation.score >= fakeListingAlertThreshold || shouldBlock) {
     const rules = [
       ...evaluation.reasons,
       `fake-listing-score:${evaluation.score}`
@@ -2430,12 +2761,16 @@ export function proFakeListingAiGuard(req, res, next) {
         flags: evaluation.flags,
         quarantineDurationSec: shouldBlock
           ? Math.max(1, Math.ceil(quarantineDurationMs / 1000))
-          : 0
+          : 0,
+        trustedBypass: Boolean(isTrusted)
       }
     });
   }
 
-  applyFakeListingReviewPatch(req, context, evaluation);
+  applyFakeListingReviewPatch(req, context, evaluation, {
+    alertThreshold: fakeListingAlertThreshold,
+    blockThreshold: fakeListingBlockThreshold
+  });
 
   if (!shouldBlock) {
     return next();
@@ -2455,6 +2790,9 @@ export function proFakeListingAiGuard(req, res, next) {
 }
 
 export function proAuthFailureIntelligence(req, res, next) {
+  const modules = currentSecurityControlModules();
+  if (!modules.authFailureIntelligence) return next();
+
   const requestPath = String(req.originalUrl || req.baseUrl || req.path || "");
   if (!requestPath.startsWith("/api")) return next();
 
@@ -2466,6 +2804,8 @@ export function proAuthFailureIntelligence(req, res, next) {
 
     const nowTs = Date.now();
     const fingerprint = requestFingerprint(req);
+    const isTrusted = isTrustedSecurityFingerprint(fingerprint);
+    const thresholds = currentSecurityThresholds();
     const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
     const normalizedPath = normalizeRequestPath(req.path || requestPath || "/");
     const authFailures = [...current.authFailures, {
@@ -2484,11 +2824,13 @@ export function proAuthFailureIntelligence(req, res, next) {
       : (isAuthPath ? 20 : 14);
 
     let quarantineReason = "";
-    if (count401 >= AUTH_FAILURE_401_THRESHOLD) quarantineReason = "auth-failure-burst";
-    if (count403 >= AUTH_FAILURE_403_THRESHOLD) quarantineReason = quarantineReason || "forbidden-probe-burst";
+    const auth401Threshold = Math.max(2, Number(thresholds.auth401 || AUTH_FAILURE_401_THRESHOLD));
+    const auth403Threshold = Math.max(2, Number(thresholds.auth403 || AUTH_FAILURE_403_THRESHOLD));
+    if (count401 >= auth401Threshold) quarantineReason = "auth-failure-burst";
+    if (count403 >= auth403Threshold) quarantineReason = quarantineReason || "forbidden-probe-burst";
 
     const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
-    const shouldQuarantine = Boolean(quarantineReason);
+    const shouldQuarantine = modules.autoQuarantine && !isTrusted && Boolean(quarantineReason);
     const quarantineDurationMs = shouldQuarantine ? computeAdaptiveBlockDurationMs(projectedIncidentCount) : 0;
 
     const nextState = {
@@ -2538,6 +2880,7 @@ export function proAuthFailureIntelligence(req, res, next) {
         count403,
         windowSec: Math.round(AUTH_FAILURE_WINDOW_MS / 1000),
         riskIncrement,
+        trustedBypass: Boolean(isTrusted),
         quarantineDurationSec: shouldQuarantine
           ? Math.max(1, Math.ceil(quarantineDurationMs / 1000))
           : 0
