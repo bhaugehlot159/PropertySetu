@@ -4,6 +4,7 @@ const proRateBuckets = new Map();
 const proSecurityAuditEvents = [];
 const proThreatProfiles = new Map();
 const proThreatIncidents = [];
+const proFakeListingSignatureIntel = new Map();
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 
@@ -111,6 +112,22 @@ const FAKE_LISTING_MAX_SIGNAL_ITEMS = Math.max(
   20,
   Number(process.env.FAKE_LISTING_MAX_SIGNAL_ITEMS || 160)
 );
+const FAKE_LISTING_SIGNATURE_INTEL_WINDOW_MS = Math.max(
+  10 * 60 * 1000,
+  Number(process.env.FAKE_LISTING_SIGNATURE_INTEL_WINDOW_MS || 24 * 60 * 60 * 1000)
+);
+const FAKE_LISTING_SIGNATURE_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.FAKE_LISTING_SIGNATURE_MAX_ITEMS || 6000)
+);
+const FAKE_LISTING_SIGNATURE_FINGERPRINT_THRESHOLD = Math.max(
+  2,
+  Number(process.env.FAKE_LISTING_SIGNATURE_FINGERPRINT_THRESHOLD || 2)
+);
+const FAKE_LISTING_SIGNATURE_OCCURRENCE_THRESHOLD = Math.max(
+  3,
+  Number(process.env.FAKE_LISTING_SIGNATURE_OCCURRENCE_THRESHOLD || 4)
+);
 const AUTH_FAILURE_WINDOW_MS = Math.max(
   60_000,
   Number(process.env.AUTH_FAILURE_WINDOW_MS || 10 * 60 * 1000)
@@ -136,6 +153,25 @@ const API_MAX_PATH_LENGTH = Math.max(
 const API_MAX_HOST_HEADER_LENGTH = Math.max(
   80,
   Number(process.env.API_MAX_HOST_HEADER_LENGTH || 255)
+);
+const TOKEN_FIREWALL_ENABLED =
+  text(process.env.TOKEN_FIREWALL_ENABLED || "true").toLowerCase() !== "false";
+const TOKEN_FIREWALL_ALLOWED_ALGS = new Set(["HS256"]);
+const TOKEN_MAX_LENGTH = Math.max(
+  512,
+  Number(process.env.TOKEN_MAX_LENGTH || 4096)
+);
+const TOKEN_MAX_CLOCK_SKEW_SEC = Math.max(
+  30,
+  Number(process.env.TOKEN_MAX_CLOCK_SKEW_SEC || 120)
+);
+const TOKEN_MAX_FUTURE_EXP_SEC = Math.max(
+  24 * 60 * 60,
+  Number(process.env.TOKEN_MAX_FUTURE_EXP_SEC || 45 * 24 * 60 * 60)
+);
+const TOKEN_MAX_FUTURE_NBF_SEC = Math.max(
+  120,
+  Number(process.env.TOKEN_MAX_FUTURE_NBF_SEC || 10 * 60)
 );
 const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
@@ -298,6 +334,28 @@ function timingSafeEqualText(a = "", b = "") {
   }
 }
 
+function decodeBase64UrlToText(value = "") {
+  const normalized = String(value || "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  if (!normalized) return "";
+  const padding = normalized.length % 4;
+  const padded = padding ? normalized + "=".repeat(4 - padding) : normalized;
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function safeParseJwtSegment(segment = "") {
+  try {
+    const decoded = decodeBase64UrlToText(segment);
+    if (!decoded) return null;
+    const parsed = JSON.parse(decoded);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function getForwardedIp(req) {
   const forwarded = req?.headers?.["x-forwarded-for"];
   if (Array.isArray(forwarded) && forwarded.length) {
@@ -395,6 +453,102 @@ function pruneThreatProfiles() {
     const key = entries[index]?.[0];
     if (key) proThreatProfiles.delete(key);
   }
+}
+
+function pruneFakeListingSignatureIntel(nowTs = Date.now()) {
+  if (!proFakeListingSignatureIntel.size) return;
+  for (const [signature, row] of proFakeListingSignatureIntel.entries()) {
+    const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+      (item) => Number(item?.at || 0) >= nowTs - FAKE_LISTING_SIGNATURE_INTEL_WINDOW_MS
+    );
+    if (!recent.length) {
+      proFakeListingSignatureIntel.delete(signature);
+      continue;
+    }
+    proFakeListingSignatureIntel.set(signature, {
+      ...row,
+      events: recent,
+      lastSeenAt: Math.max(...recent.map((item) => Number(item?.at || 0)))
+    });
+  }
+
+  if (proFakeListingSignatureIntel.size <= FAKE_LISTING_SIGNATURE_MAX_ITEMS) return;
+  const overflow = proFakeListingSignatureIntel.size - FAKE_LISTING_SIGNATURE_MAX_ITEMS;
+  const ordered = [...proFakeListingSignatureIntel.entries()].sort(
+    (a, b) => Number(a[1]?.lastSeenAt || 0) - Number(b[1]?.lastSeenAt || 0)
+  );
+  for (let index = 0; index < overflow; index += 1) {
+    const key = ordered[index]?.[0];
+    if (key) proFakeListingSignatureIntel.delete(key);
+  }
+}
+
+function registerFakeListingSignatureEvent(signature = "", fingerprint = "", nowTs = Date.now()) {
+  const safeSignature = text(signature);
+  const safeFingerprint = text(fingerprint);
+  if (!safeSignature || !safeFingerprint) {
+    return {
+      occurrences: 0,
+      distinctFingerprintCount: 0,
+      recentBurstCount: 0,
+      firstSeenAt: 0,
+      lastSeenAt: nowTs
+    };
+  }
+
+  const previous = proFakeListingSignatureIntel.get(safeSignature);
+  const events = [
+    ...(Array.isArray(previous?.events) ? previous.events : []),
+    {
+      at: nowTs,
+      fingerprint: safeFingerprint
+    }
+  ].filter((item) => Number(item?.at || 0) >= nowTs - FAKE_LISTING_SIGNATURE_INTEL_WINDOW_MS);
+
+  const distinctFingerprintCount = new Set(events.map((item) => text(item?.fingerprint))).size;
+  const recentBurstCount = events.filter(
+    (item) => Number(item?.at || 0) >= nowTs - 10 * 60 * 1000
+  ).length;
+  const signatureRow = {
+    signature: safeSignature,
+    events,
+    occurrences: events.length,
+    distinctFingerprintCount,
+    firstSeenAt: Number(events[0]?.at || nowTs),
+    lastSeenAt: Number(events[events.length - 1]?.at || nowTs),
+    recentBurstCount
+  };
+
+  proFakeListingSignatureIntel.set(safeSignature, signatureRow);
+  pruneFakeListingSignatureIntel(nowTs);
+
+  return {
+    occurrences: signatureRow.occurrences,
+    distinctFingerprintCount: signatureRow.distinctFingerprintCount,
+    recentBurstCount: signatureRow.recentBurstCount,
+    firstSeenAt: signatureRow.firstSeenAt,
+    lastSeenAt: signatureRow.lastSeenAt
+  };
+}
+
+function hotFakeListingSignatures(limit = 20) {
+  const nowTs = Date.now();
+  pruneFakeListingSignatureIntel(nowTs);
+  return [...proFakeListingSignatureIntel.values()]
+    .map((row) => ({
+      signature: text(row?.signature),
+      occurrences: Math.max(0, Number(row?.occurrences || 0)),
+      distinctFingerprintCount: Math.max(0, Number(row?.distinctFingerprintCount || 0)),
+      recentBurstCount: Math.max(0, Number(row?.recentBurstCount || 0)),
+      firstSeenAt: Number(row?.firstSeenAt || 0),
+      lastSeenAt: Number(row?.lastSeenAt || 0)
+    }))
+    .sort((a, b) =>
+      b.distinctFingerprintCount - a.distinctFingerprintCount ||
+      b.occurrences - a.occurrences ||
+      b.lastSeenAt - a.lastSeenAt
+    )
+    .slice(0, Math.max(1, Math.min(100, Number(limit || 20))));
 }
 
 function pushThreatIncident(incident = {}) {
@@ -700,11 +854,18 @@ export function quarantineProSecurityThreatProfile(
 export function getProSecurityThreatIntelligence(limit = 200) {
   const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
   const incidents = proThreatIncidents.slice(0, safeLimit);
+  const hotSignatures = hotFakeListingSignatures(Math.min(50, safeLimit));
   const fakeListingIncidents = proThreatIncidents.filter(
     (item) =>
       text(item?.reason).includes("fake-listing") ||
       (Array.isArray(item?.rules) &&
         item.rules.some((rule) => text(rule).includes("listing")))
+  );
+  const tokenIncidents = proThreatIncidents.filter(
+    (item) =>
+      text(item?.reason).includes("token-") ||
+      (Array.isArray(item?.rules) &&
+        item.rules.some((rule) => text(rule).includes("token-")))
   );
   const hotProfiles = [...proThreatProfiles.entries()]
     .map(([fingerprint, profile]) => ({
@@ -722,6 +883,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   return {
     incidents,
     hotProfiles,
+    hotFakeListingSignatures: hotSignatures,
     summary: {
       activeProfiles: proThreatProfiles.size,
       blockedProfiles: hotProfiles.filter((item) => item.blockUntil > Date.now()).length,
@@ -729,6 +891,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       totalIncidents: proThreatIncidents.length,
       fakeListingIncidents: fakeListingIncidents.length,
       fakeListingBlockedIncidents: fakeListingIncidents.filter((item) => Boolean(item?.blocked)).length,
+      fakeListingHotSignatures: hotSignatures.length,
+      tokenThreatIncidents: tokenIncidents.length,
       auditEventCount: proSecurityAuditEvents.length,
       integrity: {
         auditChainHead: proSecurityAuditChainHead,
@@ -982,7 +1146,7 @@ function buildFakeListingSignature(payload) {
   return sha256(JSON.stringify(canonical)).slice(0, 24);
 }
 
-function scoreFakeListingPayload({ payload, state, nowTs }) {
+function scoreFakeListingPayload({ payload, state, nowTs, fingerprint = "" }) {
   const reasons = [];
   let score = 0;
   const listingText = `${text(payload.title)} ${text(payload.description)}`.toLowerCase();
@@ -1053,6 +1217,7 @@ function scoreFakeListingPayload({ payload, state, nowTs }) {
   }
 
   const signature = buildFakeListingSignature(payload);
+  const signatureIntel = registerFakeListingSignatureEvent(signature, fingerprint, nowTs);
   const previousSignals = (Array.isArray(state?.listingSignals) ? state.listingSignals : []).filter(
     (item) => Number(item?.at || 0) >= nowTs - FAKE_LISTING_SIGNAL_WINDOW_MS
   );
@@ -1060,6 +1225,15 @@ function scoreFakeListingPayload({ payload, state, nowTs }) {
     previousSignals.filter((item) => text(item?.signature) === signature).length + 1;
   if (repeatSignatureCount >= FAKE_LISTING_REPEAT_SIGNATURE_THRESHOLD) {
     addSignal(24, "repeated-listing-signature");
+  }
+  if (signatureIntel.distinctFingerprintCount >= FAKE_LISTING_SIGNATURE_FINGERPRINT_THRESHOLD) {
+    addSignal(30, "cross-fingerprint-signature-reuse");
+  }
+  if (signatureIntel.occurrences >= FAKE_LISTING_SIGNATURE_OCCURRENCE_THRESHOLD) {
+    addSignal(18, "high-frequency-signature-reuse");
+  }
+  if (signatureIntel.recentBurstCount >= FAKE_LISTING_BURST_THRESHOLD) {
+    addSignal(20, "signature-burst-window");
   }
 
   const highRiskRecentCount = previousSignals.filter(
@@ -1092,6 +1266,9 @@ function scoreFakeListingPayload({ payload, state, nowTs }) {
       duplicatePhotoCount: payload.media.duplicatePhotoMatches,
       blurryPhotosDetected: payload.media.blurryPhotosDetected,
       repeatSignatureCount,
+      signatureOccurrences: signatureIntel.occurrences,
+      signatureDistinctFingerprintCount: signatureIntel.distinctFingerprintCount,
+      signatureRecentBurstCount: signatureIntel.recentBurstCount,
       highRiskRecentCount,
       phraseMatches,
       highRiskPhraseMatches
@@ -1311,6 +1488,105 @@ function isSecureTransport(req) {
   return text(req?.protocol).toLowerCase() === "https";
 }
 
+function extractBearerToken(req) {
+  const authHeader = text(req?.headers?.authorization);
+  if (!authHeader) return { scheme: "", token: "", raw: "" };
+  const parts = authHeader.split(/\s+/).filter(Boolean);
+  if (!parts.length) return { scheme: "", token: "", raw: authHeader };
+  const scheme = text(parts[0]).toLowerCase();
+  if (scheme !== "bearer") return { scheme, token: "", raw: authHeader };
+  const token = text(parts.slice(1).join(""));
+  return { scheme, token, raw: authHeader };
+}
+
+function inspectJwtToken(token = "", nowSec = Math.floor(Date.now() / 1000)) {
+  const safeToken = text(token);
+  if (!safeToken) {
+    return {
+      suspicious: false,
+      score: 0,
+      reasons: []
+    };
+  }
+
+  const reasons = [];
+  let score = 0;
+  const add = (points, reason) => {
+    score += Math.max(0, Number(points || 0));
+    if (reason) reasons.push(reason);
+  };
+
+  if (safeToken.length > TOKEN_MAX_LENGTH) {
+    add(70, "token-too-large");
+  }
+  if (safeToken.includes(",") || safeToken.includes("Bearer")) {
+    add(68, "token-header-injection-pattern");
+  }
+  if (safeToken.includes(" ") || /\t/.test(safeToken)) {
+    add(40, "token-whitespace-anomaly");
+  }
+
+  const segments = safeToken.split(".");
+  if (segments.length !== 3) {
+    add(72, "token-format-invalid");
+    return {
+      suspicious: score >= 60,
+      score,
+      reasons: [...new Set(reasons)]
+    };
+  }
+
+  const header = safeParseJwtSegment(segments[0]);
+  const payload = safeParseJwtSegment(segments[1]);
+  if (!header) add(75, "token-header-decode-failed");
+  if (!payload) add(75, "token-payload-decode-failed");
+  if (!header || !payload) {
+    return {
+      suspicious: score >= 60,
+      score,
+      reasons: [...new Set(reasons)]
+    };
+  }
+
+  const alg = text(header.alg).toUpperCase();
+  if (!alg || alg === "NONE") {
+    add(95, "token-alg-none");
+  } else if (!TOKEN_FIREWALL_ALLOWED_ALGS.has(alg)) {
+    add(80, `token-alg-not-allowed:${alg}`);
+  }
+
+  if (header.jku || header.x5u || header.crit || header.cty) {
+    add(76, "token-header-unsupported-fields");
+  }
+  if (text(header.kid).length > 80) {
+    add(64, "token-kid-too-long");
+  }
+
+  const exp = Number(payload.exp);
+  const nbf = Number(payload.nbf);
+  const iat = Number(payload.iat);
+  if (Number.isFinite(exp) && exp > nowSec + TOKEN_MAX_FUTURE_EXP_SEC) {
+    add(54, "token-exp-too-far-future");
+  }
+  if (Number.isFinite(nbf) && nbf > nowSec + TOKEN_MAX_FUTURE_NBF_SEC) {
+    add(70, "token-nbf-too-far-future");
+  }
+  if (Number.isFinite(iat) && iat > nowSec + TOKEN_MAX_CLOCK_SKEW_SEC) {
+    add(62, "token-iat-future-anomaly");
+  }
+
+  const subject = text(payload.sub || payload.userId || payload.id);
+  if (subject.length > 140) {
+    add(52, "token-subject-too-long");
+  }
+
+  return {
+    suspicious: score >= 60,
+    score,
+    reasons: [...new Set(reasons)]
+  };
+}
+
 function computeAdaptiveBlockDurationMs(incidentCount = 0) {
   const normalizedIncidents = Math.max(0, Number(incidentCount || 0));
   const repeatStep = Math.floor(normalizedIncidents / THREAT_REPEAT_OFFENDER_THRESHOLD);
@@ -1520,6 +1796,62 @@ export function proRequestFirewall(req, res, next) {
   }
 
   return next();
+}
+
+export function proTokenFirewall(req, res, next) {
+  if (!TOKEN_FIREWALL_ENABLED) return next();
+
+  const rawPath = String(req.originalUrl || req.baseUrl || req.path || "");
+  if (!rawPath.startsWith("/api")) return next();
+
+  const method = normalizeRequestMethod(req.method);
+  const requestPath = normalizeRequestPath(req.path || rawPath || "/");
+  const { scheme, token, raw } = extractBearerToken(req);
+
+  if (!raw) return next();
+  if (hasControlChars(raw)) {
+    req.proSecurityBlockSource = "token-firewall-control-char-header";
+    const incident = quarantineByFirewall(req, {
+      reason: req.proSecurityBlockSource,
+      requestPath,
+      method,
+      riskScore: 90
+    });
+    res.setHeader("Retry-After", String(incident.retryAfterSec));
+    return res.status(400).json({
+      success: false,
+      message: "Malformed authorization header blocked by security policy.",
+      retryAfterSec: incident.retryAfterSec,
+      requestId: req.requestId
+    });
+  }
+
+  if (scheme && scheme !== "bearer") return next();
+  if (!token) return next();
+
+  const evaluation = inspectJwtToken(token);
+  if (!evaluation.suspicious) return next();
+
+  const reason = text(evaluation.reasons[0], "token-firewall-suspicious-token");
+  req.proSecurityBlockSource = reason;
+  const incident = quarantineByFirewall(req, {
+    reason,
+    requestPath,
+    method,
+    riskScore: Math.max(60, Math.min(100, Number(evaluation.score || 70))),
+    details: {
+      reasons: evaluation.reasons.slice(0, 12)
+    }
+  });
+
+  res.setHeader("Retry-After", String(incident.retryAfterSec));
+  return res.status(401).json({
+    success: false,
+    message: "Authorization token blocked by AI security policy.",
+    reasons: evaluation.reasons.slice(0, 8),
+    retryAfterSec: incident.retryAfterSec,
+    requestId: req.requestId
+  });
 }
 
 export function proBlockSensitivePublicFiles(req, res, next) {
@@ -1796,7 +2128,8 @@ export function proFakeListingAiGuard(req, res, next) {
   const evaluation = scoreFakeListingPayload({
     payload,
     state: current,
-    nowTs
+    nowTs,
+    fingerprint
   });
 
   const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;

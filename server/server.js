@@ -26,6 +26,7 @@ import {
   proAuthRateLimiter,
   proBlockSensitivePublicFiles,
   proRequestFirewall,
+  proTokenFirewall,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
 
@@ -1049,6 +1050,7 @@ app.use(proAttachRequestContext);
 app.use(proSecurityHeaders);
 app.use(cors(createProCorsOptions()));
 app.use("/api", proRequestFirewall);
+app.use("/api", proTokenFirewall);
 app.use(express.json({ limit: String(process.env.API_JSON_LIMIT || "2mb") }));
 app.use(express.urlencoded({ extended: true, limit: String(process.env.API_FORM_LIMIT || "2mb") }));
 app.use("/api", proApiRateLimiter);

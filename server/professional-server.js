@@ -20,6 +20,7 @@ import {
   proAuthRateLimiter,
   proBlockSensitivePublicFiles,
   proRequestFirewall,
+  proTokenFirewall,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
 import proHealthRoutes from "./routes/proHealthRoutes.js";
@@ -71,6 +72,7 @@ app.use(
 );
 
 app.use("/api", proRequestFirewall);
+app.use("/api", proTokenFirewall);
 app.use(express.json({ limit: jsonLimit }));
 app.use(express.urlencoded({ extended: true, limit: formLimit }));
 app.use("/api", proApiRateLimiter);
