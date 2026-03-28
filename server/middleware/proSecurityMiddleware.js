@@ -4,6 +4,8 @@ const proRateBuckets = new Map();
 const proSecurityAuditEvents = [];
 const proThreatProfiles = new Map();
 const proThreatIncidents = [];
+let proSecurityAuditChainHead = "";
+let proThreatIncidentChainHead = "";
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -83,6 +85,22 @@ const THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS = Math.max(
   THREAT_BLOCK_DURATION_MS,
   Number(process.env.THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS || 12 * 60 * 60 * 1000)
 );
+const AUTH_FAILURE_WINDOW_MS = Math.max(
+  60_000,
+  Number(process.env.AUTH_FAILURE_WINDOW_MS || 10 * 60 * 1000)
+);
+const AUTH_FAILURE_401_THRESHOLD = Math.max(
+  4,
+  Number(process.env.AUTH_FAILURE_401_THRESHOLD || 18)
+);
+const AUTH_FAILURE_403_THRESHOLD = Math.max(
+  3,
+  Number(process.env.AUTH_FAILURE_403_THRESHOLD || 10)
+);
+const AUTH_FAILURE_SAMPLE_MAX = Math.max(
+  20,
+  Number(process.env.AUTH_FAILURE_SAMPLE_MAX || 120)
+);
 const THREAT_FINGERPRINT_PATTERN = /^[a-f0-9]{24}$/i;
 const API_ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
 const API_MAX_PATH_LENGTH = Math.max(
@@ -93,6 +111,13 @@ const API_MAX_HOST_HEADER_LENGTH = Math.max(
   80,
   Number(process.env.API_MAX_HOST_HEADER_LENGTH || 255)
 );
+const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
+const API_ADMIN_ACTION_KEY_ENFORCED =
+  text(process.env.ADMIN_ACTION_KEY_REQUIRED, "false").toLowerCase() === "true";
+const API_ADMIN_ALLOWLIST_IPS = text(process.env.ADMIN_IP_ALLOWLIST)
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const NULL_BYTE_PATTERN = /\0/;
 const SUSPICIOUS_USER_AGENT_PATTERNS = [
@@ -181,6 +206,15 @@ const API_METHOD_OVERRIDE_HEADERS = [
   "x-original-url",
   "x-rewrite-url"
 ];
+const ADMIN_MUTATION_PATH_RULES = [
+  /^\/api\/system\/security-intelligence\/(?:release|quarantine)(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-intelligence\/(?:release|quarantine)(?:\/|$)/i,
+  /^\/api\/sealed-bids\/decision(?:\/|$)/i,
+  /^\/api\/v3\/sealed-bids\/decision(?:\/|$)/i,
+  /^\/api\/admin(?:\/|$)/i,
+  /^\/api\/v3\/admin(?:\/|$)/i,
+  /^\/api\/export(?:\/|$)/i
+];
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -198,6 +232,17 @@ function nowIso() {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+function timingSafeEqualText(a = "", b = "") {
+  const left = Buffer.from(String(a || ""), "utf8");
+  const right = Buffer.from(String(b || ""), "utf8");
+  if (left.length !== right.length || left.length === 0) return false;
+  try {
+    return crypto.timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
 }
 
 function getForwardedIp(req) {
@@ -314,6 +359,23 @@ function pushThreatIncident(incident = {}) {
     reason: text(incident.reason, "ai-auto-detected-risk"),
     rules: Array.isArray(incident.rules) ? incident.rules.slice(0, 12) : []
   };
+  const prevHash = proThreatIncidentChainHead;
+  const integrityHash = sha256(JSON.stringify({
+    prevHash,
+    id: row.id,
+    at: row.at,
+    fingerprint: row.fingerprint,
+    path: row.path,
+    method: row.method,
+    riskScore: row.riskScore,
+    cumulativeRiskScore: row.cumulativeRiskScore,
+    blocked: row.blocked,
+    reason: row.reason,
+    rules: row.rules
+  }));
+  row.prevHash = prevHash;
+  row.integrityHash = integrityHash;
+  proThreatIncidentChainHead = integrityHash;
   proThreatIncidents.unshift(row);
   if (proThreatIncidents.length > SECURITY_INCIDENT_MAX_ITEMS) {
     proThreatIncidents.length = SECURITY_INCIDENT_MAX_ITEMS;
@@ -420,6 +482,7 @@ function nextProfileState(current = {}, nowTs = Date.now()) {
     recentHits: Array.isArray(current.recentHits) ? current.recentHits : [],
     recentPaths: Array.isArray(current.recentPaths) ? current.recentPaths : [],
     authIdentityTrail: Array.isArray(current.authIdentityTrail) ? current.authIdentityTrail : [],
+    authFailures: Array.isArray(current.authFailures) ? current.authFailures : [],
     quarantineReason: text(current.quarantineReason)
   };
   const elapsed = Math.max(0, nowTs - previous.lastSeenAt);
@@ -602,7 +665,13 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     summary: {
       activeProfiles: proThreatProfiles.size,
       blockedProfiles: hotProfiles.filter((item) => item.blockUntil > Date.now()).length,
-      totalIncidents: proThreatIncidents.length
+      highRiskProfiles: hotProfiles.filter((item) => item.riskScore >= THREAT_SCORE_BLOCK_THRESHOLD).length,
+      totalIncidents: proThreatIncidents.length,
+      auditEventCount: proSecurityAuditEvents.length,
+      integrity: {
+        auditChainHead: proSecurityAuditChainHead,
+        threatChainHead: proThreatIncidentChainHead
+      }
     }
   };
 }
@@ -620,6 +689,22 @@ function pushSecurityAuditEventInternal(event = {}) {
     method: text(event.method).toUpperCase(),
     details: event.details && typeof event.details === "object" ? event.details : {}
   };
+  const prevHash = proSecurityAuditChainHead;
+  const integrityHash = sha256(JSON.stringify({
+    prevHash,
+    id: row.id,
+    at: row.at,
+    severity: row.severity,
+    type: row.type,
+    requestId: row.requestId,
+    fingerprint: row.fingerprint,
+    path: row.path,
+    method: row.method,
+    details: row.details
+  }));
+  row.prevHash = prevHash;
+  row.integrityHash = integrityHash;
+  proSecurityAuditChainHead = integrityHash;
   proSecurityAuditEvents.unshift(row);
   if (proSecurityAuditEvents.length > SECURITY_AUDIT_MAX_ITEMS) {
     proSecurityAuditEvents.length = SECURITY_AUDIT_MAX_ITEMS;
@@ -802,6 +887,38 @@ function isKnownScannerPath(requestPath = "") {
   return API_SCANNER_PATH_RULES.some((rule) => rule.test(normalized));
 }
 
+function isApiMutationMethod(method = "") {
+  const normalized = normalizeRequestMethod(method);
+  return normalized === "POST" || normalized === "PUT" || normalized === "PATCH" || normalized === "DELETE";
+}
+
+function isAdminMutationPath(requestPath = "", method = "") {
+  if (!isApiMutationMethod(method)) return false;
+  const normalized = normalizeRequestPath(requestPath);
+  return ADMIN_MUTATION_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
+function isAllowedAdminIp(rawIp = "") {
+  const ip = text(rawIp).toLowerCase();
+  if (!ip) return false;
+  if (!API_ADMIN_ALLOWLIST_IPS.length) return true;
+  const normalized = ip.replace(/^::ffff:/i, "");
+  return API_ADMIN_ALLOWLIST_IPS.some((allowed) => {
+    const safe = text(allowed).toLowerCase().replace(/^::ffff:/i, "");
+    if (!safe) return false;
+    if (safe.endsWith("*")) {
+      return normalized.startsWith(safe.slice(0, -1));
+    }
+    return safe === normalized;
+  });
+}
+
+function isSecureTransport(req) {
+  const forwardedProto = text(req?.headers?.["x-forwarded-proto"]).toLowerCase();
+  if (forwardedProto.includes("https")) return true;
+  return text(req?.protocol).toLowerCase() === "https";
+}
+
 function computeAdaptiveBlockDurationMs(incidentCount = 0) {
   const normalizedIncidents = Math.max(0, Number(incidentCount || 0));
   const repeatStep = Math.floor(normalizedIncidents / THREAT_REPEAT_OFFENDER_THRESHOLD);
@@ -890,6 +1007,7 @@ export function proRequestFirewall(req, res, next) {
     details = {},
     message = "Request blocked by firewall policy."
   }) => {
+    req.proSecurityBlockSource = text(reason, "firewall-block");
     const incident = quarantineByFirewall(req, {
       reason,
       requestPath: pathForChecks,
@@ -970,6 +1088,43 @@ export function proRequestFirewall(req, res, next) {
       riskScore: 85,
       message: "Suspicious host header blocked by firewall."
     });
+  }
+
+  if (isAdminMutationPath(pathForChecks, method)) {
+    const clientIp = getClientIp(req);
+    if (!isAllowedAdminIp(clientIp)) {
+      return reject({
+        reason: "firewall-admin-ip-not-allowlisted",
+        statusCode: 403,
+        riskScore: 95,
+        details: {
+          clientIp
+        },
+        message: "Admin action blocked by IP allowlist policy."
+      });
+    }
+
+    if (text(process.env.NODE_ENV).toLowerCase() === "production" && !isSecureTransport(req)) {
+      return reject({
+        reason: "firewall-insecure-admin-transport",
+        statusCode: 403,
+        riskScore: 90,
+        message: "Admin action requires secure transport (HTTPS)."
+      });
+    }
+
+    if (API_ADMIN_ACTION_KEY_ENFORCED) {
+      const headerKey = text(req?.headers?.["x-admin-action-key"]);
+      const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+      if (!hasConfiguredSecret || !timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY)) {
+        return reject({
+          reason: "firewall-admin-action-key-mismatch",
+          statusCode: 403,
+          riskScore: 98,
+          message: "Admin action blocked by action-key security policy."
+        });
+      }
+    }
   }
 
   return next();
@@ -1131,6 +1286,7 @@ export function proAiThreatAutoDetector(req, res, next) {
   if (Number(current.blockUntil || 0) > nowTs) {
     const retryAfterSec = Math.max(1, Math.ceil((current.blockUntil - nowTs) / 1000));
     res.setHeader("Retry-After", String(retryAfterSec));
+    req.proSecurityBlockSource = "ai-threat-quarantine-block";
     pushProSecurityAuditEvent(req, {
       severity: "high",
       type: "ai-threat-quarantine-block",
@@ -1222,6 +1378,7 @@ export function proAiThreatAutoDetector(req, res, next) {
   if (shouldQuarantine) {
     const retryAfterSec = Math.max(1, Math.ceil(quarantineDurationMs / 1000));
     res.setHeader("Retry-After", String(retryAfterSec));
+    req.proSecurityBlockSource = "ai-auto-quarantine";
     return res.status(403).json({
       success: false,
       message: "Request blocked by automated AI threat detection.",
@@ -1229,6 +1386,100 @@ export function proAiThreatAutoDetector(req, res, next) {
       requestId: req.requestId
     });
   }
+
+  return next();
+}
+
+export function proAuthFailureIntelligence(req, res, next) {
+  const requestPath = String(req.originalUrl || req.baseUrl || req.path || "");
+  if (!requestPath.startsWith("/api")) return next();
+
+  res.on("finish", () => {
+    if (req.proSecurityBlockSource) return;
+
+    const statusCode = Number(res.statusCode || 0);
+    if (statusCode !== 401 && statusCode !== 403) return;
+
+    const nowTs = Date.now();
+    const fingerprint = requestFingerprint(req);
+    const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
+    const normalizedPath = normalizeRequestPath(req.path || requestPath || "/");
+    const authFailures = [...current.authFailures, {
+      at: nowTs,
+      statusCode,
+      path: normalizedPath
+    }]
+      .filter((item) => Number(item?.at || 0) >= nowTs - AUTH_FAILURE_WINDOW_MS)
+      .slice(-AUTH_FAILURE_SAMPLE_MAX);
+
+    const count401 = authFailures.filter((item) => Number(item.statusCode) === 401).length;
+    const count403 = authFailures.filter((item) => Number(item.statusCode) === 403).length;
+    const isAuthPath = normalizedPath.includes("/auth");
+    const riskIncrement = statusCode === 401
+      ? (isAuthPath ? 16 : 10)
+      : (isAuthPath ? 20 : 14);
+
+    let quarantineReason = "";
+    if (count401 >= AUTH_FAILURE_401_THRESHOLD) quarantineReason = "auth-failure-burst";
+    if (count403 >= AUTH_FAILURE_403_THRESHOLD) quarantineReason = quarantineReason || "forbidden-probe-burst";
+
+    const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
+    const shouldQuarantine = Boolean(quarantineReason);
+    const quarantineDurationMs = shouldQuarantine ? computeAdaptiveBlockDurationMs(projectedIncidentCount) : 0;
+
+    const nextState = {
+      ...current,
+      riskScore: Math.max(0, Number(current.riskScore || 0)) + riskIncrement,
+      incidentCount: projectedIncidentCount,
+      lastSeenAt: nowTs,
+      authFailures,
+      blockUntil: shouldQuarantine
+        ? Math.max(Number(current.blockUntil || 0), nowTs + quarantineDurationMs)
+        : Number(current.blockUntil || 0),
+      quarantineReason: shouldQuarantine ? quarantineReason : text(current.quarantineReason)
+    };
+    proThreatProfiles.set(fingerprint, nextState);
+    pruneThreatProfiles();
+
+    if (!shouldQuarantine && nextState.riskScore < THREAT_SCORE_ALERT_THRESHOLD) {
+      return;
+    }
+
+    const method = normalizeRequestMethod(req.method);
+    pushThreatIncident({
+      fingerprint,
+      ip: getClientIp(req),
+      requestId: req.requestId,
+      path: normalizedPath,
+      method,
+      riskScore: riskIncrement,
+      cumulativeRiskScore: nextState.riskScore,
+      blocked: shouldQuarantine,
+      reason: shouldQuarantine ? quarantineReason : "auth-failure-alert",
+      rules: [
+        `status-${statusCode}`,
+        `auth401-count:${count401}`,
+        `auth403-count:${count403}`
+      ]
+    });
+
+    pushProSecurityAuditEvent(req, {
+      severity: shouldQuarantine ? "high" : "medium",
+      type: shouldQuarantine ? "auth-failure-quarantine" : "auth-failure-alert",
+      details: {
+        path: normalizedPath,
+        method,
+        statusCode,
+        count401,
+        count403,
+        windowSec: Math.round(AUTH_FAILURE_WINDOW_MS / 1000),
+        riskIncrement,
+        quarantineDurationSec: shouldQuarantine
+          ? Math.max(1, Math.ceil(quarantineDurationMs / 1000))
+          : 0
+      }
+    });
+  });
 
   return next();
 }
