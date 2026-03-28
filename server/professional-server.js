@@ -17,6 +17,7 @@ import {
   proAttachRequestContext,
   proAuthRateLimiter,
   proBlockSensitivePublicFiles,
+  proRequestFirewall,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
 import proHealthRoutes from "./routes/proHealthRoutes.js";
@@ -67,6 +68,7 @@ app.use(
   cors(createProCorsOptions())
 );
 
+app.use("/api", proRequestFirewall);
 app.use(express.json({ limit: jsonLimit }));
 app.use(express.urlencoded({ extended: true, limit: formLimit }));
 app.use("/api", proApiRateLimiter);

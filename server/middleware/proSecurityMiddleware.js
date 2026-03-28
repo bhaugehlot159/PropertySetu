@@ -71,7 +71,28 @@ const THREAT_MANUAL_QUARANTINE_MAX_MS = Math.max(
   THREAT_BLOCK_DURATION_MS,
   Number(process.env.THREAT_MANUAL_QUARANTINE_MAX_MS || 24 * 60 * 60 * 1000)
 );
+const THREAT_REPEAT_OFFENDER_THRESHOLD = Math.max(
+  2,
+  Number(process.env.THREAT_REPEAT_OFFENDER_THRESHOLD || 3)
+);
+const THREAT_REPEAT_OFFENDER_MULTIPLIER = Math.max(
+  1.1,
+  Number(process.env.THREAT_REPEAT_OFFENDER_MULTIPLIER || 1.8)
+);
+const THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS = Math.max(
+  THREAT_BLOCK_DURATION_MS,
+  Number(process.env.THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS || 12 * 60 * 60 * 1000)
+);
 const THREAT_FINGERPRINT_PATTERN = /^[a-f0-9]{24}$/i;
+const API_ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
+const API_MAX_PATH_LENGTH = Math.max(
+  400,
+  Number(process.env.API_MAX_PATH_LENGTH || 2048)
+);
+const API_MAX_HOST_HEADER_LENGTH = Math.max(
+  80,
+  Number(process.env.API_MAX_HOST_HEADER_LENGTH || 255)
+);
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const NULL_BYTE_PATTERN = /\0/;
 const SUSPICIOUS_USER_AGENT_PATTERNS = [
@@ -146,6 +167,19 @@ const THREAT_DETECTION_EXCLUDED_PATHS = [
   /^\/api\/v3\/health(?:\/|$)/i,
   /^\/api\/system\/security-intelligence(?:\/|$)/i,
   /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i
+];
+const API_SCANNER_PATH_RULES = [
+  /^\/api\/(?:wp-admin|wp-login|wordpress)(?:\/|$)/i,
+  /^\/api\/(?:phpmyadmin|pma|mysql-admin)(?:\/|$)/i,
+  /^\/api\/(?:\.env|config\.php|web\.config)(?:\/|$)/i,
+  /^\/api\/(?:vendor\/phpunit|cgi-bin|boaform|actuator|jenkins|hudson)(?:\/|$)/i,
+  /^\/api\/(?:server-status|debug\/pprof|_ignition|_profiler)(?:\/|$)/i
+];
+const API_METHOD_OVERRIDE_HEADERS = [
+  "x-http-method-override",
+  "x-method-override",
+  "x-original-url",
+  "x-rewrite-url"
 ];
 
 function text(value, fallback = "") {
@@ -730,6 +764,217 @@ function isThreatDetectionExcludedPath(requestPath) {
   return THREAT_DETECTION_EXCLUDED_PATHS.some((rule) => rule.test(normalized));
 }
 
+function normalizeRequestMethod(value = "") {
+  return text(value).toUpperCase();
+}
+
+function hasControlChars(value = "") {
+  return /[\0\r\n]/.test(String(value || ""));
+}
+
+function hasEncodedControlChars(value = "") {
+  return /%(?:00|0d|0a)/i.test(String(value || ""));
+}
+
+function hasMethodOverrideHeaders(req) {
+  return API_METHOD_OVERRIDE_HEADERS.some((headerName) => text(req?.headers?.[headerName]));
+}
+
+function hasHeaderSmugglingSignals(req) {
+  const transferEncoding = text(req?.headers?.["transfer-encoding"]).toLowerCase();
+  const contentLength = text(req?.headers?.["content-length"]);
+  if (transferEncoding && contentLength) return true;
+  if (hasControlChars(transferEncoding) || hasControlChars(contentLength)) return true;
+  return false;
+}
+
+function isSuspiciousHostHeader(req) {
+  const host = text(req?.headers?.host).toLowerCase();
+  if (!host) return false;
+  if (host.length > API_MAX_HOST_HEADER_LENGTH) return true;
+  if (host.includes(" ") || host.includes("/") || host.includes("@")) return true;
+  if (hasControlChars(host)) return true;
+  return !/^[a-z0-9.\-:\[\]]+$/i.test(host);
+}
+
+function isKnownScannerPath(requestPath = "") {
+  const normalized = normalizeRequestPath(requestPath);
+  return API_SCANNER_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
+function computeAdaptiveBlockDurationMs(incidentCount = 0) {
+  const normalizedIncidents = Math.max(0, Number(incidentCount || 0));
+  const repeatStep = Math.floor(normalizedIncidents / THREAT_REPEAT_OFFENDER_THRESHOLD);
+  const multiplier = Math.pow(THREAT_REPEAT_OFFENDER_MULTIPLIER, repeatStep);
+  return Math.max(
+    THREAT_BLOCK_DURATION_MS,
+    Math.min(
+      THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS,
+      Math.round(THREAT_BLOCK_DURATION_MS * multiplier)
+    )
+  );
+}
+
+function quarantineByFirewall(req, {
+  reason = "firewall-block",
+  requestPath = "/api",
+  method = "GET",
+  riskScore = 70,
+  details = {}
+} = {}) {
+  const fingerprint = requestFingerprint(req);
+  const nowTs = Date.now();
+  const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
+  const incidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
+  const durationMs = computeAdaptiveBlockDurationMs(incidentCount);
+  const nextState = {
+    ...current,
+    riskScore: Math.max(
+      THREAT_SCORE_BLOCK_THRESHOLD,
+      Math.max(0, Number(current.riskScore || 0)) + Math.max(0, Number(riskScore || 0))
+    ),
+    incidentCount,
+    blockUntil: nowTs + durationMs,
+    lastSeenAt: nowTs,
+    quarantineReason: text(reason, "firewall-block")
+  };
+  proThreatProfiles.set(fingerprint, nextState);
+  pruneThreatProfiles();
+
+  pushThreatIncident({
+    fingerprint,
+    ip: getClientIp(req),
+    requestId: req.requestId,
+    path: requestPath,
+    method,
+    riskScore: Math.max(0, Number(riskScore || 0)),
+    cumulativeRiskScore: nextState.riskScore,
+    blocked: true,
+    reason: nextState.quarantineReason,
+    rules: [nextState.quarantineReason]
+  });
+
+  const retryAfterSec = Math.max(1, Math.ceil(durationMs / 1000));
+  pushProSecurityAuditEvent(req, {
+    severity: "high",
+    type: "request_firewall_blocked",
+    details: {
+      reason: nextState.quarantineReason,
+      requestPath,
+      method,
+      riskScore: Math.max(0, Number(riskScore || 0)),
+      incidentCount,
+      retryAfterSec,
+      ...details
+    }
+  });
+
+  return {
+    fingerprint,
+    retryAfterSec,
+    blockUntil: nextState.blockUntil
+  };
+}
+
+export function proRequestFirewall(req, res, next) {
+  const rawPath = String(req.originalUrl || req.baseUrl || req.path || "");
+  if (!rawPath.startsWith("/api")) return next();
+
+  const method = normalizeRequestMethod(req.method);
+  const pathForChecks = normalizeRequestPath(req.path || rawPath || "/");
+
+  const reject = ({
+    reason,
+    statusCode = 403,
+    riskScore = 70,
+    details = {},
+    message = "Request blocked by firewall policy."
+  }) => {
+    const incident = quarantineByFirewall(req, {
+      reason,
+      requestPath: pathForChecks,
+      method,
+      riskScore,
+      details
+    });
+    res.setHeader("Retry-After", String(incident.retryAfterSec));
+    return res.status(statusCode).json({
+      success: false,
+      message,
+      retryAfterSec: incident.retryAfterSec,
+      requestId: req.requestId
+    });
+  };
+
+  if (!API_ALLOWED_METHODS.has(method)) {
+    return reject({
+      reason: "firewall-method-not-allowed",
+      statusCode: 405,
+      riskScore: 95,
+      message: "HTTP method is not allowed for this API."
+    });
+  }
+
+  if (pathForChecks.length > API_MAX_PATH_LENGTH) {
+    return reject({
+      reason: "firewall-path-too-long",
+      statusCode: 414,
+      riskScore: 82,
+      details: {
+        pathLength: pathForChecks.length
+      },
+      message: "Request path is too long."
+    });
+  }
+
+  if (hasControlChars(rawPath) || hasEncodedControlChars(rawPath)) {
+    return reject({
+      reason: "firewall-control-char-path",
+      statusCode: 400,
+      riskScore: 88,
+      message: "Malformed request path blocked by firewall."
+    });
+  }
+
+  if (isKnownScannerPath(pathForChecks)) {
+    return reject({
+      reason: "firewall-scanner-path",
+      statusCode: 403,
+      riskScore: 96,
+      message: "Security policy blocked this request path."
+    });
+  }
+
+  if (hasMethodOverrideHeaders(req)) {
+    return reject({
+      reason: "firewall-method-override-header",
+      statusCode: 400,
+      riskScore: 80,
+      message: "Method override headers are not permitted."
+    });
+  }
+
+  if (hasHeaderSmugglingSignals(req)) {
+    return reject({
+      reason: "firewall-header-smuggling-signal",
+      statusCode: 400,
+      riskScore: 95,
+      message: "Malformed request headers blocked by firewall."
+    });
+  }
+
+  if (isSuspiciousHostHeader(req)) {
+    return reject({
+      reason: "firewall-suspicious-host-header",
+      statusCode: 400,
+      riskScore: 85,
+      message: "Suspicious host header blocked by firewall."
+    });
+  }
+
+  return next();
+}
+
 export function proBlockSensitivePublicFiles(req, res, next) {
   const requestPath = normalizeRequestPath(req.path || req.originalUrl || "/");
   if (requestPath.startsWith("/api")) return next();
@@ -928,12 +1173,16 @@ export function proAiThreatAutoDetector(req, res, next) {
 
   const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + riskScore;
   const shouldQuarantine = cumulativeRiskScore >= THREAT_SCORE_BLOCK_THRESHOLD;
+  const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
+  const quarantineDurationMs = shouldQuarantine
+    ? computeAdaptiveBlockDurationMs(projectedIncidentCount)
+    : 0;
   const nextState = {
     ...current,
     riskScore: cumulativeRiskScore,
     lastSeenAt: nowTs,
-    incidentCount: Math.max(0, Number(current.incidentCount || 0)) + 1,
-    blockUntil: shouldQuarantine ? nowTs + THREAT_BLOCK_DURATION_MS : Number(current.blockUntil || 0),
+    incidentCount: projectedIncidentCount,
+    blockUntil: shouldQuarantine ? nowTs + quarantineDurationMs : Number(current.blockUntil || 0),
     recentHits: behavior.recentHits,
     recentPaths: behavior.recentPaths,
     authIdentityTrail: behavior.authIdentityTrail,
@@ -964,13 +1213,14 @@ export function proAiThreatAutoDetector(req, res, next) {
         riskScore,
         cumulativeRiskScore,
         rules: matchedRules,
-        payloadBytes: evaluation.totalPayloadSize
+        payloadBytes: evaluation.totalPayloadSize,
+        quarantineDurationSec: shouldQuarantine ? Math.max(1, Math.ceil(quarantineDurationMs / 1000)) : 0
       }
     });
   }
 
   if (shouldQuarantine) {
-    const retryAfterSec = Math.max(1, Math.ceil(THREAT_BLOCK_DURATION_MS / 1000));
+    const retryAfterSec = Math.max(1, Math.ceil(quarantineDurationMs / 1000));
     res.setHeader("Retry-After", String(retryAfterSec));
     return res.status(403).json({
       success: false,
