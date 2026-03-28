@@ -85,6 +85,32 @@ const THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS = Math.max(
   THREAT_BLOCK_DURATION_MS,
   Number(process.env.THREAT_REPEAT_OFFENDER_MAX_BLOCK_MS || 12 * 60 * 60 * 1000)
 );
+const FAKE_LISTING_AI_ENABLED =
+  text(process.env.FAKE_LISTING_AI_ENABLED || "true").toLowerCase() !== "false";
+const FAKE_LISTING_ALERT_THRESHOLD = Math.max(
+  30,
+  Number(process.env.FAKE_LISTING_ALERT_THRESHOLD || 48)
+);
+const FAKE_LISTING_BLOCK_THRESHOLD = Math.max(
+  FAKE_LISTING_ALERT_THRESHOLD,
+  Number(process.env.FAKE_LISTING_BLOCK_THRESHOLD || 84)
+);
+const FAKE_LISTING_SIGNAL_WINDOW_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.FAKE_LISTING_SIGNAL_WINDOW_MS || 12 * 60 * 60 * 1000)
+);
+const FAKE_LISTING_REPEAT_SIGNATURE_THRESHOLD = Math.max(
+  2,
+  Number(process.env.FAKE_LISTING_REPEAT_SIGNATURE_THRESHOLD || 3)
+);
+const FAKE_LISTING_BURST_THRESHOLD = Math.max(
+  2,
+  Number(process.env.FAKE_LISTING_BURST_THRESHOLD || 4)
+);
+const FAKE_LISTING_MAX_SIGNAL_ITEMS = Math.max(
+  20,
+  Number(process.env.FAKE_LISTING_MAX_SIGNAL_ITEMS || 160)
+);
 const AUTH_FAILURE_WINDOW_MS = Math.max(
   60_000,
   Number(process.env.AUTH_FAILURE_WINDOW_MS || 10 * 60 * 1000)
@@ -206,6 +232,33 @@ const API_METHOD_OVERRIDE_HEADERS = [
   "x-original-url",
   "x-rewrite-url"
 ];
+const FAKE_LISTING_RISK_PHRASES = [
+  "urgent sale",
+  "token now",
+  "advance first",
+  "cash only",
+  "deal today",
+  "final today",
+  "owner abroad",
+  "no visit required",
+  "dm for payment",
+  "booking amount now"
+];
+const FAKE_LISTING_HIGH_RISK_PHRASES = [
+  "send otp",
+  "send token amount",
+  "pay before visit",
+  "wire transfer",
+  "crypto payment",
+  "security code share"
+];
+const DIRECT_CONTACT_PATTERNS = [
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  /\+?\d[\d\s\-()]{8,}\d/,
+  /\b(?:whatsapp|wa\.me|telegram|t\.me)\b/i
+];
+const SUSPICIOUS_LINK_PATTERN =
+  /\b(?:bit\.ly|tinyurl\.com|rb\.gy|is\.gd|cutt\.ly|rebrand\.ly|t\.me|wa\.me)\b/i;
 const ADMIN_MUTATION_PATH_RULES = [
   /^\/api\/system\/security-intelligence\/(?:release|quarantine)(?:\/|$)/i,
   /^\/api\/v3\/system\/security-intelligence\/(?:release|quarantine)(?:\/|$)/i,
@@ -482,6 +535,7 @@ function nextProfileState(current = {}, nowTs = Date.now()) {
     recentHits: Array.isArray(current.recentHits) ? current.recentHits : [],
     recentPaths: Array.isArray(current.recentPaths) ? current.recentPaths : [],
     authIdentityTrail: Array.isArray(current.authIdentityTrail) ? current.authIdentityTrail : [],
+    listingSignals: Array.isArray(current.listingSignals) ? current.listingSignals : [],
     authFailures: Array.isArray(current.authFailures) ? current.authFailures : [],
     quarantineReason: text(current.quarantineReason)
   };
@@ -646,6 +700,12 @@ export function quarantineProSecurityThreatProfile(
 export function getProSecurityThreatIntelligence(limit = 200) {
   const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
   const incidents = proThreatIncidents.slice(0, safeLimit);
+  const fakeListingIncidents = proThreatIncidents.filter(
+    (item) =>
+      text(item?.reason).includes("fake-listing") ||
+      (Array.isArray(item?.rules) &&
+        item.rules.some((rule) => text(rule).includes("listing")))
+  );
   const hotProfiles = [...proThreatProfiles.entries()]
     .map(([fingerprint, profile]) => ({
       fingerprint,
@@ -667,6 +727,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       blockedProfiles: hotProfiles.filter((item) => item.blockUntil > Date.now()).length,
       highRiskProfiles: hotProfiles.filter((item) => item.riskScore >= THREAT_SCORE_BLOCK_THRESHOLD).length,
       totalIncidents: proThreatIncidents.length,
+      fakeListingIncidents: fakeListingIncidents.length,
+      fakeListingBlockedIncidents: fakeListingIncidents.filter((item) => Boolean(item?.blocked)).length,
       auditEventCount: proSecurityAuditEvents.length,
       integrity: {
         auditChainHead: proSecurityAuditChainHead,
@@ -773,6 +835,336 @@ function isSecureRequest(req) {
   const forwardedProto = text(req?.headers?.["x-forwarded-proto"]).toLowerCase();
   if (forwardedProto.includes("https")) return true;
   return text(req?.protocol).toLowerCase() === "https";
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeListingImageArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => text(item)).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => text(item))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeListingMedia(value) {
+  const media = isPlainObject(value) ? value : {};
+  const photoNames = normalizeListingImageArray(media.photoNames);
+  return {
+    photosCount: Math.max(0, toNumber(media.photosCount, photoNames.length)),
+    photoNames,
+    videoUploaded: Boolean(media.videoUploaded || text(media.videoName) || text(media.videoUrl)),
+    videoDurationSec: Math.max(0, toNumber(media.videoDurationSec, 0)),
+    duplicatePhotoMatches: Math.max(0, toNumber(media.duplicatePhotoMatches, 0)),
+    blurryPhotosDetected: Math.max(0, toNumber(media.blurryPhotosDetected, 0))
+  };
+}
+
+function normalizeListingPrivateDocs(value) {
+  const docs = isPlainObject(value) ? value : {};
+  const propertyDocuments = normalizeListingImageArray(docs.propertyDocuments);
+  const uploadedPrivateDocs = Array.isArray(docs.uploadedPrivateDocs)
+    ? docs.uploadedPrivateDocs.filter((item) => isPlainObject(item))
+    : [];
+
+  return {
+    propertyDocuments,
+    ownerIdProof: text(docs.ownerIdProof),
+    addressProof: text(docs.addressProof),
+    uploadedPrivateDocs
+  };
+}
+
+function parseListingMutationContext(req) {
+  const method = normalizeRequestMethod(req?.method);
+  if (!["POST", "PATCH", "PUT"].includes(method)) return null;
+
+  const normalizedPath = normalizeRequestPath(req?.path || req?.originalUrl || "");
+  const segments = normalizedPath.split("/").filter(Boolean);
+  if (segments[0] !== "api") return null;
+
+  let version = "legacy";
+  let index = 1;
+  if (segments[1] === "v2" || segments[1] === "v3") {
+    version = segments[1];
+    index = 2;
+  }
+
+  if (segments[index] !== "properties") return null;
+  const tail = segments.slice(index + 1);
+
+  const isCreate = method === "POST" && tail.length === 0;
+  const isCreateProfessional =
+    method === "POST" && tail.length === 1 && text(tail[0]).toLowerCase() === "professional";
+  const isUpdate = ["PATCH", "PUT"].includes(method) && tail.length === 1;
+  const isUpdateProfessional =
+    ["PATCH", "PUT"].includes(method) &&
+    tail.length === 2 &&
+    text(tail[1]).toLowerCase() === "professional";
+
+  if (!isCreate && !isCreateProfessional && !isUpdate && !isUpdateProfessional) return null;
+
+  return {
+    method,
+    requestPath: normalizedPath,
+    version,
+    mode: isCreateProfessional || isUpdateProfessional ? "professional" : "standard",
+    action: isCreate || isCreateProfessional ? "create" : "update"
+  };
+}
+
+function buildFakeListingPayload(req, context) {
+  const body = isPlainObject(req?.body) ? req.body : {};
+  const media = normalizeListingMedia(body.media);
+  const imageUrls = normalizeListingImageArray(
+    body.images || body.imageUrls || media.photoNames
+  );
+  const uniqueImageCount = new Set(imageUrls.map((item) => text(item).toLowerCase())).size;
+  const duplicateImagesInPayload = Math.max(0, imageUrls.length - uniqueImageCount);
+  const privateDocs = normalizeListingPrivateDocs(body.privateDocs);
+  const hasPrivateDocs = Boolean(
+    privateDocs.propertyDocuments.length ||
+      privateDocs.uploadedPrivateDocs.length ||
+      privateDocs.ownerIdProof ||
+      privateDocs.addressProof
+  );
+
+  const photosCount = Math.max(
+    imageUrls.length,
+    media.photoNames.length,
+    toNumber(media.photosCount, 0)
+  );
+  const hasVideo = Boolean(text(body.video) || media.videoUploaded);
+
+  return {
+    title: text(body.title),
+    description: text(body.description),
+    city: text(body.city),
+    location: text(body.location || body.locality),
+    type: text(body.type || body.saleRentMode || "buy").toLowerCase(),
+    category: text(body.category || body.propertyType || "house").toLowerCase(),
+    price: Math.max(0, toNumber(body.price, 0)),
+    size: Math.max(
+      0,
+      toNumber(body.size, toNumber(body.areaSqft, toNumber(body.builtUpArea, toNumber(body.plotSize, 0))))
+    ),
+    images: imageUrls,
+    photosCount,
+    hasVideo,
+    media,
+    hasPrivateDocs,
+    duplicateImagesInPayload,
+    context
+  };
+}
+
+function buildFakeListingSignature(payload) {
+  const canonical = {
+    title: text(payload.title).toLowerCase(),
+    description: text(payload.description).toLowerCase().slice(0, 320),
+    city: text(payload.city).toLowerCase(),
+    location: text(payload.location).toLowerCase(),
+    type: text(payload.type).toLowerCase(),
+    category: text(payload.category).toLowerCase(),
+    price: Math.max(0, toNumber(payload.price, 0)),
+    size: Math.max(0, toNumber(payload.size, 0)),
+    photosCount: Math.max(0, toNumber(payload.photosCount, 0)),
+    hasVideo: Boolean(payload.hasVideo),
+    images: [...new Set((Array.isArray(payload.images) ? payload.images : []).map((item) => text(item).toLowerCase()))].sort()
+  };
+  return sha256(JSON.stringify(canonical)).slice(0, 24);
+}
+
+function scoreFakeListingPayload({ payload, state, nowTs }) {
+  const reasons = [];
+  let score = 0;
+  const listingText = `${text(payload.title)} ${text(payload.description)}`.toLowerCase();
+  const addSignal = (points, reason) => {
+    score += Math.max(0, Number(points || 0));
+    if (reason) reasons.push(reason);
+  };
+
+  if (!payload.title || payload.title.length < 10) {
+    addSignal(8, "weak-listing-title");
+  }
+  if (!payload.description || payload.description.length < 25) {
+    addSignal(8, "very-short-description");
+  }
+
+  const phraseMatches = FAKE_LISTING_RISK_PHRASES.filter((phrase) => listingText.includes(phrase));
+  const highRiskPhraseMatches = FAKE_LISTING_HIGH_RISK_PHRASES.filter((phrase) =>
+    listingText.includes(phrase)
+  );
+  if (phraseMatches.length) {
+    addSignal(Math.min(30, phraseMatches.length * 10), "risky-phrase-pattern");
+  }
+  if (highRiskPhraseMatches.length) {
+    addSignal(Math.min(42, highRiskPhraseMatches.length * 20), "high-risk-phrase-pattern");
+  }
+
+  const hasDirectContact = DIRECT_CONTACT_PATTERNS.some((rule) => rule.test(listingText));
+  if (hasDirectContact) {
+    addSignal(22, "direct-contact-in-listing");
+  }
+  if (SUSPICIOUS_LINK_PATTERN.test(listingText)) {
+    addSignal(24, "suspicious-short-link");
+  }
+
+  const isRentType = payload.type.includes("rent");
+  if (!isRentType && payload.price > 0 && payload.price < 100000) {
+    addSignal(28, "abnormally-low-sale-price");
+  }
+  if (isRentType && payload.price > 350000) {
+    addSignal(22, "abnormally-high-rent-price");
+  }
+  if (payload.size > 0 && payload.price > 0) {
+    const pricePerSqft = payload.price / payload.size;
+    if (pricePerSqft < 120) {
+      addSignal(18, "price-per-sqft-too-low");
+    } else if (pricePerSqft > 250000) {
+      addSignal(16, "price-per-sqft-too-high");
+    }
+  }
+
+  if (payload.photosCount > 0 && payload.photosCount < 5) {
+    addSignal(15, "insufficient-photo-count");
+  }
+  if (!payload.hasVideo) {
+    addSignal(10, "missing-property-video");
+  }
+  if (payload.media.duplicatePhotoMatches > 0) {
+    addSignal(Math.min(42, 24 + payload.media.duplicatePhotoMatches * 6), "duplicate-photo-detected");
+  }
+  if (payload.media.blurryPhotosDetected >= 3) {
+    addSignal(14, "multiple-blurry-photos");
+  }
+  if (payload.duplicateImagesInPayload > 0) {
+    addSignal(16, "duplicate-images-in-payload");
+  }
+  if (payload.context.mode === "professional" && !payload.hasPrivateDocs) {
+    addSignal(20, "missing-private-documents");
+  }
+
+  const signature = buildFakeListingSignature(payload);
+  const previousSignals = (Array.isArray(state?.listingSignals) ? state.listingSignals : []).filter(
+    (item) => Number(item?.at || 0) >= nowTs - FAKE_LISTING_SIGNAL_WINDOW_MS
+  );
+  const repeatSignatureCount =
+    previousSignals.filter((item) => text(item?.signature) === signature).length + 1;
+  if (repeatSignatureCount >= FAKE_LISTING_REPEAT_SIGNATURE_THRESHOLD) {
+    addSignal(24, "repeated-listing-signature");
+  }
+
+  const highRiskRecentCount = previousSignals.filter(
+    (item) => Number(item?.riskScore || 0) >= FAKE_LISTING_ALERT_THRESHOLD
+  ).length + (score >= FAKE_LISTING_ALERT_THRESHOLD ? 1 : 0);
+  if (highRiskRecentCount >= FAKE_LISTING_BURST_THRESHOLD) {
+    addSignal(22, "high-risk-listing-burst");
+  }
+
+  const finalScore = Math.max(0, Math.min(100, Math.round(score)));
+  const listingSignals = [...previousSignals, {
+    at: nowTs,
+    signature,
+    riskScore: finalScore,
+    path: payload.context.requestPath,
+    blocked: finalScore >= FAKE_LISTING_BLOCK_THRESHOLD
+  }].slice(-FAKE_LISTING_MAX_SIGNAL_ITEMS);
+
+  return {
+    score: finalScore,
+    signature,
+    reasons: [...new Set(reasons)],
+    flags: {
+      hasDirectContact,
+      suspiciousShortLink: SUSPICIOUS_LINK_PATTERN.test(listingText),
+      suspiciousPricingAlert:
+        (!isRentType && payload.price > 0 && payload.price < 100000) ||
+        (isRentType && payload.price > 350000),
+      duplicatePhotoDetected: payload.media.duplicatePhotoMatches > 0,
+      duplicatePhotoCount: payload.media.duplicatePhotoMatches,
+      blurryPhotosDetected: payload.media.blurryPhotosDetected,
+      repeatSignatureCount,
+      highRiskRecentCount,
+      phraseMatches,
+      highRiskPhraseMatches
+    },
+    listingSignals
+  };
+}
+
+function applyFakeListingReviewPatch(req, context, evaluation) {
+  if (!isPlainObject(req?.body)) return;
+
+  const body = req.body;
+  const existingAiReview = isPlainObject(body.aiReview) ? body.aiReview : {};
+  const existingSignals = Array.isArray(existingAiReview.securitySignals)
+    ? existingAiReview.securitySignals.map((item) => text(item)).filter(Boolean)
+    : [];
+  const combinedSignals = [...new Set([...existingSignals, ...evaluation.reasons])];
+  const existingFraudRiskScore = Math.max(0, toNumber(existingAiReview.fraudRiskScore, 0));
+  const nextFraudRiskScore = Math.max(existingFraudRiskScore, evaluation.score);
+  const autoModerationRequired = nextFraudRiskScore >= FAKE_LISTING_ALERT_THRESHOLD;
+
+  body.aiReview = {
+    ...existingAiReview,
+    fraudRiskScore: nextFraudRiskScore,
+    fakeListingSignal: Boolean(existingAiReview.fakeListingSignal) || autoModerationRequired,
+    suspiciousPricingAlert:
+      Boolean(existingAiReview.suspiciousPricingAlert) || Boolean(evaluation.flags.suspiciousPricingAlert),
+    duplicatePhotoDetected:
+      Boolean(existingAiReview.duplicatePhotoDetected) || Boolean(evaluation.flags.duplicatePhotoDetected),
+    duplicatePhotoCount: Math.max(
+      toNumber(existingAiReview.duplicatePhotoCount, 0),
+      toNumber(evaluation.flags.duplicatePhotoCount, 0)
+    ),
+    riskyPhraseMatches: [
+      ...new Set([
+        ...(Array.isArray(existingAiReview.riskyPhraseMatches) ? existingAiReview.riskyPhraseMatches : []),
+        ...evaluation.flags.phraseMatches,
+        ...evaluation.flags.highRiskPhraseMatches
+      ])
+    ],
+    directContactDetected:
+      Boolean(existingAiReview.directContactDetected) || Boolean(evaluation.flags.hasDirectContact),
+    suspiciousShortLinkDetected:
+      Boolean(existingAiReview.suspiciousShortLinkDetected) || Boolean(evaluation.flags.suspiciousShortLink),
+    repeatedSignatureCount: Math.max(
+      toNumber(existingAiReview.repeatedSignatureCount, 0),
+      toNumber(evaluation.flags.repeatSignatureCount, 0)
+    ),
+    highRiskRecentCount: Math.max(
+      toNumber(existingAiReview.highRiskRecentCount, 0),
+      toNumber(evaluation.flags.highRiskRecentCount, 0)
+    ),
+    autoModerationRequired,
+    securitySignals: combinedSignals.slice(0, 20),
+    aiModelVersion: "propertysetu-fake-listing-guard-v2",
+    scannedAt: nowIso(),
+    recommendation:
+      nextFraudRiskScore >= FAKE_LISTING_BLOCK_THRESHOLD
+        ? "Blocked by AI fake listing security."
+        : autoModerationRequired
+          ? "Manual admin verification required."
+          : text(existingAiReview.recommendation, "Looks normal")
+  };
+
+  if (autoModerationRequired) {
+    body.verified = false;
+    body.verifiedByPropertySetu = false;
+    if (context.version === "legacy") {
+      body.status = "Pending Approval";
+    } else {
+      body.status = "draft";
+    }
+  }
 }
 
 export function proAttachRequestContext(req, res, next) {
@@ -1388,6 +1780,100 @@ export function proAiThreatAutoDetector(req, res, next) {
   }
 
   return next();
+}
+
+export function proFakeListingAiGuard(req, res, next) {
+  if (!FAKE_LISTING_AI_ENABLED) return next();
+
+  const context = parseListingMutationContext(req);
+  if (!context) return next();
+  if (!isPlainObject(req?.body)) return next();
+
+  const nowTs = Date.now();
+  const fingerprint = requestFingerprint(req);
+  const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
+  const payload = buildFakeListingPayload(req, context);
+  const evaluation = scoreFakeListingPayload({
+    payload,
+    state: current,
+    nowTs
+  });
+
+  const projectedIncidentCount = Math.max(0, Number(current.incidentCount || 0)) + 1;
+  const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + evaluation.score;
+  const shouldBlock =
+    evaluation.score >= FAKE_LISTING_BLOCK_THRESHOLD ||
+    cumulativeRiskScore >= Math.max(THREAT_SCORE_BLOCK_THRESHOLD + 20, 150);
+  const quarantineDurationMs = shouldBlock
+    ? computeAdaptiveBlockDurationMs(projectedIncidentCount)
+    : 0;
+
+  const nextState = {
+    ...current,
+    riskScore: cumulativeRiskScore,
+    lastSeenAt: nowTs,
+    incidentCount: projectedIncidentCount,
+    listingSignals: evaluation.listingSignals,
+    blockUntil: shouldBlock
+      ? Math.max(Number(current.blockUntil || 0), nowTs + quarantineDurationMs)
+      : Number(current.blockUntil || 0),
+    quarantineReason: shouldBlock ? "fake-listing-ai-quarantine" : text(current.quarantineReason)
+  };
+  proThreatProfiles.set(fingerprint, nextState);
+  pruneThreatProfiles();
+
+  if (evaluation.score >= FAKE_LISTING_ALERT_THRESHOLD || shouldBlock) {
+    const rules = [
+      ...evaluation.reasons,
+      `fake-listing-score:${evaluation.score}`
+    ];
+    pushThreatIncident({
+      fingerprint,
+      ip: getClientIp(req),
+      requestId: req.requestId,
+      path: context.requestPath,
+      method: context.method,
+      riskScore: evaluation.score,
+      cumulativeRiskScore,
+      blocked: shouldBlock,
+      reason: shouldBlock ? "fake-listing-ai-quarantine" : "fake-listing-ai-alert",
+      rules
+    });
+
+    pushProSecurityAuditEvent(req, {
+      severity: shouldBlock ? "high" : "medium",
+      type: shouldBlock ? "fake-listing-blocked" : "fake-listing-alert",
+      details: {
+        requestPath: context.requestPath,
+        method: context.method,
+        riskScore: evaluation.score,
+        cumulativeRiskScore,
+        reasons: evaluation.reasons.slice(0, 12),
+        flags: evaluation.flags,
+        quarantineDurationSec: shouldBlock
+          ? Math.max(1, Math.ceil(quarantineDurationMs / 1000))
+          : 0
+      }
+    });
+  }
+
+  applyFakeListingReviewPatch(req, context, evaluation);
+
+  if (!shouldBlock) {
+    return next();
+  }
+
+  const retryAfterSec = Math.max(1, Math.ceil(quarantineDurationMs / 1000));
+  req.proSecurityBlockSource = "fake-listing-ai-quarantine";
+  res.setHeader("Retry-After", String(retryAfterSec));
+  return res.status(422).json({
+    success: false,
+    message: "Listing blocked by AI fake-listing security policy.",
+    riskScore: evaluation.score,
+    reasons: evaluation.reasons.slice(0, 8),
+    retryAfterSec,
+    requestId: req.requestId
+  });
 }
 
 export function proAuthFailureIntelligence(req, res, next) {

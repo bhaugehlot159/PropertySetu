@@ -13,6 +13,7 @@ import {
   proAiThreatAutoDetector,
   createProCorsOptions,
   proAuthFailureIntelligence,
+  proFakeListingAiGuard,
   proApiPayloadGuard,
   proApiRateLimiter,
   proAttachRequestContext,
@@ -75,6 +76,7 @@ app.use(express.urlencoded({ extended: true, limit: formLimit }));
 app.use("/api", proApiRateLimiter);
 app.use("/api", proApiPayloadGuard);
 app.use("/api", proAiThreatAutoDetector);
+app.use("/api", proFakeListingAiGuard);
 app.use("/api", proAuthFailureIntelligence);
 app.use(`${apiV3Prefix}/auth`, proAuthRateLimiter);
 app.use("/api/auth", proAuthRateLimiter);

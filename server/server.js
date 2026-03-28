@@ -19,6 +19,7 @@ import {
   getProSecurityThreatIntelligence,
   getProSecurityAuditEvents,
   proAuthFailureIntelligence,
+  proFakeListingAiGuard,
   proApiPayloadGuard,
   proApiRateLimiter,
   proAttachRequestContext,
@@ -1053,6 +1054,7 @@ app.use(express.urlencoded({ extended: true, limit: String(process.env.API_FORM_
 app.use("/api", proApiRateLimiter);
 app.use("/api", proApiPayloadGuard);
 app.use("/api", proAiThreatAutoDetector);
+app.use("/api", proFakeListingAiGuard);
 app.use("/api", proAuthFailureIntelligence);
 app.use("/api/auth", proAuthRateLimiter);
 app.use(proBlockSensitivePublicFiles);
