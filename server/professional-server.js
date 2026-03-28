@@ -10,6 +10,7 @@ import { getStorageProvider } from "./config/proStorage.js";
 import { proErrorHandler, proNotFound } from "./middleware/proErrorMiddleware.js";
 import {
   createProSafeStaticOptions,
+  proAiThreatAutoDetector,
   createProCorsOptions,
   proApiPayloadGuard,
   proApiRateLimiter,
@@ -70,6 +71,7 @@ app.use(express.json({ limit: jsonLimit }));
 app.use(express.urlencoded({ extended: true, limit: formLimit }));
 app.use("/api", proApiRateLimiter);
 app.use("/api", proApiPayloadGuard);
+app.use("/api", proAiThreatAutoDetector);
 app.use(`${apiV3Prefix}/auth`, proAuthRateLimiter);
 app.use("/api/auth", proAuthRateLimiter);
 app.use(proBlockSensitivePublicFiles);

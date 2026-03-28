@@ -6,7 +6,8 @@ import {
   getCoreSystemDatabaseStructure,
   getCoreSystemBlueprint,
   getCoreSystemExecutionPlan,
-  getCoreSystemSecurityAudit
+  getCoreSystemSecurityAudit,
+  getCoreSystemSecurityIntelligence
 } from "../controllers/coreSystemController.js";
 import { coreAuthRequired, coreRoleRequired } from "../middleware/coreAuthMiddleware.js";
 
@@ -19,5 +20,6 @@ router.get("/database-structure", getCoreSystemDatabaseStructure);
 router.get("/core-systems", getCoreSystemBlueprint);
 router.get("/execution-plan", getCoreSystemExecutionPlan);
 router.get("/security-audit", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityAudit);
+router.get("/security-intelligence", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityIntelligence);
 
 export default router;

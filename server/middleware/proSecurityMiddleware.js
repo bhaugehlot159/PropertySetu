@@ -2,6 +2,8 @@ import crypto from "crypto";
 
 const proRateBuckets = new Map();
 const proSecurityAuditEvents = [];
+const proThreatProfiles = new Map();
+const proThreatIncidents = [];
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -15,8 +17,61 @@ const SECURITY_MAX_OBJECT_NODES = Math.max(
   100,
   Number(process.env.SECURITY_MAX_OBJECT_NODES || 4000)
 );
+const SECURITY_INCIDENT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.SECURITY_INCIDENT_MAX_ITEMS || 1200)
+);
+const SECURITY_AI_AUTO_DETECT_ENABLED =
+  text(process.env.SECURITY_AI_AUTO_DETECT_ENABLED || "true").toLowerCase() !== "false";
+const THREAT_SCORE_BLOCK_THRESHOLD = Math.max(
+  40,
+  Number(process.env.THREAT_SCORE_BLOCK_THRESHOLD || 120)
+);
+const THREAT_SCORE_ALERT_THRESHOLD = Math.max(
+  20,
+  Number(process.env.THREAT_SCORE_ALERT_THRESHOLD || 35)
+);
+const THREAT_SCORE_DECAY_WINDOW_MS = Math.max(
+  60_000,
+  Number(process.env.THREAT_SCORE_DECAY_WINDOW_MS || 15 * 60 * 1000)
+);
+const THREAT_BLOCK_DURATION_MS = Math.max(
+  60_000,
+  Number(process.env.THREAT_BLOCK_DURATION_MS || 30 * 60 * 1000)
+);
+const THREAT_PROFILE_MAX_SIZE = Math.max(
+  200,
+  Number(process.env.THREAT_PROFILE_MAX_SIZE || 6000)
+);
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const NULL_BYTE_PATTERN = /\0/;
+const THREAT_DETECTION_RULES = [
+  {
+    id: "sql-injection-pattern",
+    score: 55,
+    pattern: /\b(?:union\s+select|drop\s+table|insert\s+into|delete\s+from|or\s+1\s*=\s*1|sleep\s*\(|benchmark\s*\()/i
+  },
+  {
+    id: "xss-pattern",
+    score: 50,
+    pattern: /(?:<script\b|javascript:|onerror\s*=|onload\s*=|<img[^>]+onerror=)/i
+  },
+  {
+    id: "command-injection-pattern",
+    score: 60,
+    pattern: /(?:\|\||&&|;)\s*(?:curl|wget|bash|sh|powershell|cmd|nc|python)\b/i
+  },
+  {
+    id: "path-traversal-pattern",
+    score: 45,
+    pattern: /(?:\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e\\)/i
+  },
+  {
+    id: "ssti-pattern",
+    score: 35,
+    pattern: /(?:\{\{.*\}\}|\$\{.*\}|<%=?\s*.*\s*%>)/i
+  }
+];
 const SENSITIVE_PUBLIC_PATH_RULES = [
   /^\/(?:server|backend|database|deploy|docs|scripts|models|legal)(?:\/|$)/i,
   /^\/(?:\.git|\.github|\.vscode|node_modules)(?:\/|$)/i,
@@ -76,6 +131,152 @@ function requestFingerprint(req) {
   const ip = getClientIp(req);
   const ua = text(req?.headers?.["user-agent"]).slice(0, 256);
   return sha256(`${ip}|${ua}`).slice(0, 24);
+}
+
+function pruneThreatProfiles() {
+  if (proThreatProfiles.size <= THREAT_PROFILE_MAX_SIZE) return;
+  const entries = [...proThreatProfiles.entries()].sort(
+    (a, b) => Number(a[1]?.lastSeenAt || 0) - Number(b[1]?.lastSeenAt || 0)
+  );
+  const overflow = proThreatProfiles.size - THREAT_PROFILE_MAX_SIZE;
+  for (let index = 0; index < overflow; index += 1) {
+    const key = entries[index]?.[0];
+    if (key) proThreatProfiles.delete(key);
+  }
+}
+
+function pushThreatIncident(incident = {}) {
+  const row = {
+    id: `threat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    fingerprint: text(incident.fingerprint),
+    ip: text(incident.ip),
+    requestId: text(incident.requestId),
+    path: text(incident.path),
+    method: text(incident.method).toUpperCase(),
+    riskScore: Math.max(0, Number(incident.riskScore || 0)),
+    cumulativeRiskScore: Math.max(0, Number(incident.cumulativeRiskScore || 0)),
+    blocked: Boolean(incident.blocked),
+    reason: text(incident.reason, "ai-auto-detected-risk"),
+    rules: Array.isArray(incident.rules) ? incident.rules.slice(0, 12) : []
+  };
+  proThreatIncidents.unshift(row);
+  if (proThreatIncidents.length > SECURITY_INCIDENT_MAX_ITEMS) {
+    proThreatIncidents.length = SECURITY_INCIDENT_MAX_ITEMS;
+  }
+}
+
+function normalizeThreatPayloadString(value) {
+  return text(value).replace(/\s+/g, " ").slice(0, 2000);
+}
+
+function collectRequestTextSamples(req) {
+  const samples = [];
+  const pushSample = (value) => {
+    const normalized = normalizeThreatPayloadString(value);
+    if (!normalized) return;
+    samples.push(normalized);
+  };
+
+  const walk = (value, depth = 0) => {
+    if (samples.length >= 120) return;
+    if (depth > 8) return;
+    if (value === null || typeof value === "undefined") return;
+
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      pushSample(value);
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.slice(0, 60).forEach((item) => walk(item, depth + 1));
+      return;
+    }
+
+    if (typeof value === "object") {
+      const keys = Object.keys(value).slice(0, 80);
+      keys.forEach((key) => {
+        pushSample(key);
+        walk(value[key], depth + 1);
+      });
+    }
+  };
+
+  walk(req?.query || {});
+  walk(req?.params || {});
+  walk(req?.body || {});
+  pushSample(req?.originalUrl || req?.path || "");
+  pushSample(req?.headers?.["user-agent"] || "");
+  return samples;
+}
+
+function evaluateThreatScore(req) {
+  const samples = collectRequestTextSamples(req);
+  const matchedRules = [];
+  let score = 0;
+
+  for (const rule of THREAT_DETECTION_RULES) {
+    const hit = samples.some((sample) => rule.pattern.test(sample));
+    if (!hit) continue;
+    matchedRules.push(rule.id);
+    score += Number(rule.score || 0);
+  }
+
+  const totalPayloadSize = JSON.stringify({
+    query: req?.query || {},
+    params: req?.params || {},
+    body: req?.body || {}
+  }).length;
+  if (totalPayloadSize > 200_000) score += 20;
+  if (text(req?.method).toUpperCase() === "TRACE") score += 20;
+
+  return {
+    score,
+    matchedRules,
+    totalPayloadSize
+  };
+}
+
+function nextProfileState(current = {}, nowTs = Date.now()) {
+  const previous = {
+    riskScore: Math.max(0, Number(current.riskScore || 0)),
+    lastSeenAt: Number(current.lastSeenAt || nowTs),
+    blockUntil: Number(current.blockUntil || 0),
+    incidentCount: Math.max(0, Number(current.incidentCount || 0))
+  };
+  const elapsed = Math.max(0, nowTs - previous.lastSeenAt);
+  const decayFactor = Math.max(0, 1 - elapsed / THREAT_SCORE_DECAY_WINDOW_MS);
+  const decayedRisk = Math.round(previous.riskScore * decayFactor);
+  return {
+    ...previous,
+    riskScore: decayedRisk,
+    lastSeenAt: nowTs
+  };
+}
+
+export function getProSecurityThreatIntelligence(limit = 200) {
+  const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
+  const incidents = proThreatIncidents.slice(0, safeLimit);
+  const hotProfiles = [...proThreatProfiles.entries()]
+    .map(([fingerprint, profile]) => ({
+      fingerprint,
+      riskScore: Math.max(0, Number(profile?.riskScore || 0)),
+      blockUntil: Number(profile?.blockUntil || 0),
+      incidentCount: Math.max(0, Number(profile?.incidentCount || 0)),
+      lastSeenAt: Number(profile?.lastSeenAt || 0)
+    }))
+    .sort((a, b) => b.riskScore - a.riskScore || b.lastSeenAt - a.lastSeenAt)
+    .slice(0, Math.min(200, safeLimit));
+
+  return {
+    incidents,
+    hotProfiles,
+    summary: {
+      activeProfiles: proThreatProfiles.size,
+      blockedProfiles: hotProfiles.filter((item) => item.blockUntil > Date.now()).length,
+      totalIncidents: proThreatIncidents.length
+    }
+  };
 }
 
 function pushSecurityAuditEventInternal(event = {}) {
@@ -367,6 +568,95 @@ export function proApiPayloadGuard(req, res, next) {
         requestId: req.requestId
       });
     }
+  }
+
+  return next();
+}
+
+export function proAiThreatAutoDetector(req, res, next) {
+  if (!SECURITY_AI_AUTO_DETECT_ENABLED) return next();
+
+  const requestPath = String(req.originalUrl || req.baseUrl || req.path || "");
+  if (!requestPath.startsWith("/api")) return next();
+
+  const fingerprint = requestFingerprint(req);
+  const nowTs = Date.now();
+  const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
+
+  if (Number(current.blockUntil || 0) > nowTs) {
+    const retryAfterSec = Math.max(1, Math.ceil((current.blockUntil - nowTs) / 1000));
+    res.setHeader("Retry-After", String(retryAfterSec));
+    pushProSecurityAuditEvent(req, {
+      severity: "high",
+      type: "ai-threat-quarantine-block",
+      details: {
+        fingerprint,
+        retryAfterSec
+      }
+    });
+    return res.status(403).json({
+      success: false,
+      message: "Request blocked by automated security quarantine.",
+      retryAfterSec,
+      requestId: req.requestId
+    });
+  }
+
+  const evaluation = evaluateThreatScore(req);
+  if (evaluation.score <= 0) {
+    proThreatProfiles.set(fingerprint, current);
+    pruneThreatProfiles();
+    return next();
+  }
+
+  const cumulativeRiskScore = Math.max(0, Number(current.riskScore || 0)) + evaluation.score;
+  const shouldQuarantine = cumulativeRiskScore >= THREAT_SCORE_BLOCK_THRESHOLD;
+  const nextState = {
+    ...current,
+    riskScore: cumulativeRiskScore,
+    lastSeenAt: nowTs,
+    incidentCount: Math.max(0, Number(current.incidentCount || 0)) + 1,
+    blockUntil: shouldQuarantine ? nowTs + THREAT_BLOCK_DURATION_MS : Number(current.blockUntil || 0)
+  };
+  proThreatProfiles.set(fingerprint, nextState);
+  pruneThreatProfiles();
+
+  if (evaluation.score >= THREAT_SCORE_ALERT_THRESHOLD || shouldQuarantine) {
+    pushThreatIncident({
+      fingerprint,
+      ip: getClientIp(req),
+      requestId: req.requestId,
+      path: requestPath,
+      method: req.method,
+      riskScore: evaluation.score,
+      cumulativeRiskScore,
+      blocked: shouldQuarantine,
+      reason: shouldQuarantine ? "ai-auto-quarantine" : "ai-auto-alert",
+      rules: evaluation.matchedRules
+    });
+
+    pushProSecurityAuditEvent(req, {
+      severity: shouldQuarantine ? "high" : "medium",
+      type: shouldQuarantine ? "ai-threat-quarantine" : "ai-threat-alert",
+      details: {
+        fingerprint,
+        riskScore: evaluation.score,
+        cumulativeRiskScore,
+        rules: evaluation.matchedRules,
+        payloadBytes: evaluation.totalPayloadSize
+      }
+    });
+  }
+
+  if (shouldQuarantine) {
+    const retryAfterSec = Math.max(1, Math.ceil(THREAT_BLOCK_DURATION_MS / 1000));
+    res.setHeader("Retry-After", String(retryAfterSec));
+    return res.status(403).json({
+      success: false,
+      message: "Request blocked by automated AI threat detection.",
+      retryAfterSec,
+      requestId: req.requestId
+    });
   }
 
   return next();

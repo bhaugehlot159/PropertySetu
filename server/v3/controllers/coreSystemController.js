@@ -4,7 +4,10 @@ import { fileURLToPath } from "url";
 import { proRuntime } from "../../config/proRuntime.js";
 import { getStorageProvider } from "../../config/proStorage.js";
 import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
-import { getProSecurityAuditEvents } from "../../middleware/proSecurityMiddleware.js";
+import {
+  getProSecurityAuditEvents,
+  getProSecurityThreatIntelligence
+} from "../../middleware/proSecurityMiddleware.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreReview from "../models/CoreReview.js";
@@ -536,5 +539,18 @@ export function getCoreSystemSecurityAudit(req, res) {
       role: String(req.coreUser?.role || "")
     },
     items
+  });
+}
+
+export function getCoreSystemSecurityIntelligence(req, res) {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+  const intelligence = getProSecurityThreatIntelligence(limit);
+  return res.json({
+    success: true,
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    ...intelligence
   });
 }

@@ -193,7 +193,8 @@ export const coreSystemsBlueprint = [
       "Suspicious payload guard against operator injection patterns",
       "Request ID tracing for audits",
       "Brute-force protection on auth/OTP endpoints",
-      "High-risk route throttling for admin and write actions"
+      "High-risk route throttling for admin and write actions",
+      "AI auto-detected threat scoring and temporary quarantine"
     ],
     endpoints: [
       "/api/v3/auth/*",
@@ -201,7 +202,9 @@ export const coreSystemsBlueprint = [
       "/api/v3/chat/send",
       "/api/sealed-bids/*",
       "/api/system/security-audit",
-      "/api/v3/system/security-audit"
+      "/api/system/security-intelligence",
+      "/api/v3/system/security-audit",
+      "/api/v3/system/security-intelligence"
     ],
     dependencies: ["authentication", "backendServer"]
   },

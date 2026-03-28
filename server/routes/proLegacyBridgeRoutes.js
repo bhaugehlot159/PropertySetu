@@ -9,7 +9,8 @@ import {
 } from "../controllers/proPropertyController.js";
 import {
   createProRateLimiter,
-  getProSecurityAuditEvents
+  getProSecurityAuditEvents,
+  getProSecurityThreatIntelligence
 } from "../middleware/proSecurityMiddleware.js";
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
 
@@ -400,6 +401,7 @@ router.get("/system/capabilities", (_req, res) => {
       propertyCare: "/api/v3/property-care/*",
       system: "/api/v3/system/*",
       securityAudit: "/api/system/security-audit",
+      securityIntelligence: "/api/system/security-intelligence",
       securityAuditV3: "/api/v3/system/security-audit"
     }
   });
@@ -422,6 +424,26 @@ router.get(
       },
       total: items.length,
       items
+    });
+  }
+);
+
+router.get(
+  "/system/security-intelligence",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const limit = Math.min(500, Math.max(1, toNumber(req.query.limit, 100)));
+    const actor = req.bridgeActor;
+    const intelligence = getProSecurityThreatIntelligence(limit);
+    res.json({
+      ok: true,
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      ...intelligence
     });
   }
 );

@@ -10,7 +10,9 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import {
   createProSafeStaticOptions,
+  proAiThreatAutoDetector,
   createProCorsOptions,
+  getProSecurityThreatIntelligence,
   getProSecurityAuditEvents,
   proApiPayloadGuard,
   proApiRateLimiter,
@@ -1043,6 +1045,7 @@ app.use(express.json({ limit: String(process.env.API_JSON_LIMIT || "2mb") }));
 app.use(express.urlencoded({ extended: true, limit: String(process.env.API_FORM_LIMIT || "2mb") }));
 app.use("/api", proApiRateLimiter);
 app.use("/api", proApiPayloadGuard);
+app.use("/api", proAiThreatAutoDetector);
 app.use("/api/auth", proAuthRateLimiter);
 app.use(proBlockSensitivePublicFiles);
 app.use(express.static(activeWebRoot, createProSafeStaticOptions()));
@@ -1139,6 +1142,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     chat: "/api/chat/*",
     stackOptions: "/api/system/stack-options",
     securityAudit: "/api/system/security-audit",
+    securityIntelligence: "/api/system/security-intelligence",
     securityAuditV3: "/api/v3/system/security-audit",
   },
 }));
@@ -1222,6 +1226,18 @@ app.get("/api/system/security-audit", auth, admin, (req, res) => {
       role: req.user.role,
     },
     items,
+  });
+});
+app.get("/api/system/security-intelligence", auth, admin, (req, res) => {
+  const limit = Math.min(500, Math.max(1, num(req.query.limit, 100)));
+  const intelligence = getProSecurityThreatIntelligence(limit);
+  res.json({
+    ok: true,
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role,
+    },
+    ...intelligence,
   });
 });
 app.get("/api/system/core-systems", (_req, res) => {
