@@ -60,6 +60,8 @@ export function normalizeCoreUser(doc, { includePassword = false } = {}) {
     verified: Boolean(row.verified),
     blocked: Boolean(row.blocked),
     subscriptionPlan: row.subscriptionPlan || "free",
+    tokenVersion: Math.max(1, Number(row.tokenVersion || 1)),
+    lastLoginAt: asIso(row.lastLoginAt),
     createdAt: asIso(row.createdAt),
     updatedAt: asIso(row.updatedAt)
   };

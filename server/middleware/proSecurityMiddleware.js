@@ -20,7 +20,6 @@ const NULL_BYTE_PATTERN = /\0/;
 const SENSITIVE_PUBLIC_PATH_RULES = [
   /^\/(?:server|backend|database|deploy|docs|scripts|models|legal)(?:\/|$)/i,
   /^\/(?:\.git|\.github|\.vscode|node_modules)(?:\/|$)/i,
-  /^\/uploads(?:\/|$)/i,
   /^\/(?:.*\/)?\.env(?:\..*)?$/i,
   /^\/(?:.*\/)?package-lock\.json$/i,
   /^\/(?:.*\/)?pnpm-lock\.ya?ml$/i,

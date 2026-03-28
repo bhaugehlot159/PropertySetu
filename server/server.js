@@ -30,7 +30,21 @@ if (!configuredJwtSecret && NODE_ENV === "production") {
   throw new Error("JWT_SECRET is required in production mode.");
 }
 const JWT_SECRET = configuredJwtSecret || "propertysetu-dev-secret";
+const JWT_ISSUER = String(process.env.JWT_ISSUER || "propertysetu-api").trim();
+const JWT_AUDIENCE = String(process.env.JWT_AUDIENCE || "propertysetu-clients").trim();
+const JWT_ISSUERS = [
+  JWT_ISSUER,
+  String(process.env.CORE_JWT_ISSUER || "propertysetu-core-api").trim(),
+].filter(Boolean);
+const JWT_AUDIENCES = [
+  JWT_AUDIENCE,
+  String(process.env.CORE_JWT_AUDIENCE || "propertysetu-core-clients").trim(),
+].filter(Boolean);
+const JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || "24h").trim();
 const OTP = "123456";
+const EXPOSE_OTP_HINT =
+  String(process.env.EXPOSE_OTP_HINT || "").trim().toLowerCase() === "true" ||
+  NODE_ENV !== "production";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webRoot = path.join(__dirname, "..");
@@ -322,6 +336,7 @@ const userSafe = (u) => ({
   role: u.role,
   verified: !!u.verified,
   subscriptionPlan: u.subscriptionPlan || "free-basic",
+  lastLoginAt: u.lastLoginAt || null,
   ...ownerVerificationMeta(u),
 });
 const blocked = (u) => !!u?.blocked;
@@ -619,6 +634,11 @@ const load = async () => {
       trustedAgents: safeArr(raw.trustedAgents).length ? safeArr(raw.trustedAgents) : fresh.trustedAgents,
       counters: { ...fresh.counters, ...(raw.counters || {}) },
     };
+    db.users = safeArr(db.users).map((user) => ({
+      ...user,
+      tokenVersion: Math.max(1, num(user?.tokenVersion, 1)),
+      lastLoginAt: user?.lastLoginAt || null,
+    }));
     db.bids = safeArr(db.bids).map((entry) => normalizeBidRecord(entry));
     applyFeaturedPricingToPlans(db?.adminConfig?.featuredPricing || {});
   } catch {
@@ -629,9 +649,22 @@ const load = async () => {
 };
 
 const sign = (u) => jwt.sign(
-  { id: u.id, role: u.role, name: u.name, email: u.email || "", mobile: u.mobile || "" },
+  {
+    id: u.id,
+    role: u.role,
+    name: u.name,
+    email: u.email || "",
+    mobile: u.mobile || "",
+    tokenVersion: Math.max(1, num(u?.tokenVersion, 1)),
+  },
   JWT_SECRET,
-  { expiresIn: "24h", algorithm: "HS256" }
+  {
+    expiresIn: JWT_EXPIRES_IN,
+    algorithm: "HS256",
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+    jwtid: crypto.randomUUID(),
+  }
 );
 const tokenOf = (req) => {
   const h = String(req.headers.authorization || "");
@@ -642,10 +675,24 @@ const authOpt = (req, _res, next) => {
   const t = tokenOf(req);
   if (!t) return next();
   try {
-    const parsed = jwt.verify(t, JWT_SECRET, { algorithms: ["HS256"] });
+    const parsed = jwt.verify(t, JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: JWT_ISSUERS,
+      audience: JWT_AUDIENCES,
+    });
     const u = userById(parsed.id);
+    const userTokenVersion = Math.max(1, num(u?.tokenVersion, 1));
+    const tokenVersion = Math.max(1, num(parsed?.tokenVersion, 1));
+    if (!u || tokenVersion !== userTokenVersion) return next();
     if (blocked(u)) return next();
-    req.user = parsed;
+    req.user = {
+      ...parsed,
+      role: u.role,
+      name: u.name,
+      email: u.email || "",
+      mobile: u.mobile || "",
+      tokenVersion: userTokenVersion,
+    };
   } catch {
     req.user = null;
   }
@@ -655,10 +702,27 @@ const auth = (req, res, next) => {
   const t = tokenOf(req);
   if (!t) return res.status(401).json({ ok: false, message: "Missing auth token." });
   try {
-    const parsed = jwt.verify(t, JWT_SECRET, { algorithms: ["HS256"] });
+    const parsed = jwt.verify(t, JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: JWT_ISSUERS,
+      audience: JWT_AUDIENCES,
+    });
     const u = userById(parsed.id);
+    if (!u) return res.status(401).json({ ok: false, message: "Session expired. Please login again." });
+    const userTokenVersion = Math.max(1, num(u?.tokenVersion, 1));
+    const tokenVersion = Math.max(1, num(parsed?.tokenVersion, 1));
+    if (tokenVersion !== userTokenVersion) {
+      return res.status(401).json({ ok: false, message: "Session revoked. Please login again." });
+    }
     if (blocked(u)) return res.status(403).json({ ok: false, message: "Your account is blocked by admin." });
-    req.user = parsed;
+    req.user = {
+      ...parsed,
+      role: u.role,
+      name: u.name,
+      email: u.email || "",
+      mobile: u.mobile || "",
+      tokenVersion: userTokenVersion,
+    };
     next();
   } catch {
     res.status(401).json({ ok: false, message: "Invalid or expired token." });
@@ -674,7 +738,7 @@ const authLockWindowMs = Math.max(60_000, Math.round(num(process.env.AUTH_LOCK_W
 const authLockDurationMs = Math.max(60_000, Math.round(num(process.env.AUTH_LOCK_DURATION_MS, 30 * 60 * 1000)));
 const authOtpCooldownMs = Math.max(10_000, Math.round(num(process.env.AUTH_OTP_COOLDOWN_MS, 45_000)));
 const enforceStrongPasswords = txt(process.env.AUTH_STRONG_PASSWORD_POLICY || "true").toLowerCase() !== "false";
-const authIdentityKey = ({ role: roleValue = "buyer", email: emailValue = "", mobile: mobileValue = "" } = {}) => {
+const authIdentityKey = ({ role: roleValue = "customer", email: emailValue = "", mobile: mobileValue = "" } = {}) => {
   const roleKey = role(roleValue);
   const emailKey = email(emailValue);
   const mobileKey = phone(mobileValue);
@@ -1075,6 +1139,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     chat: "/api/chat/*",
     stackOptions: "/api/system/stack-options",
     securityAudit: "/api/system/security-audit",
+    securityAuditV3: "/api/v3/system/security-audit",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {
@@ -1226,9 +1291,9 @@ app.get("/api/system/core-systems", (_req, res) => {
     {
       id: "authentication-system",
       title: "Authentication System",
-      capabilities: ["OTP login", "JWT token", "Role based access"],
+      capabilities: ["OTP login", "JWT token", "Role based access", "Token-version logout revocation", "Account lockout + OTP cooldown"],
       status: authReady ? "ready" : "setup-required",
-      endpoints: ["/api/auth/request-otp", "/api/auth/login", "/api/auth/me", "/api/v3/auth/request-otp", "/api/v3/auth/login-otp"],
+      endpoints: ["/api/auth/request-otp", "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/api/v3/auth/request-otp", "/api/v3/auth/login-otp", "/api/v3/auth/logout"],
     },
     {
       id: "property-upload-system",
@@ -1316,7 +1381,12 @@ app.post("/api/auth/register", async (req, res) => {
   if (!enforceStrongPasswords && p.length < 6) {
     return res.status(400).json({ ok: false, message: "Password minimum 6 characters required." });
   }
-  if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
+  if (o !== OTP) {
+    return res.status(400).json({
+      ok: false,
+      message: EXPOSE_OTP_HINT ? `Invalid OTP. Use ${OTP}.` : "Invalid OTP.",
+    });
+  }
   const exists = db.users.find((u) => u.role === r && ((e && u.email === e) || (m && u.mobile === m)));
   if (exists) return res.status(409).json({ ok: false, message: "Account already exists. Please login." });
   const u = {
@@ -1331,6 +1401,7 @@ app.post("/api/auth/register", async (req, res) => {
     ownerVerificationStatus: "Not Submitted",
     ownerVerificationUpdatedAt: null,
     subscriptionPlan: "free-basic",
+    tokenVersion: 1,
     createdAt: now(),
     updatedAt: now(),
     lastLoginAt: null,
@@ -1386,12 +1457,13 @@ app.post("/api/auth/request-otp", async (req, res) => {
   db.ownerVerificationRequests.unshift(record);
   await save();
   touchOtpCooldown(authKey);
-  res.json({
+  const otpResponse = {
     ok: true,
-    message: `OTP sent successfully (demo OTP: ${OTP}).`,
-    otpHint: OTP,
+    message: EXPOSE_OTP_HINT ? `OTP sent successfully (demo OTP: ${OTP}).` : "OTP sent successfully.",
     challengeId: record.id,
-  });
+  };
+  if (EXPOSE_OTP_HINT) otpResponse.otpHint = OTP;
+  res.json(otpResponse);
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -1455,7 +1527,18 @@ app.post("/api/auth/login", async (req, res) => {
   res.json({ ok: true, token: sign(u), user: userSafe(u) });
 });
 
-app.post("/api/auth/logout", auth, (_req, res) => res.json({ ok: true, message: "Logged out successfully." }));
+app.post("/api/auth/logout", auth, async (req, res) => {
+  const u = userById(req.user.id);
+  if (!u) return res.status(404).json({ ok: false, message: "User not found." });
+  u.tokenVersion = Math.max(1, num(u.tokenVersion, 1)) + 1;
+  u.updatedAt = now();
+  await save();
+  return res.json({
+    ok: true,
+    message: "Logged out successfully. Previous sessions revoked.",
+    tokenVersion: u.tokenVersion,
+  });
+});
 app.get("/api/auth/me", auth, (req, res) => {
   const u = userById(req.user.id);
   if (!u) return res.status(404).json({ ok: false, message: "User not found." });
@@ -3128,7 +3211,25 @@ app.get("*", (_req, res) => res.sendFile(resolveWebFile("index.html")));
 
 await load();
 if (!db.users.some((u) => u.role === "admin")) {
-  db.users.push({ id: nextId("user"), role: "admin", name: "PropertySetu Admin", email: "admin@propertysetu.in", mobile: "9999999999", passwordHash: await bcrypt.hash(process.env.DEFAULT_ADMIN_PASSWORD || "Admin@123", 10), verified: true, subscriptionPlan: "agent-pro", createdAt: now(), updatedAt: now(), lastLoginAt: null });
+  const adminPasswordFromEnv = String(process.env.DEFAULT_ADMIN_PASSWORD || "").trim();
+  if (NODE_ENV === "production" && !adminPasswordFromEnv) {
+    throw new Error("DEFAULT_ADMIN_PASSWORD must be configured in production for initial admin seed.");
+  }
+  const bootstrapPassword = adminPasswordFromEnv || "Admin@123";
+  db.users.push({
+    id: nextId("user"),
+    role: "admin",
+    name: "PropertySetu Admin",
+    email: "admin@propertysetu.in",
+    mobile: "9999999999",
+    passwordHash: await bcrypt.hash(bootstrapPassword, 10),
+    verified: true,
+    subscriptionPlan: "agent-pro",
+    tokenVersion: 1,
+    createdAt: now(),
+    updatedAt: now(),
+    lastLoginAt: null,
+  });
   await save();
 }
 

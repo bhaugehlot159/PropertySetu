@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { proRuntime } from "../../config/proRuntime.js";
 import { getStorageProvider } from "../../config/proStorage.js";
 import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
+import { getProSecurityAuditEvents } from "../../middleware/proSecurityMiddleware.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreReview from "../models/CoreReview.js";
@@ -521,5 +522,19 @@ export function getCoreSystemExecutionPlan(_req, res) {
       stage: readyCount === steps.length ? "execution-ready" : "setup-in-progress"
     },
     runtime: snapshot.runtime
+  });
+}
+
+export function getCoreSystemSecurityAudit(req, res) {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+  const items = getProSecurityAuditEvents(limit);
+  return res.json({
+    success: true,
+    total: items.length,
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    items
   });
 }

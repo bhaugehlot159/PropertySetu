@@ -266,6 +266,64 @@ async function findUserById(userId) {
   return proMemoryStore.coreUsers.find((item) => item._id === userId) || null;
 }
 
+async function touchCoreUserLogin(userId) {
+  if (!userId) return null;
+  const loginAt = new Date().toISOString();
+
+  if (proRuntime.dbConnected) {
+    return CoreUser.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          lastLoginAt: loginAt,
+          updatedAt: loginAt
+        }
+      },
+      { new: true }
+    );
+  }
+
+  const index = proMemoryStore.coreUsers.findIndex((item) => String(item._id) === String(userId));
+  if (index < 0) return null;
+  proMemoryStore.coreUsers[index] = {
+    ...proMemoryStore.coreUsers[index],
+    lastLoginAt: loginAt,
+    updatedAt: loginAt
+  };
+  return proMemoryStore.coreUsers[index];
+}
+
+async function incrementCoreUserTokenVersion(userId) {
+  if (!userId) return null;
+  const updatedAt = new Date().toISOString();
+
+  if (proRuntime.dbConnected) {
+    const existing = await CoreUser.findById(userId).lean();
+    if (!existing) return null;
+    const nextTokenVersion = Math.max(1, Number(existing.tokenVersion || 1)) + 1;
+    return CoreUser.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          tokenVersion: nextTokenVersion,
+          updatedAt
+        }
+      },
+      { new: true }
+    );
+  }
+
+  const index = proMemoryStore.coreUsers.findIndex((item) => String(item._id) === String(userId));
+  if (index < 0) return null;
+  const current = proMemoryStore.coreUsers[index];
+  proMemoryStore.coreUsers[index] = {
+    ...current,
+    tokenVersion: Math.max(1, Number(current.tokenVersion || 1)) + 1,
+    updatedAt
+  };
+  return proMemoryStore.coreUsers[index];
+}
+
 export async function requestCoreOtp(req, res, next) {
   try {
     pruneExpiredOtps();
@@ -422,7 +480,9 @@ export async function registerCoreUser(req, res, next) {
         role,
         verified: false,
         blocked: false,
-        subscriptionPlan: "free"
+        subscriptionPlan: "free",
+        tokenVersion: 1,
+        lastLoginAt: null
       });
     } else {
       created = {
@@ -435,6 +495,8 @@ export async function registerCoreUser(req, res, next) {
         verified: false,
         blocked: false,
         subscriptionPlan: "free",
+        tokenVersion: 1,
+        lastLoginAt: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -522,7 +584,8 @@ export async function loginCoreUser(req, res, next) {
     }
 
     clearAuthFailures(authKey);
-    const safeUser = normalizeCoreUser(user);
+    const refreshedUser = await touchCoreUserLogin(toId(fullUser?._id || fullUser?.id));
+    const safeUser = normalizeCoreUser(refreshedUser || user);
     const token = signCoreToken(safeUser);
 
     return res.json({
@@ -641,8 +704,8 @@ export async function loginCoreUserWithOtp(req, res, next) {
 
     clearOtpForUser(user);
     clearAuthFailures(authKey);
-
-    const safeUser = normalizeCoreUser(user);
+    const refreshedUser = await touchCoreUserLogin(toId(user?._id || user?.id));
+    const safeUser = normalizeCoreUser(refreshedUser || user);
     const token = signCoreToken(safeUser);
 
     return res.json({
@@ -650,6 +713,34 @@ export async function loginCoreUserWithOtp(req, res, next) {
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       user: safeUser,
       token
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function logoutCoreUser(req, res, next) {
+  try {
+    const userId = toId(req.coreUser?.id);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Session user not found."
+      });
+    }
+
+    const updated = await incrementCoreUserTokenVersion(userId);
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Logged out successfully. Previous sessions are revoked.",
+      tokenVersion: Math.max(1, Number(updated?.tokenVersion || 1))
     });
   } catch (error) {
     return next(error);

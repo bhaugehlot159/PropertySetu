@@ -1,7 +1,34 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const FALLBACK_JWT_SECRET = "propertysetu-core-secret";
+
+function coreJwtIssuer() {
+  return String(process.env.CORE_JWT_ISSUER || process.env.JWT_ISSUER || "propertysetu-core-api").trim();
+}
+
+function coreJwtAudience() {
+  return String(process.env.CORE_JWT_AUDIENCE || process.env.JWT_AUDIENCE || "propertysetu-core-clients").trim();
+}
+
+function coreJwtIssuers() {
+  return [
+    coreJwtIssuer(),
+    String(process.env.JWT_ISSUER || "propertysetu-api").trim()
+  ].filter(Boolean);
+}
+
+function coreJwtAudiences() {
+  return [
+    coreJwtAudience(),
+    String(process.env.JWT_AUDIENCE || "propertysetu-clients").trim()
+  ].filter(Boolean);
+}
+
+function coreJwtExpiry() {
+  return String(process.env.CORE_JWT_EXPIRES_IN || "7d").trim();
+}
 
 function jwtSecret() {
   const configured =
@@ -26,20 +53,27 @@ export async function compareCorePassword(password, passwordHash) {
 }
 
 export function signCoreToken(user) {
+  const tokenVersion = Math.max(1, Number(user.tokenVersion || 1));
   const payload = {
     userId: user.id || user._id,
     role: user.role || "buyer",
     email: user.email || "",
-    phone: user.phone || ""
+    phone: user.phone || "",
+    tokenVersion
   };
   return jwt.sign(payload, jwtSecret(), {
     algorithm: "HS256",
-    expiresIn: "7d"
+    expiresIn: coreJwtExpiry(),
+    issuer: coreJwtIssuer(),
+    audience: coreJwtAudience(),
+    jwtid: crypto.randomUUID()
   });
 }
 
 export function verifyCoreToken(token) {
   return jwt.verify(String(token || ""), jwtSecret(), {
-    algorithms: ["HS256"]
+    algorithms: ["HS256"],
+    issuer: coreJwtIssuers(),
+    audience: coreJwtAudiences()
   });
 }

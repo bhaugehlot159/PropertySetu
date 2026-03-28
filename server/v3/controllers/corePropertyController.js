@@ -10,7 +10,6 @@ import {
   normalizeCorePropertyType
 } from "../config/corePropertyTaxonomy.js";
 import { normalizeCoreProperty, toId } from "../utils/coreMappers.js";
-import { verifyCoreToken } from "../utils/coreAuth.js";
 
 const PROPERTY_TYPES = new Set(CORE_PROPERTY_TYPE_VALUES);
 const PROPERTY_CATEGORIES = new Set(CORE_PROPERTY_CATEGORY_VALUES);
@@ -50,12 +49,6 @@ function normalizeDateValue(value) {
   return date;
 }
 
-function extractBearerToken(authHeader = "") {
-  const raw = text(authHeader).trim();
-  if (!raw.toLowerCase().startsWith("bearer ")) return "";
-  return raw.slice(7).trim();
-}
-
 function getViewerFromRequest(req) {
   if (req?.coreUser?.id) {
     return {
@@ -63,19 +56,7 @@ function getViewerFromRequest(req) {
       role: text(req.coreUser.role, "buyer").toLowerCase()
     };
   }
-
-  const token = extractBearerToken(req?.headers?.authorization);
-  if (!token) return null;
-
-  try {
-    const payload = verifyCoreToken(token);
-    return {
-      id: toId(payload?.userId),
-      role: text(payload?.role, "buyer").toLowerCase()
-    };
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 function normalizeType(type) {

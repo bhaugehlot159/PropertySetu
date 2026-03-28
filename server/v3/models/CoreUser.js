@@ -41,6 +41,14 @@ const coreUserSchema = new mongoose.Schema(
       type: String,
       default: "free"
     },
+    tokenVersion: {
+      type: Number,
+      default: 1
+    },
+    lastLoginAt: {
+      type: Date,
+      default: null
+    },
     createdAt: {
       type: Date,
       default: Date.now

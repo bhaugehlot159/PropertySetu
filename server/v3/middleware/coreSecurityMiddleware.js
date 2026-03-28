@@ -112,6 +112,14 @@ export const coreAuthOtpVerifyLimiter = createCoreRateLimiter({
   message: "Too many OTP verification attempts. Please retry later."
 });
 
+export const coreAuthLogoutLimiter = createCoreRateLimiter({
+  scope: "auth-logout",
+  limit: Math.max(10, Number(process.env.CORE_AUTH_LOGOUT_RATE_LIMIT || 60)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "anon")}:${toIp(req)}`,
+  message: "Too many logout requests. Please retry shortly."
+});
+
 export const coreChatSendLimiter = createCoreRateLimiter({
   scope: "chat-send",
   limit: Math.max(15, Number(process.env.CORE_CHAT_SEND_RATE_LIMIT || 90)),

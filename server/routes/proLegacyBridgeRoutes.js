@@ -14,17 +14,6 @@ import {
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
 
 const router = Router();
-const isBridgeProduction = String(process.env.NODE_ENV || "development")
-  .trim()
-  .toLowerCase() === "production";
-const configuredBridgeSecrets = [process.env.CORE_JWT_SECRET, process.env.JWT_SECRET]
-  .map((item) => text(item))
-  .filter(Boolean);
-const bridgeJwtSecrets = configuredBridgeSecrets.length
-  ? configuredBridgeSecrets
-  : isBridgeProduction
-    ? []
-    : ["propertysetu-core-secret", "propertysetu-dev-secret"];
 const bridgeAllowedBidderRoles = new Set(["buyer", "seller", "customer"]);
 const bridgeDecisionReasonMin = Math.max(8, Math.round(Number(process.env.SEALED_BID_DECISION_REASON_MIN || 12)));
 const bridgeTrustedRoles = new Set(["buyer", "seller", "customer", "admin"]);
@@ -77,6 +66,33 @@ function toNumber(value, fallback = 0) {
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
   return normalized || fallback;
+}
+
+function isBridgeProduction() {
+  return text(process.env.NODE_ENV, "development").toLowerCase() === "production";
+}
+
+function bridgeJwtIssuers() {
+  return [
+    text(process.env.JWT_ISSUER || "propertysetu-api"),
+    text(process.env.CORE_JWT_ISSUER || "propertysetu-core-api")
+  ].filter(Boolean);
+}
+
+function bridgeJwtAudiences() {
+  return [
+    text(process.env.JWT_AUDIENCE || "propertysetu-clients"),
+    text(process.env.CORE_JWT_AUDIENCE || "propertysetu-core-clients")
+  ].filter(Boolean);
+}
+
+function bridgeJwtSecrets() {
+  const configured = [process.env.CORE_JWT_SECRET, process.env.JWT_SECRET]
+    .map((item) => text(item))
+    .filter(Boolean);
+  if (configured.length) return configured;
+  if (isBridgeProduction()) return [];
+  return ["propertysetu-core-secret", "propertysetu-dev-secret"];
 }
 
 function mapProStatusToLegacy(status) {
@@ -171,9 +187,13 @@ function extractActor(req) {
   }
 
   const token = authHeader.slice(7).trim();
-  for (const secret of bridgeJwtSecrets) {
+  for (const secret of bridgeJwtSecrets()) {
     try {
-      const parsed = jwt.verify(token, secret, { algorithms: ["HS256"] });
+      const parsed = jwt.verify(token, secret, {
+        algorithms: ["HS256"],
+        issuer: bridgeJwtIssuers(),
+        audience: bridgeJwtAudiences()
+      });
       const role = text(parsed.role || "buyer").toLowerCase();
       return {
         id: text(parsed.userId || parsed.id || `user-${Date.now()}`),
@@ -379,7 +399,8 @@ router.get("/system/capabilities", (_req, res) => {
       citySeoStructure: "/api/v3/seo/city-structure",
       propertyCare: "/api/v3/property-care/*",
       system: "/api/v3/system/*",
-      securityAudit: "/api/system/security-audit"
+      securityAudit: "/api/system/security-audit",
+      securityAuditV3: "/api/v3/system/security-audit"
     }
   });
 });

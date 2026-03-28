@@ -72,12 +72,15 @@ export const coreSystemsBlueprint = [
     capabilities: [
       "OTP login",
       "JWT token",
-      "Role based access"
+      "Role based access",
+      "Token-version session revocation on logout",
+      "Account lockout and OTP cooldown hardening"
     ],
     endpoints: [
       "/api/v3/auth/request-otp",
       "/api/v3/auth/login-otp",
       "/api/v3/auth/login",
+      "/api/v3/auth/logout",
       "/api/v3/auth/me"
     ],
     dependencies: ["authentication"]
@@ -197,7 +200,8 @@ export const coreSystemsBlueprint = [
       "/api/v3/uploads/property-media",
       "/api/v3/chat/send",
       "/api/sealed-bids/*",
-      "/api/system/security-audit"
+      "/api/system/security-audit",
+      "/api/v3/system/security-audit"
     ],
     dependencies: ["authentication", "backendServer"]
   },

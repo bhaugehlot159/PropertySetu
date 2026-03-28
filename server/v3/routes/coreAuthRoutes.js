@@ -4,6 +4,7 @@ import {
   loginCoreUserWithOtp,
   listCoreUsers,
   loginCoreUser,
+  logoutCoreUser,
   requestCoreOtp,
   registerCoreUser,
   setCoreUserVerified
@@ -14,6 +15,7 @@ import {
 } from "../middleware/coreAuthMiddleware.js";
 import {
   coreAuthLoginLimiter,
+  coreAuthLogoutLimiter,
   coreAuthOtpRequestLimiter,
   coreAuthOtpVerifyLimiter,
   coreAuthRegisterLimiter
@@ -25,6 +27,7 @@ router.post("/register", coreAuthRegisterLimiter, registerCoreUser);
 router.post("/login", coreAuthLoginLimiter, loginCoreUser);
 router.post("/request-otp", coreAuthOtpRequestLimiter, requestCoreOtp);
 router.post("/login-otp", coreAuthOtpVerifyLimiter, loginCoreUserWithOtp);
+router.post("/logout", coreAuthRequired, coreAuthLogoutLimiter, logoutCoreUser);
 router.get("/me", coreAuthRequired, getCoreMe);
 router.get("/users", coreAuthRequired, coreRoleRequired("admin"), listCoreUsers);
 router.patch(

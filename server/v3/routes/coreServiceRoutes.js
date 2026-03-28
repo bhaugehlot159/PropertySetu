@@ -18,39 +18,12 @@ import {
   listCoreValuationRequestsForAdmin
 } from "../controllers/coreServiceController.js";
 import {
+  coreAuthOptional,
   coreAuthRequired,
   coreRoleRequired
 } from "../middleware/coreAuthMiddleware.js";
-import { verifyCoreToken } from "../utils/coreAuth.js";
 
 const router = Router();
-
-function extractBearerToken(authHeader = "") {
-  const raw = String(authHeader || "").trim();
-  if (!raw.toLowerCase().startsWith("bearer ")) return "";
-  return raw.slice(7).trim();
-}
-
-function coreAuthOptional(req, res, next) {
-  const token = extractBearerToken(req.headers.authorization);
-  if (!token) return next();
-
-  try {
-    const payload = verifyCoreToken(token);
-    req.coreUser = {
-      id: String(payload.userId || ""),
-      role: String(payload.role || "buyer"),
-      email: String(payload.email || ""),
-      phone: String(payload.phone || "")
-    };
-    return next();
-  } catch (_error) {
-    return res.status(401).json({
-      success: false,
-      message: "Invalid or expired token."
-    });
-  }
-}
 
 router.get("/documentation/services", listCoreDocumentationServices);
 router.post("/documentation/requests", coreAuthRequired, createCoreDocumentationRequest);
