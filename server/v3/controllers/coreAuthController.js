@@ -17,6 +17,26 @@ function text(value, fallback = "") {
 const OTP_TTL_MS = Math.max(60_000, Number(process.env.CORE_OTP_TTL_MS || 300_000));
 const OTP_MAX_ATTEMPTS = Math.max(1, Number(process.env.CORE_OTP_MAX_ATTEMPTS || 5));
 const coreOtpStore = new Map();
+const coreAuthFailureStore = new Map();
+const coreOtpCooldownStore = new Map();
+const CORE_AUTH_LOCK_THRESHOLD = Math.max(
+  3,
+  Number(process.env.CORE_AUTH_LOCK_THRESHOLD || 6)
+);
+const CORE_AUTH_LOCK_WINDOW_MS = Math.max(
+  60_000,
+  Number(process.env.CORE_AUTH_LOCK_WINDOW_MS || 15 * 60 * 1000)
+);
+const CORE_AUTH_LOCK_DURATION_MS = Math.max(
+  60_000,
+  Number(process.env.CORE_AUTH_LOCK_DURATION_MS || 30 * 60 * 1000)
+);
+const CORE_OTP_REQUEST_COOLDOWN_MS = Math.max(
+  10_000,
+  Number(process.env.CORE_OTP_REQUEST_COOLDOWN_MS || 45_000)
+);
+const CORE_STRONG_PASSWORD_POLICY =
+  text(process.env.CORE_STRONG_PASSWORD_POLICY || "true").toLowerCase() !== "false";
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""));
@@ -31,6 +51,94 @@ function normalizeIdentity(value) {
   if (!raw) return "";
   if (raw.includes("@")) return raw.toLowerCase();
   return raw.replace(/\D/g, "");
+}
+
+function identityKey(value) {
+  return `id:${normalizeIdentity(value) || "unknown"}`;
+}
+
+function isStrongPassword(password) {
+  const raw = String(password || "");
+  if (raw.length < 8 || raw.length > 128) return false;
+  const hasLower = /[a-z]/.test(raw);
+  const hasUpper = /[A-Z]/.test(raw);
+  const hasDigit = /\d/.test(raw);
+  const hasSymbol = /[^A-Za-z0-9]/.test(raw);
+  return hasLower && hasUpper && hasDigit && hasSymbol;
+}
+
+function timingSafeCompareHex(a = "", b = "") {
+  const left = String(a || "");
+  const right = String(b || "");
+  if (!left || !right || left.length !== right.length) return false;
+  const leftBuffer = Buffer.from(left, "utf8");
+  const rightBuffer = Buffer.from(right, "utf8");
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function getAuthLockState(key) {
+  const nowTs = Date.now();
+  const entry = coreAuthFailureStore.get(key);
+  if (!entry) return { locked: false, retryAfterSec: 0 };
+
+  const lockUntil = Number(entry.lockUntil || 0);
+  if (lockUntil > nowTs) {
+    return {
+      locked: true,
+      retryAfterSec: Math.max(1, Math.ceil((lockUntil - nowTs) / 1000))
+    };
+  }
+
+  if (Number(entry.lastFailureAt || 0) + CORE_AUTH_LOCK_WINDOW_MS < nowTs) {
+    coreAuthFailureStore.delete(key);
+  }
+
+  return { locked: false, retryAfterSec: 0 };
+}
+
+function recordAuthFailure(key) {
+  const nowTs = Date.now();
+  const current = coreAuthFailureStore.get(key) || {
+    failCount: 0,
+    firstFailureAt: nowTs,
+    lastFailureAt: 0,
+    lockUntil: 0
+  };
+
+  if (nowTs - Number(current.firstFailureAt || nowTs) > CORE_AUTH_LOCK_WINDOW_MS) {
+    current.failCount = 0;
+    current.firstFailureAt = nowTs;
+  }
+
+  current.failCount = Number(current.failCount || 0) + 1;
+  current.lastFailureAt = nowTs;
+  if (current.failCount >= CORE_AUTH_LOCK_THRESHOLD) {
+    current.lockUntil = nowTs + CORE_AUTH_LOCK_DURATION_MS;
+  }
+
+  coreAuthFailureStore.set(key, current);
+  return getAuthLockState(key);
+}
+
+function clearAuthFailures(key) {
+  coreAuthFailureStore.delete(key);
+}
+
+function getOtpCooldownState(key) {
+  const nowTs = Date.now();
+  const nextAllowedAt = Number(coreOtpCooldownStore.get(key) || 0);
+  if (nextAllowedAt > nowTs) {
+    return {
+      blocked: true,
+      retryAfterSec: Math.max(1, Math.ceil((nextAllowedAt - nowTs) / 1000))
+    };
+  }
+  return { blocked: false, retryAfterSec: 0 };
+}
+
+function touchOtpCooldown(key) {
+  coreOtpCooldownStore.set(key, Date.now() + CORE_OTP_REQUEST_COOLDOWN_MS);
 }
 
 function otpStorageKey(identity) {
@@ -171,6 +279,25 @@ export async function requestCoreOtp(req, res, next) {
     }
 
     const identity = normalizeIdentity(emailOrPhone);
+    const authKey = identityKey(identity);
+    const lockState = getAuthLockState(authKey);
+    if (lockState.locked) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed login attempts. Please try again later.",
+        retryAfterSec: lockState.retryAfterSec
+      });
+    }
+
+    const cooldownState = getOtpCooldownState(authKey);
+    if (cooldownState.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: "OTP recently requested. Please wait before trying again.",
+        retryAfterSec: cooldownState.retryAfterSec
+      });
+    }
+
     const looksLikeEmail = identity.includes("@");
     if (looksLikeEmail && !isValidEmail(identity)) {
       return res.status(400).json({
@@ -188,6 +315,7 @@ export async function requestCoreOtp(req, res, next) {
 
     const user = await findUserByIdentity({ emailOrPhone: identity });
     if (!user) {
+      touchOtpCooldown(authKey);
       return res.status(200).json({
         success: true,
         message: "If account exists, OTP has been sent.",
@@ -203,6 +331,7 @@ export async function requestCoreOtp(req, res, next) {
 
     const otpCode = generateOtpCode();
     storeOtpForUser(user, otpCode);
+    touchOtpCooldown(authKey);
 
     const response = {
       success: true,
@@ -249,7 +378,14 @@ export async function registerCoreUser(req, res, next) {
       });
     }
 
-    if (password.length < 6) {
+    if (CORE_STRONG_PASSWORD_POLICY && !isStrongPassword(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be 8-128 chars with uppercase, lowercase, number, and symbol."
+      });
+    }
+
+    if (!CORE_STRONG_PASSWORD_POLICY && password.length < 6) {
       return res.status(400).json({
         success: false,
         message: "Password must be at least 6 characters."
@@ -329,6 +465,8 @@ export async function loginCoreUser(req, res, next) {
   try {
     const emailOrPhone = text(req.body?.emailOrPhone || req.body?.email || req.body?.phone);
     const password = text(req.body?.password);
+    const authKey = identityKey(emailOrPhone);
+    const lockState = getAuthLockState(authKey);
 
     if (!emailOrPhone || !password) {
       return res.status(400).json({
@@ -336,9 +474,24 @@ export async function loginCoreUser(req, res, next) {
         message: "emailOrPhone and password are required."
       });
     }
+    if (lockState.locked) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed login attempts. Please try again later.",
+        retryAfterSec: lockState.retryAfterSec
+      });
+    }
 
     const user = await findUserByIdentity({ emailOrPhone });
     if (!user) {
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec
+        });
+      }
       return res.status(401).json({
         success: false,
         message: "Invalid credentials."
@@ -354,12 +507,21 @@ export async function loginCoreUser(req, res, next) {
     }
     const isPasswordValid = await compareCorePassword(password, fullUser.password);
     if (!isPasswordValid) {
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec
+        });
+      }
       return res.status(401).json({
         success: false,
         message: "Invalid credentials."
       });
     }
 
+    clearAuthFailures(authKey);
     const safeUser = normalizeCoreUser(user);
     const token = signCoreToken(safeUser);
 
@@ -380,6 +542,8 @@ export async function loginCoreUserWithOtp(req, res, next) {
 
     const emailOrPhone = text(req.body?.emailOrPhone || req.body?.email || req.body?.phone);
     const otp = text(req.body?.otp);
+    const authKey = identityKey(emailOrPhone);
+    const lockState = getAuthLockState(authKey);
 
     if (!emailOrPhone || !otp) {
       return res.status(400).json({
@@ -387,10 +551,25 @@ export async function loginCoreUserWithOtp(req, res, next) {
         message: "emailOrPhone and otp are required."
       });
     }
+    if (lockState.locked) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed login attempts. Please try again later.",
+        retryAfterSec: lockState.retryAfterSec
+      });
+    }
 
     const identity = normalizeIdentity(emailOrPhone);
     const user = await findUserByIdentity({ emailOrPhone: identity });
     if (!user) {
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec
+        });
+      }
       return res.status(401).json({
         success: false,
         message: "Invalid OTP credentials."
@@ -405,6 +584,14 @@ export async function loginCoreUserWithOtp(req, res, next) {
 
     const entry = getOtpEntryForUser(user);
     if (!entry) {
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec
+        });
+      }
       return res.status(401).json({
         success: false,
         message: "OTP not requested or expired."
@@ -421,15 +608,31 @@ export async function loginCoreUserWithOtp(req, res, next) {
 
     if (Number(entry.attempts || 0) >= OTP_MAX_ATTEMPTS) {
       clearOtpForUser(user);
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec
+        });
+      }
       return res.status(429).json({
         success: false,
         message: "Too many invalid OTP attempts. Request a new OTP."
       });
     }
 
-    const otpValid = hashOtp(otp) === String(entry.otpHash || "");
+    const otpValid = timingSafeCompareHex(hashOtp(otp), String(entry.otpHash || ""));
     if (!otpValid) {
       entry.attempts = Number(entry.attempts || 0) + 1;
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec
+        });
+      }
       return res.status(401).json({
         success: false,
         message: "Invalid OTP."
@@ -437,6 +640,7 @@ export async function loginCoreUserWithOtp(req, res, next) {
     }
 
     clearOtpForUser(user);
+    clearAuthFailures(authKey);
 
     const safeUser = normalizeCoreUser(user);
     const token = signCoreToken(safeUser);

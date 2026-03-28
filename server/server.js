@@ -9,11 +9,14 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import {
+  createProSafeStaticOptions,
   createProCorsOptions,
+  getProSecurityAuditEvents,
   proApiPayloadGuard,
   proApiRateLimiter,
   proAttachRequestContext,
   proAuthRateLimiter,
+  proBlockSensitivePublicFiles,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
 
@@ -664,6 +667,82 @@ const auth = (req, res, next) => {
 const admin = (req, res, next) => (req.user?.role === "admin" ? next() : res.status(403).json({ ok: false, message: "Admin access required." }));
 const userById = (id) => db.users.find((u) => u.id === id) || null;
 const pushNoti = (userId, title, message, type = "general") => db.notifications.unshift({ id: nextId("notification"), userId, title, message, type, isRead: false, createdAt: now() });
+const authFailureBuckets = new Map();
+const authOtpCooldownBuckets = new Map();
+const authLockThreshold = Math.max(3, Math.round(num(process.env.AUTH_LOCK_THRESHOLD, 6)));
+const authLockWindowMs = Math.max(60_000, Math.round(num(process.env.AUTH_LOCK_WINDOW_MS, 15 * 60 * 1000)));
+const authLockDurationMs = Math.max(60_000, Math.round(num(process.env.AUTH_LOCK_DURATION_MS, 30 * 60 * 1000)));
+const authOtpCooldownMs = Math.max(10_000, Math.round(num(process.env.AUTH_OTP_COOLDOWN_MS, 45_000)));
+const enforceStrongPasswords = txt(process.env.AUTH_STRONG_PASSWORD_POLICY || "true").toLowerCase() !== "false";
+const authIdentityKey = ({ role: roleValue = "buyer", email: emailValue = "", mobile: mobileValue = "" } = {}) => {
+  const roleKey = role(roleValue);
+  const emailKey = email(emailValue);
+  const mobileKey = phone(mobileValue);
+  const identity = mobileKey || emailKey || "unknown";
+  return `${roleKey}:${identity}`;
+};
+const getAuthLockState = (key) => {
+  const nowTs = Date.now();
+  const record = authFailureBuckets.get(key);
+  if (!record) return { locked: false, retryAfterSec: 0 };
+  const lockUntil = Number(record.lockUntil || 0);
+  if (lockUntil > nowTs) {
+    return {
+      locked: true,
+      retryAfterSec: Math.max(1, Math.ceil((lockUntil - nowTs) / 1000)),
+    };
+  }
+  if (Number(record.lastFailureAt || 0) + authLockWindowMs < nowTs) {
+    authFailureBuckets.delete(key);
+  }
+  return { locked: false, retryAfterSec: 0 };
+};
+const recordAuthFailure = (key) => {
+  const nowTs = Date.now();
+  const current = authFailureBuckets.get(key) || {
+    failCount: 0,
+    firstFailureAt: nowTs,
+    lastFailureAt: 0,
+    lockUntil: 0,
+  };
+  if (nowTs - Number(current.firstFailureAt || nowTs) > authLockWindowMs) {
+    current.failCount = 0;
+    current.firstFailureAt = nowTs;
+  }
+  current.failCount = Number(current.failCount || 0) + 1;
+  current.lastFailureAt = nowTs;
+  if (current.failCount >= authLockThreshold) {
+    current.lockUntil = nowTs + authLockDurationMs;
+  }
+  authFailureBuckets.set(key, current);
+  return getAuthLockState(key);
+};
+const clearAuthFailure = (key) => {
+  authFailureBuckets.delete(key);
+};
+const getOtpCooldownState = (key) => {
+  const nowTs = Date.now();
+  const nextAllowedAt = Number(authOtpCooldownBuckets.get(key) || 0);
+  if (nextAllowedAt > nowTs) {
+    return {
+      blocked: true,
+      retryAfterSec: Math.max(1, Math.ceil((nextAllowedAt - nowTs) / 1000)),
+    };
+  }
+  return { blocked: false, retryAfterSec: 0 };
+};
+const touchOtpCooldown = (key) => {
+  authOtpCooldownBuckets.set(key, Date.now() + authOtpCooldownMs);
+};
+const isStrongPassword = (value) => {
+  const raw = String(value || "");
+  if (raw.length < 8 || raw.length > 128) return false;
+  const hasLower = /[a-z]/.test(raw);
+  const hasUpper = /[A-Z]/.test(raw);
+  const hasDigit = /\d/.test(raw);
+  const hasSymbol = /[^A-Za-z0-9]/.test(raw);
+  return hasLower && hasUpper && hasDigit && hasSymbol;
+};
 const sealedBidAllowedRoles = new Set(["customer", "seller"]);
 const sealedBidMaxAmount = Math.max(1000, num(process.env.SEALED_BID_MAX_AMOUNT, 5000000000));
 const sealedBidDecisionReasonMin = Math.max(8, Math.round(num(process.env.SEALED_BID_DECISION_REASON_MIN, 12)));
@@ -897,12 +976,14 @@ app.use(proAttachRequestContext);
 app.use(proSecurityHeaders);
 app.use(cors(createProCorsOptions()));
 app.use(express.json({ limit: String(process.env.API_JSON_LIMIT || "2mb") }));
+app.use(express.urlencoded({ extended: true, limit: String(process.env.API_FORM_LIMIT || "2mb") }));
 app.use("/api", proApiRateLimiter);
 app.use("/api", proApiPayloadGuard);
 app.use("/api/auth", proAuthRateLimiter);
-app.use(express.static(activeWebRoot));
+app.use(proBlockSensitivePublicFiles);
+app.use(express.static(activeWebRoot, createProSafeStaticOptions()));
 if (activeWebRoot !== webRoot) {
-  app.use(express.static(webRoot));
+  app.use(express.static(webRoot, createProSafeStaticOptions()));
 }
 
 app.get("/api", (_req, res) => res.json({
@@ -993,6 +1074,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     ],
     chat: "/api/chat/*",
     stackOptions: "/api/system/stack-options",
+    securityAudit: "/api/system/security-audit",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {
@@ -1062,6 +1144,19 @@ app.get("/api/system/stack-options", (_req, res) => {
     folderStructure,
     folderPresence,
     source: "legacy-live-api",
+  });
+});
+app.get("/api/system/security-audit", auth, admin, (req, res) => {
+  const limit = Math.min(500, Math.max(1, num(req.query.limit, 100)));
+  const items = getProSecurityAuditEvents(limit);
+  res.json({
+    ok: true,
+    total: items.length,
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role,
+    },
+    items,
   });
 });
 app.get("/api/system/core-systems", (_req, res) => {
@@ -1212,7 +1307,15 @@ app.post("/api/auth/register", async (req, res) => {
   if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
   if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ ok: false, message: "Valid email required." });
   if (m && !/^\d{10}$/.test(m)) return res.status(400).json({ ok: false, message: "Mobile must be 10 digits." });
-  if (p.length < 6) return res.status(400).json({ ok: false, message: "Password minimum 6 characters required." });
+  if (enforceStrongPasswords && !isStrongPassword(p)) {
+    return res.status(400).json({
+      ok: false,
+      message: "Password must be 8-128 chars with uppercase, lowercase, number, and symbol.",
+    });
+  }
+  if (!enforceStrongPasswords && p.length < 6) {
+    return res.status(400).json({ ok: false, message: "Password minimum 6 characters required." });
+  }
   if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
   const exists = db.users.find((u) => u.role === r && ((e && u.email === e) || (m && u.mobile === m)));
   if (exists) return res.status(409).json({ ok: false, message: "Account already exists. Please login." });
@@ -1243,9 +1346,33 @@ app.post("/api/auth/request-otp", async (req, res) => {
   const e = email(req.body?.email);
   const m = phone(req.body?.mobile);
   if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
+  const authKey = authIdentityKey({ role: r, email: e, mobile: m });
+  const lockState = getAuthLockState(authKey);
+  if (lockState.locked) {
+    return res.status(429).json({
+      ok: false,
+      message: "Too many failed login attempts. Please try again later.",
+      retryAfterSec: lockState.retryAfterSec,
+    });
+  }
+  const cooldownState = getOtpCooldownState(authKey);
+  if (cooldownState.blocked) {
+    return res.status(429).json({
+      ok: false,
+      message: "OTP recently requested. Please wait before trying again.",
+      retryAfterSec: cooldownState.retryAfterSec,
+    });
+  }
+
   const cred = m || e;
   const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
-  if (!u) return res.status(404).json({ ok: false, message: "User not found for OTP login." });
+  if (!u) {
+    touchOtpCooldown(authKey);
+    return res.status(200).json({
+      ok: true,
+      message: "If account exists, OTP sent successfully.",
+    });
+  }
   const record = {
     id: nextId("otp"),
     kind: "auth-otp-request",
@@ -1258,6 +1385,7 @@ app.post("/api/auth/request-otp", async (req, res) => {
   };
   db.ownerVerificationRequests.unshift(record);
   await save();
+  touchOtpCooldown(authKey);
   res.json({
     ok: true,
     message: `OTP sent successfully (demo OTP: ${OTP}).`,
@@ -1273,13 +1401,54 @@ app.post("/api/auth/login", async (req, res) => {
   const p = String(req.body?.password || "");
   const o = String(req.body?.otp || "");
   if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
-  if (o !== OTP) return res.status(400).json({ ok: false, message: `Invalid OTP. Use ${OTP}.` });
+  const authKey = authIdentityKey({ role: r, email: e, mobile: m });
+  const lockState = getAuthLockState(authKey);
+  if (lockState.locked) {
+    return res.status(429).json({
+      ok: false,
+      message: "Too many failed login attempts. Please try again later.",
+      retryAfterSec: lockState.retryAfterSec,
+    });
+  }
+
+  if (o !== OTP) {
+    const nextLockState = recordAuthFailure(authKey);
+    if (nextLockState.locked) {
+      return res.status(429).json({
+        ok: false,
+        message: "Too many failed login attempts. Please try again later.",
+        retryAfterSec: nextLockState.retryAfterSec,
+      });
+    }
+    return res.status(401).json({ ok: false, message: "Invalid credentials." });
+  }
   const cred = m || e;
   const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
-  if (!u) return res.status(404).json({ ok: false, message: "User not found. Please signup first." });
-  if (p) {
-    if (!(await bcrypt.compare(p, u.passwordHash))) return res.status(401).json({ ok: false, message: "Invalid credentials." });
+  if (!u) {
+    const nextLockState = recordAuthFailure(authKey);
+    if (nextLockState.locked) {
+      return res.status(429).json({
+        ok: false,
+        message: "Too many failed login attempts. Please try again later.",
+        retryAfterSec: nextLockState.retryAfterSec,
+      });
+    }
+    return res.status(401).json({ ok: false, message: "Invalid credentials." });
   }
+  if (p) {
+    if (!(await bcrypt.compare(p, u.passwordHash))) {
+      const nextLockState = recordAuthFailure(authKey);
+      if (nextLockState.locked) {
+        return res.status(429).json({
+          ok: false,
+          message: "Too many failed login attempts. Please try again later.",
+          retryAfterSec: nextLockState.retryAfterSec,
+        });
+      }
+      return res.status(401).json({ ok: false, message: "Invalid credentials." });
+    }
+  }
+  clearAuthFailure(authKey);
   u.lastLoginAt = now();
   u.updatedAt = now();
   await save();

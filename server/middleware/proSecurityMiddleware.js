@@ -17,6 +17,18 @@ const SECURITY_MAX_OBJECT_NODES = Math.max(
 );
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const NULL_BYTE_PATTERN = /\0/;
+const SENSITIVE_PUBLIC_PATH_RULES = [
+  /^\/(?:server|backend|database|deploy|docs|scripts|models|legal)(?:\/|$)/i,
+  /^\/(?:\.git|\.github|\.vscode|node_modules)(?:\/|$)/i,
+  /^\/uploads(?:\/|$)/i,
+  /^\/(?:.*\/)?\.env(?:\..*)?$/i,
+  /^\/(?:.*\/)?package-lock\.json$/i,
+  /^\/(?:.*\/)?pnpm-lock\.ya?ml$/i,
+  /^\/(?:.*\/)?yarn\.lock$/i,
+  /^\/database\/.*\.json$/i,
+  /^\/server\/.*\.(?:js|mjs|cjs|map)$/i,
+  /^\/backend\/.*\.(?:js|mjs|cjs|map)$/i
+];
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -111,6 +123,8 @@ function looksLikeAllowedLocalhostOrigin(origin) {
 export function createProCorsOptions() {
   const raw = text(process.env.CORS_ORIGIN);
   const allowAll = !raw || raw === "*";
+  const strictCors =
+    text(process.env.STRICT_CORS, "false").toLowerCase() === "true";
   const allowLocalhost =
     text(process.env.CORS_ALLOW_LOCALHOST, "true").toLowerCase() !== "false";
   const allowList = new Set(
@@ -124,7 +138,7 @@ export function createProCorsOptions() {
     credentials: true,
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowAll) return callback(null, true);
+      if (allowAll && !strictCors) return callback(null, true);
       if (allowList.has(origin)) return callback(null, true);
       if (allowLocalhost && looksLikeAllowedLocalhostOrigin(origin)) {
         return callback(null, true);
@@ -195,6 +209,59 @@ export function proSecurityHeaders(req, res, next) {
   }
 
   next();
+}
+
+function normalizeRequestPath(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "/";
+  try {
+    const decoded = decodeURIComponent(raw);
+    const cleaned = decoded.replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+    if (!cleaned.startsWith("/")) return `/${cleaned}`;
+    return cleaned;
+  } catch {
+    const cleaned = raw.replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+    if (!cleaned.startsWith("/")) return `/${cleaned}`;
+    return cleaned;
+  }
+}
+
+function isSensitivePublicPath(requestPath) {
+  const normalized = normalizeRequestPath(requestPath);
+  return SENSITIVE_PUBLIC_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
+export function proBlockSensitivePublicFiles(req, res, next) {
+  const requestPath = normalizeRequestPath(req.path || req.originalUrl || "/");
+  if (requestPath.startsWith("/api")) return next();
+
+  if (isSensitivePublicPath(requestPath)) {
+    pushProSecurityAuditEvent(req, {
+      severity: "high",
+      type: "sensitive_public_path_blocked",
+      details: {
+        requestPath
+      }
+    });
+    return res.status(404).send("Not found");
+  }
+
+  return next();
+}
+
+export function createProSafeStaticOptions() {
+  return {
+    dotfiles: "deny",
+    index: false,
+    setHeaders(res, filePath) {
+      const normalized = normalizeRequestPath(filePath);
+      if (normalized.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-cache");
+      } else {
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      }
+    }
+  };
 }
 
 function scanPayloadValue(value, state, contextPath = "$", depth = 0) {

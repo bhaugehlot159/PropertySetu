@@ -378,7 +378,8 @@ router.get("/system/capabilities", (_req, res) => {
       ai: "/api/v3/ai/*",
       citySeoStructure: "/api/v3/seo/city-structure",
       propertyCare: "/api/v3/property-care/*",
-      system: "/api/v3/system/*"
+      system: "/api/v3/system/*",
+      securityAudit: "/api/system/security-audit"
     }
   });
 });

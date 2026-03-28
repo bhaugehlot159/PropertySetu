@@ -9,11 +9,13 @@ import { proRuntime } from "./config/proRuntime.js";
 import { getStorageProvider } from "./config/proStorage.js";
 import { proErrorHandler, proNotFound } from "./middleware/proErrorMiddleware.js";
 import {
+  createProSafeStaticOptions,
   createProCorsOptions,
   proApiPayloadGuard,
   proApiRateLimiter,
   proAttachRequestContext,
   proAuthRateLimiter,
+  proBlockSensitivePublicFiles,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
 import proHealthRoutes from "./routes/proHealthRoutes.js";
@@ -70,6 +72,7 @@ app.use("/api", proApiRateLimiter);
 app.use("/api", proApiPayloadGuard);
 app.use(`${apiV3Prefix}/auth`, proAuthRateLimiter);
 app.use("/api/auth", proAuthRateLimiter);
+app.use(proBlockSensitivePublicFiles);
 
 app.get("/", (_req, res) => {
   res.json({
@@ -84,7 +87,11 @@ app.use(`${apiPrefix}/properties`, proPropertyRoutes);
 app.use(`${apiPrefix}/payments`, proPaymentRoutes);
 app.use(`${apiPrefix}/storage`, proStorageRoutes);
 app.use("/api", proLegacyBridgeRoutes);
-app.use("/legacy", express.static(legacyWebRoot));
+app.use(
+  "/legacy",
+  proBlockSensitivePublicFiles,
+  express.static(legacyWebRoot, createProSafeStaticOptions())
+);
 
 app.use(`${apiV3Prefix}/health`, coreHealthRoutes);
 app.use(`${apiV3Prefix}/auth`, coreAuthRoutes);
@@ -106,7 +113,7 @@ app.use(`${apiV3Prefix}/system`, coreSystemRoutes);
 app.use(apiV3Prefix, coreServiceRoutes);
 
 if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath));
+  app.use(express.static(clientDistPath, createProSafeStaticOptions()));
 
   app.get("*", (req, res, next) => {
     if (req.path.startsWith(apiPrefix) || req.path.startsWith("/api/") || req.path === "/api") {
