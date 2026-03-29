@@ -80,6 +80,34 @@ const SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX = Math.max(
   50,
   Number(process.env.SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX || 600)
 );
+const SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED =
+  String(process.env.SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CONTROL_STATE_ALLOW_SYMLINKS =
+  String(process.env.SECURITY_CONTROL_STATE_ALLOW_SYMLINKS || "false").trim().toLowerCase() === "true";
+const SECURITY_CONTROL_STATE_ALLOWED_ROOTS = (() => {
+  const roots = [];
+  const appendRoot = (value = "") => {
+    const safe = String(value || "").trim();
+    if (!safe) return;
+    try {
+      roots.push(path.resolve(safe));
+    } catch {
+      // Ignore invalid root entries.
+    }
+  };
+  appendRoot(path.resolve(__dirname, "../../database"));
+  if (SECURITY_CONTROL_STATE_FILE) {
+    appendRoot(path.dirname(path.resolve(SECURITY_CONTROL_STATE_FILE)));
+  }
+  if (SECURITY_CONTROL_STATE_BACKUP_DIR) {
+    appendRoot(path.resolve(SECURITY_CONTROL_STATE_BACKUP_DIR));
+  }
+  const configuredRoots = String(process.env.SECURITY_CONTROL_STATE_ALLOWED_ROOTS || "");
+  configuredRoots
+    .split(/[;,]/)
+    .forEach((entry) => appendRoot(entry));
+  return [...new Set(roots)];
+})();
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -1288,10 +1316,163 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function safeReadJson(filePath = "") {
+function normalizeSecurityControlFsPath(value = "") {
+  const normalized = String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function isSecurityControlPathWithinAllowedRoots(targetPath = "") {
+  const safeTarget = text(targetPath);
+  if (!safeTarget) return false;
+  const normalizedTarget = normalizeSecurityControlFsPath(path.resolve(safeTarget));
+  if (!normalizedTarget) return false;
+  for (const root of SECURITY_CONTROL_STATE_ALLOWED_ROOTS) {
+    const normalizedRoot = normalizeSecurityControlFsPath(path.resolve(root));
+    if (!normalizedRoot) continue;
+    if (normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function validateSecurityControlFsPath(
+  targetPath = "",
+  {
+    expectDirectory = false,
+    allowMissing = true
+  } = {}
+) {
+  const safeTarget = text(targetPath);
+  if (!safeTarget) {
+    return {
+      ok: false,
+      path: "",
+      reason: "missing-path"
+    };
+  }
+
+  let resolvedPath = "";
   try {
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, "utf8");
+    resolvedPath = path.resolve(safeTarget);
+  } catch {
+    return {
+      ok: false,
+      path: "",
+      reason: "invalid-path-format"
+    };
+  }
+
+  if (!SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED) {
+    return {
+      ok: true,
+      path: resolvedPath,
+      reason: "path-hardening-disabled"
+    };
+  }
+
+  if (!isSecurityControlPathWithinAllowedRoots(resolvedPath)) {
+    return {
+      ok: false,
+      path: resolvedPath,
+      reason: "path-outside-allowed-roots"
+    };
+  }
+
+  try {
+    if (fs.existsSync(resolvedPath)) {
+      const entry = fs.lstatSync(resolvedPath);
+      if (entry.isSymbolicLink() && !SECURITY_CONTROL_STATE_ALLOW_SYMLINKS) {
+        return {
+          ok: false,
+          path: resolvedPath,
+          reason: "symlink-disallowed"
+        };
+      }
+      if (expectDirectory && !entry.isDirectory()) {
+        return {
+          ok: false,
+          path: resolvedPath,
+          reason: "path-not-directory"
+        };
+      }
+      if (!expectDirectory && !entry.isFile()) {
+        return {
+          ok: false,
+          path: resolvedPath,
+          reason: "path-not-file"
+        };
+      }
+    } else if (!allowMissing) {
+      return {
+        ok: false,
+        path: resolvedPath,
+        reason: "path-missing"
+      };
+    }
+
+    const parent = path.dirname(resolvedPath);
+    if (!isSecurityControlPathWithinAllowedRoots(parent)) {
+      return {
+        ok: false,
+        path: resolvedPath,
+        reason: "parent-outside-allowed-roots"
+      };
+    }
+    if (parent && fs.existsSync(parent)) {
+      const parentEntry = fs.lstatSync(parent);
+      if (parentEntry.isSymbolicLink() && !SECURITY_CONTROL_STATE_ALLOW_SYMLINKS) {
+        return {
+          ok: false,
+          path: resolvedPath,
+          reason: "parent-symlink-disallowed"
+        };
+      }
+      if (!parentEntry.isDirectory()) {
+        return {
+          ok: false,
+          path: resolvedPath,
+          reason: "parent-not-directory"
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      path: resolvedPath,
+      reason: "path-validated"
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      path: resolvedPath,
+      reason: text(error?.message, "path-validation-failed")
+    };
+  }
+}
+
+function safeReadJson(
+  filePath = "",
+  {
+    skipPathValidation = false
+  } = {}
+) {
+  try {
+    const safePath = text(filePath);
+    if (!safePath) return null;
+    const validation = skipPathValidation
+      ? {
+        ok: true,
+        path: safePath
+      }
+      : validateSecurityControlFsPath(safePath, {
+        expectDirectory: false,
+        allowMissing: true
+      });
+    if (!validation.ok || !validation.path || !fs.existsSync(validation.path)) return null;
+    const raw = fs.readFileSync(validation.path, "utf8");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     return parsed;
@@ -1435,24 +1616,53 @@ function verifySecurityControlStatePayload(payload = {}) {
 
 function resolveSecurityControlStateBackupDir(targetPath = "") {
   const configured = text(SECURITY_CONTROL_STATE_BACKUP_DIR);
-  if (configured) return path.resolve(configured);
+  if (configured) {
+    const configuredValidation = validateSecurityControlFsPath(configured, {
+      expectDirectory: true,
+      allowMissing: true
+    });
+    if (configuredValidation.ok) {
+      return configuredValidation.path;
+    }
+  }
   const baseTarget = text(targetPath || SECURITY_CONTROL_STATE_FILE);
   if (!baseTarget) return "";
-  return path.resolve(path.dirname(baseTarget), "security-control-state-snapshots");
+  const derived = path.resolve(path.dirname(baseTarget), "security-control-state-snapshots");
+  const derivedValidation = validateSecurityControlFsPath(derived, {
+    expectDirectory: true,
+    allowMissing: true
+  });
+  return derivedValidation.ok ? derivedValidation.path : "";
 }
 
 function listSecurityControlStateSnapshotFiles(backupDir = "") {
   try {
-    const safeDir = text(backupDir);
-    if (!safeDir || !fs.existsSync(safeDir)) return [];
+    const safeDirValidation = validateSecurityControlFsPath(text(backupDir), {
+      expectDirectory: true,
+      allowMissing: true
+    });
+    if (!safeDirValidation.ok || !safeDirValidation.path || !fs.existsSync(safeDirValidation.path)) return [];
+    const safeDir = safeDirValidation.path;
     const rows = fs.readdirSync(safeDir, { withFileTypes: true })
-      .filter((entry) => entry?.isFile?.() && /\.json$/i.test(text(entry.name)))
+      .filter((entry) => !entry?.isSymbolicLink?.() && entry?.isFile?.() && /\.json$/i.test(text(entry.name)))
       .map((entry) => {
         const filePath = path.join(safeDir, entry.name);
+        let validatedPath = filePath;
         let mtimeMs = 0;
         let sizeBytes = 0;
         try {
-          const stat = fs.statSync(filePath);
+          const validation = validateSecurityControlFsPath(filePath, {
+            expectDirectory: false,
+            allowMissing: false
+          });
+          if (!validation.ok || !validation.path) {
+            return null;
+          }
+          validatedPath = validation.path;
+          const stat = fs.lstatSync(validatedPath);
+          if (stat.isSymbolicLink() && !SECURITY_CONTROL_STATE_ALLOW_SYMLINKS) {
+            return null;
+          }
           mtimeMs = Number(stat.mtimeMs || 0);
           sizeBytes = Number(stat.size || 0);
         } catch {
@@ -1461,11 +1671,12 @@ function listSecurityControlStateSnapshotFiles(backupDir = "") {
         }
         return {
           name: entry.name,
-          path: filePath,
+          path: validatedPath,
           mtimeMs,
           sizeBytes
         };
       })
+      .filter(Boolean)
       .sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
     return rows;
   } catch {
@@ -1770,8 +1981,20 @@ function persistSecurityControlStateSnapshotToDisk(payload = {}, targetPath = ""
         reason: "snapshot-path-missing"
       };
     }
-    fs.mkdirSync(backupDir, { recursive: true });
-    const latestSnapshots = listSecurityControlStateSnapshotFiles(backupDir);
+    const backupDirValidation = validateSecurityControlFsPath(backupDir, {
+      expectDirectory: true,
+      allowMissing: true
+    });
+    if (!backupDirValidation.ok || !backupDirValidation.path) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: `snapshot-path-rejected:${text(backupDirValidation.reason)}`
+      };
+    }
+    const safeBackupDir = backupDirValidation.path;
+    fs.mkdirSync(safeBackupDir, { recursive: true });
+    const latestSnapshots = listSecurityControlStateSnapshotFiles(safeBackupDir);
     const latestSnapshot = latestSnapshots[0] || null;
     let previousSnapshotHash = "";
     if (latestSnapshot?.path) {
@@ -1785,8 +2008,32 @@ function persistSecurityControlStateSnapshotToDisk(payload = {}, targetPath = ""
       .replace(/Z$/i, "Z");
     const revision = Math.max(1, Number(payload?.state?.meta?.revision || 1));
     const fileName = `security-control-state-${safeStamp}-rev-${revision}.json`;
-    const snapshotPath = path.join(backupDir, fileName);
-    const tmpPath = `${snapshotPath}.tmp`;
+    const snapshotPathRaw = path.join(safeBackupDir, fileName);
+    const tmpPathRaw = `${snapshotPathRaw}.tmp`;
+    const snapshotPathValidation = validateSecurityControlFsPath(snapshotPathRaw, {
+      expectDirectory: false,
+      allowMissing: true
+    });
+    if (!snapshotPathValidation.ok || !snapshotPathValidation.path) {
+      return {
+        ok: false,
+        skipped: false,
+        reason: `snapshot-file-path-rejected:${text(snapshotPathValidation.reason)}`
+      };
+    }
+    const tmpPathValidation = validateSecurityControlFsPath(tmpPathRaw, {
+      expectDirectory: false,
+      allowMissing: true
+    });
+    if (!tmpPathValidation.ok || !tmpPathValidation.path) {
+      return {
+        ok: false,
+        skipped: false,
+        reason: `snapshot-temp-path-rejected:${text(tmpPathValidation.reason)}`
+      };
+    }
+    const snapshotPath = snapshotPathValidation.path;
+    const tmpPath = tmpPathValidation.path;
     const snapshotPayload = JSON.parse(JSON.stringify(payload || {}));
     const snapshotHash = computeSecurityControlSnapshotHash(snapshotPayload, previousSnapshotHash);
     snapshotPayload.snapshotChain = {
@@ -1801,7 +2048,7 @@ function persistSecurityControlStateSnapshotToDisk(payload = {}, targetPath = ""
     return {
       ok: true,
       path: snapshotPath,
-      backupDir,
+      backupDir: safeBackupDir,
       snapshotHash,
       previousSnapshotHash,
       prune: pruneResult
@@ -1989,9 +2236,19 @@ function evaluateSecurityControlRollbackRisk({
 }
 
 function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
-  const safeTarget = text(targetPath || SECURITY_CONTROL_STATE_FILE);
+  const targetPathRaw = text(targetPath || SECURITY_CONTROL_STATE_FILE);
   const warnings = [];
-  const primary = safeReadJson(safeTarget);
+  const targetValidation = validateSecurityControlFsPath(targetPathRaw, {
+    expectDirectory: false,
+    allowMissing: true
+  });
+  if (!targetValidation.ok) {
+    warnings.push(`Primary persisted security control state path rejected: ${text(targetValidation.reason)}.`);
+  }
+  const safeTarget = targetValidation.ok ? text(targetValidation.path) : targetPathRaw;
+  const primary = targetValidation.ok
+    ? safeReadJson(safeTarget, { skipPathValidation: true })
+    : null;
   if (primary && typeof primary === "object" && !Array.isArray(primary)) {
     const integrity = verifySecurityControlStatePayload(primary);
     if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
@@ -2143,17 +2400,52 @@ function persistSecurityControlStateToDisk(state = {}) {
   }
 
   try {
-    const target = String(SECURITY_CONTROL_STATE_FILE || "").trim();
-    if (!target) {
+    const targetRaw = String(SECURITY_CONTROL_STATE_FILE || "").trim();
+    if (!targetRaw) {
       return {
         ok: false,
         skipped: true,
         reason: "missing-path"
       };
     }
-    const dir = path.dirname(target);
+    const targetValidation = validateSecurityControlFsPath(targetRaw, {
+      expectDirectory: false,
+      allowMissing: true
+    });
+    if (!targetValidation.ok || !targetValidation.path) {
+      return {
+        ok: false,
+        skipped: false,
+        reason: `path-rejected:${text(targetValidation.reason)}`
+      };
+    }
+    const target = targetValidation.path;
+    const dirValidation = validateSecurityControlFsPath(path.dirname(target), {
+      expectDirectory: true,
+      allowMissing: true
+    });
+    if (!dirValidation.ok || !dirValidation.path) {
+      return {
+        ok: false,
+        skipped: false,
+        reason: `path-parent-rejected:${text(dirValidation.reason)}`
+      };
+    }
+    const dir = dirValidation.path;
     fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${target}.tmp`;
+    const tmpRaw = `${target}.tmp`;
+    const tmpValidation = validateSecurityControlFsPath(tmpRaw, {
+      expectDirectory: false,
+      allowMissing: true
+    });
+    if (!tmpValidation.ok || !tmpValidation.path) {
+      return {
+        ok: false,
+        skipped: false,
+        reason: `temp-path-rejected:${text(tmpValidation.reason)}`
+      };
+    }
+    const tmp = tmpValidation.path;
     const payload = {
       version: 1,
       persistedAt: nowIso(),
@@ -2730,26 +3022,48 @@ export function listProSecurityControlProfiles() {
 }
 
 export function getProSecurityControlPersistenceStatus() {
-  const target = String(SECURITY_CONTROL_STATE_FILE || "").trim();
-  const exists = target ? fs.existsSync(target) : false;
+  const configuredTarget = String(SECURITY_CONTROL_STATE_FILE || "").trim();
+  const targetValidation = validateSecurityControlFsPath(configuredTarget, {
+    expectDirectory: false,
+    allowMissing: true
+  });
+  const target = targetValidation.ok ? text(targetValidation.path) : configuredTarget;
+  const exists = Boolean(targetValidation.ok && target && fs.existsSync(target));
   const stats = exists ? fs.statSync(target) : null;
-  const payload = exists ? safeReadJson(target) : null;
+  const payload = exists ? safeReadJson(target, { skipPathValidation: true }) : null;
   const integritySource = payload && payload.integrity && typeof payload.integrity === "object" && !Array.isArray(payload.integrity)
     ? payload.integrity
     : {};
   const signature = text(integritySource.signature).toLowerCase();
   const hasPayload = Boolean(payload && typeof payload === "object" && !Array.isArray(payload));
+  const baseIntegrityWarnings = [];
+  if (!targetValidation.ok) {
+    baseIntegrityWarnings.push(`Persisted security control state path rejected: ${text(targetValidation.reason)}.`);
+  }
   const integrityCheck = hasPayload
     ? verifySecurityControlStatePayload(payload)
     : {
       valid: false,
       signed: false,
-      warnings: exists ? ["Persisted security control state file is unreadable or invalid JSON."] : [],
-      reason: exists ? "invalid-json" : "missing-state-file",
+      warnings: [
+        ...baseIntegrityWarnings,
+        ...(exists ? ["Persisted security control state file is unreadable or invalid JSON."] : [])
+      ],
+      reason: !targetValidation.ok ? "path-rejected" : (exists ? "invalid-json" : "missing-state-file"),
       hasSigningKey: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
       signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
     };
   const backupDir = resolveSecurityControlStateBackupDir(target);
+  const backupDirValidation = backupDir
+    ? validateSecurityControlFsPath(backupDir, {
+      expectDirectory: true,
+      allowMissing: true
+    })
+    : {
+      ok: false,
+      path: "",
+      reason: "snapshot-path-missing"
+    };
   const snapshots = listSecurityControlStateSnapshotFiles(backupDir);
   const latestSnapshot = snapshots[0] || null;
   const latestValidSnapshot = findLatestValidSecurityControlStateSnapshot(target);
@@ -2761,6 +3075,15 @@ export function getProSecurityControlPersistenceStatus() {
     exists,
     sizeBytes: stats ? Number(stats.size || 0) : 0,
     updatedAt: stats ? new Date(stats.mtimeMs).toISOString() : "",
+    pathHardening: {
+      enabled: SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED,
+      allowSymlinks: SECURITY_CONTROL_STATE_ALLOW_SYMLINKS,
+      allowedRoots: SECURITY_CONTROL_STATE_ALLOWED_ROOTS,
+      statePathValid: Boolean(targetValidation.ok),
+      statePathReason: text(targetValidation.reason),
+      backupPathValid: Boolean(backupDirValidation.ok),
+      backupPathReason: text(backupDirValidation.reason)
+    },
     signature: {
       configured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
       required: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED,
@@ -2788,7 +3111,9 @@ export function getProSecurityControlPersistenceStatus() {
     mutationGuard,
     backup: {
       enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
-      dir: backupDir,
+      dir: backupDirValidation.ok ? backupDir : "",
+      pathValidated: Boolean(backupDirValidation.ok),
+      pathReason: text(backupDirValidation.reason),
       keepLimit: SECURITY_CONTROL_STATE_BACKUP_KEEP,
       chainContinuityEnforced: SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED,
       chainVerificationMaxDepth: SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH,
@@ -6954,7 +7279,21 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     return isAdminMutationPath(item?.path, item?.method);
   }).length;
   const adminCredentialAttackWindow = evaluateAdminCredentialAttackWindow(Date.now());
+  const controlStatePathValidation = validateSecurityControlFsPath(SECURITY_CONTROL_STATE_FILE, {
+    expectDirectory: false,
+    allowMissing: true
+  });
   const controlBackupDir = resolveSecurityControlStateBackupDir(SECURITY_CONTROL_STATE_FILE);
+  const controlBackupDirValidation = controlBackupDir
+    ? validateSecurityControlFsPath(controlBackupDir, {
+      expectDirectory: true,
+      allowMissing: true
+    })
+    : {
+      ok: false,
+      path: "",
+      reason: "snapshot-path-missing"
+    };
   const controlBackupSnapshots = listSecurityControlStateSnapshotFiles(controlBackupDir);
   const controlBackupLatest = controlBackupSnapshots[0] || null;
   const controlBackupLatestValid = findLatestValidSecurityControlStateSnapshot(SECURITY_CONTROL_STATE_FILE);
@@ -7165,9 +7504,16 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityResponseSigningSecondaryConfigured: Boolean(SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET),
       securityResponseSigningKeyRotationEnabled: SECURITY_RESPONSE_SIGNING_SECRETS.length > 1,
       securityResponseSigningProtectedPathGroups: SECURITY_RESPONSE_SIGNING_PATH_RULES.length,
+      securityControlPathHardeningEnabled: SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED,
+      securityControlPathHardeningAllowSymlinks: SECURITY_CONTROL_STATE_ALLOW_SYMLINKS,
+      securityControlPathAllowedRoots: SECURITY_CONTROL_STATE_ALLOWED_ROOTS.length,
+      securityControlStatePathValid: Boolean(controlStatePathValidation?.ok),
+      securityControlStatePathReason: text(controlStatePathValidation?.reason),
       securityControlBackupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
       securityControlBackupDirConfigured: Boolean(text(SECURITY_CONTROL_STATE_BACKUP_DIR)),
       securityControlBackupDir: controlBackupDir,
+      securityControlBackupDirValid: Boolean(controlBackupDirValidation?.ok),
+      securityControlBackupDirReason: text(controlBackupDirValidation?.reason),
       securityControlBackupKeepLimit: SECURITY_CONTROL_STATE_BACKUP_KEEP,
       securityControlBackupChainContinuityEnabled: SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED,
       securityControlBackupChainVerificationMaxDepth: SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH,
