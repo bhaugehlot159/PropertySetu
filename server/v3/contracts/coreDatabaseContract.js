@@ -208,7 +208,8 @@ export const coreSystemsBlueprint = [
       "Auth-storm shield for OTP/login routes with auto activation and admin bypass control",
       "Targeted identity protection for attacked login/OTP identities with temporary shield",
       "Token-subject takeover auto protection with temporary shield and admin overrides",
-      "Subject session-churn shield to stop token-family abuse with automated containment"
+      "Subject session-churn shield to stop token-family abuse with automated containment",
+      "Network-velocity shield for impossible subject movement across IP prefixes"
     ],
     endpoints: [
       "/api/v3/auth/*",

@@ -23,6 +23,7 @@ const proProtectedTokenSubjects = new Map();
 const proSubjectProtectionEvents = [];
 const proSubjectSessionIntel = new Map();
 const proSubjectSessionShieldEvents = [];
+const proSubjectNetworkShieldEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -303,6 +304,10 @@ const SUBJECT_SESSION_SHIELD_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.SUBJECT_SESSION_SHIELD_EVENT_MAX_ITEMS || 500)
 );
+const SUBJECT_NETWORK_SHIELD_EVENT_MAX_ITEMS = Math.max(
+  20,
+  Number(process.env.SUBJECT_NETWORK_SHIELD_EVENT_MAX_ITEMS || 500)
+);
 const CRITICAL_THREAT_PATTERNS = [
   /token-alg-none/i,
   /token-header-injection-pattern/i,
@@ -567,7 +572,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectSessionDistinctFingerprints: 4,
         subjectSessionDistinctIps: 4,
         subjectSessionShieldDurationMinutes: 45,
-        subjectSessionCooldownMinutes: 10
+        subjectSessionCooldownMinutes: 10,
+        subjectNetworkWindowMinutes: 45,
+        subjectNetworkEventThreshold: 8,
+        subjectNetworkDistinctPrefixes: 4,
+        subjectNetworkJumpThreshold: 3,
+        subjectNetworkShieldDurationMinutes: 60,
+        subjectNetworkCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -582,7 +593,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoAuthStormShield: true,
         autoIdentityProtection: true,
         autoSubjectProtection: true,
-        autoSubjectSessionShield: true
+        autoSubjectSessionShield: true,
+        autoSubjectNetworkShield: true
       }
     }
   },
@@ -661,7 +673,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectSessionDistinctFingerprints: 3,
         subjectSessionDistinctIps: 3,
         subjectSessionShieldDurationMinutes: 60,
-        subjectSessionCooldownMinutes: 10
+        subjectSessionCooldownMinutes: 10,
+        subjectNetworkWindowMinutes: 35,
+        subjectNetworkEventThreshold: 6,
+        subjectNetworkDistinctPrefixes: 3,
+        subjectNetworkJumpThreshold: 2,
+        subjectNetworkShieldDurationMinutes: 75,
+        subjectNetworkCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -676,7 +694,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoAuthStormShield: true,
         autoIdentityProtection: true,
         autoSubjectProtection: true,
-        autoSubjectSessionShield: true
+        autoSubjectSessionShield: true,
+        autoSubjectNetworkShield: true
       }
     }
   },
@@ -755,7 +774,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectSessionDistinctFingerprints: 2,
         subjectSessionDistinctIps: 2,
         subjectSessionShieldDurationMinutes: 90,
-        subjectSessionCooldownMinutes: 8
+        subjectSessionCooldownMinutes: 8,
+        subjectNetworkWindowMinutes: 25,
+        subjectNetworkEventThreshold: 4,
+        subjectNetworkDistinctPrefixes: 2,
+        subjectNetworkJumpThreshold: 1,
+        subjectNetworkShieldDurationMinutes: 120,
+        subjectNetworkCooldownMinutes: 8
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -770,7 +795,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoAuthStormShield: true,
         autoIdentityProtection: true,
         autoSubjectProtection: true,
-        autoSubjectSessionShield: true
+        autoSubjectSessionShield: true,
+        autoSubjectNetworkShield: true
       }
     }
   }
@@ -991,6 +1017,30 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     subjectSessionCooldownMinutes: Math.max(
       1,
       Number(process.env.SUBJECT_SESSION_COOLDOWN_MINUTES || 10)
+    ),
+    subjectNetworkWindowMinutes: Math.max(
+      5,
+      Number(process.env.SUBJECT_NETWORK_WINDOW_MINUTES || 45)
+    ),
+    subjectNetworkEventThreshold: Math.max(
+      2,
+      Number(process.env.SUBJECT_NETWORK_EVENT_THRESHOLD || 8)
+    ),
+    subjectNetworkDistinctPrefixes: Math.max(
+      2,
+      Number(process.env.SUBJECT_NETWORK_DISTINCT_PREFIXES || 4)
+    ),
+    subjectNetworkJumpThreshold: Math.max(
+      1,
+      Number(process.env.SUBJECT_NETWORK_JUMP_THRESHOLD || 3)
+    ),
+    subjectNetworkShieldDurationMinutes: Math.max(
+      1,
+      Number(process.env.SUBJECT_NETWORK_SHIELD_DURATION_MINUTES || 60)
+    ),
+    subjectNetworkCooldownMinutes: Math.max(
+      1,
+      Number(process.env.SUBJECT_NETWORK_COOLDOWN_MINUTES || 10)
     )
   },
   adminControls: {
@@ -1006,7 +1056,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoAuthStormShield: true,
     autoIdentityProtection: true,
     autoSubjectProtection: true,
-    autoSubjectSessionShield: true
+    autoSubjectSessionShield: true,
+    autoSubjectNetworkShield: true
   },
   lists: {
     blockedIps: [],
@@ -1959,6 +2010,54 @@ export function updateProSecurityControlState(
         720
       );
     }
+    if (typeof incoming.subjectNetworkWindowMinutes !== "undefined") {
+      next.thresholds.subjectNetworkWindowMinutes = toIntegerInRange(
+        incoming.subjectNetworkWindowMinutes,
+        next.thresholds.subjectNetworkWindowMinutes,
+        5,
+        1440
+      );
+    }
+    if (typeof incoming.subjectNetworkEventThreshold !== "undefined") {
+      next.thresholds.subjectNetworkEventThreshold = toIntegerInRange(
+        incoming.subjectNetworkEventThreshold,
+        next.thresholds.subjectNetworkEventThreshold,
+        2,
+        5000
+      );
+    }
+    if (typeof incoming.subjectNetworkDistinctPrefixes !== "undefined") {
+      next.thresholds.subjectNetworkDistinctPrefixes = toIntegerInRange(
+        incoming.subjectNetworkDistinctPrefixes,
+        next.thresholds.subjectNetworkDistinctPrefixes,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.subjectNetworkJumpThreshold !== "undefined") {
+      next.thresholds.subjectNetworkJumpThreshold = toIntegerInRange(
+        incoming.subjectNetworkJumpThreshold,
+        next.thresholds.subjectNetworkJumpThreshold,
+        1,
+        1000
+      );
+    }
+    if (typeof incoming.subjectNetworkShieldDurationMinutes !== "undefined") {
+      next.thresholds.subjectNetworkShieldDurationMinutes = toIntegerInRange(
+        incoming.subjectNetworkShieldDurationMinutes,
+        next.thresholds.subjectNetworkShieldDurationMinutes,
+        1,
+        1440
+      );
+    }
+    if (typeof incoming.subjectNetworkCooldownMinutes !== "undefined") {
+      next.thresholds.subjectNetworkCooldownMinutes = toIntegerInRange(
+        incoming.subjectNetworkCooldownMinutes,
+        next.thresholds.subjectNetworkCooldownMinutes,
+        1,
+        720
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -2052,6 +2151,12 @@ export function updateProSecurityControlState(
       next.adminControls.autoSubjectSessionShield = toBoolean(
         patch.adminControls.autoSubjectSessionShield,
         Boolean(next.adminControls.autoSubjectSessionShield)
+      );
+    }
+    if (typeof patch.adminControls.autoSubjectNetworkShield !== "undefined") {
+      next.adminControls.autoSubjectNetworkShield = toBoolean(
+        patch.adminControls.autoSubjectNetworkShield,
+        Boolean(next.adminControls.autoSubjectNetworkShield)
       );
     }
   }
@@ -2269,6 +2374,22 @@ function normalizeAuthIdentity(value = "") {
 
 function normalizeTokenSubject(value = "") {
   return text(value).toLowerCase().slice(0, 120);
+}
+
+function normalizeIpNetworkPrefix(value = "") {
+  const ip = normalizeIpEntry(value);
+  if (!ip) return "";
+  if (ip.includes(".")) {
+    const parts = ip.split(".");
+    if (parts.length !== 4) return "";
+    return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+  }
+  if (ip.includes(":")) {
+    const parts = ip.split(":").filter(Boolean);
+    if (!parts.length) return "";
+    return `${parts.slice(0, 4).join(":")}::/64`;
+  }
+  return "";
 }
 
 function pruneProtectedAuthIdentities(nowTs = Date.now()) {
@@ -2725,6 +2846,9 @@ function pruneSubjectSessionIntel(nowTs = Date.now()) {
     const distinctIpCount = new Set(
       recent.map((item) => text(item?.ip)).filter(Boolean)
     ).size;
+    const distinctNetworkPrefixCount = new Set(
+      recent.map((item) => text(item?.networkPrefix)).filter(Boolean)
+    ).size;
     proSubjectSessionIntel.set(subjectKey, {
       ...row,
       events: recent,
@@ -2732,6 +2856,7 @@ function pruneSubjectSessionIntel(nowTs = Date.now()) {
       distinctTokenKeyCount,
       distinctFingerprintCount,
       distinctIpCount,
+      distinctNetworkPrefixCount,
       firstSeenAt: Number(recent[0]?.at || nowTs),
       lastSeenAt: Number(recent[recent.length - 1]?.at || nowTs)
     });
@@ -2772,13 +2897,15 @@ function registerSubjectSessionSignal({
   const safeTokenKey = text(tokenKey).slice(0, 180) || "unknown-token";
   const safeFingerprint = text(fingerprint);
   const safeIp = text(ip).replace(/^::ffff:/i, "");
+  const safeNetworkPrefix = normalizeIpNetworkPrefix(safeIp);
   const events = [
     ...(Array.isArray(previous?.events) ? previous.events : []),
     {
       at: nowTs,
       tokenKey: safeTokenKey,
       fingerprint: safeFingerprint,
-      ip: safeIp
+      ip: safeIp,
+      networkPrefix: safeNetworkPrefix
     }
   ].filter((item) => Number(item?.at || 0) >= nowTs - SUBJECT_SESSION_STORAGE_WINDOW_MS);
 
@@ -2791,6 +2918,9 @@ function registerSubjectSessionSignal({
   const distinctIpCount = new Set(
     events.map((item) => text(item?.ip)).filter(Boolean)
   ).size;
+  const distinctNetworkPrefixCount = new Set(
+    events.map((item) => text(item?.networkPrefix)).filter(Boolean)
+  ).size;
   const row = {
     subject: safeSubject,
     events,
@@ -2798,6 +2928,7 @@ function registerSubjectSessionSignal({
     distinctTokenKeyCount,
     distinctFingerprintCount,
     distinctIpCount,
+    distinctNetworkPrefixCount,
     firstSeenAt: Number(events[0]?.at || nowTs),
     lastSeenAt: Number(events[events.length - 1]?.at || nowTs)
   };
@@ -2810,9 +2941,28 @@ function registerSubjectSessionSignal({
     distinctTokenKeyCount: row.distinctTokenKeyCount,
     distinctFingerprintCount: row.distinctFingerprintCount,
     distinctIpCount: row.distinctIpCount,
+    distinctNetworkPrefixCount: row.distinctNetworkPrefixCount,
     firstSeenAt: row.firstSeenAt,
     lastSeenAt: row.lastSeenAt
   };
+}
+
+function countNetworkPrefixJumps(events = []) {
+  const ordered = [...events]
+    .filter((item) => Number(item?.at || 0) > 0)
+    .sort((a, b) => Number(a?.at || 0) - Number(b?.at || 0));
+  if (ordered.length < 2) return 0;
+  let jumps = 0;
+  let previousPrefix = text(ordered[0]?.networkPrefix);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const currentPrefix = text(ordered[index]?.networkPrefix);
+    if (!currentPrefix) continue;
+    if (previousPrefix && currentPrefix !== previousPrefix) {
+      jumps += 1;
+    }
+    previousPrefix = currentPrefix;
+  }
+  return jumps;
 }
 
 function hotSubjectSessionIntelligence(limit = 20, windowMs = SUBJECT_SESSION_STORAGE_WINDOW_MS) {
@@ -2834,18 +2984,26 @@ function hotSubjectSessionIntelligence(limit = 20, windowMs = SUBJECT_SESSION_ST
       const distinctIpCount = new Set(
         recent.map((item) => text(item?.ip)).filter(Boolean)
       ).size;
+      const distinctNetworkPrefixCount = new Set(
+        recent.map((item) => text(item?.networkPrefix)).filter(Boolean)
+      ).size;
+      const networkJumpCount = countNetworkPrefixJumps(recent);
       return {
         subject: text(row?.subject),
         occurrences: recent.length,
         distinctTokenKeyCount,
         distinctFingerprintCount,
         distinctIpCount,
+        distinctNetworkPrefixCount,
+        networkJumpCount,
         firstSeenAt: Number(recent[0]?.at || 0),
         lastSeenAt: Number(recent[recent.length - 1]?.at || 0)
       };
     })
     .filter((row) => row.occurrences > 0)
     .sort((a, b) =>
+      b.networkJumpCount - a.networkJumpCount ||
+      b.distinctNetworkPrefixCount - a.distinctNetworkPrefixCount ||
       b.distinctTokenKeyCount - a.distinctTokenKeyCount ||
       b.distinctFingerprintCount - a.distinctFingerprintCount ||
       b.distinctIpCount - a.distinctIpCount ||
@@ -3999,6 +4157,185 @@ function maybeApplySubjectSessionShield({
   };
 }
 
+function maybeApplySubjectNetworkShield({
+  requestId = "",
+  path: requestPath = "",
+  method = "GET",
+  subject = "",
+  tokenKey = "",
+  fingerprint = "",
+  ip = ""
+} = {}) {
+  const safeSubject = normalizeTokenSubject(subject);
+  if (!safeSubject) return { activated: false, subject: "" };
+  const safePath = normalizeRequestPath(requestPath || "/api");
+  if (isSecurityControlPath(safePath)) return { activated: false, subject: safeSubject };
+
+  const nowTs = Date.now();
+  const signal = registerSubjectSessionSignal({
+    subject: safeSubject,
+    tokenKey,
+    fingerprint,
+    ip,
+    nowTs
+  });
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoSubjectNetworkShield, true)) {
+    return {
+      activated: false,
+      subject: safeSubject,
+      signal
+    };
+  }
+
+  const thresholds = currentSecurityThresholds();
+  const windowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectNetworkWindowMinutes || 45) * 60 * 1000)
+  );
+  const eventThreshold = Math.max(2, Number(thresholds.subjectNetworkEventThreshold || 8));
+  const distinctPrefixThreshold = Math.max(2, Number(thresholds.subjectNetworkDistinctPrefixes || 4));
+  const jumpThreshold = Math.max(1, Number(thresholds.subjectNetworkJumpThreshold || 3));
+  const cooldownMs = Math.max(
+    60_000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.subjectNetworkCooldownMinutes || 10) * 60 * 1000)
+  );
+
+  const existing = proProtectedTokenSubjects.get(safeSubject);
+  const lastAppliedAt = Math.max(0, Number(existing?.lastAppliedAt || 0));
+  if (lastAppliedAt > 0 && nowTs - lastAppliedAt < cooldownMs) {
+    return {
+      activated: false,
+      subject: safeSubject,
+      signal,
+      cooldownActive: true
+    };
+  }
+
+  const row = proSubjectSessionIntel.get(safeSubject);
+  const cutoff = nowTs - windowMs;
+  const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+    (item) => Number(item?.at || 0) >= cutoff
+  );
+  const occurrences = recent.length;
+  const distinctNetworkPrefixCount = new Set(
+    recent.map((item) => text(item?.networkPrefix)).filter(Boolean)
+  ).size;
+  const networkJumpCount = countNetworkPrefixJumps(recent);
+  const distinctFingerprintCount = new Set(
+    recent.map((item) => text(item?.fingerprint)).filter(Boolean)
+  ).size;
+  const distinctIpCount = new Set(
+    recent.map((item) => text(item?.ip)).filter(Boolean)
+  ).size;
+
+  if (
+    occurrences < eventThreshold ||
+    distinctNetworkPrefixCount < distinctPrefixThreshold ||
+    networkJumpCount < jumpThreshold
+  ) {
+    return {
+      activated: false,
+      subject: safeSubject,
+      signal: {
+        ...signal,
+        occurrences,
+        distinctNetworkPrefixCount,
+        networkJumpCount,
+        distinctFingerprintCount,
+        distinctIpCount
+      }
+    };
+  }
+
+  const durationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectNetworkShieldDurationMinutes || 60) * 60 * 1000)
+  );
+  const activeUntilTs = Math.max(Math.max(0, Number(existing?.until || 0)), nowTs + durationMs);
+  const reason = "subject-network-velocity-anomaly";
+  proProtectedTokenSubjects.set(safeSubject, {
+    subject: safeSubject,
+    reason,
+    until: activeUntilTs,
+    updatedAt: nowTs,
+    lastAppliedAt: nowTs,
+    incidentCount: occurrences,
+    distinctFingerprintCount,
+    distinctIpCount
+  });
+  pruneProtectedTokenSubjects(nowTs);
+
+  const event = {
+    id: `subject-network-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    subject: safeSubject,
+    reason,
+    windowMinutes: Math.round(windowMs / 60_000),
+    cooldownMinutes: Math.round(cooldownMs / 60_000),
+    shieldDurationMinutes: Math.round(durationMs / 60_000),
+    activeUntil: new Date(activeUntilTs).toISOString(),
+    occurrences,
+    distinctNetworkPrefixCount,
+    networkJumpCount,
+    distinctFingerprintCount,
+    distinctIpCount,
+    thresholds: {
+      eventThreshold,
+      distinctPrefixThreshold,
+      jumpThreshold
+    }
+  };
+  proSubjectNetworkShieldEvents.unshift(event);
+  if (proSubjectNetworkShieldEvents.length > SUBJECT_NETWORK_SHIELD_EVENT_MAX_ITEMS) {
+    proSubjectNetworkShieldEvents.length = SUBJECT_NETWORK_SHIELD_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-subject-network-shield",
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    details: {
+      subject: safeSubject,
+      reason,
+      activeUntil: new Date(activeUntilTs).toISOString(),
+      windowMinutes: Math.round(windowMs / 60_000),
+      cooldownMinutes: Math.round(cooldownMs / 60_000),
+      shieldDurationMinutes: Math.round(durationMs / 60_000),
+      occurrences,
+      distinctNetworkPrefixCount,
+      networkJumpCount,
+      distinctFingerprintCount,
+      distinctIpCount,
+      thresholds: {
+        eventThreshold,
+        distinctPrefixThreshold,
+        jumpThreshold
+      }
+    }
+  });
+
+  return {
+    activated: true,
+    subject: safeSubject,
+    reason,
+    until: activeUntilTs,
+    remainingSec: Math.max(0, Math.ceil((activeUntilTs - nowTs) / 1000)),
+    signal: {
+      occurrences,
+      distinctNetworkPrefixCount,
+      networkJumpCount,
+      distinctFingerprintCount,
+      distinctIpCount
+    }
+  };
+}
+
 function maybeAutoEscalateSecurityMode({
   reason = "",
   path: requestPath = "",
@@ -4591,11 +4928,30 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     5 * 60 * 1000,
     Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectSessionWindowMinutes || 60) * 60 * 1000)
   );
+  const subjectNetworkWindowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectNetworkWindowMinutes || 45) * 60 * 1000)
+  );
   const incidents = proThreatIncidents.slice(0, safeLimit);
   const hotSignatures = hotFakeListingSignatures(Math.min(50, safeLimit));
   const hotTokens = hotTokenIntelligence(Math.min(50, safeLimit));
   const hotSubjects = hotSubjectIntelligence(Math.min(50, safeLimit));
-  const hotSubjectSessions = hotSubjectSessionIntelligence(Math.min(50, safeLimit), subjectSessionWindowMs);
+  const hotSubjectSessions = hotSubjectSessionIntelligence(
+    Math.min(50, safeLimit),
+    Math.max(subjectSessionWindowMs, subjectNetworkWindowMs)
+  );
+  const subjectNetworkEventThreshold = Math.max(2, Number(thresholds.subjectNetworkEventThreshold || 8));
+  const subjectNetworkDistinctPrefixThreshold = Math.max(
+    2,
+    Number(thresholds.subjectNetworkDistinctPrefixes || 4)
+  );
+  const subjectNetworkJumpThreshold = Math.max(1, Number(thresholds.subjectNetworkJumpThreshold || 3));
+  const subjectNetworkHotSubjects = hotSubjectSessions.filter(
+    (item) =>
+      Number(item?.occurrences || 0) >= subjectNetworkEventThreshold &&
+      Number(item?.distinctNetworkPrefixCount || 0) >= subjectNetworkDistinctPrefixThreshold &&
+      Number(item?.networkJumpCount || 0) >= subjectNetworkJumpThreshold
+  ).length;
   const fakeListingIncidents = proThreatIncidents.filter(
     (item) =>
       text(item?.reason).includes("fake-listing") ||
@@ -4642,6 +4998,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     recentIdentityProtectionEvents: proIdentityProtectionEvents.slice(0, Math.min(100, safeLimit)),
     recentSubjectProtectionEvents: proSubjectProtectionEvents.slice(0, Math.min(100, safeLimit)),
     recentSubjectSessionShieldEvents: proSubjectSessionShieldEvents.slice(0, Math.min(100, safeLimit)),
+    recentSubjectNetworkShieldEvents: proSubjectNetworkShieldEvents.slice(0, Math.min(100, safeLimit)),
     activeIdentityProtections,
     activeSubjectProtections,
     controlState: getProSecurityControlState(),
@@ -4668,6 +5025,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       ).length,
       subjectSessionWindowMinutes: Math.round(subjectSessionWindowMs / 60_000),
       subjectSessionHotSubjects: hotSubjectSessions.length,
+      subjectNetworkWindowMinutes: Math.round(subjectNetworkWindowMs / 60_000),
+      subjectNetworkHotSubjects,
       autoPromotions: proAutoPromotionEvents.length,
       autoEscalations: proAutoEscalationEvents.length,
       autoEscalationLastAt: text(proAutoEscalationEvents[0]?.at),
@@ -4696,6 +5055,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       subjectProtectionLastAt: text(proSubjectProtectionEvents[0]?.at),
       subjectSessionShields: proSubjectSessionShieldEvents.length,
       subjectSessionShieldLastAt: text(proSubjectSessionShieldEvents[0]?.at),
+      subjectNetworkShields: proSubjectNetworkShieldEvents.length,
+      subjectNetworkShieldLastAt: text(proSubjectNetworkShieldEvents[0]?.at),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -6004,6 +6365,56 @@ export function proTokenFirewall(req, res, next) {
       return res.status(401).json({
         success: false,
         message: "Authorization subject temporarily shielded due to suspicious session churn.",
+        reasons: [req.proSecurityBlockSource],
+        retryAfterSec: incident.retryAfterSec,
+        requestId: req.requestId
+      });
+    }
+  }
+  const subjectNetworkShield = maybeApplySubjectNetworkShield({
+    requestId: req.requestId,
+    path: requestPath,
+    method,
+    subject: metadata.subject,
+    tokenKey,
+    fingerprint,
+    ip: getClientIp(req)
+  });
+  if (subjectNetworkShield.activated) {
+    const headerKey = text(req?.headers?.["x-admin-action-key"]);
+    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    if (isTrusted || bypassByActionKey) {
+      pushProSecurityAuditEvent(req, {
+        severity: "medium",
+        type: "subject-network-shield-bypass",
+        details: {
+          subject: text(subjectNetworkShield.subject),
+          reason: text(subjectNetworkShield.reason),
+          remainingSec: Math.max(0, Number(subjectNetworkShield.remainingSec || 0)),
+          bypassByTrustedFingerprint: Boolean(isTrusted),
+          bypassByActionKey: Boolean(bypassByActionKey)
+        }
+      });
+    } else {
+      req.proSecurityBlockSource = "subject-network-shield";
+      const incident = quarantineByFirewall(req, {
+        reason: req.proSecurityBlockSource,
+        requestPath,
+        method,
+        riskScore: 98,
+        details: {
+          subject: text(subjectNetworkShield.subject),
+          protectionReason: text(subjectNetworkShield.reason),
+          protectedUntil: Number(subjectNetworkShield.until || 0)
+            ? new Date(Number(subjectNetworkShield.until || 0)).toISOString()
+            : ""
+        }
+      });
+      res.setHeader("Retry-After", String(incident.retryAfterSec));
+      return res.status(401).json({
+        success: false,
+        message: "Authorization subject temporarily shielded due to abnormal network velocity.",
         reasons: [req.proSecurityBlockSource],
         retryAfterSec: incident.retryAfterSec,
         requestId: req.requestId
