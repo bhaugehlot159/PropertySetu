@@ -213,7 +213,8 @@ export const coreSystemsBlueprint = [
       "Network-velocity shield for impossible subject movement across IP prefixes",
       "Admin mutation attack shield for suspicious control-plane write attempts",
       "Signed admin mutation requests (HMAC + nonce + timestamp) with anti-replay controls",
-      "Volume-gated admin credential attack auto-detection with controlled critical response"
+      "Volume-gated admin credential attack auto-detection with controlled critical response",
+      "High-risk shield bypass hardening: action-key bypass now requires signed proof verification"
     ],
     endpoints: [
       "/api/v3/auth/*",

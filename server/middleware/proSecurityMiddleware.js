@@ -6575,6 +6575,57 @@ function evaluateAdminMutationRequestSignature(req, {
   };
 }
 
+function getCachedAdminMutationSignatureEvaluation(req, {
+  requestPath = "",
+  method = "POST"
+} = {}) {
+  const safeMethod = normalizeRequestMethod(method);
+  const safePath = normalizeRequestPath(requestPath || req?.path || "/api/system");
+  const cacheKey = `${safeMethod}|${safePath}`;
+  if (!req || typeof req !== "object") {
+    return evaluateAdminMutationRequestSignature(req, {
+      requestPath: safePath,
+      method: safeMethod
+    });
+  }
+  if (!req.proAdminSignatureEvalCache || typeof req.proAdminSignatureEvalCache !== "object") {
+    req.proAdminSignatureEvalCache = {};
+  }
+  if (!req.proAdminSignatureEvalCache[cacheKey]) {
+    req.proAdminSignatureEvalCache[cacheKey] = evaluateAdminMutationRequestSignature(req, {
+      requestPath: safePath,
+      method: safeMethod
+    });
+  }
+  return req.proAdminSignatureEvalCache[cacheKey];
+}
+
+function evaluateAdminBypassAuthorization(req, {
+  requestPath = "",
+  method = "POST",
+  fingerprint = ""
+} = {}) {
+  const safeFingerprint = text(fingerprint) || requestFingerprint(req);
+  const headerKey = text(req?.headers?.["x-admin-action-key"]);
+  const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+  const actionKeyMatched = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+  const signatureCheck = actionKeyMatched
+    ? getCachedAdminMutationSignatureEvaluation(req, { requestPath, method })
+    : {
+      valid: false,
+      reason: hasConfiguredSecret ? "action-key-mismatch" : "action-key-secret-missing",
+      enforced: false
+    };
+  const bypassByActionKey = Boolean(actionKeyMatched && signatureCheck.valid);
+  const bypassByTrustedFingerprint = isTrustedSecurityFingerprint(safeFingerprint);
+  return {
+    bypassByActionKey,
+    bypassByTrustedFingerprint,
+    actionKeyMatched: Boolean(actionKeyMatched),
+    signatureCheck
+  };
+}
+
 function extractBearerToken(req) {
   const authHeader = text(req?.headers?.authorization);
   if (!authHeader) return { scheme: "", token: "", raw: "" };
@@ -6930,10 +6981,13 @@ export function proRequestFirewall(req, res, next) {
   const adminControls = currentSecurityAdminControls();
   const authShield = currentAuthShieldStatus();
   if (isAuthApiPath(pathForChecks) && isApiMutationMethod(method) && authShield.active) {
-    const headerKey = text(req?.headers?.["x-admin-action-key"]);
-    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
-    const bypassByTrustedFingerprint = isTrustedSecurityFingerprint(fingerprint);
+    const bypass = evaluateAdminBypassAuthorization(req, {
+      requestPath: pathForChecks,
+      method,
+      fingerprint
+    });
+    const bypassByActionKey = Boolean(bypass.bypassByActionKey);
+    const bypassByTrustedFingerprint = Boolean(bypass.bypassByTrustedFingerprint);
     if (bypassByActionKey || bypassByTrustedFingerprint) {
       pushProSecurityAuditEvent(req, {
         severity: "medium",
@@ -6943,6 +6997,9 @@ export function proRequestFirewall(req, res, next) {
           method,
           bypassByActionKey: Boolean(bypassByActionKey),
           bypassByTrustedFingerprint: Boolean(bypassByTrustedFingerprint),
+          actionKeyMatched: Boolean(bypass.actionKeyMatched),
+          signatureReason: text(bypass.signatureCheck?.reason),
+          signatureEnforced: Boolean(bypass.signatureCheck?.enforced),
           shieldRemainingSec: authShield.remainingSec
         }
       });
@@ -6965,10 +7022,13 @@ export function proRequestFirewall(req, res, next) {
   if (isAuthApiPath(pathForChecks) && isApiMutationMethod(method) && authIdentity) {
     const identityStatus = getProtectedAuthIdentityStatus(authIdentity);
     if (identityStatus.active) {
-      const headerKey = text(req?.headers?.["x-admin-action-key"]);
-      const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-      const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
-      const bypassByTrustedFingerprint = isTrustedSecurityFingerprint(fingerprint);
+      const bypass = evaluateAdminBypassAuthorization(req, {
+        requestPath: pathForChecks,
+        method,
+        fingerprint
+      });
+      const bypassByActionKey = Boolean(bypass.bypassByActionKey);
+      const bypassByTrustedFingerprint = Boolean(bypass.bypassByTrustedFingerprint);
       if (bypassByActionKey || bypassByTrustedFingerprint) {
         pushProSecurityAuditEvent(req, {
           severity: "medium",
@@ -6979,6 +7039,9 @@ export function proRequestFirewall(req, res, next) {
             identity: identityStatus.identity,
             bypassByActionKey: Boolean(bypassByActionKey),
             bypassByTrustedFingerprint: Boolean(bypassByTrustedFingerprint),
+            actionKeyMatched: Boolean(bypass.actionKeyMatched),
+            signatureReason: text(bypass.signatureCheck?.reason),
+            signatureEnforced: Boolean(bypass.signatureCheck?.enforced),
             protectionRemainingSec: identityStatus.remainingSec
           }
         });
@@ -7003,10 +7066,13 @@ export function proRequestFirewall(req, res, next) {
   if (isAdminMutationPath(pathForChecks, method)) {
     const adminMutationShield = currentAdminMutationShieldStatus();
     if (adminMutationShield.active) {
-      const headerKey = text(req?.headers?.["x-admin-action-key"]);
-      const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-      const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
-      const bypassByTrustedFingerprint = isTrustedSecurityFingerprint(fingerprint);
+      const bypass = evaluateAdminBypassAuthorization(req, {
+        requestPath: pathForChecks,
+        method,
+        fingerprint
+      });
+      const bypassByActionKey = Boolean(bypass.bypassByActionKey);
+      const bypassByTrustedFingerprint = Boolean(bypass.bypassByTrustedFingerprint);
       if (bypassByActionKey || bypassByTrustedFingerprint) {
         pushProSecurityAuditEvent(req, {
           severity: "medium",
@@ -7016,6 +7082,9 @@ export function proRequestFirewall(req, res, next) {
             method,
             bypassByActionKey: Boolean(bypassByActionKey),
             bypassByTrustedFingerprint: Boolean(bypassByTrustedFingerprint),
+            actionKeyMatched: Boolean(bypass.actionKeyMatched),
+            signatureReason: text(bypass.signatureCheck?.reason),
+            signatureEnforced: Boolean(bypass.signatureCheck?.enforced),
             shieldRemainingSec: adminMutationShield.remainingSec
           }
         });
@@ -7040,9 +7109,12 @@ export function proRequestFirewall(req, res, next) {
     isApiMutationMethod(method) &&
     !isReadOnlyBypassPath(pathForChecks)
   ) {
-    const headerKey = text(req?.headers?.["x-admin-action-key"]);
-    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-    const bypassAllowed = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    const bypass = evaluateAdminBypassAuthorization(req, {
+      requestPath: pathForChecks,
+      method,
+      fingerprint
+    });
+    const bypassAllowed = Boolean(bypass.bypassByActionKey);
     if (!bypassAllowed) {
       return reject({
         reason: "firewall-read-only-lockdown",
@@ -7050,7 +7122,10 @@ export function proRequestFirewall(req, res, next) {
         riskScore: 85,
         details: {
           mode: currentSecurityMode(),
-          requestPath: pathForChecks
+          requestPath: pathForChecks,
+          actionKeyMatched: Boolean(bypass.actionKeyMatched),
+          signatureReason: text(bypass.signatureCheck?.reason),
+          signatureEnforced: Boolean(bypass.signatureCheck?.enforced)
         },
         message: "API write actions are temporarily locked by admin security mode."
       });
@@ -7092,7 +7167,7 @@ export function proRequestFirewall(req, res, next) {
       }
     }
 
-    const signatureCheck = evaluateAdminMutationRequestSignature(req, {
+    const signatureCheck = getCachedAdminMutationSignatureEvaluation(req, {
       requestPath: pathForChecks,
       method
     });
@@ -7207,9 +7282,12 @@ export function proTokenFirewall(req, res, next) {
   }
   const protectedSubjectStatus = getProtectedTokenSubjectStatus(metadata.subject);
   if (protectedSubjectStatus.active) {
-    const headerKey = text(req?.headers?.["x-admin-action-key"]);
-    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    const bypass = evaluateAdminBypassAuthorization(req, {
+      requestPath,
+      method,
+      fingerprint
+    });
+    const bypassByActionKey = Boolean(bypass.bypassByActionKey);
     if (isTrusted || bypassByActionKey) {
       pushProSecurityAuditEvent(req, {
         severity: "medium",
@@ -7219,7 +7297,10 @@ export function proTokenFirewall(req, res, next) {
           reason: protectedSubjectStatus.reason,
           remainingSec: protectedSubjectStatus.remainingSec,
           bypassByTrustedFingerprint: Boolean(isTrusted),
-          bypassByActionKey: Boolean(bypassByActionKey)
+          bypassByActionKey: Boolean(bypassByActionKey),
+          actionKeyMatched: Boolean(bypass.actionKeyMatched),
+          signatureReason: text(bypass.signatureCheck?.reason),
+          signatureEnforced: Boolean(bypass.signatureCheck?.enforced)
         }
       });
     } else {
@@ -7276,9 +7357,12 @@ export function proTokenFirewall(req, res, next) {
     ip: getClientIp(req)
   });
   if (subjectSessionShield.activated) {
-    const headerKey = text(req?.headers?.["x-admin-action-key"]);
-    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    const bypass = evaluateAdminBypassAuthorization(req, {
+      requestPath,
+      method,
+      fingerprint
+    });
+    const bypassByActionKey = Boolean(bypass.bypassByActionKey);
     if (isTrusted || bypassByActionKey) {
       pushProSecurityAuditEvent(req, {
         severity: "medium",
@@ -7288,7 +7372,10 @@ export function proTokenFirewall(req, res, next) {
           reason: text(subjectSessionShield.reason),
           remainingSec: Math.max(0, Number(subjectSessionShield.remainingSec || 0)),
           bypassByTrustedFingerprint: Boolean(isTrusted),
-          bypassByActionKey: Boolean(bypassByActionKey)
+          bypassByActionKey: Boolean(bypassByActionKey),
+          actionKeyMatched: Boolean(bypass.actionKeyMatched),
+          signatureReason: text(bypass.signatureCheck?.reason),
+          signatureEnforced: Boolean(bypass.signatureCheck?.enforced)
         }
       });
     } else {
@@ -7326,9 +7413,12 @@ export function proTokenFirewall(req, res, next) {
     ip: getClientIp(req)
   });
   if (subjectNetworkShield.activated) {
-    const headerKey = text(req?.headers?.["x-admin-action-key"]);
-    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
-    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    const bypass = evaluateAdminBypassAuthorization(req, {
+      requestPath,
+      method,
+      fingerprint
+    });
+    const bypassByActionKey = Boolean(bypass.bypassByActionKey);
     if (isTrusted || bypassByActionKey) {
       pushProSecurityAuditEvent(req, {
         severity: "medium",
@@ -7338,7 +7428,10 @@ export function proTokenFirewall(req, res, next) {
           reason: text(subjectNetworkShield.reason),
           remainingSec: Math.max(0, Number(subjectNetworkShield.remainingSec || 0)),
           bypassByTrustedFingerprint: Boolean(isTrusted),
-          bypassByActionKey: Boolean(bypassByActionKey)
+          bypassByActionKey: Boolean(bypassByActionKey),
+          actionKeyMatched: Boolean(bypass.actionKeyMatched),
+          signatureReason: text(bypass.signatureCheck?.reason),
+          signatureEnforced: Boolean(bypass.signatureCheck?.enforced)
         }
       });
     } else {
