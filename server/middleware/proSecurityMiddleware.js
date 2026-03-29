@@ -15,9 +15,13 @@ const proAutoPromotionEvents = [];
 const proAutoEscalationEvents = [];
 const proCriticalResponseEvents = [];
 const proCampaignResponseEvents = [];
+const proAuthFailureTelemetry = [];
+const proAuthShieldEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
+let proAuthShieldUntil = 0;
+let proLastAuthShieldAppliedAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -257,6 +261,14 @@ const CAMPAIGN_RESPONSE_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.CAMPAIGN_RESPONSE_EVENT_MAX_ITEMS || 200)
 );
+const AUTH_FAILURE_TELEMETRY_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.AUTH_FAILURE_TELEMETRY_MAX_ITEMS || 8000)
+);
+const AUTH_SHIELD_EVENT_MAX_ITEMS = Math.max(
+  20,
+  Number(process.env.AUTH_SHIELD_EVENT_MAX_ITEMS || 250)
+);
 const CRITICAL_THREAT_PATTERNS = [
   /token-alg-none/i,
   /token-header-injection-pattern/i,
@@ -421,6 +433,10 @@ const READ_ONLY_BYPASS_PATH_RULES = [
   /^\/api\/system\/security-intelligence(?:\/|$)/i,
   /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i
 ];
+const AUTH_ENDPOINT_PATH_RULES = [
+  /^\/api\/auth(?:\/|$)/i,
+  /^\/api\/v3\/auth(?:\/|$)/i
+];
 const MAX_TRUSTED_FINGERPRINTS = Math.max(
   20,
   Number(process.env.MAX_TRUSTED_FINGERPRINTS || 200)
@@ -491,7 +507,14 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         campaignDistinctFingerprintThreshold: 8,
         campaignDistinctIpThreshold: 6,
         campaignBlockedThreshold: 10,
-        campaignCooldownMinutes: 15
+        campaignCooldownMinutes: 15,
+        authStormWindowMinutes: 20,
+        authStormFailureThreshold: 55,
+        authStormDistinctFingerprints: 10,
+        authStormDistinctIps: 8,
+        authStormDistinctIdentities: 24,
+        authStormShieldDurationMinutes: 15,
+        authStormCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -502,7 +525,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCriticalResponse: true,
         autoCriticalLockdown: true,
         autoCriticalImmediateBlocklist: true,
-        autoCampaignLockdown: true
+        autoCampaignLockdown: true,
+        autoAuthStormShield: true
       }
     }
   },
@@ -555,7 +579,14 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         campaignDistinctFingerprintThreshold: 6,
         campaignDistinctIpThreshold: 5,
         campaignBlockedThreshold: 8,
-        campaignCooldownMinutes: 10
+        campaignCooldownMinutes: 10,
+        authStormWindowMinutes: 15,
+        authStormFailureThreshold: 40,
+        authStormDistinctFingerprints: 8,
+        authStormDistinctIps: 6,
+        authStormDistinctIdentities: 16,
+        authStormShieldDurationMinutes: 20,
+        authStormCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -566,7 +597,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCriticalResponse: true,
         autoCriticalLockdown: true,
         autoCriticalImmediateBlocklist: true,
-        autoCampaignLockdown: true
+        autoCampaignLockdown: true,
+        autoAuthStormShield: true
       }
     }
   },
@@ -619,7 +651,14 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         campaignDistinctFingerprintThreshold: 4,
         campaignDistinctIpThreshold: 3,
         campaignBlockedThreshold: 5,
-        campaignCooldownMinutes: 8
+        campaignCooldownMinutes: 8,
+        authStormWindowMinutes: 10,
+        authStormFailureThreshold: 28,
+        authStormDistinctFingerprints: 6,
+        authStormDistinctIps: 4,
+        authStormDistinctIdentities: 10,
+        authStormShieldDurationMinutes: 30,
+        authStormCooldownMinutes: 8
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -630,7 +669,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCriticalResponse: true,
         autoCriticalLockdown: true,
         autoCriticalImmediateBlocklist: true,
-        autoCampaignLockdown: true
+        autoCampaignLockdown: true,
+        autoAuthStormShield: true
       }
     }
   }
@@ -747,6 +787,34 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     campaignCooldownMinutes: Math.max(
       1,
       Number(process.env.CAMPAIGN_COOLDOWN_MINUTES || 15)
+    ),
+    authStormWindowMinutes: Math.max(
+      5,
+      Number(process.env.AUTH_STORM_WINDOW_MINUTES || 20)
+    ),
+    authStormFailureThreshold: Math.max(
+      10,
+      Number(process.env.AUTH_STORM_FAILURE_THRESHOLD || 55)
+    ),
+    authStormDistinctFingerprints: Math.max(
+      2,
+      Number(process.env.AUTH_STORM_DISTINCT_FINGERPRINTS || 10)
+    ),
+    authStormDistinctIps: Math.max(
+      2,
+      Number(process.env.AUTH_STORM_DISTINCT_IPS || 8)
+    ),
+    authStormDistinctIdentities: Math.max(
+      2,
+      Number(process.env.AUTH_STORM_DISTINCT_IDENTITIES || 24)
+    ),
+    authStormShieldDurationMinutes: Math.max(
+      1,
+      Number(process.env.AUTH_STORM_SHIELD_DURATION_MINUTES || 15)
+    ),
+    authStormCooldownMinutes: Math.max(
+      1,
+      Number(process.env.AUTH_STORM_COOLDOWN_MINUTES || 10)
     )
   },
   adminControls: {
@@ -758,7 +826,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoCriticalResponse: true,
     autoCriticalLockdown: true,
     autoCriticalImmediateBlocklist: true,
-    autoCampaignLockdown: true
+    autoCampaignLockdown: true,
+    autoAuthStormShield: true
   },
   lists: {
     blockedIps: [],
@@ -1503,6 +1572,62 @@ export function updateProSecurityControlState(
         1440
       );
     }
+    if (typeof incoming.authStormWindowMinutes !== "undefined") {
+      next.thresholds.authStormWindowMinutes = toIntegerInRange(
+        incoming.authStormWindowMinutes,
+        next.thresholds.authStormWindowMinutes,
+        5,
+        1440
+      );
+    }
+    if (typeof incoming.authStormFailureThreshold !== "undefined") {
+      next.thresholds.authStormFailureThreshold = toIntegerInRange(
+        incoming.authStormFailureThreshold,
+        next.thresholds.authStormFailureThreshold,
+        10,
+        10000
+      );
+    }
+    if (typeof incoming.authStormDistinctFingerprints !== "undefined") {
+      next.thresholds.authStormDistinctFingerprints = toIntegerInRange(
+        incoming.authStormDistinctFingerprints,
+        next.thresholds.authStormDistinctFingerprints,
+        2,
+        2000
+      );
+    }
+    if (typeof incoming.authStormDistinctIps !== "undefined") {
+      next.thresholds.authStormDistinctIps = toIntegerInRange(
+        incoming.authStormDistinctIps,
+        next.thresholds.authStormDistinctIps,
+        2,
+        2000
+      );
+    }
+    if (typeof incoming.authStormDistinctIdentities !== "undefined") {
+      next.thresholds.authStormDistinctIdentities = toIntegerInRange(
+        incoming.authStormDistinctIdentities,
+        next.thresholds.authStormDistinctIdentities,
+        2,
+        5000
+      );
+    }
+    if (typeof incoming.authStormShieldDurationMinutes !== "undefined") {
+      next.thresholds.authStormShieldDurationMinutes = toIntegerInRange(
+        incoming.authStormShieldDurationMinutes,
+        next.thresholds.authStormShieldDurationMinutes,
+        1,
+        720
+      );
+    }
+    if (typeof incoming.authStormCooldownMinutes !== "undefined") {
+      next.thresholds.authStormCooldownMinutes = toIntegerInRange(
+        incoming.authStormCooldownMinutes,
+        next.thresholds.authStormCooldownMinutes,
+        1,
+        720
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -1572,6 +1697,12 @@ export function updateProSecurityControlState(
       next.adminControls.autoCampaignLockdown = toBoolean(
         patch.adminControls.autoCampaignLockdown,
         Boolean(next.adminControls.autoCampaignLockdown)
+      );
+    }
+    if (typeof patch.adminControls.autoAuthStormShield !== "undefined") {
+      next.adminControls.autoAuthStormShield = toBoolean(
+        patch.adminControls.autoAuthStormShield,
+        Boolean(next.adminControls.autoAuthStormShield)
       );
     }
   }
@@ -2672,6 +2803,144 @@ function maybeApplyCampaignThreatResponse(row = {}) {
   });
 }
 
+function currentAuthShieldStatus(nowTs = Date.now()) {
+  const safeNow = Number(nowTs);
+  const expiresAt = Math.max(0, Number(proAuthShieldUntil || 0));
+  const active = expiresAt > safeNow;
+  return {
+    active,
+    expiresAt,
+    remainingSec: active ? Math.max(0, Math.ceil((expiresAt - safeNow) / 1000)) : 0
+  };
+}
+
+function maybeApplyAuthStormShield({
+  requestId = "",
+  path: requestPath = "",
+  reason = "auth-failure-storm",
+  method = "POST",
+  statusCode = 401
+} = {}) {
+  const safePath = normalizeRequestPath(requestPath || "/api/auth");
+  if (!isAuthApiPath(safePath)) return;
+  if (isSecurityControlPath(safePath)) return;
+
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoAuthStormShield, true)) return;
+
+  const thresholds = currentSecurityThresholds();
+  const nowTs = Date.now();
+  const windowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.authStormWindowMinutes || 20) * 60 * 1000)
+  );
+  const cooldownMs = Math.max(
+    60_000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.authStormCooldownMinutes || 10) * 60 * 1000)
+  );
+  if (proLastAuthShieldAppliedAt > 0 && nowTs - proLastAuthShieldAppliedAt < cooldownMs) {
+    return;
+  }
+
+  const failureThreshold = Math.max(10, Number(thresholds.authStormFailureThreshold || 55));
+  const distinctFingerprintThreshold = Math.max(2, Number(thresholds.authStormDistinctFingerprints || 10));
+  const distinctIpThreshold = Math.max(2, Number(thresholds.authStormDistinctIps || 8));
+  const distinctIdentityThreshold = Math.max(2, Number(thresholds.authStormDistinctIdentities || 24));
+
+  const cutoff = nowTs - windowMs;
+  const recent = proAuthFailureTelemetry
+    .filter((item) => Number(item?.at || 0) >= cutoff)
+    .slice(0, AUTH_FAILURE_TELEMETRY_MAX_ITEMS);
+  if (!recent.length) return;
+
+  const fingerprintSet = new Set();
+  const ipSet = new Set();
+  const identitySet = new Set();
+  for (const item of recent) {
+    const fingerprint = normalizeProSecurityThreatFingerprint(item?.fingerprint);
+    if (isValidProSecurityThreatFingerprint(fingerprint)) {
+      fingerprintSet.add(fingerprint);
+    }
+    const safeIp = normalizeIpEntry(item?.ip);
+    if (safeIp) ipSet.add(safeIp);
+    const identity = text(item?.identity).toLowerCase();
+    if (identity) identitySet.add(identity);
+  }
+
+  const failureCount = recent.length;
+  const distinctFingerprintCount = fingerprintSet.size;
+  const distinctIpCount = ipSet.size;
+  const distinctIdentityCount = identitySet.size;
+  const spreadDetected =
+    distinctFingerprintCount >= distinctFingerprintThreshold ||
+    distinctIpCount >= distinctIpThreshold ||
+    distinctIdentityCount >= distinctIdentityThreshold;
+
+  if (failureCount < failureThreshold || !spreadDetected) return;
+
+  const durationMs = Math.max(
+    60_000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.authStormShieldDurationMinutes || 15) * 60 * 1000)
+  );
+  const nextUntil = nowTs + durationMs;
+  const previousStatus = currentAuthShieldStatus(nowTs);
+  proAuthShieldUntil = Math.max(previousStatus.expiresAt, nextUntil);
+  proLastAuthShieldAppliedAt = nowTs;
+
+  const event = {
+    id: `auth-shield-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    requestId: text(requestId),
+    reason: text(reason).toLowerCase(),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    statusCode: Math.max(0, Number(statusCode || 0)),
+    windowMinutes: Math.round(windowMs / 60_000),
+    cooldownMinutes: Math.round(cooldownMs / 60_000),
+    shieldDurationMinutes: Math.round(durationMs / 60_000),
+    activeUntil: new Date(proAuthShieldUntil).toISOString(),
+    failures: failureCount,
+    distinctFingerprintCount,
+    distinctIpCount,
+    distinctIdentityCount,
+    thresholds: {
+      failureThreshold,
+      distinctFingerprintThreshold,
+      distinctIpThreshold,
+      distinctIdentityThreshold
+    }
+  };
+  proAuthShieldEvents.unshift(event);
+  if (proAuthShieldEvents.length > AUTH_SHIELD_EVENT_MAX_ITEMS) {
+    proAuthShieldEvents.length = AUTH_SHIELD_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-auth-storm-shield-activated",
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    details: {
+      reason: text(reason).toLowerCase(),
+      activeUntil: new Date(proAuthShieldUntil).toISOString(),
+      windowMinutes: Math.round(windowMs / 60_000),
+      cooldownMinutes: Math.round(cooldownMs / 60_000),
+      shieldDurationMinutes: Math.round(durationMs / 60_000),
+      failures: failureCount,
+      distinctFingerprintCount,
+      distinctIpCount,
+      distinctIdentityCount,
+      thresholds: {
+        failureThreshold,
+        distinctFingerprintThreshold,
+        distinctIpThreshold,
+        distinctIdentityThreshold
+      }
+    }
+  });
+}
+
 function maybeAutoEscalateSecurityMode({
   reason = "",
   path: requestPath = "",
@@ -3205,6 +3474,15 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const thresholds = currentSecurityThresholds();
   const lists = currentSecurityLists();
   const mode = currentSecurityMode();
+  const authShieldStatus = currentAuthShieldStatus();
+  const authStormWindowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.authStormWindowMinutes || 20) * 60 * 1000)
+  );
+  const authStormCutoff = Date.now() - authStormWindowMs;
+  const authStormFailureCount = proAuthFailureTelemetry.filter(
+    (item) => Number(item?.at || 0) >= authStormCutoff
+  ).length;
   const tokenReplayFingerprintThreshold = Math.max(
     2,
     Number(thresholds.tokenReplayDistinctFingerprints || TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD)
@@ -3266,6 +3544,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     recentAutoEscalations: proAutoEscalationEvents.slice(0, Math.min(100, safeLimit)),
     recentCriticalResponses: proCriticalResponseEvents.slice(0, Math.min(100, safeLimit)),
     recentCampaignResponses: proCampaignResponseEvents.slice(0, Math.min(100, safeLimit)),
+    recentAuthShieldEvents: proAuthShieldEvents.slice(0, Math.min(100, safeLimit)),
     controlState: getProSecurityControlState(),
     summary: {
       mode,
@@ -3301,6 +3580,13 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       campaignResponses: proCampaignResponseEvents.length,
       campaignLastAt: text(proCampaignResponseEvents[0]?.at),
       campaignLastMode: text(proCampaignResponseEvents[0]?.toMode),
+      authShieldActive: Boolean(authShieldStatus.active),
+      authShieldUntil: authShieldStatus.expiresAt ? new Date(authShieldStatus.expiresAt).toISOString() : "",
+      authShieldRemainingSec: authShieldStatus.remainingSec,
+      authShieldActivations: proAuthShieldEvents.length,
+      authShieldLastAt: text(proAuthShieldEvents[0]?.at),
+      authStormWindowMinutes: Math.round(authStormWindowMs / 60_000),
+      authStormFailuresInWindow: authStormFailureCount,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -3847,6 +4133,11 @@ function isSensitivePublicPath(requestPath) {
   return SENSITIVE_PUBLIC_PATH_RULES.some((rule) => rule.test(normalized));
 }
 
+function isAuthApiPath(requestPath) {
+  const normalized = normalizeRequestPath(requestPath);
+  return AUTH_ENDPOINT_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
 function isThreatDetectionExcludedPath(requestPath) {
   const normalized = normalizeRequestPath(requestPath);
   return THREAT_DETECTION_EXCLUDED_PATHS.some((rule) => rule.test(normalized));
@@ -4274,6 +4565,40 @@ export function proRequestFirewall(req, res, next) {
   }
 
   const adminControls = currentSecurityAdminControls();
+  const authShield = currentAuthShieldStatus();
+  if (isAuthApiPath(pathForChecks) && isApiMutationMethod(method) && authShield.active) {
+    const headerKey = text(req?.headers?.["x-admin-action-key"]);
+    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    const bypassByTrustedFingerprint = isTrustedSecurityFingerprint(fingerprint);
+    if (bypassByActionKey || bypassByTrustedFingerprint) {
+      pushProSecurityAuditEvent(req, {
+        severity: "medium",
+        type: "auth-storm-shield-bypass",
+        details: {
+          path: pathForChecks,
+          method,
+          bypassByActionKey: Boolean(bypassByActionKey),
+          bypassByTrustedFingerprint: Boolean(bypassByTrustedFingerprint),
+          shieldRemainingSec: authShield.remainingSec
+        }
+      });
+    } else {
+      return reject({
+        reason: "firewall-auth-storm-shield",
+        statusCode: 429,
+        riskScore: 92,
+        details: {
+          mode: currentSecurityMode(),
+          shieldActiveUntil: authShield.expiresAt
+            ? new Date(authShield.expiresAt).toISOString()
+            : "",
+          shieldRemainingSec: authShield.remainingSec
+        },
+        message: "Authentication endpoints are temporarily shielded due to suspicious traffic."
+      });
+    }
+  }
   if (
     adminControls.readOnlyApi &&
     isApiMutationMethod(method) &&
@@ -4942,6 +5267,31 @@ export function proAuthFailureIntelligence(req, res, next) {
     const thresholds = currentSecurityThresholds();
     const current = nextProfileState(proThreatProfiles.get(fingerprint), nowTs);
     const normalizedPath = normalizeRequestPath(req.path || requestPath || "/");
+    const method = normalizeRequestMethod(req.method);
+    const identitySample = extractAuthIdentitySample(req);
+    if (isAuthApiPath(normalizedPath)) {
+      const telemetryRow = {
+        at: nowTs,
+        statusCode,
+        path: normalizedPath,
+        method,
+        fingerprint,
+        ip: getClientIp(req),
+        identity: text(identitySample).toLowerCase()
+      };
+      proAuthFailureTelemetry.unshift(telemetryRow);
+      if (proAuthFailureTelemetry.length > AUTH_FAILURE_TELEMETRY_MAX_ITEMS) {
+        proAuthFailureTelemetry.length = AUTH_FAILURE_TELEMETRY_MAX_ITEMS;
+      }
+      maybeApplyAuthStormShield({
+        requestId: req.requestId,
+        path: normalizedPath,
+        reason: "auth-failure-storm",
+        method,
+        statusCode
+      });
+    }
+
     const authFailures = [...current.authFailures, {
       at: nowTs,
       statusCode,
@@ -4985,7 +5335,6 @@ export function proAuthFailureIntelligence(req, res, next) {
       return;
     }
 
-    const method = normalizeRequestMethod(req.method);
     pushThreatIncident({
       fingerprint,
       ip: getClientIp(req),

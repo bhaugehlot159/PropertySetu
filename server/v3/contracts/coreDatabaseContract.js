@@ -204,7 +204,8 @@ export const coreSystemsBlueprint = [
       "Threat-surge auto escalation to hardened/lockdown mode with cooldown controls",
       "Auto de-escalation back to safer mode after calm window using admin-defined thresholds",
       "Critical attack immediate response (instant blocklist and optional lockdown)",
-      "Distributed campaign detection with AI-triggered lockdown and full admin control"
+      "Distributed campaign detection with AI-triggered lockdown and full admin control",
+      "Auth-storm shield for OTP/login routes with auto activation and admin bypass control"
     ],
     endpoints: [
       "/api/v3/auth/*",
