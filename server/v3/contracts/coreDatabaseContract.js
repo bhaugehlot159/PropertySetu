@@ -199,6 +199,7 @@ export const coreSystemsBlueprint = [
       "Security profiles (balanced/hardened/lockdown) and emergency read-only mode",
       "Runtime blocklists for IP, fingerprint, user-agent signature, and token subject",
       "Persisted security-control state with restore support for admin recovery",
+      "Tamper-evident signed security-control state persistence with integrity verification",
       "AI-based account takeover detection using subject-level anomaly intelligence",
       "Automatic offender-to-blocklist promotion with admin-tunable thresholds",
       "Threat-surge auto escalation to hardened/lockdown mode with cooldown controls",

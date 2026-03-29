@@ -42,6 +42,11 @@ const SECURITY_CONTROL_STATE_FILE = configuredSecurityControlStateFile ||
   path.resolve(__dirname, "../../database/security-control-state.json");
 const SECURITY_CONTROL_STATE_PERSIST_ENABLED =
   String(process.env.SECURITY_CONTROL_STATE_PERSIST_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CONTROL_STATE_SIGNING_KEY = String(
+  process.env.SECURITY_CONTROL_STATE_SIGNING_KEY || ""
+).trim();
+const SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED =
+  String(process.env.SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED || "false").trim().toLowerCase() === "true";
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -1178,6 +1183,139 @@ function safeReadJson(filePath = "") {
   }
 }
 
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
+  const body = keys
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(",");
+  return `{${body}}`;
+}
+
+function buildSecurityControlSignatureInput(payload = {}) {
+  const normalizedPayload = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload
+    : {};
+  const version = Math.max(1, Number(normalizedPayload.version || 1));
+  const persistedAt = text(normalizedPayload.persistedAt);
+  const state = normalizedPayload.state && typeof normalizedPayload.state === "object" && !Array.isArray(normalizedPayload.state)
+    ? normalizedPayload.state
+    : {};
+  return `${version}|${persistedAt}|${stableStringify(state)}`;
+}
+
+function computeSecurityControlStateSignature(payload = {}) {
+  if (!SECURITY_CONTROL_STATE_SIGNING_KEY) return "";
+  return crypto
+    .createHmac("sha256", SECURITY_CONTROL_STATE_SIGNING_KEY)
+    .update(buildSecurityControlSignatureInput(payload))
+    .digest("hex");
+}
+
+function verifySecurityControlStatePayload(payload = {}) {
+  const warnings = [];
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      valid: false,
+      signed: false,
+      warnings,
+      reason: "invalid-payload",
+      hasSigningKey: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
+  }
+
+  const integrity = payload.integrity && typeof payload.integrity === "object" && !Array.isArray(payload.integrity)
+    ? payload.integrity
+    : {};
+  const signature = text(integrity.signature).toLowerCase();
+  const hasSignature = Boolean(signature);
+  const hasSigningKey = Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY);
+
+  if (!hasSignature) {
+    if (SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED) {
+      return {
+        valid: false,
+        signed: false,
+        warnings,
+        reason: "missing-signature",
+        hasSigningKey,
+        signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+      };
+    }
+    if (hasSigningKey) {
+      warnings.push("Persisted security control state is unsigned.");
+    }
+    return {
+      valid: true,
+      signed: false,
+      warnings,
+      reason: hasSigningKey ? "unsigned-state-with-key" : "unsigned-state",
+      hasSigningKey,
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
+  }
+
+  if (!/^[a-f0-9]{64}$/i.test(signature)) {
+    return {
+      valid: false,
+      signed: true,
+      warnings,
+      reason: "invalid-signature-format",
+      hasSigningKey,
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
+  }
+
+  if (!hasSigningKey) {
+    if (SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED) {
+      return {
+        valid: false,
+        signed: true,
+        warnings,
+        reason: "signature-key-missing",
+        hasSigningKey,
+        signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+      };
+    }
+    warnings.push("Persisted security control signature could not be verified because signing key is missing.");
+    return {
+      valid: true,
+      signed: true,
+      warnings,
+      reason: "signature-unverified-no-key",
+      hasSigningKey,
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
+  }
+
+  const expected = computeSecurityControlStateSignature(payload);
+  if (!expected || !timingSafeEqualText(signature, expected)) {
+    return {
+      valid: false,
+      signed: true,
+      warnings,
+      reason: "signature-mismatch",
+      hasSigningKey,
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
+  }
+
+  return {
+    valid: true,
+    signed: true,
+    warnings,
+    reason: "signature-verified",
+    hasSigningKey,
+    signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+  };
+}
+
 function persistSecurityControlStateToDisk(state = {}) {
   if (!SECURITY_CONTROL_STATE_PERSIST_ENABLED) {
     return {
@@ -1204,11 +1342,18 @@ function persistSecurityControlStateToDisk(state = {}) {
       persistedAt: nowIso(),
       state
     };
+    const signature = computeSecurityControlStateSignature(payload);
+    payload.integrity = {
+      algo: signature ? "hmac-sha256" : "none",
+      signature,
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
     fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), "utf8");
     fs.renameSync(tmp, target);
     return {
       ok: true,
-      path: target
+      path: target,
+      signed: Boolean(signature)
     };
   } catch (error) {
     return {
@@ -1485,12 +1630,40 @@ export function getProSecurityControlPersistenceStatus() {
   const target = String(SECURITY_CONTROL_STATE_FILE || "").trim();
   const exists = target ? fs.existsSync(target) : false;
   const stats = exists ? fs.statSync(target) : null;
+  const payload = exists ? safeReadJson(target) : null;
+  const integritySource = payload && payload.integrity && typeof payload.integrity === "object" && !Array.isArray(payload.integrity)
+    ? payload.integrity
+    : {};
+  const signature = text(integritySource.signature).toLowerCase();
+  const hasPayload = Boolean(payload && typeof payload === "object" && !Array.isArray(payload));
+  const integrityCheck = hasPayload
+    ? verifySecurityControlStatePayload(payload)
+    : {
+      valid: false,
+      signed: false,
+      warnings: exists ? ["Persisted security control state file is unreadable or invalid JSON."] : [],
+      reason: exists ? "invalid-json" : "missing-state-file",
+      hasSigningKey: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
+      signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
+    };
   return {
     enabled: SECURITY_CONTROL_STATE_PERSIST_ENABLED,
     path: target,
     exists,
     sizeBytes: stats ? Number(stats.size || 0) : 0,
-    updatedAt: stats ? new Date(stats.mtimeMs).toISOString() : ""
+    updatedAt: stats ? new Date(stats.mtimeMs).toISOString() : "",
+    signature: {
+      configured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
+      required: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED,
+      present: Boolean(signature),
+      algorithm: text(integritySource.algo || (signature ? "unknown" : "none"))
+    },
+    integrity: {
+      valid: Boolean(integrityCheck.valid),
+      reason: text(integrityCheck.reason),
+      warnings: Array.isArray(integrityCheck.warnings) ? integrityCheck.warnings : [],
+      signed: Boolean(integrityCheck.signed)
+    }
   };
 }
 
@@ -1498,6 +1671,7 @@ export function restoreProSecurityControlStateFromDisk({
   actorId = "system",
   actorRole = "system"
 } = {}) {
+  const warnings = [];
   const payload = safeReadJson(SECURITY_CONTROL_STATE_FILE);
   if (!payload || typeof payload !== "object") {
     return {
@@ -1505,6 +1679,47 @@ export function restoreProSecurityControlStateFromDisk({
       state: getProSecurityControlState(),
       warnings: ["No persisted security control state found on disk."]
     };
+  }
+
+  const integrity = verifySecurityControlStatePayload(payload);
+  if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
+    warnings.push(...integrity.warnings);
+  }
+  if (!integrity.valid) {
+    const reason = text(integrity.reason, "integrity-check-failed");
+    warnings.push(`Persisted security control state rejected: ${reason}.`);
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-persistence-integrity-failed",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason,
+        signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED,
+        signatureConfigured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY)
+      }
+    });
+    return {
+      restored: false,
+      state: getProSecurityControlState(),
+      warnings
+    };
+  }
+  if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
+    pushSecurityAuditEventInternal({
+      severity: "medium",
+      type: "security-control-persistence-integrity-warning",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(integrity.reason),
+        warnings: integrity.warnings.slice(0, 5)
+      }
+    });
   }
 
   const persisted = payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)
@@ -1525,7 +1740,10 @@ export function restoreProSecurityControlStateFromDisk({
   return {
     restored: true,
     state: result.state,
-    warnings: Array.isArray(result.warnings) ? result.warnings : []
+    warnings: [
+      ...warnings,
+      ...(Array.isArray(result.warnings) ? result.warnings : [])
+    ]
   };
 }
 
@@ -2414,6 +2632,37 @@ function initializeSecurityControlStateFromDisk() {
   if (!SECURITY_CONTROL_STATE_PERSIST_ENABLED) return;
   const payload = safeReadJson(SECURITY_CONTROL_STATE_FILE);
   if (!payload || typeof payload !== "object") return;
+  const integrity = verifySecurityControlStatePayload(payload);
+  if (!integrity.valid) {
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-persistence-boot-rejected",
+      method: "BOOT",
+      path: "/system/security-control/boot-restore",
+      details: {
+        actorId: "system-boot",
+        actorRole: "system",
+        reason: text(integrity.reason, "integrity-check-failed"),
+        signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED,
+        signatureConfigured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY)
+      }
+    });
+    return;
+  }
+  if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
+    pushSecurityAuditEventInternal({
+      severity: "medium",
+      type: "security-control-persistence-boot-warning",
+      method: "BOOT",
+      path: "/system/security-control/boot-restore",
+      details: {
+        actorId: "system-boot",
+        actorRole: "system",
+        reason: text(integrity.reason),
+        warnings: integrity.warnings.slice(0, 5)
+      }
+    });
+  }
   const persisted = payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)
     ? payload.state
     : payload;
@@ -2425,10 +2674,23 @@ function initializeSecurityControlStateFromDisk() {
     trustedFingerprints: persisted.trustedFingerprints,
     lists: persisted.lists
   };
-  updateProSecurityControlState(patch, {
+  const updateResult = updateProSecurityControlState(patch, {
     actorId: "system-boot",
     actorRole: "system"
   });
+  if (Array.isArray(updateResult.warnings) && updateResult.warnings.length) {
+    pushSecurityAuditEventInternal({
+      severity: "medium",
+      type: "security-control-persistence-boot-restore-warning",
+      method: "BOOT",
+      path: "/system/security-control/boot-restore",
+      details: {
+        actorId: "system-boot",
+        actorRole: "system",
+        warnings: updateResult.warnings.slice(0, 5)
+      }
+    });
+  }
 }
 
 initializeSecurityControlStateFromDisk();
