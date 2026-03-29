@@ -207,7 +207,8 @@ export const coreSystemsBlueprint = [
       "Distributed campaign detection with AI-triggered lockdown and full admin control",
       "Auth-storm shield for OTP/login routes with auto activation and admin bypass control",
       "Targeted identity protection for attacked login/OTP identities with temporary shield",
-      "Token-subject takeover auto protection with temporary shield and admin overrides"
+      "Token-subject takeover auto protection with temporary shield and admin overrides",
+      "Subject session-churn shield to stop token-family abuse with automated containment"
     ],
     endpoints: [
       "/api/v3/auth/*",

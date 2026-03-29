@@ -21,6 +21,8 @@ const proProtectedAuthIdentities = new Map();
 const proIdentityProtectionEvents = [];
 const proProtectedTokenSubjects = new Map();
 const proSubjectProtectionEvents = [];
+const proSubjectSessionIntel = new Map();
+const proSubjectSessionShieldEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -289,6 +291,18 @@ const SUBJECT_PROTECTION_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.SUBJECT_PROTECTION_EVENT_MAX_ITEMS || 500)
 );
+const SUBJECT_SESSION_STORAGE_WINDOW_MS = Math.max(
+  60 * 60 * 1000,
+  Number(process.env.SUBJECT_SESSION_STORAGE_WINDOW_MS || 24 * 60 * 60 * 1000)
+);
+const SUBJECT_SESSION_INTEL_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.SUBJECT_SESSION_INTEL_MAX_ITEMS || 6000)
+);
+const SUBJECT_SESSION_SHIELD_EVENT_MAX_ITEMS = Math.max(
+  20,
+  Number(process.env.SUBJECT_SESSION_SHIELD_EVENT_MAX_ITEMS || 500)
+);
 const CRITICAL_THREAT_PATTERNS = [
   /token-alg-none/i,
   /token-header-injection-pattern/i,
@@ -546,7 +560,14 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectProtectionDistinctFingerprints: 4,
         subjectProtectionDistinctIps: 4,
         subjectProtectionDurationMinutes: 30,
-        subjectProtectionCooldownMinutes: 10
+        subjectProtectionCooldownMinutes: 10,
+        subjectSessionWindowMinutes: 60,
+        subjectSessionEventThreshold: 10,
+        subjectSessionDistinctTokenKeys: 5,
+        subjectSessionDistinctFingerprints: 4,
+        subjectSessionDistinctIps: 4,
+        subjectSessionShieldDurationMinutes: 45,
+        subjectSessionCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -560,7 +581,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCampaignLockdown: true,
         autoAuthStormShield: true,
         autoIdentityProtection: true,
-        autoSubjectProtection: true
+        autoSubjectProtection: true,
+        autoSubjectSessionShield: true
       }
     }
   },
@@ -632,7 +654,14 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectProtectionDistinctFingerprints: 3,
         subjectProtectionDistinctIps: 3,
         subjectProtectionDurationMinutes: 45,
-        subjectProtectionCooldownMinutes: 10
+        subjectProtectionCooldownMinutes: 10,
+        subjectSessionWindowMinutes: 45,
+        subjectSessionEventThreshold: 8,
+        subjectSessionDistinctTokenKeys: 4,
+        subjectSessionDistinctFingerprints: 3,
+        subjectSessionDistinctIps: 3,
+        subjectSessionShieldDurationMinutes: 60,
+        subjectSessionCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -646,7 +675,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCampaignLockdown: true,
         autoAuthStormShield: true,
         autoIdentityProtection: true,
-        autoSubjectProtection: true
+        autoSubjectProtection: true,
+        autoSubjectSessionShield: true
       }
     }
   },
@@ -718,7 +748,14 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectProtectionDistinctFingerprints: 2,
         subjectProtectionDistinctIps: 2,
         subjectProtectionDurationMinutes: 60,
-        subjectProtectionCooldownMinutes: 8
+        subjectProtectionCooldownMinutes: 8,
+        subjectSessionWindowMinutes: 30,
+        subjectSessionEventThreshold: 6,
+        subjectSessionDistinctTokenKeys: 3,
+        subjectSessionDistinctFingerprints: 2,
+        subjectSessionDistinctIps: 2,
+        subjectSessionShieldDurationMinutes: 90,
+        subjectSessionCooldownMinutes: 8
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -732,7 +769,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCampaignLockdown: true,
         autoAuthStormShield: true,
         autoIdentityProtection: true,
-        autoSubjectProtection: true
+        autoSubjectProtection: true,
+        autoSubjectSessionShield: true
       }
     }
   }
@@ -925,6 +963,34 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     subjectProtectionCooldownMinutes: Math.max(
       1,
       Number(process.env.SUBJECT_PROTECTION_COOLDOWN_MINUTES || 10)
+    ),
+    subjectSessionWindowMinutes: Math.max(
+      5,
+      Number(process.env.SUBJECT_SESSION_WINDOW_MINUTES || 60)
+    ),
+    subjectSessionEventThreshold: Math.max(
+      2,
+      Number(process.env.SUBJECT_SESSION_EVENT_THRESHOLD || 10)
+    ),
+    subjectSessionDistinctTokenKeys: Math.max(
+      2,
+      Number(process.env.SUBJECT_SESSION_DISTINCT_TOKEN_KEYS || 5)
+    ),
+    subjectSessionDistinctFingerprints: Math.max(
+      2,
+      Number(process.env.SUBJECT_SESSION_DISTINCT_FINGERPRINTS || 4)
+    ),
+    subjectSessionDistinctIps: Math.max(
+      2,
+      Number(process.env.SUBJECT_SESSION_DISTINCT_IPS || 4)
+    ),
+    subjectSessionShieldDurationMinutes: Math.max(
+      1,
+      Number(process.env.SUBJECT_SESSION_SHIELD_DURATION_MINUTES || 45)
+    ),
+    subjectSessionCooldownMinutes: Math.max(
+      1,
+      Number(process.env.SUBJECT_SESSION_COOLDOWN_MINUTES || 10)
     )
   },
   adminControls: {
@@ -939,7 +1005,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoCampaignLockdown: true,
     autoAuthStormShield: true,
     autoIdentityProtection: true,
-    autoSubjectProtection: true
+    autoSubjectProtection: true,
+    autoSubjectSessionShield: true
   },
   lists: {
     blockedIps: [],
@@ -1836,6 +1903,62 @@ export function updateProSecurityControlState(
         720
       );
     }
+    if (typeof incoming.subjectSessionWindowMinutes !== "undefined") {
+      next.thresholds.subjectSessionWindowMinutes = toIntegerInRange(
+        incoming.subjectSessionWindowMinutes,
+        next.thresholds.subjectSessionWindowMinutes,
+        5,
+        1440
+      );
+    }
+    if (typeof incoming.subjectSessionEventThreshold !== "undefined") {
+      next.thresholds.subjectSessionEventThreshold = toIntegerInRange(
+        incoming.subjectSessionEventThreshold,
+        next.thresholds.subjectSessionEventThreshold,
+        2,
+        5000
+      );
+    }
+    if (typeof incoming.subjectSessionDistinctTokenKeys !== "undefined") {
+      next.thresholds.subjectSessionDistinctTokenKeys = toIntegerInRange(
+        incoming.subjectSessionDistinctTokenKeys,
+        next.thresholds.subjectSessionDistinctTokenKeys,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.subjectSessionDistinctFingerprints !== "undefined") {
+      next.thresholds.subjectSessionDistinctFingerprints = toIntegerInRange(
+        incoming.subjectSessionDistinctFingerprints,
+        next.thresholds.subjectSessionDistinctFingerprints,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.subjectSessionDistinctIps !== "undefined") {
+      next.thresholds.subjectSessionDistinctIps = toIntegerInRange(
+        incoming.subjectSessionDistinctIps,
+        next.thresholds.subjectSessionDistinctIps,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.subjectSessionShieldDurationMinutes !== "undefined") {
+      next.thresholds.subjectSessionShieldDurationMinutes = toIntegerInRange(
+        incoming.subjectSessionShieldDurationMinutes,
+        next.thresholds.subjectSessionShieldDurationMinutes,
+        1,
+        1440
+      );
+    }
+    if (typeof incoming.subjectSessionCooldownMinutes !== "undefined") {
+      next.thresholds.subjectSessionCooldownMinutes = toIntegerInRange(
+        incoming.subjectSessionCooldownMinutes,
+        next.thresholds.subjectSessionCooldownMinutes,
+        1,
+        720
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -1923,6 +2046,12 @@ export function updateProSecurityControlState(
       next.adminControls.autoSubjectProtection = toBoolean(
         patch.adminControls.autoSubjectProtection,
         Boolean(next.adminControls.autoSubjectProtection)
+      );
+    }
+    if (typeof patch.adminControls.autoSubjectSessionShield !== "undefined") {
+      next.adminControls.autoSubjectSessionShield = toBoolean(
+        patch.adminControls.autoSubjectSessionShield,
+        Boolean(next.adminControls.autoSubjectSessionShield)
       );
     }
   }
@@ -2568,6 +2697,156 @@ function hotSubjectIntelligence(limit = 20) {
       lastSeenAt: Number(row?.lastSeenAt || 0)
     }))
     .sort((a, b) =>
+      b.distinctFingerprintCount - a.distinctFingerprintCount ||
+      b.distinctIpCount - a.distinctIpCount ||
+      b.occurrences - a.occurrences ||
+      b.lastSeenAt - a.lastSeenAt
+    )
+    .slice(0, Math.max(1, Math.min(100, Number(limit || 20))));
+}
+
+function pruneSubjectSessionIntel(nowTs = Date.now()) {
+  if (!proSubjectSessionIntel.size) return;
+
+  for (const [subjectKey, row] of proSubjectSessionIntel.entries()) {
+    const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+      (item) => Number(item?.at || 0) >= nowTs - SUBJECT_SESSION_STORAGE_WINDOW_MS
+    );
+    if (!recent.length) {
+      proSubjectSessionIntel.delete(subjectKey);
+      continue;
+    }
+    const distinctTokenKeyCount = new Set(
+      recent.map((item) => text(item?.tokenKey)).filter(Boolean)
+    ).size;
+    const distinctFingerprintCount = new Set(
+      recent.map((item) => text(item?.fingerprint)).filter(Boolean)
+    ).size;
+    const distinctIpCount = new Set(
+      recent.map((item) => text(item?.ip)).filter(Boolean)
+    ).size;
+    proSubjectSessionIntel.set(subjectKey, {
+      ...row,
+      events: recent,
+      occurrences: recent.length,
+      distinctTokenKeyCount,
+      distinctFingerprintCount,
+      distinctIpCount,
+      firstSeenAt: Number(recent[0]?.at || nowTs),
+      lastSeenAt: Number(recent[recent.length - 1]?.at || nowTs)
+    });
+  }
+
+  if (proSubjectSessionIntel.size <= SUBJECT_SESSION_INTEL_MAX_ITEMS) return;
+  const overflow = proSubjectSessionIntel.size - SUBJECT_SESSION_INTEL_MAX_ITEMS;
+  const ordered = [...proSubjectSessionIntel.entries()].sort(
+    (a, b) => Number(a[1]?.lastSeenAt || 0) - Number(b[1]?.lastSeenAt || 0)
+  );
+  for (let index = 0; index < overflow; index += 1) {
+    const key = ordered[index]?.[0];
+    if (key) proSubjectSessionIntel.delete(key);
+  }
+}
+
+function registerSubjectSessionSignal({
+  subject = "",
+  tokenKey = "",
+  fingerprint = "",
+  ip = "",
+  nowTs = Date.now()
+} = {}) {
+  const safeSubject = normalizeTokenSubject(subject);
+  if (!safeSubject) {
+    return {
+      subject: "",
+      occurrences: 0,
+      distinctTokenKeyCount: 0,
+      distinctFingerprintCount: 0,
+      distinctIpCount: 0,
+      firstSeenAt: 0,
+      lastSeenAt: nowTs
+    };
+  }
+
+  const previous = proSubjectSessionIntel.get(safeSubject);
+  const safeTokenKey = text(tokenKey).slice(0, 180) || "unknown-token";
+  const safeFingerprint = text(fingerprint);
+  const safeIp = text(ip).replace(/^::ffff:/i, "");
+  const events = [
+    ...(Array.isArray(previous?.events) ? previous.events : []),
+    {
+      at: nowTs,
+      tokenKey: safeTokenKey,
+      fingerprint: safeFingerprint,
+      ip: safeIp
+    }
+  ].filter((item) => Number(item?.at || 0) >= nowTs - SUBJECT_SESSION_STORAGE_WINDOW_MS);
+
+  const distinctTokenKeyCount = new Set(
+    events.map((item) => text(item?.tokenKey)).filter(Boolean)
+  ).size;
+  const distinctFingerprintCount = new Set(
+    events.map((item) => text(item?.fingerprint)).filter(Boolean)
+  ).size;
+  const distinctIpCount = new Set(
+    events.map((item) => text(item?.ip)).filter(Boolean)
+  ).size;
+  const row = {
+    subject: safeSubject,
+    events,
+    occurrences: events.length,
+    distinctTokenKeyCount,
+    distinctFingerprintCount,
+    distinctIpCount,
+    firstSeenAt: Number(events[0]?.at || nowTs),
+    lastSeenAt: Number(events[events.length - 1]?.at || nowTs)
+  };
+  proSubjectSessionIntel.set(safeSubject, row);
+  pruneSubjectSessionIntel(nowTs);
+
+  return {
+    subject: safeSubject,
+    occurrences: row.occurrences,
+    distinctTokenKeyCount: row.distinctTokenKeyCount,
+    distinctFingerprintCount: row.distinctFingerprintCount,
+    distinctIpCount: row.distinctIpCount,
+    firstSeenAt: row.firstSeenAt,
+    lastSeenAt: row.lastSeenAt
+  };
+}
+
+function hotSubjectSessionIntelligence(limit = 20, windowMs = SUBJECT_SESSION_STORAGE_WINDOW_MS) {
+  const nowTs = Date.now();
+  pruneSubjectSessionIntel(nowTs);
+  const safeWindowMs = Math.max(5 * 60 * 1000, Number(windowMs || SUBJECT_SESSION_STORAGE_WINDOW_MS));
+  const cutoff = nowTs - safeWindowMs;
+  return [...proSubjectSessionIntel.values()]
+    .map((row) => {
+      const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+        (item) => Number(item?.at || 0) >= cutoff
+      );
+      const distinctTokenKeyCount = new Set(
+        recent.map((item) => text(item?.tokenKey)).filter(Boolean)
+      ).size;
+      const distinctFingerprintCount = new Set(
+        recent.map((item) => text(item?.fingerprint)).filter(Boolean)
+      ).size;
+      const distinctIpCount = new Set(
+        recent.map((item) => text(item?.ip)).filter(Boolean)
+      ).size;
+      return {
+        subject: text(row?.subject),
+        occurrences: recent.length,
+        distinctTokenKeyCount,
+        distinctFingerprintCount,
+        distinctIpCount,
+        firstSeenAt: Number(recent[0]?.at || 0),
+        lastSeenAt: Number(recent[recent.length - 1]?.at || 0)
+      };
+    })
+    .filter((row) => row.occurrences > 0)
+    .sort((a, b) =>
+      b.distinctTokenKeyCount - a.distinctTokenKeyCount ||
       b.distinctFingerprintCount - a.distinctFingerprintCount ||
       b.distinctIpCount - a.distinctIpCount ||
       b.occurrences - a.occurrences ||
@@ -3539,6 +3818,187 @@ function maybeApplySubjectProtection({
   });
 }
 
+function maybeApplySubjectSessionShield({
+  requestId = "",
+  path: requestPath = "",
+  method = "GET",
+  subject = "",
+  tokenKey = "",
+  fingerprint = "",
+  ip = ""
+} = {}) {
+  const safeSubject = normalizeTokenSubject(subject);
+  if (!safeSubject) return { activated: false, subject: "" };
+  const safePath = normalizeRequestPath(requestPath || "/api");
+  if (isSecurityControlPath(safePath)) return { activated: false, subject: safeSubject };
+
+  const nowTs = Date.now();
+  const signal = registerSubjectSessionSignal({
+    subject: safeSubject,
+    tokenKey,
+    fingerprint,
+    ip,
+    nowTs
+  });
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoSubjectSessionShield, true)) {
+    return {
+      activated: false,
+      subject: safeSubject,
+      signal
+    };
+  }
+
+  const thresholds = currentSecurityThresholds();
+  const windowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectSessionWindowMinutes || 60) * 60 * 1000)
+  );
+  const eventThreshold = Math.max(2, Number(thresholds.subjectSessionEventThreshold || 10));
+  const distinctTokenKeyThreshold = Math.max(2, Number(thresholds.subjectSessionDistinctTokenKeys || 5));
+  const distinctFingerprintThreshold = Math.max(
+    2,
+    Number(thresholds.subjectSessionDistinctFingerprints || 4)
+  );
+  const distinctIpThreshold = Math.max(2, Number(thresholds.subjectSessionDistinctIps || 4));
+  const cooldownMs = Math.max(
+    60_000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.subjectSessionCooldownMinutes || 10) * 60 * 1000)
+  );
+
+  const existing = proProtectedTokenSubjects.get(safeSubject);
+  const lastAppliedAt = Math.max(0, Number(existing?.lastAppliedAt || 0));
+  if (lastAppliedAt > 0 && nowTs - lastAppliedAt < cooldownMs) {
+    return {
+      activated: false,
+      subject: safeSubject,
+      signal,
+      cooldownActive: true
+    };
+  }
+
+  const row = proSubjectSessionIntel.get(safeSubject);
+  const cutoff = nowTs - windowMs;
+  const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+    (item) => Number(item?.at || 0) >= cutoff
+  );
+  const occurrences = recent.length;
+  const distinctTokenKeyCount = new Set(
+    recent.map((item) => text(item?.tokenKey)).filter(Boolean)
+  ).size;
+  const distinctFingerprintCount = new Set(
+    recent.map((item) => text(item?.fingerprint)).filter(Boolean)
+  ).size;
+  const distinctIpCount = new Set(
+    recent.map((item) => text(item?.ip)).filter(Boolean)
+  ).size;
+
+  if (
+    occurrences < eventThreshold ||
+    distinctTokenKeyCount < distinctTokenKeyThreshold ||
+    (distinctFingerprintCount < distinctFingerprintThreshold &&
+      distinctIpCount < distinctIpThreshold)
+  ) {
+    return {
+      activated: false,
+      subject: safeSubject,
+      signal: {
+        ...signal,
+        occurrences,
+        distinctTokenKeyCount,
+        distinctFingerprintCount,
+        distinctIpCount
+      }
+    };
+  }
+
+  const durationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectSessionShieldDurationMinutes || 45) * 60 * 1000)
+  );
+  const activeUntilTs = Math.max(Math.max(0, Number(existing?.until || 0)), nowTs + durationMs);
+  const reason = "subject-session-anomaly";
+  proProtectedTokenSubjects.set(safeSubject, {
+    subject: safeSubject,
+    reason,
+    until: activeUntilTs,
+    updatedAt: nowTs,
+    lastAppliedAt: nowTs,
+    incidentCount: occurrences,
+    distinctFingerprintCount,
+    distinctIpCount
+  });
+  pruneProtectedTokenSubjects(nowTs);
+
+  const event = {
+    id: `subject-session-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    subject: safeSubject,
+    reason,
+    windowMinutes: Math.round(windowMs / 60_000),
+    cooldownMinutes: Math.round(cooldownMs / 60_000),
+    shieldDurationMinutes: Math.round(durationMs / 60_000),
+    activeUntil: new Date(activeUntilTs).toISOString(),
+    occurrences,
+    distinctTokenKeyCount,
+    distinctFingerprintCount,
+    distinctIpCount,
+    thresholds: {
+      eventThreshold,
+      distinctTokenKeyThreshold,
+      distinctFingerprintThreshold,
+      distinctIpThreshold
+    }
+  };
+  proSubjectSessionShieldEvents.unshift(event);
+  if (proSubjectSessionShieldEvents.length > SUBJECT_SESSION_SHIELD_EVENT_MAX_ITEMS) {
+    proSubjectSessionShieldEvents.length = SUBJECT_SESSION_SHIELD_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-subject-session-shield",
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    details: {
+      subject: safeSubject,
+      reason,
+      activeUntil: new Date(activeUntilTs).toISOString(),
+      windowMinutes: Math.round(windowMs / 60_000),
+      cooldownMinutes: Math.round(cooldownMs / 60_000),
+      shieldDurationMinutes: Math.round(durationMs / 60_000),
+      occurrences,
+      distinctTokenKeyCount,
+      distinctFingerprintCount,
+      distinctIpCount,
+      thresholds: {
+        eventThreshold,
+        distinctTokenKeyThreshold,
+        distinctFingerprintThreshold,
+        distinctIpThreshold
+      }
+    }
+  });
+
+  return {
+    activated: true,
+    subject: safeSubject,
+    reason,
+    until: activeUntilTs,
+    remainingSec: Math.max(0, Math.ceil((activeUntilTs - nowTs) / 1000)),
+    signal: {
+      occurrences,
+      distinctTokenKeyCount,
+      distinctFingerprintCount,
+      distinctIpCount
+    }
+  };
+}
+
 function maybeAutoEscalateSecurityMode({
   reason = "",
   path: requestPath = "",
@@ -4127,10 +4587,15 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     2,
     Number(thresholds.subjectReplayDistinctIps || SUBJECT_INTEL_DISTINCT_IP_THRESHOLD)
   );
+  const subjectSessionWindowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectSessionWindowMinutes || 60) * 60 * 1000)
+  );
   const incidents = proThreatIncidents.slice(0, safeLimit);
   const hotSignatures = hotFakeListingSignatures(Math.min(50, safeLimit));
   const hotTokens = hotTokenIntelligence(Math.min(50, safeLimit));
   const hotSubjects = hotSubjectIntelligence(Math.min(50, safeLimit));
+  const hotSubjectSessions = hotSubjectSessionIntelligence(Math.min(50, safeLimit), subjectSessionWindowMs);
   const fakeListingIncidents = proThreatIncidents.filter(
     (item) =>
       text(item?.reason).includes("fake-listing") ||
@@ -4168,6 +4633,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     hotFakeListingSignatures: hotSignatures,
     hotTokenIntelligence: hotTokens,
     hotSubjectIntelligence: hotSubjects,
+    hotSubjectSessionIntelligence: hotSubjectSessions,
     recentAutoPromotions: proAutoPromotionEvents.slice(0, Math.min(100, safeLimit)),
     recentAutoEscalations: proAutoEscalationEvents.slice(0, Math.min(100, safeLimit)),
     recentCriticalResponses: proCriticalResponseEvents.slice(0, Math.min(100, safeLimit)),
@@ -4175,6 +4641,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     recentAuthShieldEvents: proAuthShieldEvents.slice(0, Math.min(100, safeLimit)),
     recentIdentityProtectionEvents: proIdentityProtectionEvents.slice(0, Math.min(100, safeLimit)),
     recentSubjectProtectionEvents: proSubjectProtectionEvents.slice(0, Math.min(100, safeLimit)),
+    recentSubjectSessionShieldEvents: proSubjectSessionShieldEvents.slice(0, Math.min(100, safeLimit)),
     activeIdentityProtections,
     activeSubjectProtections,
     controlState: getProSecurityControlState(),
@@ -4199,6 +4666,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
           item.distinctFingerprintCount >= subjectReplayFingerprintThreshold ||
           item.distinctIpCount >= subjectReplayIpThreshold
       ).length,
+      subjectSessionWindowMinutes: Math.round(subjectSessionWindowMs / 60_000),
+      subjectSessionHotSubjects: hotSubjectSessions.length,
       autoPromotions: proAutoPromotionEvents.length,
       autoEscalations: proAutoEscalationEvents.length,
       autoEscalationLastAt: text(proAutoEscalationEvents[0]?.at),
@@ -4225,6 +4694,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       subjectProtectionsActive: activeSubjectProtections.length,
       subjectProtectionsTotal: proSubjectProtectionEvents.length,
       subjectProtectionLastAt: text(proSubjectProtectionEvents[0]?.at),
+      subjectSessionShields: proSubjectSessionShieldEvents.length,
+      subjectSessionShieldLastAt: text(proSubjectSessionShieldEvents[0]?.at),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -5489,6 +5960,56 @@ export function proTokenFirewall(req, res, next) {
     tokenKey,
     nowTs: Date.now()
   });
+  const subjectSessionShield = maybeApplySubjectSessionShield({
+    requestId: req.requestId,
+    path: requestPath,
+    method,
+    subject: metadata.subject,
+    tokenKey,
+    fingerprint,
+    ip: getClientIp(req)
+  });
+  if (subjectSessionShield.activated) {
+    const headerKey = text(req?.headers?.["x-admin-action-key"]);
+    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    if (isTrusted || bypassByActionKey) {
+      pushProSecurityAuditEvent(req, {
+        severity: "medium",
+        type: "subject-session-shield-bypass",
+        details: {
+          subject: text(subjectSessionShield.subject),
+          reason: text(subjectSessionShield.reason),
+          remainingSec: Math.max(0, Number(subjectSessionShield.remainingSec || 0)),
+          bypassByTrustedFingerprint: Boolean(isTrusted),
+          bypassByActionKey: Boolean(bypassByActionKey)
+        }
+      });
+    } else {
+      req.proSecurityBlockSource = "subject-session-shield";
+      const incident = quarantineByFirewall(req, {
+        reason: req.proSecurityBlockSource,
+        requestPath,
+        method,
+        riskScore: 97,
+        details: {
+          subject: text(subjectSessionShield.subject),
+          protectionReason: text(subjectSessionShield.reason),
+          protectedUntil: Number(subjectSessionShield.until || 0)
+            ? new Date(Number(subjectSessionShield.until || 0)).toISOString()
+            : ""
+        }
+      });
+      res.setHeader("Retry-After", String(incident.retryAfterSec));
+      return res.status(401).json({
+        success: false,
+        message: "Authorization subject temporarily shielded due to suspicious session churn.",
+        reasons: [req.proSecurityBlockSource],
+        retryAfterSec: incident.retryAfterSec,
+        requestId: req.requestId
+      });
+    }
+  }
   const replaySuspected =
     usage.occurrences >= Math.max(2, Number(thresholds.tokenReplayEvents || TOKEN_REPLAY_EVENT_THRESHOLD)) &&
     (
