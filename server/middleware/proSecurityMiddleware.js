@@ -63,6 +63,12 @@ const SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS = Math.max(
   0,
   Number(process.env.SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS || 5 * 60 * 1000)
 );
+const SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED =
+  String(process.env.SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH = Math.max(
+  2,
+  Number(process.env.SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH || SECURITY_CONTROL_STATE_BACKUP_KEEP + 2)
+);
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -1535,6 +1541,148 @@ function verifySecurityControlSnapshotPayload(payload = {}) {
   };
 }
 
+function normalizeSecurityControlSnapshotHash(value = "") {
+  const normalized = text(value).toLowerCase();
+  return /^[a-f0-9]{64}$/i.test(normalized) ? normalized : "";
+}
+
+function buildSecurityControlSnapshotChainContinuityResult(overrides = {}) {
+  return {
+    enabled: SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED,
+    valid: false,
+    fullyVerified: false,
+    reason: "not-checked",
+    depth: 0,
+    verificationMaxDepth: SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH,
+    unresolvedPreviousHash: "",
+    ...overrides
+  };
+}
+
+function verifySecurityControlSnapshotChainContinuity(
+  record = {},
+  hashIndex = new Map(),
+  options = {}
+) {
+  if (!SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED) {
+    return buildSecurityControlSnapshotChainContinuityResult({
+      valid: true,
+      fullyVerified: true,
+      reason: "chain-continuity-disabled"
+    });
+  }
+  if (!record || typeof record !== "object") {
+    return buildSecurityControlSnapshotChainContinuityResult({
+      reason: "invalid-chain-record"
+    });
+  }
+  if (!record.valid) {
+    return buildSecurityControlSnapshotChainContinuityResult({
+      reason: "invalid-chain-root"
+    });
+  }
+  if (record.hashDuplicate) {
+    return buildSecurityControlSnapshotChainContinuityResult({
+      reason: "duplicate-snapshot-hash"
+    });
+  }
+
+  const rootHash = normalizeSecurityControlSnapshotHash(record.snapshotIntegrity?.snapshotHash);
+  if (!rootHash) {
+    return buildSecurityControlSnapshotChainContinuityResult({
+      reason: "missing-root-snapshot-hash"
+    });
+  }
+
+  if (!record.snapshotIntegrity?.chained) {
+    return buildSecurityControlSnapshotChainContinuityResult({
+      reason: "missing-chain-metadata"
+    });
+  }
+
+  const safeIndex = hashIndex instanceof Map ? hashIndex : new Map();
+  const oldestSnapshotPath = text(options.oldestSnapshotPath);
+  const allowTruncatedTail = Boolean(options.allowTruncatedTail);
+  const visited = new Set([rootHash]);
+  let currentRecord = record;
+  let depth = 0;
+  let previousHash = normalizeSecurityControlSnapshotHash(
+    record.snapshotIntegrity?.previousSnapshotHash
+  );
+
+  while (previousHash) {
+    depth += 1;
+    if (depth > SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH) {
+      return buildSecurityControlSnapshotChainContinuityResult({
+        reason: "chain-depth-limit-exceeded",
+        depth,
+        unresolvedPreviousHash: previousHash
+      });
+    }
+    if (visited.has(previousHash)) {
+      return buildSecurityControlSnapshotChainContinuityResult({
+        reason: "chain-loop-detected",
+        depth,
+        unresolvedPreviousHash: previousHash
+      });
+    }
+    const linked = safeIndex.get(previousHash);
+    if (!linked) {
+      const atOldestKnownSnapshot =
+        oldestSnapshotPath && text(currentRecord?.row?.path) === oldestSnapshotPath;
+      if (allowTruncatedTail && atOldestKnownSnapshot) {
+        return buildSecurityControlSnapshotChainContinuityResult({
+          valid: true,
+          fullyVerified: false,
+          reason: "snapshot-chain-continuity-truncated-tail",
+          depth,
+          unresolvedPreviousHash: previousHash
+        });
+      }
+      return buildSecurityControlSnapshotChainContinuityResult({
+        reason: "missing-previous-snapshot-link",
+        depth,
+        unresolvedPreviousHash: previousHash
+      });
+    }
+    if (linked.hashDuplicate) {
+      return buildSecurityControlSnapshotChainContinuityResult({
+        reason: "duplicate-linked-snapshot-hash",
+        depth,
+        unresolvedPreviousHash: previousHash
+      });
+    }
+    if (!linked.valid) {
+      return buildSecurityControlSnapshotChainContinuityResult({
+        reason: "invalid-linked-snapshot",
+        depth,
+        unresolvedPreviousHash: previousHash
+      });
+    }
+
+    const linkedHash = normalizeSecurityControlSnapshotHash(linked.snapshotIntegrity?.snapshotHash);
+    if (!linkedHash) {
+      return buildSecurityControlSnapshotChainContinuityResult({
+        reason: "missing-linked-snapshot-hash",
+        depth,
+        unresolvedPreviousHash: previousHash
+      });
+    }
+    visited.add(linkedHash);
+    currentRecord = linked;
+    previousHash = normalizeSecurityControlSnapshotHash(
+      linked.snapshotIntegrity?.previousSnapshotHash
+    );
+  }
+
+  return buildSecurityControlSnapshotChainContinuityResult({
+    valid: true,
+    fullyVerified: true,
+    reason: "snapshot-chain-continuity-verified",
+    depth
+  });
+}
+
 function pruneSecurityControlStateSnapshots(backupDir = "") {
   const snapshots = listSecurityControlStateSnapshotFiles(backupDir);
   if (snapshots.length <= SECURITY_CONTROL_STATE_BACKUP_KEEP) {
@@ -1628,6 +1776,8 @@ function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
   const backupDir = resolveSecurityControlStateBackupDir(targetPath || SECURITY_CONTROL_STATE_FILE);
   const files = listSecurityControlStateSnapshotFiles(backupDir);
   const warnings = [];
+  const snapshotRecords = [];
+  const hashIndex = new Map();
 
   for (const row of files) {
     const payload = safeReadJson(row.path);
@@ -1659,12 +1809,62 @@ function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
         warnings.push(`Snapshot chain warning (${text(row.name)}): ${text(warning)}`);
       }
     }
-    return {
-      found: true,
+    const snapshotHash = normalizeSecurityControlSnapshotHash(snapshotIntegrity.snapshotHash);
+    const record = {
+      row,
       payload,
       integrity,
       snapshotIntegrity,
-      snapshot: row,
+      valid: Boolean(integrity.valid && snapshotIntegrity.valid),
+      hashDuplicate: false
+    };
+    if (snapshotHash) {
+      if (hashIndex.has(snapshotHash)) {
+        warnings.push(`Snapshot chain warning (${text(row.name)}): duplicate snapshot hash detected.`);
+        record.hashDuplicate = true;
+        const existing = hashIndex.get(snapshotHash);
+        if (existing && typeof existing === "object") {
+          existing.hashDuplicate = true;
+        }
+      } else {
+        hashIndex.set(snapshotHash, record);
+      }
+    }
+    snapshotRecords.push(record);
+  }
+
+  const oldestSnapshotPath = text(snapshotRecords[snapshotRecords.length - 1]?.row?.path);
+  const allowTruncatedTail = snapshotRecords.length >= SECURITY_CONTROL_STATE_BACKUP_KEEP;
+
+  for (const record of snapshotRecords) {
+    const chainContinuity = verifySecurityControlSnapshotChainContinuity(record, hashIndex, {
+      oldestSnapshotPath,
+      allowTruncatedTail
+    });
+    if (!chainContinuity.valid) {
+      warnings.push(
+        `Snapshot rejected (${text(record?.row?.name)}): ${text(
+          chainContinuity.reason,
+          "snapshot-chain-continuity-failed"
+        )}.`
+      );
+      continue;
+    }
+    if (!chainContinuity.fullyVerified) {
+      warnings.push(
+        `Snapshot continuity warning (${text(record?.row?.name)}): ${text(
+          chainContinuity.reason,
+          "snapshot-chain-continuity-partial"
+        )}.`
+      );
+    }
+    return {
+      found: true,
+      payload: record.payload,
+      integrity: record.integrity,
+      snapshotIntegrity: record.snapshotIntegrity,
+      chainContinuity,
+      snapshot: record.row,
       backupDir,
       warnings
     };
@@ -1687,6 +1887,11 @@ function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
       previousSnapshotHash: "",
       snapshotHash: ""
     },
+    chainContinuity: buildSecurityControlSnapshotChainContinuityResult({
+      valid: false,
+      fullyVerified: false,
+      reason: "no-valid-snapshot"
+    }),
     snapshot: null,
     backupDir,
     warnings
@@ -1764,6 +1969,11 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
           previousSnapshotHash: "",
           snapshotHash: ""
         },
+        chainContinuity: buildSecurityControlSnapshotChainContinuityResult({
+          valid: false,
+          fullyVerified: false,
+          reason: "primary-not-snapshot"
+        }),
         rollbackGuard: {
           enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
           triggered: false,
@@ -1808,6 +2018,7 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
         payload: snapshotResult.payload,
         integrity: snapshotResult.integrity,
         snapshotIntegrity: snapshotResult.snapshotIntegrity,
+        chainContinuity: snapshotResult.chainContinuity,
         rollbackGuard: {
           enabled: true,
           triggered: true,
@@ -1836,6 +2047,7 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       payload: snapshotResult.payload,
       integrity: snapshotResult.integrity,
       snapshotIntegrity: snapshotResult.snapshotIntegrity,
+      chainContinuity: snapshotResult.chainContinuity,
       rollbackGuard: {
         enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
         triggered: false,
@@ -1864,6 +2076,11 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       previousSnapshotHash: "",
       snapshotHash: ""
     },
+    chainContinuity: buildSecurityControlSnapshotChainContinuityResult({
+      valid: false,
+      fullyVerified: false,
+      reason: "no-valid-persisted-state"
+    }),
     rollbackGuard: {
       enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
       triggered: false,
@@ -2256,6 +2473,8 @@ export function getProSecurityControlPersistenceStatus() {
       enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
       dir: backupDir,
       keepLimit: SECURITY_CONTROL_STATE_BACKUP_KEEP,
+      chainContinuityEnforced: SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED,
+      chainVerificationMaxDepth: SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH,
       snapshotCount: snapshots.length,
       latestSnapshotPath: text(latestSnapshot?.path),
       latestSnapshotAt: Number(latestSnapshot?.mtimeMs || 0)
@@ -2275,6 +2494,18 @@ export function getProSecurityControlPersistenceStatus() {
       latestValidSnapshotChainHash: latestValidSnapshot.found
         ? text(latestValidSnapshot.snapshotIntegrity?.snapshotHash)
         : "",
+      latestValidSnapshotChainContinuityVerified: latestValidSnapshot.found
+        ? Boolean(latestValidSnapshot.chainContinuity?.valid)
+        : false,
+      latestValidSnapshotChainContinuityReason: latestValidSnapshot.found
+        ? text(latestValidSnapshot.chainContinuity?.reason)
+        : "",
+      latestValidSnapshotChainContinuityDepth: latestValidSnapshot.found
+        ? Math.max(0, Number(latestValidSnapshot.chainContinuity?.depth || 0))
+        : 0,
+      latestValidSnapshotChainFullyVerified: latestValidSnapshot.found
+        ? Boolean(latestValidSnapshot.chainContinuity?.fullyVerified)
+        : false,
       warnings: Array.isArray(latestValidSnapshot.warnings)
         ? latestValidSnapshot.warnings.slice(0, 10)
         : []
@@ -2344,6 +2575,9 @@ export function restoreProSecurityControlStateFromDisk({
         integrityReason: text(integrity.reason),
         snapshotChainReason: text(snapshotIntegrity.reason),
         snapshotChainHash: text(snapshotIntegrity.snapshotHash),
+        snapshotChainContinuityReason: text(loadResult?.chainContinuity?.reason),
+        snapshotChainContinuityVerified: Boolean(loadResult?.chainContinuity?.valid),
+        snapshotChainContinuityDepth: Math.max(0, Number(loadResult?.chainContinuity?.depth || 0)),
         backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
       }
     });
@@ -3339,6 +3573,9 @@ function initializeSecurityControlStateFromDisk() {
         integrityReason: text(integrity.reason),
         snapshotChainReason: text(snapshotIntegrity.reason),
         snapshotChainHash: text(snapshotIntegrity.snapshotHash),
+        snapshotChainContinuityReason: text(loadResult?.chainContinuity?.reason),
+        snapshotChainContinuityVerified: Boolean(loadResult?.chainContinuity?.valid),
+        snapshotChainContinuityDepth: Math.max(0, Number(loadResult?.chainContinuity?.depth || 0)),
         backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
       }
     });
@@ -6399,6 +6636,8 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlBackupDirConfigured: Boolean(text(SECURITY_CONTROL_STATE_BACKUP_DIR)),
       securityControlBackupDir: controlBackupDir,
       securityControlBackupKeepLimit: SECURITY_CONTROL_STATE_BACKUP_KEEP,
+      securityControlBackupChainContinuityEnabled: SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED,
+      securityControlBackupChainVerificationMaxDepth: SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH,
       securityControlBackupSnapshots: controlBackupSnapshots.length,
       securityControlBackupLatestAt: Number(controlBackupLatest?.mtimeMs || 0)
         ? new Date(Number(controlBackupLatest.mtimeMs)).toISOString()
@@ -6413,6 +6652,18 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlBackupLatestChainReason: controlBackupLatestValid.found
         ? text(controlBackupLatestValid.snapshotIntegrity?.reason)
         : "",
+      securityControlBackupLatestChainContinuityVerified: controlBackupLatestValid.found
+        ? Boolean(controlBackupLatestValid.chainContinuity?.valid)
+        : false,
+      securityControlBackupLatestChainContinuityReason: controlBackupLatestValid.found
+        ? text(controlBackupLatestValid.chainContinuity?.reason)
+        : "",
+      securityControlBackupLatestChainContinuityDepth: controlBackupLatestValid.found
+        ? Math.max(0, Number(controlBackupLatestValid.chainContinuity?.depth || 0))
+        : 0,
+      securityControlBackupLatestChainFullyVerified: controlBackupLatestValid.found
+        ? Boolean(controlBackupLatestValid.chainContinuity?.fullyVerified)
+        : false,
       securityControlRollbackProtectionEnabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
       securityControlRollbackMaxTimeDriftMs: SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS,
       securityControlRollbackTriggered: Boolean(controlPersistenceLoad?.rollbackGuard?.triggered),

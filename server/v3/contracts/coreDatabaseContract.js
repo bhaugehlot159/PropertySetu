@@ -218,7 +218,8 @@ export const coreSystemsBlueprint = [
       "Admin signature key rotation support (primary + secondary secret) for zero-downtime secret rollover",
       "Signed admin-security responses with body-hash integrity headers for tamper detection",
       "Signed security-control snapshot backups with tamper-evident hash-chain and automatic fallback restore",
-      "Rollback attack protection: stale primary state auto-detected and replaced with latest valid snapshot"
+      "Rollback attack protection: stale primary state auto-detected and replaced with latest valid snapshot",
+      "Snapshot chain continuity verification: missing/looped/duplicate links are auto-rejected before restore"
     ],
     endpoints: [
       "/api/v3/auth/*",
