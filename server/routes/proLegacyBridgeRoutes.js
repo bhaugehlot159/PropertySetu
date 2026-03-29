@@ -84,6 +84,20 @@ function toBoolean(value, fallback = false) {
   return fallback;
 }
 
+function toPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function resolveChainOverrideApproval(body = {}) {
+  const safeBody = toPlainObject(body) || {};
+  return (
+    toPlainObject(safeBody.chainOverrideApproval) ||
+    toPlainObject(safeBody.dualControlApproval) ||
+    toPlainObject(safeBody.chainApproval) ||
+    null
+  );
+}
+
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
   return normalized || fallback;
@@ -528,6 +542,7 @@ router.patch(
     const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? req.body
       : {};
+    const chainOverrideApproval = resolveChainOverrideApproval(body);
     const confirmChainIntegrityOverride = toBoolean(
       body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
       false
@@ -543,6 +558,7 @@ router.patch(
       actorId: actor.id,
       actorRole: actor.role,
       confirmChainIntegrityOverride,
+      chainOverrideApproval,
       confirmHighRiskDowngrade
     });
     if (result.blocked) {
@@ -557,6 +573,9 @@ router.patch(
         guard: result.guard && typeof result.guard === "object" ? result.guard : null,
         chainGuard: result.chainGuard && typeof result.chainGuard === "object"
           ? result.chainGuard
+          : null,
+        chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+          ? result.chainDualControl
           : null,
         downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
           ? result.downgradeGuard
@@ -576,6 +595,9 @@ router.patch(
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       chainGuard: result.chainGuard && typeof result.chainGuard === "object"
         ? result.chainGuard
+        : null,
+      chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+        ? result.chainDualControl
         : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
@@ -628,19 +650,24 @@ router.post(
   bridgeAdminActionLimiter,
   (req, res) => {
     const actor = req.bridgeActor;
-    const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+    const profileId = text(body.profileId || body.profile || body.mode).toLowerCase();
+    const chainOverrideApproval = resolveChainOverrideApproval(body);
     const confirmChainIntegrityOverride = toBoolean(
-      req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+      body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
       false
     );
     const confirmHighRiskDowngrade = toBoolean(
-      req.body?.confirmHighRiskDowngrade || req.body?.breakGlass || req.body?.confirmHighRiskChange,
+      body.confirmHighRiskDowngrade || body.breakGlass || body.confirmHighRiskChange,
       false
     );
     const result = applyProSecurityControlProfile(profileId, {
       actorId: actor.id,
       actorRole: actor.role,
       confirmChainIntegrityOverride,
+      chainOverrideApproval,
       confirmHighRiskDowngrade
     });
     const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
@@ -657,6 +684,9 @@ router.post(
       chainGuard: result.chainGuard && typeof result.chainGuard === "object"
         ? result.chainGuard
         : null,
+      chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+        ? result.chainDualControl
+        : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
         : null,
@@ -672,14 +702,19 @@ router.post(
   bridgeAdminActionLimiter,
   (req, res) => {
     const actor = req.bridgeActor;
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+    const chainOverrideApproval = resolveChainOverrideApproval(body);
     const confirmChainIntegrityOverride = toBoolean(
-      req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+      body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
       false
     );
     const result = restoreProSecurityControlStateFromDisk({
       actorId: actor.id,
       actorRole: actor.role,
-      confirmChainIntegrityOverride
+      confirmChainIntegrityOverride,
+      chainOverrideApproval
     });
     const statusCode = result.blocked ? 429 : (result.restored ? 200 : 404);
     return res.status(statusCode).json({
@@ -694,6 +729,9 @@ router.post(
       chainGuard: result.chainGuard && typeof result.chainGuard === "object"
         ? result.chainGuard
         : null,
+      chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+        ? result.chainDualControl
+        : null,
       state: result.state
     });
   }
@@ -706,14 +744,19 @@ router.post(
   bridgeAdminActionLimiter,
   (req, res) => {
     const actor = req.bridgeActor;
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+    const chainOverrideApproval = resolveChainOverrideApproval(body);
     const confirmChainIntegrityOverride = toBoolean(
-      req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+      body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
       false
     );
     const result = resetProSecurityControlState({
       actorId: actor.id,
       actorRole: actor.role,
-      confirmChainIntegrityOverride
+      confirmChainIntegrityOverride,
+      chainOverrideApproval
     });
     const statusCode = result.blocked ? 429 : 200;
     return res.status(statusCode).json({
@@ -727,6 +770,9 @@ router.post(
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       chainGuard: result.chainGuard && typeof result.chainGuard === "object"
         ? result.chainGuard
+        : null,
+      chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+        ? result.chainDualControl
         : null,
       state: result.state
     });

@@ -224,7 +224,8 @@ export const coreSystemsBlueprint = [
       "Filesystem path hardening for security-control persistence: allowed-root enforcement plus symlink path rejection",
       "High-risk security downgrade guard: critical module/control weakening blocked unless explicit break-glass confirm",
       "Runtime hash-chain integrity verification for audit and threat incident streams with mismatch telemetry",
-      "Chain-enforcement guard: security-control mutations blocked while chain integrity is compromised unless explicit chain break-glass confirm"
+      "Chain-enforcement guard: security-control mutations blocked while chain integrity is compromised unless explicit chain break-glass confirm",
+      "Dual-control chain override approvals: compromised-chain break-glass requires a second approver with signed anti-replay approval proof"
     ],
     endpoints: [
       "/api/v3/auth/*",

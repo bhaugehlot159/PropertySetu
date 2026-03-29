@@ -69,6 +69,20 @@ function toBoolean(value, fallback = false) {
   return fallback;
 }
 
+function toPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function resolveChainOverrideApproval(body = {}) {
+  const safeBody = toPlainObject(body) || {};
+  return (
+    toPlainObject(safeBody.chainOverrideApproval) ||
+    toPlainObject(safeBody.dualControlApproval) ||
+    toPlainObject(safeBody.chainApproval) ||
+    null
+  );
+}
+
 function checkModelCoverage(model, requiredFields = []) {
   const schemaPaths = model?.schema?.paths
     ? Object.keys(model.schema.paths)
@@ -595,6 +609,7 @@ export function updateCoreSystemSecurityControl(req, res) {
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body
     : {};
+  const chainOverrideApproval = resolveChainOverrideApproval(body);
   const confirmChainIntegrityOverride = toBoolean(
     body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
     false
@@ -611,6 +626,7 @@ export function updateCoreSystemSecurityControl(req, res) {
     actorId: String(req.coreUser?.id || ""),
     actorRole: String(req.coreUser?.role || ""),
     confirmChainIntegrityOverride,
+    chainOverrideApproval,
     confirmHighRiskDowngrade
   });
   if (result.blocked) {
@@ -625,6 +641,9 @@ export function updateCoreSystemSecurityControl(req, res) {
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       chainGuard: result.chainGuard && typeof result.chainGuard === "object"
         ? result.chainGuard
+        : null,
+      chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+        ? result.chainDualControl
         : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
@@ -643,6 +662,9 @@ export function updateCoreSystemSecurityControl(req, res) {
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
     chainGuard: result.chainGuard && typeof result.chainGuard === "object"
       ? result.chainGuard
+      : null,
+    chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+      ? result.chainDualControl
       : null,
     downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
       ? result.downgradeGuard
@@ -663,19 +685,24 @@ export function getCoreSystemSecurityControlProfiles(req, res) {
 }
 
 export function applyCoreSystemSecurityControlProfile(req, res) {
-  const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const profileId = text(body.profileId || body.profile || body.mode).toLowerCase();
+  const chainOverrideApproval = resolveChainOverrideApproval(body);
   const confirmChainIntegrityOverride = toBoolean(
-    req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+    body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
     false
   );
   const confirmHighRiskDowngrade = toBoolean(
-    req.body?.confirmHighRiskDowngrade || req.body?.breakGlass || req.body?.confirmHighRiskChange,
+    body.confirmHighRiskDowngrade || body.breakGlass || body.confirmHighRiskChange,
     false
   );
   const result = applyProSecurityControlProfile(profileId, {
     actorId: String(req.coreUser?.id || ""),
     actorRole: String(req.coreUser?.role || ""),
     confirmChainIntegrityOverride,
+    chainOverrideApproval,
     confirmHighRiskDowngrade
   });
   const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
@@ -691,6 +718,9 @@ export function applyCoreSystemSecurityControlProfile(req, res) {
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
     chainGuard: result.chainGuard && typeof result.chainGuard === "object"
       ? result.chainGuard
+      : null,
+    chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+      ? result.chainDualControl
       : null,
     downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
       ? result.downgradeGuard
@@ -711,14 +741,19 @@ export function getCoreSystemSecurityControlPersistence(req, res) {
 }
 
 export function restoreCoreSystemSecurityControl(req, res) {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const chainOverrideApproval = resolveChainOverrideApproval(body);
   const confirmChainIntegrityOverride = toBoolean(
-    req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+    body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
     false
   );
   const result = restoreProSecurityControlStateFromDisk({
     actorId: String(req.coreUser?.id || ""),
     actorRole: String(req.coreUser?.role || ""),
-    confirmChainIntegrityOverride
+    confirmChainIntegrityOverride,
+    chainOverrideApproval
   });
   const statusCode = result.blocked ? 429 : (result.restored ? 200 : 404);
   return res.status(statusCode).json({
@@ -733,19 +768,27 @@ export function restoreCoreSystemSecurityControl(req, res) {
     chainGuard: result.chainGuard && typeof result.chainGuard === "object"
       ? result.chainGuard
       : null,
+    chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+      ? result.chainDualControl
+      : null,
     state: result.state
   });
 }
 
 export function resetCoreSystemSecurityControl(req, res) {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const chainOverrideApproval = resolveChainOverrideApproval(body);
   const confirmChainIntegrityOverride = toBoolean(
-    req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+    body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
     false
   );
   const result = resetProSecurityControlState({
     actorId: String(req.coreUser?.id || ""),
     actorRole: String(req.coreUser?.role || ""),
-    confirmChainIntegrityOverride
+    confirmChainIntegrityOverride,
+    chainOverrideApproval
   });
   const statusCode = result.blocked ? 429 : 200;
   return res.status(statusCode).json({
@@ -759,6 +802,9 @@ export function resetCoreSystemSecurityControl(req, res) {
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
     chainGuard: result.chainGuard && typeof result.chainGuard === "object"
       ? result.chainGuard
+      : null,
+    chainDualControl: result.chainDualControl && typeof result.chainDualControl === "object"
+      ? result.chainDualControl
       : null,
     state: result.state
   });
