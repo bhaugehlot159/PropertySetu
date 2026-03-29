@@ -205,7 +205,8 @@ export const coreSystemsBlueprint = [
       "Auto de-escalation back to safer mode after calm window using admin-defined thresholds",
       "Critical attack immediate response (instant blocklist and optional lockdown)",
       "Distributed campaign detection with AI-triggered lockdown and full admin control",
-      "Auth-storm shield for OTP/login routes with auto activation and admin bypass control"
+      "Auth-storm shield for OTP/login routes with auto activation and admin bypass control",
+      "Targeted identity protection for attacked login/OTP identities with temporary shield"
     ],
     endpoints: [
       "/api/v3/auth/*",
