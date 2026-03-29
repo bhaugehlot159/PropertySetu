@@ -33,6 +33,8 @@ const proSecurityControlDowngradeGuardEvents = [];
 const proSecurityChainGuardEvents = [];
 const proSecurityChainDualControlEvents = [];
 const proSecurityChainDualControlApprovals = new Map();
+const proSecurityChainDualControlAttempts = [];
+const proSecurityChainDualControlAttemptBlocks = new Map();
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -44,6 +46,7 @@ let proLastSecurityControlMutationBlockAt = 0;
 let proLastSecurityControlDowngradeBlockAt = 0;
 let proLastSecurityChainGuardBlockAt = 0;
 let proLastSecurityChainDualControlBlockAt = 0;
+let proLastSecurityChainDualControlAttemptBlockAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -101,6 +104,14 @@ const SECURITY_CHAIN_DUAL_CONTROL_EVENT_MAX_ITEMS = Math.max(
   100,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_EVENT_MAX_ITEMS || 800)
 );
+const SECURITY_CHAIN_DUAL_CONTROL_ATTEMPT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_ATTEMPT_MAX_ITEMS || 2000)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX = Math.max(
+  50,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX || 800)
+);
 const SECURITY_CHAIN_ENFORCEMENT_ENABLED =
   String(process.env.SECURITY_CHAIN_ENFORCEMENT_ENABLED || "true").trim().toLowerCase() !== "false";
 const SECURITY_CHAIN_DUAL_CONTROL_ENABLED =
@@ -114,6 +125,22 @@ const SECURITY_CHAIN_DUAL_CONTROL_MAX_CLOCK_SKEW_SEC = Math.max(
 const SECURITY_CHAIN_DUAL_CONTROL_MAX_TTL_SEC = Math.max(
   30,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_MAX_TTL_SEC || 900)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES || 20)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES = Math.max(
+  2,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES || 8)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC || 3)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES || 20)
 );
 const SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED =
   String(process.env.SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED || "true").trim().toLowerCase() !== "false";
@@ -510,6 +537,7 @@ const API_ADMIN_ALLOWLIST_IPS = text(process.env.ADMIN_IP_ALLOWLIST)
   .filter(Boolean);
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const ADMIN_SIGNATURE_NONCE_PATTERN = /^[a-zA-Z0-9._:-]{16,180}$/;
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES = new Set(["admin", "superadmin", "system", "service"]);
 const NULL_BYTE_PATTERN = /\0/;
 const SUSPICIOUS_USER_AGENT_PATTERNS = [
   /sqlmap/i,
@@ -2844,6 +2872,261 @@ function pushSecurityChainDualControlEvent(event = {}) {
   return row;
 }
 
+function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
+  const safeNow = Number(nowTs) || Date.now();
+  const windowMs = Math.max(60_000, SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES * 60 * 1000);
+  const blockDurationMs = Math.max(60_000, SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES * 60 * 1000);
+  const retentionMs = Math.max(windowMs * 4, blockDurationMs * 3, 60 * 60 * 1000);
+  const cutoff = safeNow - retentionMs;
+  while (proSecurityChainDualControlAttempts.length) {
+    const tail = proSecurityChainDualControlAttempts[proSecurityChainDualControlAttempts.length - 1];
+    const atMs = Number(tail?.atMs || 0);
+    if (Number.isFinite(atMs) && atMs >= cutoff) break;
+    proSecurityChainDualControlAttempts.pop();
+  }
+  for (const [key, row] of proSecurityChainDualControlAttemptBlocks.entries()) {
+    const blockUntil = Number(row?.blockUntilTs || 0);
+    if (!Number.isFinite(blockUntil) || blockUntil <= safeNow) {
+      proSecurityChainDualControlAttemptBlocks.delete(key);
+    }
+  }
+  while (proSecurityChainDualControlAttemptBlocks.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
+    const oldestKey = proSecurityChainDualControlAttemptBlocks.keys().next().value;
+    if (!oldestKey) break;
+    proSecurityChainDualControlAttemptBlocks.delete(oldestKey);
+  }
+}
+
+function registerSecurityChainDualControlAttempt({
+  actorId = "",
+  actorRole = "",
+  actorKey = "",
+  approverId = "",
+  approverRole = "",
+  approvalId = "",
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control",
+  reason = "",
+  required = true,
+  approved = false
+} = {}) {
+  const nowTs = Date.now();
+  const row = {
+    id: `sec-chain-dual-attempt-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    atMs: nowTs,
+    actorId: text(actorId),
+    actorRole: text(actorRole),
+    actorKey: text(actorKey || resolveSecurityControlMutationActorKey(actorId, actorRole)),
+    approverId: text(approverId),
+    approverRole: text(approverRole),
+    approvalId: text(approvalId),
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    reason: text(reason),
+    required: Boolean(required),
+    approved: Boolean(approved)
+  };
+  proSecurityChainDualControlAttempts.unshift(row);
+  if (proSecurityChainDualControlAttempts.length > SECURITY_CHAIN_DUAL_CONTROL_ATTEMPT_MAX_ITEMS) {
+    proSecurityChainDualControlAttempts.length = SECURITY_CHAIN_DUAL_CONTROL_ATTEMPT_MAX_ITEMS;
+  }
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+  return row;
+}
+
+function evaluateSecurityChainDualControlAttemptGuard({
+  actorId = "",
+  actorRole = "",
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control",
+  required = false
+} = {}) {
+  const enabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlRequired,
+    SECURITY_CHAIN_DUAL_CONTROL_ENABLED
+  );
+  const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
+  const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
+  const active = Boolean(enabled && required && !bypassed);
+  const windowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES));
+  const maxFailures = Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES));
+  const minIntervalMs = Math.max(500, Math.min(5 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC * 1000));
+  const blockDurationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES * 60 * 1000)
+  );
+  if (!active) {
+    return {
+      allowed: true,
+      active: false,
+      enabled,
+      bypassed,
+      required: Boolean(required),
+      reason: !enabled
+        ? "chain-dual-control-attempt-guard-disabled"
+        : (bypassed
+          ? "chain-dual-control-attempt-guard-system-bypass"
+          : "chain-dual-control-attempt-guard-not-required"),
+      actorKey,
+      windowMinutes,
+      maxFailures,
+      minIntervalMs,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path)
+    };
+  }
+  const nowTs = Date.now();
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+  const existingBlock = proSecurityChainDualControlAttemptBlocks.get(actorKey);
+  if (existingBlock) {
+    const blockUntilTs = Number(existingBlock.blockUntilTs || 0);
+    if (blockUntilTs > nowTs) {
+      return {
+        allowed: false,
+        active: true,
+        enabled: true,
+        bypassed: false,
+        required: true,
+        reason: "chain-dual-control-attempt-actor-temporary-block",
+        actorKey,
+        windowMinutes,
+        maxFailures,
+        minIntervalMs,
+        blockDurationMs,
+        operation: text(operation),
+        method: text(method).toUpperCase(),
+        path: text(path),
+        blockUntilTs,
+        retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+        windowFailureCount: Number(existingBlock.windowFailureCount || 0),
+        lastFailureAt: text(existingBlock.lastFailureAt)
+      };
+    }
+    proSecurityChainDualControlAttemptBlocks.delete(actorKey);
+  }
+  const windowMs = windowMinutes * 60 * 1000;
+  const cutoff = nowTs - windowMs;
+  const recentAttempts = proSecurityChainDualControlAttempts.filter(
+    (item) => item.actorKey === actorKey && Boolean(item.required) && Number(item.atMs || 0) >= cutoff
+  );
+  const recentFailures = recentAttempts.filter((item) => !Boolean(item.approved));
+  const latestFailure = recentFailures[0] || null;
+  const elapsedSinceLastFailureMs = Number(latestFailure?.atMs || 0) > 0
+    ? Math.max(0, nowTs - Number(latestFailure.atMs))
+    : Number.POSITIVE_INFINITY;
+  const tooFast = Number.isFinite(elapsedSinceLastFailureMs) && elapsedSinceLastFailureMs < minIntervalMs;
+  const aboveLimit = recentFailures.length >= maxFailures;
+  if (!tooFast && !aboveLimit) {
+    return {
+      allowed: true,
+      active: true,
+      enabled: true,
+      bypassed: false,
+      required: true,
+      reason: "chain-dual-control-attempt-allow",
+      actorKey,
+      windowMinutes,
+      maxFailures,
+      minIntervalMs,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      windowFailureCount: recentFailures.length
+    };
+  }
+  const blockUntilTs = nowTs + blockDurationMs;
+  const reason = tooFast
+    ? "chain-dual-control-attempt-min-interval-violation"
+    : "chain-dual-control-attempt-window-limit-exceeded";
+  proSecurityChainDualControlAttemptBlocks.set(actorKey, {
+    actorKey,
+    actorId: text(actorId),
+    actorRole: text(actorRole),
+    reason,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockedAt: nowIso(),
+    blockedAtTs: nowTs,
+    blockUntilTs,
+    blockDurationMs,
+    windowMinutes,
+    maxFailures,
+    minIntervalMs,
+    windowFailureCount: recentFailures.length,
+    lastFailureAt: text(latestFailure?.at)
+  });
+  proLastSecurityChainDualControlAttemptBlockAt = nowTs;
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+  return {
+    allowed: false,
+    active: true,
+    enabled: true,
+    bypassed: false,
+    required: true,
+    reason,
+    actorKey,
+    windowMinutes,
+    maxFailures,
+    minIntervalMs,
+    blockDurationMs,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockUntilTs,
+    retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+    windowFailureCount: recentFailures.length,
+    lastFailureAt: text(latestFailure?.at)
+  };
+}
+
+function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
+  const safeNow = Number(nowTs) || Date.now();
+  pruneSecurityChainDualControlAttemptTelemetry(safeNow);
+  const windowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES));
+  const windowMs = windowMinutes * 60 * 1000;
+  const cutoff = safeNow - windowMs;
+  const recentAttempts = proSecurityChainDualControlAttempts.filter(
+    (item) => Boolean(item?.required) && Number(item?.atMs || 0) >= cutoff
+  );
+  const recentFailures = recentAttempts.filter((item) => !Boolean(item?.approved));
+  const activeBlocks = Array.from(proSecurityChainDualControlAttemptBlocks.values())
+    .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
+    .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
+  const latestAttempt = proSecurityChainDualControlAttempts[0] || null;
+  const latestBlock = activeBlocks[0] || null;
+  return {
+    windowMinutes,
+    maxFailures: Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES)),
+    minIntervalSec: Math.max(1, Math.min(300, SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC)),
+    blockDurationMinutes: Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES)),
+    recentAttemptCount: recentAttempts.length,
+    recentFailureCount: recentFailures.length,
+    activeBlockCount: activeBlocks.length,
+    trackedActorCount: proSecurityChainDualControlAttemptBlocks.size,
+    latestAttemptAt: text(latestAttempt?.at),
+    latestAttemptReason: text(latestAttempt?.reason),
+    latestAttemptActor: text(latestAttempt?.actorKey),
+    latestBlockAt: latestBlock
+      ? text(latestBlock.blockedAt)
+      : (proLastSecurityChainDualControlAttemptBlockAt
+        ? new Date(proLastSecurityChainDualControlAttemptBlockAt).toISOString()
+        : ""),
+    latestBlockReason: text(latestBlock?.reason),
+    latestBlockActor: text(latestBlock?.actorKey),
+    latestBlockUntil: latestBlock?.blockUntilTs
+      ? new Date(Number(latestBlock.blockUntilTs)).toISOString()
+      : ""
+  };
+}
+
 function computeSecurityChainDualControlSignatureWithSecret(secret = "", {
   operation = "security-control-update",
   method = "PATCH",
@@ -2903,337 +3186,238 @@ function evaluateSecurityChainDualControlGuard({
   const bypassed = Boolean(safeChainGuard.bypassed) || isSecurityControlMutationGuardBypassActor(actorId, actorRole);
   const required = enabled && compromised && confirmOverride && !bypassed;
   const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
-  if (!required) {
-    return {
+  const trackAttempt = ({
+    reason = "",
+    approverId = "",
+    approverRole = "",
+    approvalId = "",
+    approved = false
+  } = {}) => {
+    registerSecurityChainDualControlAttempt({
+      actorId,
+      actorRole,
+      actorKey,
+      approverId,
+      approverRole,
+      approvalId,
+      operation,
+      method,
+      path,
+      reason,
+      required: true,
+      approved: Boolean(approved)
+    });
+  };
+  const allow = (payload = {}) => {
+    const result = {
       allowed: true,
       enabled,
-      required: false,
+      required,
       bypassed,
       approved: false,
+      reason: "chain-dual-control-allow",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      approverId: "",
+      approverRole: "",
+      approvalId: "",
+      confirmOverride,
+      compromised,
+      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
+      secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
+      ...payload
+    };
+    if (required) {
+      trackAttempt({
+        reason: text(result.reason),
+        approverId: text(result.approverId),
+        approverRole: text(result.approverRole),
+        approvalId: text(result.approvalId),
+        approved: Boolean(result.approved)
+      });
+    }
+    return result;
+  };
+  const deny = (reason = "", payload = {}) => {
+    const result = {
+      allowed: false,
+      enabled: true,
+      required: true,
+      bypassed: false,
+      approved: false,
+      reason: text(reason),
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      approverId: "",
+      approverRole: "",
+      approvalId: "",
+      confirmOverride,
+      compromised: true,
+      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
+      secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
+      ...payload
+    };
+    if (result.reason !== "chain-dual-control-attempt-actor-temporary-block") {
+      trackAttempt({
+        reason: text(result.reason),
+        approverId: text(result.approverId),
+        approverRole: text(result.approverRole),
+        approvalId: text(result.approvalId),
+        approved: false
+      });
+    }
+    return result;
+  };
+  if (!required) {
+    return allow({
+      required: false,
       reason: !enabled
         ? "chain-dual-control-disabled"
         : (bypassed
           ? "chain-dual-control-system-bypass"
-          : (!compromised ? "chain-dual-control-not-compromised" : "chain-dual-control-not-requested")),
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+          : (!compromised ? "chain-dual-control-not-compromised" : "chain-dual-control-not-requested"))
+    });
+  }
+
+  const attemptGuard = evaluateSecurityChainDualControlAttemptGuard({
+    actorId,
+    actorRole,
+    operation,
+    method,
+    path,
+    required: true
+  });
+  if (!attemptGuard.allowed) {
+    return deny(text(attemptGuard.reason), {
       approverId: "",
       approverRole: "",
       approvalId: "",
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0
-    };
+      blockUntilTs: Number(attemptGuard.blockUntilTs || 0),
+      retryAfterMs: Math.max(0, Number(attemptGuard.retryAfterMs || 0)),
+      windowFailureCount: Math.max(0, Number(attemptGuard.windowFailureCount || 0)),
+      minIntervalMs: Math.max(0, Number(attemptGuard.minIntervalMs || 0)),
+      maxFailures: Math.max(0, Number(attemptGuard.maxFailures || 0)),
+      windowMinutes: Math.max(1, Number(attemptGuard.windowMinutes || 0))
+    });
   }
 
   if (!SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-secret-missing",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
-      approverId: "",
-      approverRole: "",
-      approvalId: "",
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
+    return deny("chain-dual-control-secret-missing", {
       secretConfigured: false
-    };
+    });
   }
 
   const approval = normalizeSecurityChainDualControlApproval(chainOverrideApproval);
+  const approverRole = text(approval.approverRole).toLowerCase();
   if (!approval.approverId) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-approver-missing",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
-      approverId: "",
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+    return deny("chain-dual-control-approver-missing", {
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
+  }
+  if (!approverRole || !SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES.has(approverRole)) {
+    return deny("chain-dual-control-approver-role-invalid", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (!approval.approvalId) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-approval-id-missing",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-approval-id-missing", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: "",
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole
+    });
   }
   if (!ADMIN_SIGNATURE_NONCE_PATTERN.test(approval.approvalId)) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-approval-id-invalid",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-approval-id-invalid", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (!approval.issuedAtSec) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-issued-at-missing",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-issued-at-missing", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (!approval.expiresAtSec) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-expiry-missing",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-expiry-missing", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (approval.expiresAtSec <= approval.issuedAtSec) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-invalid-time-window",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-invalid-time-window", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (approval.expiresAtSec - approval.issuedAtSec > SECURITY_CHAIN_DUAL_CONTROL_MAX_TTL_SEC) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-ttl-too-long",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-ttl-too-long", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (!approval.signature) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-signature-missing",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-signature-missing", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (!/^[a-f0-9]{64}$/i.test(approval.signature)) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-signature-invalid-format",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-signature-invalid-format", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (
     SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER &&
     text(actorId).toLowerCase() &&
     text(actorId).toLowerCase() === text(approval.approverId).toLowerCase()
   ) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-same-approver-blocked",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-same-approver-blocked", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
 
   const nowSec = Math.floor(Date.now() / 1000);
   if (approval.issuedAtSec > nowSec + SECURITY_CHAIN_DUAL_CONTROL_MAX_CLOCK_SKEW_SEC) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-issued-at-in-future",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-issued-at-in-future", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
   if (approval.expiresAtSec + SECURITY_CHAIN_DUAL_CONTROL_MAX_CLOCK_SKEW_SEC < nowSec) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-expired",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-expired", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
 
   const nowTs = Date.now();
   pruneSecurityChainDualControlApprovals(nowTs);
   const existingApproval = proSecurityChainDualControlApprovals.get(approval.approvalId);
   if (existingApproval && Number(existingApproval?.expiresAt || 0) > nowTs) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-approval-replay-detected",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-approval-replay-detected", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
 
   const signaturePayload = {
@@ -3243,7 +3427,7 @@ function evaluateSecurityChainDualControlGuard({
     actorId,
     actorRole,
     approverId: approval.approverId,
-    approverRole: approval.approverRole,
+    approverRole,
     approvalId: approval.approvalId,
     issuedAtSec: approval.issuedAtSec,
     expiresAtSec: approval.expiresAtSec,
@@ -3264,25 +3448,11 @@ function evaluateSecurityChainDualControlGuard({
     }
   }
   if (matchedSecretIndex < 0) {
-    return {
-      allowed: false,
-      enabled: true,
-      required: true,
-      bypassed: false,
-      approved: false,
-      reason: "chain-dual-control-signature-mismatch",
-      actorKey,
-      operation: text(operation),
-      method: text(method).toUpperCase(),
-      path: text(path),
+    return deny("chain-dual-control-signature-mismatch", {
       approverId: text(approval.approverId),
-      approverRole: text(approval.approverRole),
-      approvalId: text(approval.approvalId),
-      confirmOverride,
-      compromised,
-      distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
-      secretConfigured: true
-    };
+      approverRole,
+      approvalId: text(approval.approvalId)
+    });
   }
 
   const secretSlot = matchedSecretIndex === 0 ? "primary" : "secondary";
@@ -3292,7 +3462,7 @@ function evaluateSecurityChainDualControlGuard({
     actorId: text(actorId),
     actorRole: text(actorRole),
     approverId: text(approval.approverId),
-    approverRole: text(approval.approverRole),
+    approverRole,
     operation: text(operation),
     method: text(method).toUpperCase(),
     path: text(path),
@@ -3300,27 +3470,19 @@ function evaluateSecurityChainDualControlGuard({
   });
   pruneSecurityChainDualControlApprovals(nowTs);
 
-  return {
-    allowed: true,
+  return allow({
     enabled: true,
     required: true,
     bypassed: false,
     approved: true,
     reason: "chain-dual-control-approved",
-    actorKey,
-    operation: text(operation),
-    method: text(method).toUpperCase(),
-    path: text(path),
     approverId: text(approval.approverId),
-    approverRole: text(approval.approverRole),
+    approverRole,
     approvalId: text(approval.approvalId),
     approvalReason: text(approval.reason),
-    confirmOverride,
-    compromised,
-    distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
     secretConfigured: true,
     secretSlot
-  };
+  });
 }
 
 function evaluateSecurityChainEnforcementGuard({
@@ -3424,6 +3586,7 @@ function getSecurityChainEnforcementGuardStatus() {
     threatLimit: 500
   });
   pruneSecurityChainDualControlApprovals(Date.now());
+  const dualControlAttemptGuard = getSecurityChainDualControlAttemptGuardStatus(Date.now());
   const latest = proSecurityChainGuardEvents[0] || null;
   const latestDualControl = proSecurityChainDualControlEvents[0] || null;
   return {
@@ -3458,6 +3621,24 @@ function getSecurityChainEnforcementGuardStatus() {
     dualControlLatestBlockedAt: proLastSecurityChainDualControlBlockAt
       ? new Date(proLastSecurityChainDualControlBlockAt).toISOString()
       : "",
+    dualControlAttemptWindowMinutes: Math.max(1, Number(dualControlAttemptGuard?.windowMinutes || 0)),
+    dualControlAttemptMaxFailures: Math.max(0, Number(dualControlAttemptGuard?.maxFailures || 0)),
+    dualControlAttemptMinIntervalSec: Math.max(0, Number(dualControlAttemptGuard?.minIntervalSec || 0)),
+    dualControlAttemptBlockDurationMinutes: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.blockDurationMinutes || 0)
+    ),
+    dualControlAttemptRecentAttempts: Math.max(0, Number(dualControlAttemptGuard?.recentAttemptCount || 0)),
+    dualControlAttemptRecentFailures: Math.max(0, Number(dualControlAttemptGuard?.recentFailureCount || 0)),
+    dualControlAttemptActiveBlocks: Math.max(0, Number(dualControlAttemptGuard?.activeBlockCount || 0)),
+    dualControlAttemptTrackedActors: Math.max(0, Number(dualControlAttemptGuard?.trackedActorCount || 0)),
+    dualControlAttemptLatestAt: text(dualControlAttemptGuard?.latestAttemptAt),
+    dualControlAttemptLatestReason: text(dualControlAttemptGuard?.latestAttemptReason),
+    dualControlAttemptLatestActor: text(dualControlAttemptGuard?.latestAttemptActor),
+    dualControlAttemptLatestBlockAt: text(dualControlAttemptGuard?.latestBlockAt),
+    dualControlAttemptLatestBlockReason: text(dualControlAttemptGuard?.latestBlockReason),
+    dualControlAttemptLatestBlockActor: text(dualControlAttemptGuard?.latestBlockActor),
+    dualControlAttemptLatestBlockUntil: text(dualControlAttemptGuard?.latestBlockUntil),
     chainIntegrity
   };
 }
@@ -9409,6 +9590,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     ),
     recentSecurityChainGuardEvents: proSecurityChainGuardEvents.slice(0, Math.min(100, safeLimit)),
     recentSecurityChainDualControlEvents: proSecurityChainDualControlEvents.slice(0, Math.min(100, safeLimit)),
+    recentSecurityChainDualControlAttempts: proSecurityChainDualControlAttempts.slice(0, Math.min(100, safeLimit)),
     activeIdentityProtections,
     activeSubjectProtections,
     chainIntegrity,
@@ -9606,6 +9788,51 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityChainDualControlLastApproverId: text(chainEnforcementGuardStatus?.dualControlLatestApproverId),
       securityChainDualControlLastApprovalId: text(chainEnforcementGuardStatus?.dualControlLatestApprovalId),
       securityChainDualControlLastBlockedAt: text(chainEnforcementGuardStatus?.dualControlLatestBlockedAt),
+      securityChainDualControlAttemptWindowMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptWindowMinutes || 0)
+      ),
+      securityChainDualControlAttemptMaxFailures: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptMaxFailures || 0)
+      ),
+      securityChainDualControlAttemptMinIntervalSec: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptMinIntervalSec || 0)
+      ),
+      securityChainDualControlAttemptBlockDurationMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptBlockDurationMinutes || 0)
+      ),
+      securityChainDualControlAttemptRecentAttempts: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptRecentAttempts || 0)
+      ),
+      securityChainDualControlAttemptRecentFailures: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptRecentFailures || 0)
+      ),
+      securityChainDualControlAttemptActiveBlocks: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptActiveBlocks || 0)
+      ),
+      securityChainDualControlAttemptTrackedActors: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlAttemptTrackedActors || 0)
+      ),
+      securityChainDualControlAttemptLastAt: text(chainEnforcementGuardStatus?.dualControlAttemptLatestAt),
+      securityChainDualControlAttemptLastReason: text(chainEnforcementGuardStatus?.dualControlAttemptLatestReason),
+      securityChainDualControlAttemptLastActor: text(chainEnforcementGuardStatus?.dualControlAttemptLatestActor),
+      securityChainDualControlAttemptLastBlockAt: text(chainEnforcementGuardStatus?.dualControlAttemptLatestBlockAt),
+      securityChainDualControlAttemptLastBlockReason: text(
+        chainEnforcementGuardStatus?.dualControlAttemptLatestBlockReason
+      ),
+      securityChainDualControlAttemptLastBlockActor: text(
+        chainEnforcementGuardStatus?.dualControlAttemptLatestBlockActor
+      ),
+      securityChainDualControlAttemptLastBlockUntil: text(
+        chainEnforcementGuardStatus?.dualControlAttemptLatestBlockUntil
+      ),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
