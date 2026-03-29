@@ -30,6 +30,7 @@ const proAdminMutationSignatureNonces = new Map();
 const proSecurityControlMutationEvents = [];
 const proSecurityControlMutationBlocks = new Map();
 const proSecurityControlDowngradeGuardEvents = [];
+const proSecurityChainGuardEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -39,6 +40,7 @@ let proAdminMutationShieldUntil = 0;
 let proLastAdminMutationShieldAppliedAt = 0;
 let proLastSecurityControlMutationBlockAt = 0;
 let proLastSecurityControlDowngradeBlockAt = 0;
+let proLastSecurityChainGuardBlockAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -88,6 +90,12 @@ const SECURITY_CONTROL_DOWNGRADE_GUARD_EVENT_MAX_ITEMS = Math.max(
 );
 const SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED =
   String(process.env.SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CHAIN_GUARD_EVENT_MAX_ITEMS = Math.max(
+  100,
+  Number(process.env.SECURITY_CHAIN_GUARD_EVENT_MAX_ITEMS || 800)
+);
+const SECURITY_CHAIN_ENFORCEMENT_ENABLED =
+  String(process.env.SECURITY_CHAIN_ENFORCEMENT_ENABLED || "true").trim().toLowerCase() !== "false";
 const SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED =
   String(process.env.SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED || "true").trim().toLowerCase() !== "false";
 const SECURITY_CONTROL_STATE_ALLOW_SYMLINKS =
@@ -746,7 +754,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoSubjectSessionShield: true,
         autoSubjectNetworkShield: true,
         autoAdminMutationShield: true,
-        securityControlDowngradeGuard: true
+        securityControlDowngradeGuard: true,
+        securityChainEnforcementGuard: true
       }
     }
   },
@@ -861,7 +870,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoSubjectSessionShield: true,
         autoSubjectNetworkShield: true,
         autoAdminMutationShield: true,
-        securityControlDowngradeGuard: true
+        securityControlDowngradeGuard: true,
+        securityChainEnforcementGuard: true
       }
     }
   },
@@ -976,7 +986,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoSubjectSessionShield: true,
         autoSubjectNetworkShield: true,
         autoAdminMutationShield: true,
-        securityControlDowngradeGuard: true
+        securityControlDowngradeGuard: true,
+        securityChainEnforcementGuard: true
       }
     }
   }
@@ -1281,7 +1292,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoSubjectSessionShield: true,
     autoSubjectNetworkShield: true,
     autoAdminMutationShield: true,
-    securityControlDowngradeGuard: SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED
+    securityControlDowngradeGuard: SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED,
+    securityChainEnforcementGuard: SECURITY_CHAIN_ENFORCEMENT_ENABLED
   },
   lists: {
     blockedIps: [],
@@ -2679,6 +2691,150 @@ export function getProSecurityChainIntegrityStatus(
   };
 }
 
+function pushSecurityChainGuardEvent(event = {}) {
+  const row = {
+    id: `sec-chain-guard-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    actorId: text(event.actorId),
+    actorRole: text(event.actorRole),
+    actorKey: text(event.actorKey),
+    operation: text(event.operation),
+    method: text(event.method).toUpperCase(),
+    path: text(event.path),
+    blocked: Boolean(event.blocked),
+    reason: text(event.reason),
+    confirmOverride: Boolean(event.confirmOverride),
+    auditReason: text(event.auditReason),
+    threatReason: text(event.threatReason)
+  };
+  proSecurityChainGuardEvents.unshift(row);
+  if (proSecurityChainGuardEvents.length > SECURITY_CHAIN_GUARD_EVENT_MAX_ITEMS) {
+    proSecurityChainGuardEvents.length = SECURITY_CHAIN_GUARD_EVENT_MAX_ITEMS;
+  }
+  if (row.blocked) {
+    proLastSecurityChainGuardBlockAt = Date.now();
+  }
+  return row;
+}
+
+function evaluateSecurityChainEnforcementGuard({
+  actorId = "",
+  actorRole = "",
+  confirmChainIntegrityOverride = false,
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control"
+} = {}) {
+  const adminControls = currentSecurityAdminControls();
+  const enabled = toBoolean(
+    adminControls?.securityChainEnforcementGuard,
+    SECURITY_CHAIN_ENFORCEMENT_ENABLED
+  );
+  const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
+  const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
+  const chainIntegrity = getProSecurityChainIntegrityStatus({
+    auditLimit: 500,
+    threatLimit: 500
+  });
+  const auditValid = Boolean(chainIntegrity?.audit?.valid);
+  const threatValid = Boolean(chainIntegrity?.threat?.valid);
+  const compromised = !auditValid || !threatValid;
+
+  if (!enabled || bypassed) {
+    return {
+      allowed: true,
+      enabled,
+      bypassed,
+      compromised,
+      confirmOverride: false,
+      reason: !enabled ? "chain-enforcement-disabled" : "chain-enforcement-system-bypass",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      auditReason: text(chainIntegrity?.audit?.reason),
+      threatReason: text(chainIntegrity?.threat?.reason),
+      chainIntegrity
+    };
+  }
+
+  if (!compromised) {
+    return {
+      allowed: true,
+      enabled: true,
+      bypassed: false,
+      compromised: false,
+      confirmOverride: false,
+      reason: "chain-enforcement-allow",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      auditReason: text(chainIntegrity?.audit?.reason),
+      threatReason: text(chainIntegrity?.threat?.reason),
+      chainIntegrity
+    };
+  }
+
+  const confirmed = toBoolean(confirmChainIntegrityOverride, false);
+  if (confirmed) {
+    return {
+      allowed: true,
+      enabled: true,
+      bypassed: false,
+      compromised: true,
+      confirmOverride: true,
+      reason: "chain-enforcement-confirmed-override",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      auditReason: text(chainIntegrity?.audit?.reason),
+      threatReason: text(chainIntegrity?.threat?.reason),
+      chainIntegrity
+    };
+  }
+
+  return {
+    allowed: false,
+    enabled: true,
+    bypassed: false,
+    compromised: true,
+    confirmOverride: false,
+    reason: "chain-integrity-compromised-blocked",
+    actorKey,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    auditReason: text(chainIntegrity?.audit?.reason),
+    threatReason: text(chainIntegrity?.threat?.reason),
+    chainIntegrity
+  };
+}
+
+function getSecurityChainEnforcementGuardStatus() {
+  const chainIntegrity = getProSecurityChainIntegrityStatus({
+    auditLimit: 500,
+    threatLimit: 500
+  });
+  const latest = proSecurityChainGuardEvents[0] || null;
+  return {
+    enabled: toBoolean(
+      currentSecurityAdminControls()?.securityChainEnforcementGuard,
+      SECURITY_CHAIN_ENFORCEMENT_ENABLED
+    ),
+    compromised: !Boolean(chainIntegrity?.audit?.valid) || !Boolean(chainIntegrity?.threat?.valid),
+    totalEvents: proSecurityChainGuardEvents.length,
+    blockedEvents: proSecurityChainGuardEvents.filter((item) => Boolean(item?.blocked)).length,
+    latestEventAt: text(latest?.at),
+    latestEventReason: text(latest?.reason),
+    latestBlockedAt: proLastSecurityChainGuardBlockAt
+      ? new Date(proLastSecurityChainGuardBlockAt).toISOString()
+      : "",
+    chainIntegrity
+  };
+}
+
 function decodeBase64UrlToText(value = "") {
   const normalized = String(value || "")
     .replace(/-/g, "+")
@@ -3270,7 +3426,8 @@ function evaluateSecurityControlDowngradeGuard({
     "actionKeyEnforced",
     "adminMutationSignatureEnforced",
     "securityControlMutationGuard",
-    "securityControlDowngradeGuard"
+    "securityControlDowngradeGuard",
+    "securityChainEnforcementGuard"
   ];
   const disabledCriticalModules = criticalModuleKeys.filter(
     (key) => toBoolean(currentModules[key], false) && !toBoolean(nextModules[key], false)
@@ -3413,6 +3570,7 @@ export function getProSecurityControlPersistenceStatus() {
   const latestValidSnapshot = findLatestValidSecurityControlStateSnapshot(target);
   const activeLoad = loadSecurityControlStatePayloadWithSnapshotFallback(target);
   const mutationGuard = getSecurityControlMutationGuardStatus();
+  const chainEnforcementGuardStatus = getSecurityChainEnforcementGuardStatus();
   const chainIntegrity = getProSecurityChainIntegrityStatus({
     auditLimit: 300,
     threatLimit: 300
@@ -3461,6 +3619,7 @@ export function getProSecurityControlPersistenceStatus() {
           : null
     },
     mutationGuard,
+    chainEnforcementGuard: chainEnforcementGuardStatus,
     downgradeGuard: {
       enabled: toBoolean(currentSecurityAdminControls()?.securityControlDowngradeGuard, SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED),
       totalEvents: proSecurityControlDowngradeGuardEvents.length,
@@ -3519,7 +3678,8 @@ export function getProSecurityControlPersistenceStatus() {
 
 export function restoreProSecurityControlStateFromDisk({
   actorId = "system",
-  actorRole = "system"
+  actorRole = "system",
+  confirmChainIntegrityOverride = false
 } = {}) {
   const warnings = [];
   const guard = evaluateSecurityControlMutationGuard({
@@ -3554,9 +3714,88 @@ export function restoreProSecurityControlStateFromDisk({
       restored: false,
       blocked: true,
       guard,
+      chainGuard: null,
       state: getProSecurityControlState(),
       warnings
     };
+  }
+  const chainGuard = evaluateSecurityChainEnforcementGuard({
+    actorId,
+    actorRole,
+    confirmChainIntegrityOverride,
+    operation: "security-control-restore",
+    method: "POST",
+    path: "/api/system/security-control/restore"
+  });
+  if (!chainGuard.allowed) {
+    warnings.push(
+      `Security chain integrity compromised (${text(chainGuard.auditReason)} / ${text(
+        chainGuard.threatReason
+      )}). Restore blocked until explicit chain override.`
+    );
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-restore-chain-enforcement-blocked",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(chainGuard.reason),
+        auditReason: text(chainGuard.auditReason),
+        threatReason: text(chainGuard.threatReason)
+      }
+    });
+    pushSecurityChainGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(chainGuard.actorKey),
+      operation: "security-control-restore",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      blocked: true,
+      reason: text(chainGuard.reason),
+      confirmOverride: false,
+      auditReason: text(chainGuard.auditReason),
+      threatReason: text(chainGuard.threatReason)
+    });
+    return {
+      restored: false,
+      blocked: true,
+      guard: chainGuard,
+      chainGuard,
+      state: getProSecurityControlState(),
+      warnings
+    };
+  }
+  if (chainGuard.compromised && chainGuard.confirmOverride) {
+    warnings.push("Security chain integrity override accepted for restore operation.");
+    pushSecurityAuditEventInternal({
+      severity: "high",
+      type: "security-control-restore-chain-enforcement-confirmed-override",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(chainGuard.reason),
+        auditReason: text(chainGuard.auditReason),
+        threatReason: text(chainGuard.threatReason)
+      }
+    });
+    pushSecurityChainGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(chainGuard.actorKey),
+      operation: "security-control-restore",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      blocked: false,
+      reason: text(chainGuard.reason),
+      confirmOverride: true,
+      auditReason: text(chainGuard.auditReason),
+      threatReason: text(chainGuard.threatReason)
+    });
   }
 
   const loadResult = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
@@ -3583,6 +3822,7 @@ export function restoreProSecurityControlStateFromDisk({
       restored: false,
       blocked: false,
       guard,
+      chainGuard,
       state: getProSecurityControlState(),
       warnings: warnings.length
         ? warnings
@@ -3654,6 +3894,8 @@ export function restoreProSecurityControlStateFromDisk({
     actorId,
     actorRole,
     enforceMutationGuard: false,
+    enforceChainGuard: false,
+    confirmChainIntegrityOverride: true,
     confirmHighRiskDowngrade: true,
     mutationOperation: "security-control-restore-apply",
     mutationMethod: "POST",
@@ -3672,6 +3914,7 @@ export function restoreProSecurityControlStateFromDisk({
     restored: true,
     blocked: false,
     guard,
+    chainGuard,
     state: result.state,
     warnings: [
       ...warnings,
@@ -3682,7 +3925,8 @@ export function restoreProSecurityControlStateFromDisk({
 
 export function resetProSecurityControlState({
   actorId = "",
-  actorRole = ""
+  actorRole = "",
+  confirmChainIntegrityOverride = false
 } = {}) {
   const warnings = [];
   const guard = evaluateSecurityControlMutationGuard({
@@ -3717,8 +3961,86 @@ export function resetProSecurityControlState({
       state: getProSecurityControlState(),
       warnings,
       blocked: true,
-      guard
+      guard,
+      chainGuard: null
     };
+  }
+  const chainGuard = evaluateSecurityChainEnforcementGuard({
+    actorId,
+    actorRole,
+    confirmChainIntegrityOverride,
+    operation: "security-control-reset",
+    method: "POST",
+    path: "/api/system/security-control/reset"
+  });
+  if (!chainGuard.allowed) {
+    warnings.push(
+      `Security chain integrity compromised (${text(chainGuard.auditReason)} / ${text(
+        chainGuard.threatReason
+      )}). Reset blocked until explicit chain override.`
+    );
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-reset-chain-enforcement-blocked",
+      method: "POST",
+      path: "/api/system/security-control/reset",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(chainGuard.reason),
+        auditReason: text(chainGuard.auditReason),
+        threatReason: text(chainGuard.threatReason)
+      }
+    });
+    pushSecurityChainGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(chainGuard.actorKey),
+      operation: "security-control-reset",
+      method: "POST",
+      path: "/api/system/security-control/reset",
+      blocked: true,
+      reason: text(chainGuard.reason),
+      confirmOverride: false,
+      auditReason: text(chainGuard.auditReason),
+      threatReason: text(chainGuard.threatReason)
+    });
+    return {
+      state: getProSecurityControlState(),
+      warnings,
+      blocked: true,
+      guard: chainGuard,
+      chainGuard
+    };
+  }
+  if (chainGuard.compromised && chainGuard.confirmOverride) {
+    warnings.push("Security chain integrity override accepted for reset operation.");
+    pushSecurityAuditEventInternal({
+      severity: "high",
+      type: "security-control-reset-chain-enforcement-confirmed-override",
+      method: "POST",
+      path: "/api/system/security-control/reset",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(chainGuard.reason),
+        auditReason: text(chainGuard.auditReason),
+        threatReason: text(chainGuard.threatReason)
+      }
+    });
+    pushSecurityChainGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(chainGuard.actorKey),
+      operation: "security-control-reset",
+      method: "POST",
+      path: "/api/system/security-control/reset",
+      blocked: false,
+      reason: text(chainGuard.reason),
+      confirmOverride: true,
+      auditReason: text(chainGuard.auditReason),
+      threatReason: text(chainGuard.threatReason)
+    });
   }
   const next = cloneSecurityControlState(DEFAULT_PRO_SECURITY_CONTROL_STATE);
   next.meta = {
@@ -3759,7 +4081,8 @@ export function resetProSecurityControlState({
     state: getProSecurityControlState(),
     warnings,
     blocked: false,
-    guard
+    guard,
+    chainGuard
   };
 }
 
@@ -3769,6 +4092,8 @@ export function updateProSecurityControlState(
     actorId = "",
     actorRole = "",
     enforceMutationGuard = true,
+    enforceChainGuard = true,
+    confirmChainIntegrityOverride = false,
     confirmHighRiskDowngrade = false,
     mutationOperation = "security-control-update",
     mutationMethod = "PATCH",
@@ -3818,6 +4143,7 @@ export function updateProSecurityControlState(
       warnings,
       blocked: true,
       guard,
+      chainGuard: null,
       downgradeGuard: null
     };
   }
@@ -3827,8 +4153,108 @@ export function updateProSecurityControlState(
       warnings: ["Invalid patch payload. Existing security control state returned."],
       blocked: false,
       guard,
+      chainGuard: null,
       downgradeGuard: null
     };
+  }
+
+  const chainGuard = enforceChainGuard
+    ? evaluateSecurityChainEnforcementGuard({
+      actorId,
+      actorRole,
+      confirmChainIntegrityOverride,
+      operation: mutationOperation,
+      method: mutationMethod,
+      path: mutationPath
+    })
+    : {
+      allowed: true,
+      enabled: false,
+      bypassed: true,
+      compromised: false,
+      confirmOverride: false,
+      reason: "chain-enforcement-explicit-bypass",
+      actorKey: resolveSecurityControlMutationActorKey(actorId, actorRole),
+      operation: text(mutationOperation),
+      method: text(mutationMethod).toUpperCase(),
+      path: text(mutationPath),
+      auditReason: "",
+      threatReason: "",
+      chainIntegrity: null
+    };
+  if (enforceChainGuard && !chainGuard.allowed) {
+    warnings.push(
+      `Security chain integrity compromised (${text(chainGuard.auditReason)} / ${text(
+        chainGuard.threatReason
+      )}). Change blocked until explicit chain override.`
+    );
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-chain-enforcement-blocked",
+      method: text(mutationMethod, "PATCH"),
+      path: text(mutationPath, "/api/system/security-control"),
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        operation: text(mutationOperation),
+        reason: text(chainGuard.reason),
+        auditReason: text(chainGuard.auditReason),
+        threatReason: text(chainGuard.threatReason)
+      }
+    });
+    pushSecurityChainGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(chainGuard.actorKey),
+      operation: text(mutationOperation),
+      method: text(mutationMethod),
+      path: text(mutationPath),
+      blocked: true,
+      reason: text(chainGuard.reason),
+      confirmOverride: false,
+      auditReason: text(chainGuard.auditReason),
+      threatReason: text(chainGuard.threatReason)
+    });
+    return {
+      state: getProSecurityControlState(),
+      warnings,
+      blocked: true,
+      guard,
+      chainGuard,
+      downgradeGuard: null
+    };
+  }
+  if (chainGuard.compromised && chainGuard.confirmOverride) {
+    warnings.push(
+      "Security chain integrity override accepted via explicit break-glass confirm. Audit trail recorded."
+    );
+    pushSecurityAuditEventInternal({
+      severity: "high",
+      type: "security-control-chain-enforcement-confirmed-override",
+      method: text(mutationMethod, "PATCH"),
+      path: text(mutationPath, "/api/system/security-control"),
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        operation: text(mutationOperation),
+        reason: text(chainGuard.reason),
+        auditReason: text(chainGuard.auditReason),
+        threatReason: text(chainGuard.threatReason)
+      }
+    });
+    pushSecurityChainGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(chainGuard.actorKey),
+      operation: text(mutationOperation),
+      method: text(mutationMethod),
+      path: text(mutationPath),
+      blocked: false,
+      reason: text(chainGuard.reason),
+      confirmOverride: true,
+      auditReason: text(chainGuard.auditReason),
+      threatReason: text(chainGuard.threatReason)
+    });
   }
 
   const next = cloneSecurityControlState(proSecurityControlState);
@@ -4582,6 +5008,12 @@ export function updateProSecurityControlState(
         Boolean(next.adminControls.securityControlDowngradeGuard)
       );
     }
+    if (typeof patch.adminControls.securityChainEnforcementGuard !== "undefined") {
+      next.adminControls.securityChainEnforcementGuard = toBoolean(
+        patch.adminControls.securityChainEnforcementGuard,
+        Boolean(next.adminControls.securityChainEnforcementGuard)
+      );
+    }
   }
 
   if (patch.lists && typeof patch.lists === "object" && !Array.isArray(patch.lists)) {
@@ -4700,6 +5132,7 @@ export function updateProSecurityControlState(
       warnings,
       blocked: true,
       guard: downgradeGuard,
+      chainGuard,
       downgradeGuard
     };
   }
@@ -4787,6 +5220,7 @@ export function updateProSecurityControlState(
     warnings,
     blocked: false,
     guard,
+    chainGuard,
     downgradeGuard
   };
 }
@@ -4796,6 +5230,7 @@ export function applyProSecurityControlProfile(
   {
     actorId = "",
     actorRole = "",
+    confirmChainIntegrityOverride = false,
     confirmHighRiskDowngrade = false
   } = {}
 ) {
@@ -4813,6 +5248,7 @@ export function applyProSecurityControlProfile(
   const result = updateProSecurityControlState(profile.patch, {
     actorId,
     actorRole,
+    confirmChainIntegrityOverride,
     confirmHighRiskDowngrade,
     mutationOperation: "security-control-profile-apply",
     mutationMethod: "POST",
@@ -4826,6 +5262,9 @@ export function applyProSecurityControlProfile(
       state: result.state,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+        ? result.chainGuard
+        : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
         : null
@@ -4851,6 +5290,9 @@ export function applyProSecurityControlProfile(
     state: result.state,
     warnings,
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+      ? result.chainGuard
+      : null,
     downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
       ? result.downgradeGuard
       : null
@@ -7767,6 +8209,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const controlBackupLatestValid = findLatestValidSecurityControlStateSnapshot(SECURITY_CONTROL_STATE_FILE);
   const controlPersistenceLoad = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
   const controlMutationGuardStatus = getSecurityControlMutationGuardStatus();
+  const chainEnforcementGuardStatus = getSecurityChainEnforcementGuardStatus();
   const chainIntegrity = getProSecurityChainIntegrityStatus({
     auditLimit: Math.min(500, safeLimit),
     threatLimit: Math.min(500, safeLimit)
@@ -7895,6 +8338,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       0,
       Math.min(100, safeLimit)
     ),
+    recentSecurityChainGuardEvents: proSecurityChainGuardEvents.slice(0, Math.min(100, safeLimit)),
     activeIdentityProtections,
     activeSubjectProtections,
     chainIntegrity,
@@ -8057,6 +8501,16 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlDowngradeGuardLastBlockedAt: proLastSecurityControlDowngradeBlockAt
         ? new Date(proLastSecurityControlDowngradeBlockAt).toISOString()
         : "",
+      securityChainEnforcementGuardEnabled: Boolean(chainEnforcementGuardStatus?.enabled),
+      securityChainEnforcementCompromised: Boolean(chainEnforcementGuardStatus?.compromised),
+      securityChainEnforcementEvents: Math.max(0, Number(chainEnforcementGuardStatus?.totalEvents || 0)),
+      securityChainEnforcementBlockedEvents: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.blockedEvents || 0)
+      ),
+      securityChainEnforcementLastEventAt: text(chainEnforcementGuardStatus?.latestEventAt),
+      securityChainEnforcementLastEventReason: text(chainEnforcementGuardStatus?.latestEventReason),
+      securityChainEnforcementLastBlockedAt: text(chainEnforcementGuardStatus?.latestBlockedAt),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,

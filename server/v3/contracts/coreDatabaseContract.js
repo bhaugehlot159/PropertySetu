@@ -223,7 +223,8 @@ export const coreSystemsBlueprint = [
       "Security-control mutation abuse guard: rapid admin update/reset/restore/profile actions auto-throttled with temporary actor block",
       "Filesystem path hardening for security-control persistence: allowed-root enforcement plus symlink path rejection",
       "High-risk security downgrade guard: critical module/control weakening blocked unless explicit break-glass confirm",
-      "Runtime hash-chain integrity verification for audit and threat incident streams with mismatch telemetry"
+      "Runtime hash-chain integrity verification for audit and threat incident streams with mismatch telemetry",
+      "Chain-enforcement guard: security-control mutations blocked while chain integrity is compromised unless explicit chain break-glass confirm"
     ],
     endpoints: [
       "/api/v3/auth/*",

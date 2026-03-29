@@ -528,6 +528,10 @@ router.patch(
     const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? req.body
       : {};
+    const confirmChainIntegrityOverride = toBoolean(
+      body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
+      false
+    );
     const confirmHighRiskDowngrade = toBoolean(
       body.confirmHighRiskDowngrade || body.breakGlass || body.confirmHighRiskChange,
       false
@@ -538,6 +542,7 @@ router.patch(
     const result = updateProSecurityControlState(patch, {
       actorId: actor.id,
       actorRole: actor.role,
+      confirmChainIntegrityOverride,
       confirmHighRiskDowngrade
     });
     if (result.blocked) {
@@ -550,6 +555,9 @@ router.patch(
         },
         warnings: Array.isArray(result.warnings) ? result.warnings : [],
         guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+        chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+          ? result.chainGuard
+          : null,
         downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
           ? result.downgradeGuard
           : null,
@@ -566,6 +574,9 @@ router.patch(
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+        ? result.chainGuard
+        : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
         : null,
@@ -618,6 +629,10 @@ router.post(
   (req, res) => {
     const actor = req.bridgeActor;
     const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+    const confirmChainIntegrityOverride = toBoolean(
+      req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+      false
+    );
     const confirmHighRiskDowngrade = toBoolean(
       req.body?.confirmHighRiskDowngrade || req.body?.breakGlass || req.body?.confirmHighRiskChange,
       false
@@ -625,6 +640,7 @@ router.post(
     const result = applyProSecurityControlProfile(profileId, {
       actorId: actor.id,
       actorRole: actor.role,
+      confirmChainIntegrityOverride,
       confirmHighRiskDowngrade
     });
     const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
@@ -638,6 +654,9 @@ router.post(
       profileId: result.profileId,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+        ? result.chainGuard
+        : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
         : null,
@@ -653,9 +672,14 @@ router.post(
   bridgeAdminActionLimiter,
   (req, res) => {
     const actor = req.bridgeActor;
+    const confirmChainIntegrityOverride = toBoolean(
+      req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+      false
+    );
     const result = restoreProSecurityControlStateFromDisk({
       actorId: actor.id,
-      actorRole: actor.role
+      actorRole: actor.role,
+      confirmChainIntegrityOverride
     });
     const statusCode = result.blocked ? 429 : (result.restored ? 200 : 404);
     return res.status(statusCode).json({
@@ -667,6 +691,9 @@ router.post(
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+        ? result.chainGuard
+        : null,
       state: result.state
     });
   }
@@ -679,9 +706,14 @@ router.post(
   bridgeAdminActionLimiter,
   (req, res) => {
     const actor = req.bridgeActor;
+    const confirmChainIntegrityOverride = toBoolean(
+      req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+      false
+    );
     const result = resetProSecurityControlState({
       actorId: actor.id,
-      actorRole: actor.role
+      actorRole: actor.role,
+      confirmChainIntegrityOverride
     });
     const statusCode = result.blocked ? 429 : 200;
     return res.status(statusCode).json({
@@ -693,6 +725,9 @@ router.post(
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+        ? result.chainGuard
+        : null,
       state: result.state
     });
   }

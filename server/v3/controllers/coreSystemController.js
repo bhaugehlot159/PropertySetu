@@ -595,6 +595,10 @@ export function updateCoreSystemSecurityControl(req, res) {
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body
     : {};
+  const confirmChainIntegrityOverride = toBoolean(
+    body.confirmChainIntegrityOverride || body.chainBreakGlass || body.confirmChainOverride,
+    false
+  );
   const confirmHighRiskDowngrade = toBoolean(
     body.confirmHighRiskDowngrade || body.breakGlass || body.confirmHighRiskChange,
     false
@@ -606,6 +610,7 @@ export function updateCoreSystemSecurityControl(req, res) {
   const result = updateProSecurityControlState(patch, {
     actorId: String(req.coreUser?.id || ""),
     actorRole: String(req.coreUser?.role || ""),
+    confirmChainIntegrityOverride,
     confirmHighRiskDowngrade
   });
   if (result.blocked) {
@@ -618,6 +623,9 @@ export function updateCoreSystemSecurityControl(req, res) {
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+        ? result.chainGuard
+        : null,
       downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
         ? result.downgradeGuard
         : null,
@@ -633,6 +641,9 @@ export function updateCoreSystemSecurityControl(req, res) {
     },
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+      ? result.chainGuard
+      : null,
     downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
       ? result.downgradeGuard
       : null,
@@ -653,6 +664,10 @@ export function getCoreSystemSecurityControlProfiles(req, res) {
 
 export function applyCoreSystemSecurityControlProfile(req, res) {
   const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+  const confirmChainIntegrityOverride = toBoolean(
+    req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+    false
+  );
   const confirmHighRiskDowngrade = toBoolean(
     req.body?.confirmHighRiskDowngrade || req.body?.breakGlass || req.body?.confirmHighRiskChange,
     false
@@ -660,6 +675,7 @@ export function applyCoreSystemSecurityControlProfile(req, res) {
   const result = applyProSecurityControlProfile(profileId, {
     actorId: String(req.coreUser?.id || ""),
     actorRole: String(req.coreUser?.role || ""),
+    confirmChainIntegrityOverride,
     confirmHighRiskDowngrade
   });
   const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
@@ -673,6 +689,9 @@ export function applyCoreSystemSecurityControlProfile(req, res) {
     profileId: result.profileId,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+      ? result.chainGuard
+      : null,
     downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
       ? result.downgradeGuard
       : null,
@@ -692,9 +711,14 @@ export function getCoreSystemSecurityControlPersistence(req, res) {
 }
 
 export function restoreCoreSystemSecurityControl(req, res) {
+  const confirmChainIntegrityOverride = toBoolean(
+    req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+    false
+  );
   const result = restoreProSecurityControlStateFromDisk({
     actorId: String(req.coreUser?.id || ""),
-    actorRole: String(req.coreUser?.role || "")
+    actorRole: String(req.coreUser?.role || ""),
+    confirmChainIntegrityOverride
   });
   const statusCode = result.blocked ? 429 : (result.restored ? 200 : 404);
   return res.status(statusCode).json({
@@ -706,14 +730,22 @@ export function restoreCoreSystemSecurityControl(req, res) {
     },
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+      ? result.chainGuard
+      : null,
     state: result.state
   });
 }
 
 export function resetCoreSystemSecurityControl(req, res) {
+  const confirmChainIntegrityOverride = toBoolean(
+    req.body?.confirmChainIntegrityOverride || req.body?.chainBreakGlass || req.body?.confirmChainOverride,
+    false
+  );
   const result = resetProSecurityControlState({
     actorId: String(req.coreUser?.id || ""),
-    actorRole: String(req.coreUser?.role || "")
+    actorRole: String(req.coreUser?.role || ""),
+    confirmChainIntegrityOverride
   });
   const statusCode = result.blocked ? 429 : 200;
   return res.status(statusCode).json({
@@ -725,6 +757,9 @@ export function resetCoreSystemSecurityControl(req, res) {
     },
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    chainGuard: result.chainGuard && typeof result.chainGuard === "object"
+      ? result.chainGuard
+      : null,
     state: result.state
   });
 }
