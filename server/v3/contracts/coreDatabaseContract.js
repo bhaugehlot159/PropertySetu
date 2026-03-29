@@ -203,7 +203,8 @@ export const coreSystemsBlueprint = [
       "Automatic offender-to-blocklist promotion with admin-tunable thresholds",
       "Threat-surge auto escalation to hardened/lockdown mode with cooldown controls",
       "Auto de-escalation back to safer mode after calm window using admin-defined thresholds",
-      "Critical attack immediate response (instant blocklist and optional lockdown)"
+      "Critical attack immediate response (instant blocklist and optional lockdown)",
+      "Distributed campaign detection with AI-triggered lockdown and full admin control"
     ],
     endpoints: [
       "/api/v3/auth/*",
