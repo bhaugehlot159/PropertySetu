@@ -202,7 +202,8 @@ export const coreSystemsBlueprint = [
       "AI-based account takeover detection using subject-level anomaly intelligence",
       "Automatic offender-to-blocklist promotion with admin-tunable thresholds",
       "Threat-surge auto escalation to hardened/lockdown mode with cooldown controls",
-      "Auto de-escalation back to safer mode after calm window using admin-defined thresholds"
+      "Auto de-escalation back to safer mode after calm window using admin-defined thresholds",
+      "Critical attack immediate response (instant blocklist and optional lockdown)"
     ],
     endpoints: [
       "/api/v3/auth/*",

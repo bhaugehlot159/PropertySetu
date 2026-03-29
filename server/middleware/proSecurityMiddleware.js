@@ -13,7 +13,9 @@ const proSubjectIntelligence = new Map();
 const proAutoPromoteIntel = new Map();
 const proAutoPromotionEvents = [];
 const proAutoEscalationEvents = [];
+const proCriticalResponseEvents = [];
 let proLastAutoModeChangeAt = 0;
+let proLastCriticalLockdownAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -245,6 +247,24 @@ const AUTO_ESCALATION_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.AUTO_ESCALATION_EVENT_MAX_ITEMS || 200)
 );
+const CRITICAL_RESPONSE_EVENT_MAX_ITEMS = Math.max(
+  20,
+  Number(process.env.CRITICAL_RESPONSE_EVENT_MAX_ITEMS || 200)
+);
+const CRITICAL_THREAT_PATTERNS = [
+  /token-alg-none/i,
+  /token-header-injection-pattern/i,
+  /header-smuggling/i,
+  /firewall-scanner-path/i,
+  /sql-injection-pattern/i,
+  /command-injection-pattern/i,
+  /xss-pattern/i,
+  /path-traversal-pattern/i,
+  /ssti-pattern/i,
+  /token-replay-suspected/i,
+  /subject-takeover-suspected/i,
+  /manual-admin-quarantine/i
+];
 const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
   text(process.env.ADMIN_ACTION_KEY_REQUIRED, "false").toLowerCase() === "true";
@@ -458,14 +478,18 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoDeEscalationCooldownMinutes: 30,
         autoDeEscalateToHardenedMaxEvents: 12,
         autoDeEscalateToBalancedMaxEvents: 4,
-        autoDeEscalateBlockedMaxEvents: 1
+        autoDeEscalateBlockedMaxEvents: 1,
+        criticalLockdownCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
-        autoDeEscalateMode: true
+        autoDeEscalateMode: true,
+        autoCriticalResponse: true,
+        autoCriticalLockdown: true,
+        autoCriticalImmediateBlocklist: true
       }
     }
   },
@@ -511,14 +535,18 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoDeEscalationCooldownMinutes: 30,
         autoDeEscalateToHardenedMaxEvents: 8,
         autoDeEscalateToBalancedMaxEvents: 3,
-        autoDeEscalateBlockedMaxEvents: 1
+        autoDeEscalateBlockedMaxEvents: 1,
+        criticalLockdownCooldownMinutes: 8
       },
       adminControls: {
         actionKeyEnforced: true,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
-        autoDeEscalateMode: true
+        autoDeEscalateMode: true,
+        autoCriticalResponse: true,
+        autoCriticalLockdown: true,
+        autoCriticalImmediateBlocklist: true
       }
     }
   },
@@ -564,14 +592,18 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoDeEscalationCooldownMinutes: 20,
         autoDeEscalateToHardenedMaxEvents: 6,
         autoDeEscalateToBalancedMaxEvents: 2,
-        autoDeEscalateBlockedMaxEvents: 1
+        autoDeEscalateBlockedMaxEvents: 1,
+        criticalLockdownCooldownMinutes: 5
       },
       adminControls: {
         actionKeyEnforced: true,
         readOnlyApi: true,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
-        autoDeEscalateMode: true
+        autoDeEscalateMode: true,
+        autoCriticalResponse: true,
+        autoCriticalLockdown: true,
+        autoCriticalImmediateBlocklist: true
       }
     }
   }
@@ -660,6 +692,10 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoDeEscalateBlockedMaxEvents: Math.max(
       0,
       Number(process.env.AUTO_DE_ESCALATE_BLOCKED_MAX_EVENTS || 1)
+    ),
+    criticalLockdownCooldownMinutes: Math.max(
+      1,
+      Number(process.env.CRITICAL_LOCKDOWN_COOLDOWN_MINUTES || 10)
     )
   },
   adminControls: {
@@ -667,7 +703,10 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     readOnlyApi: false,
     autoPromoteBlocklists: true,
     autoEscalateMode: true,
-    autoDeEscalateMode: true
+    autoDeEscalateMode: true,
+    autoCriticalResponse: true,
+    autoCriticalLockdown: true,
+    autoCriticalImmediateBlocklist: true
   },
   lists: {
     blockedIps: [],
@@ -1356,6 +1395,14 @@ export function updateProSecurityControlState(
         500
       );
     }
+    if (typeof incoming.criticalLockdownCooldownMinutes !== "undefined") {
+      next.thresholds.criticalLockdownCooldownMinutes = toIntegerInRange(
+        incoming.criticalLockdownCooldownMinutes,
+        next.thresholds.criticalLockdownCooldownMinutes,
+        1,
+        720
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -1401,6 +1448,24 @@ export function updateProSecurityControlState(
       next.adminControls.autoDeEscalateMode = toBoolean(
         patch.adminControls.autoDeEscalateMode,
         Boolean(next.adminControls.autoDeEscalateMode)
+      );
+    }
+    if (typeof patch.adminControls.autoCriticalResponse !== "undefined") {
+      next.adminControls.autoCriticalResponse = toBoolean(
+        patch.adminControls.autoCriticalResponse,
+        Boolean(next.adminControls.autoCriticalResponse)
+      );
+    }
+    if (typeof patch.adminControls.autoCriticalLockdown !== "undefined") {
+      next.adminControls.autoCriticalLockdown = toBoolean(
+        patch.adminControls.autoCriticalLockdown,
+        Boolean(next.adminControls.autoCriticalLockdown)
+      );
+    }
+    if (typeof patch.adminControls.autoCriticalImmediateBlocklist !== "undefined") {
+      next.adminControls.autoCriticalImmediateBlocklist = toBoolean(
+        patch.adminControls.autoCriticalImmediateBlocklist,
+        Boolean(next.adminControls.autoCriticalImmediateBlocklist)
       );
     }
   }
@@ -2234,6 +2299,139 @@ function maybeAutoPromoteSecurityBlocklists({
   });
 }
 
+function isCriticalThreatIncidentRow(row = {}) {
+  const reason = text(row?.reason).toLowerCase();
+  const path = text(row?.path).toLowerCase();
+  const rules = Array.isArray(row?.rules) ? row.rules.map((item) => text(item).toLowerCase()) : [];
+  const bag = [reason, path, ...rules].join(" | ");
+  return CRITICAL_THREAT_PATTERNS.some((pattern) => pattern.test(bag));
+}
+
+function maybeApplyCriticalThreatResponse(row = {}) {
+  if (!row || typeof row !== "object") return;
+  if (!isCriticalThreatIncidentRow(row)) return;
+
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoCriticalResponse, true)) return;
+
+  const reason = text(row.reason).toLowerCase();
+  const safePath = normalizeRequestPath(row.path || "/api");
+  if (isSecurityControlPath(safePath)) return;
+
+  const nowTs = Date.now();
+  const currentLists = currentSecurityLists();
+  const nextLists = {
+    blockedIps: Array.isArray(currentLists.blockedIps) ? [...currentLists.blockedIps] : [],
+    blockedFingerprints: Array.isArray(currentLists.blockedFingerprints) ? [...currentLists.blockedFingerprints] : [],
+    blockedUserAgentSignatures: Array.isArray(currentLists.blockedUserAgentSignatures)
+      ? [...currentLists.blockedUserAgentSignatures]
+      : [],
+    blockedTokenSubjects: Array.isArray(currentLists.blockedTokenSubjects) ? [...currentLists.blockedTokenSubjects] : []
+  };
+  const promotions = [];
+
+  if (toBoolean(adminControls.autoCriticalImmediateBlocklist, true)) {
+    const safeFingerprint = normalizeProSecurityThreatFingerprint(row.fingerprint);
+    if (
+      isValidProSecurityThreatFingerprint(safeFingerprint) &&
+      !isTrustedSecurityFingerprint(safeFingerprint) &&
+      !nextLists.blockedFingerprints.includes(safeFingerprint)
+    ) {
+      const inserted = addToLimitedUniqueList(nextLists.blockedFingerprints, safeFingerprint, MAX_BLOCKED_FINGERPRINT_ITEMS);
+      if (inserted) promotions.push({ kind: "fingerprint", value: safeFingerprint });
+    }
+
+    const safeIp = normalizeIpEntry(row.ip);
+    if (isValidBlockedIpEntry(safeIp) && !isBlockedSecurityIp(safeIp)) {
+      const inserted = addToLimitedUniqueList(nextLists.blockedIps, safeIp, MAX_BLOCKED_IP_ITEMS);
+      if (inserted) promotions.push({ kind: "ip", value: safeIp });
+    }
+
+    const safeSubject = text(row.subject).toLowerCase();
+    if (safeSubject && !nextLists.blockedTokenSubjects.includes(safeSubject)) {
+      const inserted = addToLimitedUniqueList(nextLists.blockedTokenSubjects, safeSubject, MAX_BLOCKED_TOKEN_SUBJECT_ITEMS);
+      if (inserted) promotions.push({ kind: "subject", value: safeSubject });
+    }
+  }
+
+  let warnings = [];
+  if (promotions.length) {
+    const updateResult = updateProSecurityControlState(
+      { lists: nextLists },
+      { actorId: "ai-guardian", actorRole: "system" }
+    );
+    warnings = Array.isArray(updateResult?.warnings) ? updateResult.warnings.slice(0, 8) : [];
+  }
+
+  const fromMode = currentSecurityMode();
+  let toMode = fromMode;
+  let modeChanged = false;
+  if (toBoolean(adminControls.autoCriticalLockdown, true) && fromMode !== "lockdown") {
+    const thresholds = currentSecurityThresholds();
+    const cooldownMs = Math.max(
+      60_000,
+      Math.min(
+        12 * 60 * 60 * 1000,
+        Number(thresholds.criticalLockdownCooldownMinutes || 10) * 60 * 1000
+      )
+    );
+    if (proLastCriticalLockdownAt === 0 || nowTs - proLastCriticalLockdownAt >= cooldownMs) {
+      const profileResult = applyProSecurityControlProfile("lockdown", {
+        actorId: "ai-guardian",
+        actorRole: "system"
+      });
+      if (profileResult.applied) {
+        modeChanged = true;
+        toMode = "lockdown";
+        proLastCriticalLockdownAt = nowTs;
+        proLastAutoModeChangeAt = nowTs;
+        if (Array.isArray(profileResult.warnings) && profileResult.warnings.length) {
+          warnings = [...warnings, ...profileResult.warnings.slice(0, 4)];
+        }
+      }
+    }
+  }
+
+  const responseEvent = {
+    id: `critical-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    reason,
+    path: safePath,
+    requestId: text(row.requestId),
+    fingerprint: text(row.fingerprint),
+    ip: text(row.ip),
+    subject: text(row.subject),
+    blocked: Boolean(row.blocked),
+    modeChanged,
+    fromMode,
+    toMode,
+    promotions
+  };
+  proCriticalResponseEvents.unshift(responseEvent);
+  if (proCriticalResponseEvents.length > CRITICAL_RESPONSE_EVENT_MAX_ITEMS) {
+    proCriticalResponseEvents.length = CRITICAL_RESPONSE_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: modeChanged ? "critical-threat-lockdown-response" : "critical-threat-immediate-response",
+    requestId: text(row.requestId),
+    ip: text(row.ip),
+    fingerprint: text(row.fingerprint),
+    path: safePath,
+    method: text(row.method || "POST"),
+    details: {
+      reason,
+      blocked: Boolean(row.blocked),
+      modeChanged,
+      fromMode,
+      toMode,
+      promotions,
+      warnings: warnings.slice(0, 8)
+    }
+  });
+}
+
 function maybeAutoEscalateSecurityMode({
   reason = "",
   path: requestPath = "",
@@ -2464,6 +2662,7 @@ function pushThreatIncident(incident = {}) {
     proThreatIncidents.length = SECURITY_INCIDENT_MAX_ITEMS;
   }
 
+  maybeApplyCriticalThreatResponse(row);
   maybeAutoPromoteSecurityBlocklists({
     fingerprint: row.fingerprint,
     ip: row.ip,
@@ -2824,6 +3023,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     hotSubjectIntelligence: hotSubjects,
     recentAutoPromotions: proAutoPromotionEvents.slice(0, Math.min(100, safeLimit)),
     recentAutoEscalations: proAutoEscalationEvents.slice(0, Math.min(100, safeLimit)),
+    recentCriticalResponses: proCriticalResponseEvents.slice(0, Math.min(100, safeLimit)),
     controlState: getProSecurityControlState(),
     summary: {
       mode,
@@ -2853,6 +3053,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       autoModeLastDirection: text(proAutoEscalationEvents[0]?.direction),
       autoModeEscalations: proAutoEscalationEvents.filter((item) => text(item?.direction) === "escalate").length,
       autoModeDeEscalations: proAutoEscalationEvents.filter((item) => text(item?.direction) === "de-escalate").length,
+      criticalResponses: proCriticalResponseEvents.length,
+      criticalLockdowns: proCriticalResponseEvents.filter((item) => Boolean(item?.modeChanged)).length,
+      criticalLastAt: text(proCriticalResponseEvents[0]?.at),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
