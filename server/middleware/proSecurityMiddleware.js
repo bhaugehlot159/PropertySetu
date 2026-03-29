@@ -35,6 +35,7 @@ const proSecurityChainDualControlEvents = [];
 const proSecurityChainDualControlApprovals = new Map();
 const proSecurityChainDualControlAttempts = [];
 const proSecurityChainDualControlAttemptBlocks = new Map();
+const proSecurityChainDualControlActorPenaltyState = new Map();
 const proSecurityChainDualControlApproverAttemptBlocks = new Map();
 const proSecurityChainDualControlApproverPenaltyState = new Map();
 let proLastAutoModeChangeAt = 0;
@@ -49,6 +50,7 @@ let proLastSecurityControlDowngradeBlockAt = 0;
 let proLastSecurityChainGuardBlockAt = 0;
 let proLastSecurityChainDualControlBlockAt = 0;
 let proLastSecurityChainDualControlAttemptBlockAt = 0;
+let proLastSecurityChainDualControlActorPenaltyEscalationAt = 0;
 let proLastSecurityChainDualControlApproverAttemptBlockAt = 0;
 let proLastSecurityChainDualControlApproverPenaltyEscalationAt = 0;
 let proSecurityAuditChainHead = "";
@@ -185,6 +187,24 @@ const SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES = Math.max(
 const SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES = Math.max(
   2,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES || 8)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT =
+  String(process.env.SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_WINDOW_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_WINDOW_MINUTES || 180)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_BASE_MULTIPLIER = Math.max(
+  1.05,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_BASE_MULTIPLIER || 1.6)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_MULTIPLIER = Math.max(
+  SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_BASE_MULTIPLIER,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_MULTIPLIER || 8)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_BLOCK_DURATION_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_BLOCK_DURATION_MINUTES || 240)
 );
 const SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC = Math.max(
   1,
@@ -879,6 +899,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityChainDualControlRequired: true,
         securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT,
         securityChainDualControlApproverShield: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT,
+        securityChainDualControlActorAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT,
         securityChainDualControlApproverAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_PENALTY_ENABLED_DEFAULT
       }
     }
@@ -999,6 +1020,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityChainDualControlRequired: true,
         securityChainDualControlStrictReasonSignature: true,
         securityChainDualControlApproverShield: true,
+        securityChainDualControlActorAdaptivePenalty: true,
         securityChainDualControlApproverAdaptivePenalty: true
       }
     }
@@ -1119,6 +1141,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityChainDualControlRequired: true,
         securityChainDualControlStrictReasonSignature: true,
         securityChainDualControlApproverShield: true,
+        securityChainDualControlActorAdaptivePenalty: true,
         securityChainDualControlApproverAdaptivePenalty: true
       }
     }
@@ -1429,6 +1452,7 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     securityChainDualControlRequired: SECURITY_CHAIN_DUAL_CONTROL_ENABLED,
     securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT,
     securityChainDualControlApproverShield: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT,
+    securityChainDualControlActorAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT,
     securityChainDualControlApproverAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_PENALTY_ENABLED_DEFAULT
   },
   lists: {
@@ -2879,6 +2903,21 @@ function pushSecurityChainGuardEvent(event = {}) {
       0,
       Number(event.approverShieldDistinctOperationDigestThreshold || 0)
     ),
+    actorAdaptivePenaltyEnabled: typeof event.actorAdaptivePenaltyEnabled === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+        SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+      )
+      : Boolean(event.actorAdaptivePenaltyEnabled),
+    actorPenaltyBaseBlockDurationMs: Math.max(0, Number(event.actorPenaltyBaseBlockDurationMs || 0)),
+    actorPenaltyWindowMinutes: Math.max(0, Number(event.actorPenaltyWindowMinutes || 0)),
+    actorPenaltyBaseMultiplier: Math.max(0, Number(event.actorPenaltyBaseMultiplier || 0)),
+    actorPenaltyMaxMultiplier: Math.max(0, Number(event.actorPenaltyMaxMultiplier || 0)),
+    actorPenaltyMaxBlockDurationMinutes: Math.max(0, Number(event.actorPenaltyMaxBlockDurationMinutes || 0)),
+    actorPenaltyMultiplier: Math.max(0, Number(event.actorPenaltyMultiplier || 0)),
+    actorPenaltyStrikes: Math.max(0, Number(event.actorPenaltyStrikes || 0)),
+    actorPenaltyPreviousStrikes: Math.max(0, Number(event.actorPenaltyPreviousStrikes || 0)),
+    actorPenaltyEscalated: Boolean(event.actorPenaltyEscalated),
     approverShieldAdaptivePenaltyEnabled: typeof event.approverShieldAdaptivePenaltyEnabled === "undefined"
       ? toBoolean(
         currentSecurityAdminControls()?.securityChainDualControlApproverAdaptivePenalty,
@@ -3022,6 +3061,21 @@ function pushSecurityChainDualControlEvent(event = {}) {
       0,
       Number(event.approverShieldDistinctOperationDigestThreshold || 0)
     ),
+    actorAdaptivePenaltyEnabled: typeof event.actorAdaptivePenaltyEnabled === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+        SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+      )
+      : Boolean(event.actorAdaptivePenaltyEnabled),
+    actorPenaltyBaseBlockDurationMs: Math.max(0, Number(event.actorPenaltyBaseBlockDurationMs || 0)),
+    actorPenaltyWindowMinutes: Math.max(0, Number(event.actorPenaltyWindowMinutes || 0)),
+    actorPenaltyBaseMultiplier: Math.max(0, Number(event.actorPenaltyBaseMultiplier || 0)),
+    actorPenaltyMaxMultiplier: Math.max(0, Number(event.actorPenaltyMaxMultiplier || 0)),
+    actorPenaltyMaxBlockDurationMinutes: Math.max(0, Number(event.actorPenaltyMaxBlockDurationMinutes || 0)),
+    actorPenaltyMultiplier: Math.max(0, Number(event.actorPenaltyMultiplier || 0)),
+    actorPenaltyStrikes: Math.max(0, Number(event.actorPenaltyStrikes || 0)),
+    actorPenaltyPreviousStrikes: Math.max(0, Number(event.actorPenaltyPreviousStrikes || 0)),
+    actorPenaltyEscalated: Boolean(event.actorPenaltyEscalated),
     approverShieldAdaptivePenaltyEnabled: typeof event.approverShieldAdaptivePenaltyEnabled === "undefined"
       ? toBoolean(
         currentSecurityAdminControls()?.securityChainDualControlApproverAdaptivePenalty,
@@ -3059,12 +3113,17 @@ function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
   const safeNow = Number(nowTs) || Date.now();
   const windowMs = Math.max(60_000, SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES * 60 * 1000);
   const blockDurationMs = Math.max(60_000, SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES * 60 * 1000);
+  const actorPenaltyWindowMs = Math.max(
+    60_000,
+    SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_WINDOW_MINUTES * 60 * 1000
+  );
   const approverPenaltyWindowMs = Math.max(
     60_000,
     SECURITY_CHAIN_DUAL_CONTROL_APPROVER_PENALTY_WINDOW_MINUTES * 60 * 1000
   );
   const retentionMs = Math.max(windowMs * 4, blockDurationMs * 3, 60 * 60 * 1000);
   const cutoff = safeNow - retentionMs;
+  const actorPenaltyCutoff = safeNow - actorPenaltyWindowMs;
   const approverPenaltyCutoff = safeNow - approverPenaltyWindowMs;
   while (proSecurityChainDualControlAttempts.length) {
     const tail = proSecurityChainDualControlAttempts[proSecurityChainDualControlAttempts.length - 1];
@@ -3084,6 +3143,12 @@ function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
       proSecurityChainDualControlApproverAttemptBlocks.delete(key);
     }
   }
+  for (const [key, row] of proSecurityChainDualControlActorPenaltyState.entries()) {
+    const lastBlockedAtTs = Number(row?.lastBlockedAtTs || 0);
+    if (!Number.isFinite(lastBlockedAtTs) || lastBlockedAtTs < actorPenaltyCutoff) {
+      proSecurityChainDualControlActorPenaltyState.delete(key);
+    }
+  }
   for (const [key, row] of proSecurityChainDualControlApproverPenaltyState.entries()) {
     const lastBlockedAtTs = Number(row?.lastBlockedAtTs || 0);
     if (!Number.isFinite(lastBlockedAtTs) || lastBlockedAtTs < approverPenaltyCutoff) {
@@ -3099,6 +3164,11 @@ function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
     const oldestKey = proSecurityChainDualControlApproverAttemptBlocks.keys().next().value;
     if (!oldestKey) break;
     proSecurityChainDualControlApproverAttemptBlocks.delete(oldestKey);
+  }
+  while (proSecurityChainDualControlActorPenaltyState.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
+    const oldestKey = proSecurityChainDualControlActorPenaltyState.keys().next().value;
+    if (!oldestKey) break;
+    proSecurityChainDualControlActorPenaltyState.delete(oldestKey);
   }
   while (proSecurityChainDualControlApproverPenaltyState.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
     const oldestKey = proSecurityChainDualControlApproverPenaltyState.keys().next().value;
@@ -3149,6 +3219,104 @@ function registerSecurityChainDualControlAttempt({
   return row;
 }
 
+function evaluateSecurityChainDualControlActorPenalty({
+  actorKey = "",
+  nowTs = Date.now(),
+  reason = "",
+  baseBlockDurationMs = 60_000
+} = {}) {
+  const enabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+    SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+  );
+  const safeActorKey = text(actorKey).toLowerCase();
+  const safeNow = Number(nowTs) || Date.now();
+  const safeBaseBlockDurationMs = Math.max(60_000, Number(baseBlockDurationMs || 60_000));
+  const windowMinutes = Math.max(1, Math.min(7 * 24 * 60, SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_WINDOW_MINUTES));
+  const windowMs = windowMinutes * 60 * 1000;
+  const baseMultiplier = Math.max(1.01, Number(SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_BASE_MULTIPLIER || 1.6));
+  const maxMultiplier = Math.max(
+    baseMultiplier,
+    Number(SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_MULTIPLIER || baseMultiplier)
+  );
+  const maxBlockDurationMs = Math.max(
+    safeBaseBlockDurationMs,
+    Math.min(
+      7 * 24 * 60 * 60 * 1000,
+      Math.max(60_000, SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_BLOCK_DURATION_MINUTES * 60 * 1000)
+    )
+  );
+  if (!enabled || !safeActorKey) {
+    return {
+      enabled,
+      actorKey: safeActorKey,
+      reason: text(reason),
+      strikes: 0,
+      previousStrikes: 0,
+      escalated: false,
+      baseMultiplier,
+      maxMultiplier,
+      multiplier: 1,
+      windowMinutes,
+      maxBlockDurationMinutes: Math.round(maxBlockDurationMs / 60_000),
+      baseBlockDurationMs: safeBaseBlockDurationMs,
+      effectiveBlockDurationMs: safeBaseBlockDurationMs
+    };
+  }
+
+  const previous = proSecurityChainDualControlActorPenaltyState.get(safeActorKey) || null;
+  const previousStrikes = Math.max(0, Number(previous?.strikes || 0));
+  const lastBlockedAtTs = Number(previous?.lastBlockedAtTs || 0);
+  const withinWindow = lastBlockedAtTs > 0 && safeNow - lastBlockedAtTs <= windowMs;
+  const strikes = withinWindow ? Math.max(1, previousStrikes + 1) : 1;
+  const multiplier = Math.min(
+    maxMultiplier,
+    Math.max(1, Math.pow(baseMultiplier, Math.max(0, strikes - 1)))
+  );
+  const effectiveBlockDurationMs = Math.max(
+    safeBaseBlockDurationMs,
+    Math.min(maxBlockDurationMs, Math.round(safeBaseBlockDurationMs * multiplier))
+  );
+  const escalated = strikes > 1 && effectiveBlockDurationMs > safeBaseBlockDurationMs;
+  if (escalated) {
+    proLastSecurityChainDualControlActorPenaltyEscalationAt = safeNow;
+  }
+
+  proSecurityChainDualControlActorPenaltyState.set(safeActorKey, {
+    actorKey: safeActorKey,
+    strikes,
+    previousStrikes,
+    reason: text(reason),
+    lastBlockedAt: new Date(safeNow).toISOString(),
+    lastBlockedAtTs: safeNow,
+    baseMultiplier,
+    maxMultiplier,
+    multiplier,
+    windowMinutes,
+    maxBlockDurationMs,
+    baseBlockDurationMs: safeBaseBlockDurationMs,
+    effectiveBlockDurationMs,
+    escalated
+  });
+  pruneSecurityChainDualControlAttemptTelemetry(safeNow);
+
+  return {
+    enabled: true,
+    actorKey: safeActorKey,
+    reason: text(reason),
+    strikes,
+    previousStrikes,
+    escalated,
+    baseMultiplier,
+    maxMultiplier,
+    multiplier,
+    windowMinutes,
+    maxBlockDurationMinutes: Math.round(maxBlockDurationMs / 60_000),
+    baseBlockDurationMs: safeBaseBlockDurationMs,
+    effectiveBlockDurationMs
+  };
+}
+
 function evaluateSecurityChainDualControlAttemptGuard({
   actorId = "",
   actorRole = "",
@@ -3164,12 +3332,29 @@ function evaluateSecurityChainDualControlAttemptGuard({
   const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
   const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
   const active = Boolean(enabled && required && !bypassed);
+  const penaltyEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+    SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+  );
   const windowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES));
   const maxFailures = Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES));
   const minIntervalMs = Math.max(500, Math.min(5 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC * 1000));
   const blockDurationMs = Math.max(
     60_000,
     Math.min(24 * 60 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_BLOCK_DURATION_MINUTES * 60 * 1000)
+  );
+  const penaltyWindowMinutes = Math.max(1, Math.min(7 * 24 * 60, SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_WINDOW_MINUTES));
+  const penaltyBaseMultiplier = Math.max(
+    1.01,
+    Number(SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_BASE_MULTIPLIER || 1.6)
+  );
+  const penaltyMaxMultiplier = Math.max(
+    penaltyBaseMultiplier,
+    Number(SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_MULTIPLIER || penaltyBaseMultiplier)
+  );
+  const penaltyMaxBlockDurationMinutes = Math.max(
+    1,
+    Math.min(7 * 24 * 60, SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_BLOCK_DURATION_MINUTES)
   );
   if (!active) {
     return {
@@ -3188,6 +3373,16 @@ function evaluateSecurityChainDualControlAttemptGuard({
       maxFailures,
       minIntervalMs,
       blockDurationMs,
+      actorAdaptivePenaltyEnabled: penaltyEnabled,
+      actorPenaltyBaseBlockDurationMs: blockDurationMs,
+      actorPenaltyWindowMinutes: penaltyWindowMinutes,
+      actorPenaltyBaseMultiplier: penaltyBaseMultiplier,
+      actorPenaltyMaxMultiplier: penaltyMaxMultiplier,
+      actorPenaltyMaxBlockDurationMinutes: penaltyMaxBlockDurationMinutes,
+      actorPenaltyMultiplier: 1,
+      actorPenaltyStrikes: 0,
+      actorPenaltyPreviousStrikes: 0,
+      actorPenaltyEscalated: false,
       operation: text(operation),
       method: text(method).toUpperCase(),
       path: text(path)
@@ -3210,7 +3405,34 @@ function evaluateSecurityChainDualControlAttemptGuard({
         windowMinutes,
         maxFailures,
         minIntervalMs,
-        blockDurationMs,
+        blockDurationMs: Math.max(60_000, Number(existingBlock.blockDurationMs || blockDurationMs)),
+        actorAdaptivePenaltyEnabled: typeof existingBlock.actorAdaptivePenaltyEnabled === "undefined"
+          ? penaltyEnabled
+          : Boolean(existingBlock.actorAdaptivePenaltyEnabled),
+        actorPenaltyBaseBlockDurationMs: Math.max(
+          60_000,
+          Number(existingBlock.actorPenaltyBaseBlockDurationMs || existingBlock.blockDurationMs || blockDurationMs)
+        ),
+        actorPenaltyWindowMinutes: Math.max(
+          1,
+          Number(existingBlock.actorPenaltyWindowMinutes || penaltyWindowMinutes)
+        ),
+        actorPenaltyBaseMultiplier: Math.max(
+          1,
+          Number(existingBlock.actorPenaltyBaseMultiplier || penaltyBaseMultiplier)
+        ),
+        actorPenaltyMaxMultiplier: Math.max(
+          Number(existingBlock.actorPenaltyBaseMultiplier || penaltyBaseMultiplier),
+          Number(existingBlock.actorPenaltyMaxMultiplier || penaltyMaxMultiplier)
+        ),
+        actorPenaltyMaxBlockDurationMinutes: Math.max(
+          1,
+          Number(existingBlock.actorPenaltyMaxBlockDurationMinutes || penaltyMaxBlockDurationMinutes)
+        ),
+        actorPenaltyMultiplier: Math.max(1, Number(existingBlock.actorPenaltyMultiplier || 1)),
+        actorPenaltyStrikes: Math.max(0, Number(existingBlock.actorPenaltyStrikes || 0)),
+        actorPenaltyPreviousStrikes: Math.max(0, Number(existingBlock.actorPenaltyPreviousStrikes || 0)),
+        actorPenaltyEscalated: Boolean(existingBlock.actorPenaltyEscalated),
         operation: text(operation),
         method: text(method).toUpperCase(),
         path: text(path),
@@ -3247,16 +3469,36 @@ function evaluateSecurityChainDualControlAttemptGuard({
       maxFailures,
       minIntervalMs,
       blockDurationMs,
+      actorAdaptivePenaltyEnabled: penaltyEnabled,
+      actorPenaltyBaseBlockDurationMs: blockDurationMs,
+      actorPenaltyWindowMinutes: penaltyWindowMinutes,
+      actorPenaltyBaseMultiplier: penaltyBaseMultiplier,
+      actorPenaltyMaxMultiplier: penaltyMaxMultiplier,
+      actorPenaltyMaxBlockDurationMinutes: penaltyMaxBlockDurationMinutes,
+      actorPenaltyMultiplier: 1,
+      actorPenaltyStrikes: 0,
+      actorPenaltyPreviousStrikes: 0,
+      actorPenaltyEscalated: false,
       operation: text(operation),
       method: text(method).toUpperCase(),
       path: text(path),
       windowFailureCount: recentFailures.length
     };
   }
-  const blockUntilTs = nowTs + blockDurationMs;
   const reason = tooFast
     ? "chain-dual-control-attempt-min-interval-violation"
     : "chain-dual-control-attempt-window-limit-exceeded";
+  const penalty = evaluateSecurityChainDualControlActorPenalty({
+    actorKey,
+    nowTs,
+    reason,
+    baseBlockDurationMs: blockDurationMs
+  });
+  const effectiveBlockDurationMs = Math.max(
+    60_000,
+    Number(penalty.effectiveBlockDurationMs || blockDurationMs)
+  );
+  const blockUntilTs = nowTs + effectiveBlockDurationMs;
   proSecurityChainDualControlAttemptBlocks.set(actorKey, {
     actorKey,
     actorId: text(actorId),
@@ -3268,12 +3510,28 @@ function evaluateSecurityChainDualControlAttemptGuard({
     blockedAt: nowIso(),
     blockedAtTs: nowTs,
     blockUntilTs,
-    blockDurationMs,
+    blockDurationMs: effectiveBlockDurationMs,
+    actorPenaltyBaseBlockDurationMs: blockDurationMs,
     windowMinutes,
     maxFailures,
     minIntervalMs,
     windowFailureCount: recentFailures.length,
-    lastFailureAt: text(latestFailure?.at)
+    lastFailureAt: text(latestFailure?.at),
+    actorAdaptivePenaltyEnabled: Boolean(penalty.enabled),
+    actorPenaltyWindowMinutes: Math.max(1, Number(penalty.windowMinutes || penaltyWindowMinutes)),
+    actorPenaltyBaseMultiplier: Math.max(1, Number(penalty.baseMultiplier || penaltyBaseMultiplier)),
+    actorPenaltyMaxMultiplier: Math.max(
+      Number(penalty.baseMultiplier || penaltyBaseMultiplier),
+      Number(penalty.maxMultiplier || penaltyMaxMultiplier)
+    ),
+    actorPenaltyMaxBlockDurationMinutes: Math.max(
+      1,
+      Number(penalty.maxBlockDurationMinutes || penaltyMaxBlockDurationMinutes)
+    ),
+    actorPenaltyMultiplier: Math.max(1, Number(penalty.multiplier || 1)),
+    actorPenaltyStrikes: Math.max(0, Number(penalty.strikes || 0)),
+    actorPenaltyPreviousStrikes: Math.max(0, Number(penalty.previousStrikes || 0)),
+    actorPenaltyEscalated: Boolean(penalty.escalated)
   });
   proLastSecurityChainDualControlAttemptBlockAt = nowTs;
   pruneSecurityChainDualControlAttemptTelemetry(nowTs);
@@ -3288,7 +3546,23 @@ function evaluateSecurityChainDualControlAttemptGuard({
     windowMinutes,
     maxFailures,
     minIntervalMs,
-    blockDurationMs,
+    blockDurationMs: effectiveBlockDurationMs,
+    actorAdaptivePenaltyEnabled: Boolean(penalty.enabled),
+    actorPenaltyBaseBlockDurationMs: blockDurationMs,
+    actorPenaltyWindowMinutes: Math.max(1, Number(penalty.windowMinutes || penaltyWindowMinutes)),
+    actorPenaltyBaseMultiplier: Math.max(1, Number(penalty.baseMultiplier || penaltyBaseMultiplier)),
+    actorPenaltyMaxMultiplier: Math.max(
+      Number(penalty.baseMultiplier || penaltyBaseMultiplier),
+      Number(penalty.maxMultiplier || penaltyMaxMultiplier)
+    ),
+    actorPenaltyMaxBlockDurationMinutes: Math.max(
+      1,
+      Number(penalty.maxBlockDurationMinutes || penaltyMaxBlockDurationMinutes)
+    ),
+    actorPenaltyMultiplier: Math.max(1, Number(penalty.multiplier || 1)),
+    actorPenaltyStrikes: Math.max(0, Number(penalty.strikes || 0)),
+    actorPenaltyPreviousStrikes: Math.max(0, Number(penalty.previousStrikes || 0)),
+    actorPenaltyEscalated: Boolean(penalty.escalated),
     operation: text(operation),
     method: text(method).toUpperCase(),
     path: text(path),
@@ -3708,6 +3982,31 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
   const activeBlocks = Array.from(proSecurityChainDualControlAttemptBlocks.values())
     .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
     .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
+  const actorPenaltyEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+    SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+  );
+  const actorPenaltyWindowMinutes = Math.max(
+    1,
+    Math.min(7 * 24 * 60, SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_WINDOW_MINUTES)
+  );
+  const actorPenaltyBaseMultiplier = Math.max(
+    1.01,
+    Number(SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_BASE_MULTIPLIER || 1.6)
+  );
+  const actorPenaltyMaxMultiplier = Math.max(
+    actorPenaltyBaseMultiplier,
+    Number(SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_MULTIPLIER || actorPenaltyBaseMultiplier)
+  );
+  const actorPenaltyMaxBlockDurationMinutes = Math.max(
+    1,
+    Math.min(7 * 24 * 60, SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_MAX_BLOCK_DURATION_MINUTES)
+  );
+  const actorPenaltyWindowMs = actorPenaltyWindowMinutes * 60 * 1000;
+  const actorPenaltyStates = Array.from(proSecurityChainDualControlActorPenaltyState.values())
+    .filter((row) => safeNow - Number(row?.lastBlockedAtTs || 0) <= actorPenaltyWindowMs)
+    .sort((a, b) => Number(b?.lastBlockedAtTs || 0) - Number(a?.lastBlockedAtTs || 0));
+  const actorPenaltyEscalatedStates = actorPenaltyStates.filter((row) => Boolean(row?.escalated));
   const approverShieldEnabled = toBoolean(
     currentSecurityAdminControls()?.securityChainDualControlApproverShield,
     SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
@@ -3758,6 +4057,8 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
   const approverPenaltyEscalatedStates = approverPenaltyStates.filter((row) => Boolean(row?.escalated));
   const latestAttempt = proSecurityChainDualControlAttempts[0] || null;
   const latestBlock = activeBlocks[0] || null;
+  const latestActorPenalty = actorPenaltyStates[0] || null;
+  const latestActorPenaltyEscalation = actorPenaltyEscalatedStates[0] || null;
   const latestApproverBlock = approverActiveBlocks[0] || null;
   const latestApproverPenalty = approverPenaltyStates[0] || null;
   const latestApproverPenaltyEscalation = approverPenaltyEscalatedStates[0] || null;
@@ -3783,6 +4084,25 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
     latestBlockUntil: latestBlock?.blockUntilTs
       ? new Date(Number(latestBlock.blockUntilTs)).toISOString()
       : "",
+    actorPenaltyEnabled,
+    actorPenaltyWindowMinutes,
+    actorPenaltyBaseMultiplier: Math.max(1, Number(actorPenaltyBaseMultiplier || 1)),
+    actorPenaltyMaxMultiplier: Math.max(
+      Number(actorPenaltyBaseMultiplier || 1),
+      Number(actorPenaltyMaxMultiplier || 1)
+    ),
+    actorPenaltyMaxBlockDurationMinutes,
+    actorPenaltyTrackedActors: actorPenaltyStates.length,
+    actorPenaltyEscalatedActors: actorPenaltyEscalatedStates.length,
+    actorPenaltyLatestActor: text(latestActorPenalty?.actorKey),
+    actorPenaltyLatestStrikes: Math.max(0, Number(latestActorPenalty?.strikes || 0)),
+    actorPenaltyLatestMultiplier: Math.max(1, Number(latestActorPenalty?.multiplier || 1)),
+    actorPenaltyLatestAt: text(latestActorPenalty?.lastBlockedAt),
+    actorPenaltyLatestEscalationAt: latestActorPenaltyEscalation
+      ? text(latestActorPenaltyEscalation.lastBlockedAt)
+      : (proLastSecurityChainDualControlActorPenaltyEscalationAt
+        ? new Date(proLastSecurityChainDualControlActorPenaltyEscalationAt).toISOString()
+        : ""),
     approverShieldEnabled,
     approverWindowMinutes,
     approverMaxFailures: Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES)),
@@ -4038,6 +4358,19 @@ function evaluateSecurityChainDualControlGuard({
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
       strictReasonSignature,
       approverShieldEnabled,
+      actorAdaptivePenaltyEnabled: toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+        SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+      ),
+      actorPenaltyBaseBlockDurationMs: 0,
+      actorPenaltyWindowMinutes: 0,
+      actorPenaltyBaseMultiplier: 0,
+      actorPenaltyMaxMultiplier: 0,
+      actorPenaltyMaxBlockDurationMinutes: 0,
+      actorPenaltyMultiplier: 0,
+      actorPenaltyStrikes: 0,
+      actorPenaltyPreviousStrikes: 0,
+      actorPenaltyEscalated: false,
       legacySignatureAllowed,
       legacySignatureUsed: false,
       signatureVersion: "",
@@ -4081,6 +4414,19 @@ function evaluateSecurityChainDualControlGuard({
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
       strictReasonSignature,
       approverShieldEnabled,
+      actorAdaptivePenaltyEnabled: toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
+        SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
+      ),
+      actorPenaltyBaseBlockDurationMs: 0,
+      actorPenaltyWindowMinutes: 0,
+      actorPenaltyBaseMultiplier: 0,
+      actorPenaltyMaxMultiplier: 0,
+      actorPenaltyMaxBlockDurationMinutes: 0,
+      actorPenaltyMultiplier: 0,
+      actorPenaltyStrikes: 0,
+      actorPenaltyPreviousStrikes: 0,
+      actorPenaltyEscalated: false,
       legacySignatureAllowed,
       legacySignatureUsed: false,
       signatureVersion: "",
@@ -4132,7 +4478,20 @@ function evaluateSecurityChainDualControlGuard({
       windowFailureCount: Math.max(0, Number(attemptGuard.windowFailureCount || 0)),
       minIntervalMs: Math.max(0, Number(attemptGuard.minIntervalMs || 0)),
       maxFailures: Math.max(0, Number(attemptGuard.maxFailures || 0)),
-      windowMinutes: Math.max(1, Number(attemptGuard.windowMinutes || 0))
+      windowMinutes: Math.max(1, Number(attemptGuard.windowMinutes || 0)),
+      actorAdaptivePenaltyEnabled: Boolean(attemptGuard.actorAdaptivePenaltyEnabled),
+      actorPenaltyBaseBlockDurationMs: Math.max(0, Number(attemptGuard.actorPenaltyBaseBlockDurationMs || 0)),
+      actorPenaltyWindowMinutes: Math.max(0, Number(attemptGuard.actorPenaltyWindowMinutes || 0)),
+      actorPenaltyBaseMultiplier: Math.max(0, Number(attemptGuard.actorPenaltyBaseMultiplier || 0)),
+      actorPenaltyMaxMultiplier: Math.max(0, Number(attemptGuard.actorPenaltyMaxMultiplier || 0)),
+      actorPenaltyMaxBlockDurationMinutes: Math.max(
+        0,
+        Number(attemptGuard.actorPenaltyMaxBlockDurationMinutes || 0)
+      ),
+      actorPenaltyMultiplier: Math.max(0, Number(attemptGuard.actorPenaltyMultiplier || 0)),
+      actorPenaltyStrikes: Math.max(0, Number(attemptGuard.actorPenaltyStrikes || 0)),
+      actorPenaltyPreviousStrikes: Math.max(0, Number(attemptGuard.actorPenaltyPreviousStrikes || 0)),
+      actorPenaltyEscalated: Boolean(attemptGuard.actorPenaltyEscalated)
     });
   }
 
@@ -4773,6 +5132,42 @@ function getSecurityChainEnforcementGuardStatus() {
     dualControlAttemptLatestBlockReason: text(dualControlAttemptGuard?.latestBlockReason),
     dualControlAttemptLatestBlockActor: text(dualControlAttemptGuard?.latestBlockActor),
     dualControlAttemptLatestBlockUntil: text(dualControlAttemptGuard?.latestBlockUntil),
+    dualControlActorAdaptivePenaltyEnabled: Boolean(dualControlAttemptGuard?.actorPenaltyEnabled),
+    dualControlActorPenaltyWindowMinutes: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyWindowMinutes || 0)
+    ),
+    dualControlActorPenaltyBaseMultiplier: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyBaseMultiplier || 0)
+    ),
+    dualControlActorPenaltyMaxMultiplier: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyMaxMultiplier || 0)
+    ),
+    dualControlActorPenaltyMaxBlockDurationMinutes: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyMaxBlockDurationMinutes || 0)
+    ),
+    dualControlActorPenaltyTrackedActors: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyTrackedActors || 0)
+    ),
+    dualControlActorPenaltyEscalatedActors: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyEscalatedActors || 0)
+    ),
+    dualControlActorPenaltyLatestActor: text(dualControlAttemptGuard?.actorPenaltyLatestActor),
+    dualControlActorPenaltyLatestStrikes: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyLatestStrikes || 0)
+    ),
+    dualControlActorPenaltyLatestMultiplier: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.actorPenaltyLatestMultiplier || 0)
+    ),
+    dualControlActorPenaltyLatestAt: text(dualControlAttemptGuard?.actorPenaltyLatestAt),
+    dualControlActorPenaltyLatestEscalationAt: text(dualControlAttemptGuard?.actorPenaltyLatestEscalationAt),
     chainIntegrity
   };
 }
@@ -5373,6 +5768,7 @@ function evaluateSecurityControlDowngradeGuard({
     "securityChainDualControlRequired",
     "securityChainDualControlStrictReasonSignature",
     "securityChainDualControlApproverShield",
+    "securityChainDualControlActorAdaptivePenalty",
     "securityChainDualControlApproverAdaptivePenalty"
   ];
   const disabledCriticalModules = criticalModuleKeys.filter(
@@ -7452,6 +7848,12 @@ export function updateProSecurityControlState(
       next.adminControls.securityChainDualControlApproverShield = toBoolean(
         patch.adminControls.securityChainDualControlApproverShield,
         Boolean(next.adminControls.securityChainDualControlApproverShield)
+      );
+    }
+    if (typeof patch.adminControls.securityChainDualControlActorAdaptivePenalty !== "undefined") {
+      next.adminControls.securityChainDualControlActorAdaptivePenalty = toBoolean(
+        patch.adminControls.securityChainDualControlActorAdaptivePenalty,
+        Boolean(next.adminControls.securityChainDualControlActorAdaptivePenalty)
       );
     }
     if (typeof patch.adminControls.securityChainDualControlApproverAdaptivePenalty !== "undefined") {
@@ -11147,6 +11549,50 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       ),
       securityChainDualControlAttemptLastBlockUntil: text(
         chainEnforcementGuardStatus?.dualControlAttemptLatestBlockUntil
+      ),
+      securityChainDualControlActorAdaptivePenaltyEnabled: Boolean(
+        chainEnforcementGuardStatus?.dualControlActorAdaptivePenaltyEnabled
+      ),
+      securityChainDualControlActorPenaltyWindowMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyWindowMinutes || 0)
+      ),
+      securityChainDualControlActorPenaltyBaseMultiplier: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyBaseMultiplier || 0)
+      ),
+      securityChainDualControlActorPenaltyMaxMultiplier: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyMaxMultiplier || 0)
+      ),
+      securityChainDualControlActorPenaltyMaxBlockDurationMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyMaxBlockDurationMinutes || 0)
+      ),
+      securityChainDualControlActorPenaltyTrackedActors: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyTrackedActors || 0)
+      ),
+      securityChainDualControlActorPenaltyEscalatedActors: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyEscalatedActors || 0)
+      ),
+      securityChainDualControlActorPenaltyLatestActor: text(
+        chainEnforcementGuardStatus?.dualControlActorPenaltyLatestActor
+      ),
+      securityChainDualControlActorPenaltyLatestStrikes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyLatestStrikes || 0)
+      ),
+      securityChainDualControlActorPenaltyLatestMultiplier: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlActorPenaltyLatestMultiplier || 0)
+      ),
+      securityChainDualControlActorPenaltyLatestAt: text(
+        chainEnforcementGuardStatus?.dualControlActorPenaltyLatestAt
+      ),
+      securityChainDualControlActorPenaltyLatestEscalationAt: text(
+        chainEnforcementGuardStatus?.dualControlActorPenaltyLatestEscalationAt
       ),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
