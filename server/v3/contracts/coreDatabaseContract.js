@@ -94,6 +94,7 @@ export const coreSystemsBlueprint = [
       "Document upload (private)",
       "Private document visibility only for owner/admin",
       "Masked private-doc URLs with short-lived secure access token flow",
+      "One-time private-doc token replay protection with access audit telemetry",
       "Auto description generator"
     ],
     endpoints: [

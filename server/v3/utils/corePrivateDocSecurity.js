@@ -136,6 +136,12 @@ export function buildMaskedPrivateDocUrl(url = "") {
   return `private://doc/${hash.slice(0, 24)}`;
 }
 
+export function fingerprintPrivateDocAccessToken(token = "") {
+  const raw = text(token);
+  if (!raw) return "";
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
 export function buildPrivateDocAccessEnvelope({
   sourceUrl = "",
   ownerId = "",
@@ -165,6 +171,7 @@ export function buildPrivateDocAccessEnvelope({
     v: 1,
     iat: nowSec,
     exp: expSec,
+    jti: crypto.randomUUID(),
     sub: text(viewerId),
     role: text(viewerRole, "buyer").toLowerCase(),
     ownerId: text(ownerId),
@@ -219,6 +226,10 @@ export function verifyPrivateDocAccessToken(
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return { ok: false, reason: "token-payload-invalid" };
   }
+  const tokenId = text(payload.jti);
+  if (!tokenId || tokenId.length < 16 || tokenId.length > 120) {
+    return { ok: false, reason: "token-id-invalid" };
+  }
 
   const nowSec = Math.floor(Date.now() / 1000);
   const issuedAtSec = Math.max(0, Math.round(numberValue(payload.iat, 0)));
@@ -257,6 +268,7 @@ export function verifyPrivateDocAccessToken(
     reason: "ok",
     payload: {
       ...payload,
+      tokenId,
       hash: computedHash,
       sourceUrl,
       issuedAt: toIsoFromEpochSec(issuedAtSec),

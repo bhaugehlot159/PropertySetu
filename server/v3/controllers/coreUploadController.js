@@ -6,6 +6,7 @@ import CoreUpload from "../models/CoreUpload.js";
 import {
   buildMaskedPrivateDocUrl,
   buildPrivateDocAccessEnvelope,
+  fingerprintPrivateDocAccessToken,
   hashPrivateDocSourceUrl,
   verifyPrivateDocAccessToken
 } from "../utils/corePrivateDocSecurity.js";
@@ -62,6 +63,13 @@ const PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS = Math.max(
   200,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS || 5000)
 );
+const PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_TOKEN_REPLAY_CACHE_MAX = Math.max(
+  100,
+  Number(process.env.CORE_PRIVATE_DOC_TOKEN_REPLAY_CACHE_MAX || 12000)
+);
+const privateDocConsumedTokenMap = new Map();
 
 function normalizeCategory(value) {
   return text(value, "misc").toLowerCase();
@@ -145,6 +153,65 @@ function recordPrivateDocAccessEvent(event = {}) {
     rows.length = PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS;
   }
   proMemoryStore.corePrivateDocAccessEvents = rows;
+}
+
+function pruneConsumedPrivateDocTokens(nowSec = Math.floor(Date.now() / 1000)) {
+  const safeNowSec = Math.max(0, Math.round(numberValue(nowSec, 0)));
+  for (const [key, row] of privateDocConsumedTokenMap.entries()) {
+    const expiresAtSec = Math.max(0, Math.round(numberValue(row?.expiresAtSec, 0)));
+    if (!expiresAtSec || expiresAtSec <= safeNowSec) {
+      privateDocConsumedTokenMap.delete(key);
+    }
+  }
+  while (privateDocConsumedTokenMap.size > PRIVATE_DOC_TOKEN_REPLAY_CACHE_MAX) {
+    const oldestKey = privateDocConsumedTokenMap.keys().next().value;
+    if (!oldestKey) break;
+    privateDocConsumedTokenMap.delete(oldestKey);
+  }
+}
+
+function consumePrivateDocAccessToken({
+  tokenId = "",
+  tokenFingerprint = "",
+  expiresAtSec = 0,
+  nowSec = Math.floor(Date.now() / 1000)
+} = {}) {
+  const safeTokenId = text(tokenId);
+  const safeTokenFingerprint = text(tokenFingerprint);
+  const safeExpiresAtSec = Math.max(0, Math.round(numberValue(expiresAtSec, 0)));
+  const safeNowSec = Math.max(0, Math.round(numberValue(nowSec, 0)));
+  if (!safeTokenId || !safeTokenFingerprint || !safeExpiresAtSec) {
+    return {
+      ok: false,
+      reason: "token-replay-params-invalid",
+      replay: true
+    };
+  }
+
+  pruneConsumedPrivateDocTokens(safeNowSec);
+  const key = `${safeTokenId}:${safeTokenFingerprint}`;
+  const existing = privateDocConsumedTokenMap.get(key);
+  const existingExpiresAtSec = Math.max(0, Math.round(numberValue(existing?.expiresAtSec, 0)));
+  if (existing && existingExpiresAtSec > safeNowSec) {
+    return {
+      ok: false,
+      reason: "token-replay-detected",
+      replay: true
+    };
+  }
+
+  privateDocConsumedTokenMap.set(key, {
+    tokenId: safeTokenId,
+    tokenFingerprint: safeTokenFingerprint,
+    consumedAtSec: safeNowSec,
+    expiresAtSec: safeExpiresAtSec
+  });
+  pruneConsumedPrivateDocTokens(safeNowSec);
+  return {
+    ok: true,
+    reason: "token-consumed",
+    replay: false
+  };
 }
 
 async function findPropertyOwnerId(propertyId) {
@@ -468,6 +535,10 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const payload = verification.payload || {};
     const uploadId = text(payload.uploadId);
     const nowIso = new Date().toISOString();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tokenId = text(payload.tokenId || payload.jti);
+    const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
+    const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
     let sourceUrl = text(payload.sourceUrl);
     let ownerId = text(payload.ownerId);
     let propertyId = text(payload.propertyId);
@@ -506,6 +577,40 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
           message: "Document integrity validation failed."
         });
       }
+      if (PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED) {
+        const tokenConsume = consumePrivateDocAccessToken({
+          tokenId,
+          tokenFingerprint,
+          expiresAtSec: tokenExpiresAtSec,
+          nowSec
+        });
+        if (!tokenConsume.ok) {
+          recordPrivateDocAccessEvent({
+            userId: text(req.coreUser?.id),
+            role: text(req.coreUser?.role, "buyer").toLowerCase(),
+            ownerId,
+            propertyId,
+            uploadId,
+            docId: text(payload.docId),
+            category: docCategory,
+            hash: text(payload.hash),
+            tokenId,
+            tokenFingerprint,
+            replayGuardEnabled: true,
+            replayBlocked: true,
+            reason: text(tokenConsume.reason),
+            ip: getClientIp(req),
+            userAgent: text(req.headers?.["user-agent"]).slice(0, 240),
+            expiresAt: text(payload.expiresAt),
+            source: "upload"
+          });
+          return res.status(409).json({
+            success: false,
+            message: "Private document token already used. Please request a fresh token.",
+            reason: text(tokenConsume.reason)
+          });
+        }
+      }
 
       await markPrivateDocAccess(uploadId, nowIso);
       recordPrivateDocAccessEvent({
@@ -517,6 +622,10 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         docId: text(payload.docId),
         category: docCategory,
         hash: text(payload.hash),
+        tokenId,
+        tokenFingerprint,
+        replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+        replayBlocked: false,
         ip: getClientIp(req),
         userAgent: text(req.headers?.["user-agent"]).slice(0, 240),
         expiresAt: text(payload.expiresAt),
@@ -547,6 +656,40 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         message: "Private document source is unavailable."
       });
     }
+    if (PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED) {
+      const tokenConsume = consumePrivateDocAccessToken({
+        tokenId,
+        tokenFingerprint,
+        expiresAtSec: tokenExpiresAtSec,
+        nowSec
+      });
+      if (!tokenConsume.ok) {
+        recordPrivateDocAccessEvent({
+          userId: text(req.coreUser?.id),
+          role: text(req.coreUser?.role, "buyer").toLowerCase(),
+          ownerId,
+          propertyId,
+          uploadId: "",
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: true,
+          replayBlocked: true,
+          reason: text(tokenConsume.reason),
+          ip: getClientIp(req),
+          userAgent: text(req.headers?.["user-agent"]).slice(0, 240),
+          expiresAt: text(payload.expiresAt),
+          source: "inline-private-doc"
+        });
+        return res.status(409).json({
+          success: false,
+          message: "Private document token already used. Please request a fresh token.",
+          reason: text(tokenConsume.reason)
+        });
+      }
+    }
 
     recordPrivateDocAccessEvent({
       userId: text(req.coreUser?.id),
@@ -557,6 +700,10 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       docId: text(payload.docId),
       category: docCategory,
       hash: text(payload.hash),
+      tokenId,
+      tokenFingerprint,
+      replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+      replayBlocked: false,
       ip: getClientIp(req),
       userAgent: text(req.headers?.["user-agent"]).slice(0, 240),
       expiresAt: text(payload.expiresAt),
