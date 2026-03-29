@@ -126,6 +126,10 @@ const SECURITY_CHAIN_DUAL_CONTROL_MAX_TTL_SEC = Math.max(
   30,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_MAX_TTL_SEC || 900)
 );
+const SECURITY_CHAIN_DUAL_CONTROL_REASON_MIN = Math.max(
+  8,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_REASON_MIN || 16)
+);
 const SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES = Math.max(
   1,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES || 20)
@@ -538,6 +542,7 @@ const API_ADMIN_ALLOWLIST_IPS = text(process.env.ADMIN_IP_ALLOWLIST)
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
 const ADMIN_SIGNATURE_NONCE_PATTERN = /^[a-zA-Z0-9._:-]{16,180}$/;
 const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES = new Set(["admin", "superadmin", "system", "service"]);
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 const NULL_BYTE_PATTERN = /\0/;
 const SUSPICIOUS_USER_AGENT_PATTERNS = [
   /sqlmap/i,
@@ -2780,6 +2785,8 @@ function pushSecurityChainGuardEvent(event = {}) {
     dualControlReason: text(event.dualControlReason),
     approverId: text(event.approverId),
     approvalId: text(event.approvalId),
+    requiredOperationDigest: text(event.requiredOperationDigest).toLowerCase(),
+    approvalOperationDigest: text(event.approvalOperationDigest).toLowerCase(),
     auditReason: text(event.auditReason),
     threatReason: text(event.threatReason)
   };
@@ -2828,7 +2835,13 @@ function normalizeSecurityChainDualControlApproval(value = {}) {
     issuedAtSec,
     expiresAtSec,
     signature: text(source.signature || source.sig).toLowerCase(),
-    reason: text(source.reason).slice(0, 240)
+    reason: text(source.reason).slice(0, 240),
+    operationDigest: text(
+      source.operationDigest ||
+        source.requiredDigest ||
+        source.payloadDigest ||
+        source.mutationDigest
+    ).toLowerCase()
   };
 }
 
@@ -2860,6 +2873,8 @@ function pushSecurityChainDualControlEvent(event = {}) {
     confirmOverride: Boolean(event.confirmOverride),
     compromised: Boolean(event.compromised),
     distinctApproverRequired: Boolean(event.distinctApproverRequired),
+    requiredOperationDigest: text(event.requiredOperationDigest).toLowerCase(),
+    approvalOperationDigest: text(event.approvalOperationDigest).toLowerCase(),
     secretSlot: text(event.secretSlot)
   };
   proSecurityChainDualControlEvents.unshift(row);
@@ -2909,7 +2924,8 @@ function registerSecurityChainDualControlAttempt({
   path = "/api/system/security-control",
   reason = "",
   required = true,
-  approved = false
+  approved = false,
+  operationDigest = ""
 } = {}) {
   const nowTs = Date.now();
   const row = {
@@ -2927,7 +2943,8 @@ function registerSecurityChainDualControlAttempt({
     path: text(path),
     reason: text(reason),
     required: Boolean(required),
-    approved: Boolean(approved)
+    approved: Boolean(approved),
+    operationDigest: text(operationDigest).toLowerCase()
   };
   proSecurityChainDualControlAttempts.unshift(row);
   if (proSecurityChainDualControlAttempts.length > SECURITY_CHAIN_DUAL_CONTROL_ATTEMPT_MAX_ITEMS) {
@@ -3127,6 +3144,30 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
   };
 }
 
+function computeSecurityChainDualControlOperationDigest({
+  operation = "security-control-update",
+  method = "PATCH",
+  path: requestPath = "/api/system/security-control",
+  payload = null
+} = {}) {
+  const canonical = {
+    operation: text(operation).toLowerCase(),
+    method: normalizeRequestMethod(method),
+    path: normalizeRequestPath(requestPath || "/api/system/security-control"),
+    payloadHash: (() => {
+      try {
+        if (typeof payload === "undefined" || payload === null) {
+          return sha256("");
+        }
+        return sha256(stableStringify(payload));
+      } catch {
+        return sha256("");
+      }
+    })()
+  };
+  return sha256(stableStringify(canonical));
+}
+
 function computeSecurityChainDualControlSignatureWithSecret(secret = "", {
   operation = "security-control-update",
   method = "PATCH",
@@ -3138,6 +3179,7 @@ function computeSecurityChainDualControlSignatureWithSecret(secret = "", {
   approvalId = "",
   issuedAtSec = 0,
   expiresAtSec = 0,
+  operationDigest = "",
   auditReason = "",
   threatReason = "",
   auditChainHead = "",
@@ -3156,6 +3198,7 @@ function computeSecurityChainDualControlSignatureWithSecret(secret = "", {
     text(approvalId),
     String(Math.max(0, Math.trunc(Number(issuedAtSec || 0)))),
     String(Math.max(0, Math.trunc(Number(expiresAtSec || 0)))),
+    text(operationDigest).toLowerCase(),
     text(auditReason),
     text(threatReason),
     text(auditChainHead).toLowerCase(),
@@ -3174,7 +3217,8 @@ function evaluateSecurityChainDualControlGuard({
   method = "PATCH",
   path = "/api/system/security-control",
   chainGuard = null,
-  chainOverrideApproval = null
+  chainOverrideApproval = null,
+  operationDigest = ""
 } = {}) {
   const safeChainGuard = chainGuard && typeof chainGuard === "object" ? chainGuard : {};
   const enabled = toBoolean(
@@ -3186,12 +3230,23 @@ function evaluateSecurityChainDualControlGuard({
   const bypassed = Boolean(safeChainGuard.bypassed) || isSecurityControlMutationGuardBypassActor(actorId, actorRole);
   const required = enabled && compromised && confirmOverride && !bypassed;
   const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
+  const requiredOperationDigestRaw = text(operationDigest).toLowerCase();
+  const requiredOperationDigest = SHA256_HEX_PATTERN.test(requiredOperationDigestRaw)
+    ? requiredOperationDigestRaw
+    : computeSecurityChainDualControlOperationDigest({
+      operation,
+      method,
+      path,
+      payload: null
+    });
+
   const trackAttempt = ({
     reason = "",
     approverId = "",
     approverRole = "",
     approvalId = "",
-    approved = false
+    approved = false,
+    operationDigest: attemptOperationDigest = ""
   } = {}) => {
     registerSecurityChainDualControlAttempt({
       actorId,
@@ -3205,9 +3260,11 @@ function evaluateSecurityChainDualControlGuard({
       path,
       reason,
       required: true,
-      approved: Boolean(approved)
+      approved: Boolean(approved),
+      operationDigest: text(attemptOperationDigest || requiredOperationDigest).toLowerCase()
     });
   };
+
   const allow = (payload = {}) => {
     const result = {
       allowed: true,
@@ -3227,6 +3284,8 @@ function evaluateSecurityChainDualControlGuard({
       compromised,
       distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
+      requiredOperationDigest,
+      approvalOperationDigest: "",
       ...payload
     };
     if (required) {
@@ -3235,11 +3294,13 @@ function evaluateSecurityChainDualControlGuard({
         approverId: text(result.approverId),
         approverRole: text(result.approverRole),
         approvalId: text(result.approvalId),
-        approved: Boolean(result.approved)
+        approved: Boolean(result.approved),
+        operationDigest: text(result.approvalOperationDigest || requiredOperationDigest).toLowerCase()
       });
     }
     return result;
   };
+
   const deny = (reason = "", payload = {}) => {
     const result = {
       allowed: false,
@@ -3259,6 +3320,8 @@ function evaluateSecurityChainDualControlGuard({
       compromised: true,
       distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
+      requiredOperationDigest,
+      approvalOperationDigest: "",
       ...payload
     };
     if (result.reason !== "chain-dual-control-attempt-actor-temporary-block") {
@@ -3267,11 +3330,13 @@ function evaluateSecurityChainDualControlGuard({
         approverId: text(result.approverId),
         approverRole: text(result.approverRole),
         approvalId: text(result.approvalId),
-        approved: false
+        approved: false,
+        operationDigest: text(result.approvalOperationDigest || requiredOperationDigest).toLowerCase()
       });
     }
     return result;
   };
+
   if (!required) {
     return allow({
       required: false,
@@ -3293,9 +3358,6 @@ function evaluateSecurityChainDualControlGuard({
   });
   if (!attemptGuard.allowed) {
     return deny(text(attemptGuard.reason), {
-      approverId: "",
-      approverRole: "",
-      approvalId: "",
       blockUntilTs: Number(attemptGuard.blockUntilTs || 0),
       retryAfterMs: Math.max(0, Number(attemptGuard.retryAfterMs || 0)),
       windowFailureCount: Math.max(0, Number(attemptGuard.windowFailureCount || 0)),
@@ -3313,72 +3375,91 @@ function evaluateSecurityChainDualControlGuard({
 
   const approval = normalizeSecurityChainDualControlApproval(chainOverrideApproval);
   const approverRole = text(approval.approverRole).toLowerCase();
+  const approvalOperationDigest = text(approval.operationDigest).toLowerCase();
   if (!approval.approverId) {
     return deny("chain-dual-control-approver-missing", {
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (!approverRole || !SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES.has(approverRole)) {
     return deny("chain-dual-control-approver-role-invalid", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
+    });
+  }
+  if (!approval.reason || approval.reason.length < SECURITY_CHAIN_DUAL_CONTROL_REASON_MIN) {
+    return deny("chain-dual-control-reason-too-short", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (!approval.approvalId) {
     return deny("chain-dual-control-approval-id-missing", {
       approverId: text(approval.approverId),
-      approverRole
+      approverRole,
+      approvalOperationDigest
     });
   }
   if (!ADMIN_SIGNATURE_NONCE_PATTERN.test(approval.approvalId)) {
     return deny("chain-dual-control-approval-id-invalid", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (!approval.issuedAtSec) {
     return deny("chain-dual-control-issued-at-missing", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (!approval.expiresAtSec) {
     return deny("chain-dual-control-expiry-missing", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (approval.expiresAtSec <= approval.issuedAtSec) {
     return deny("chain-dual-control-invalid-time-window", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (approval.expiresAtSec - approval.issuedAtSec > SECURITY_CHAIN_DUAL_CONTROL_MAX_TTL_SEC) {
     return deny("chain-dual-control-ttl-too-long", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (!approval.signature) {
     return deny("chain-dual-control-signature-missing", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
-  if (!/^[a-f0-9]{64}$/i.test(approval.signature)) {
+  if (!SHA256_HEX_PATTERN.test(approval.signature)) {
     return deny("chain-dual-control-signature-invalid-format", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (
@@ -3389,7 +3470,8 @@ function evaluateSecurityChainDualControlGuard({
     return deny("chain-dual-control-same-approver-blocked", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
 
@@ -3398,14 +3480,49 @@ function evaluateSecurityChainDualControlGuard({
     return deny("chain-dual-control-issued-at-in-future", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
   if (approval.expiresAtSec + SECURITY_CHAIN_DUAL_CONTROL_MAX_CLOCK_SKEW_SEC < nowSec) {
     return deny("chain-dual-control-expired", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
+    });
+  }
+
+  if (!approvalOperationDigest) {
+    return deny("chain-dual-control-operation-digest-missing", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
+    });
+  }
+  if (!SHA256_HEX_PATTERN.test(approvalOperationDigest)) {
+    return deny("chain-dual-control-operation-digest-invalid", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
+    });
+  }
+  if (!SHA256_HEX_PATTERN.test(requiredOperationDigest)) {
+    return deny("chain-dual-control-required-digest-invalid", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
+    });
+  }
+  if (!timingSafeEqualText(requiredOperationDigest, approvalOperationDigest)) {
+    return deny("chain-dual-control-operation-digest-mismatch", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
 
@@ -3416,7 +3533,8 @@ function evaluateSecurityChainDualControlGuard({
     return deny("chain-dual-control-approval-replay-detected", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
 
@@ -3431,6 +3549,7 @@ function evaluateSecurityChainDualControlGuard({
     approvalId: approval.approvalId,
     issuedAtSec: approval.issuedAtSec,
     expiresAtSec: approval.expiresAtSec,
+    operationDigest: requiredOperationDigest,
     auditReason: text(safeChainGuard.auditReason),
     threatReason: text(safeChainGuard.threatReason),
     auditChainHead: text(proSecurityAuditChainHead),
@@ -3451,7 +3570,8 @@ function evaluateSecurityChainDualControlGuard({
     return deny("chain-dual-control-signature-mismatch", {
       approverId: text(approval.approverId),
       approverRole,
-      approvalId: text(approval.approvalId)
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest
     });
   }
 
@@ -3466,6 +3586,8 @@ function evaluateSecurityChainDualControlGuard({
     operation: text(operation),
     method: text(method).toUpperCase(),
     path: text(path),
+    requiredOperationDigest,
+    approvalOperationDigest,
     secretSlot
   });
   pruneSecurityChainDualControlApprovals(nowTs);
@@ -3481,6 +3603,8 @@ function evaluateSecurityChainDualControlGuard({
     approvalId: text(approval.approvalId),
     approvalReason: text(approval.reason),
     secretConfigured: true,
+    requiredOperationDigest,
+    approvalOperationDigest,
     secretSlot
   });
 }
@@ -4492,6 +4616,15 @@ export function restoreProSecurityControlStateFromDisk({
   chainOverrideApproval = null
 } = {}) {
   const warnings = [];
+  const chainRestoreOperationDigest = computeSecurityChainDualControlOperationDigest({
+    operation: "security-control-restore",
+    method: "POST",
+    path: "/api/system/security-control/restore",
+    payload: {
+      intent: "restore-security-control-state",
+      source: "persisted-state-with-snapshot-fallback"
+    }
+  });
   const guard = evaluateSecurityControlMutationGuard({
     actorId,
     actorRole,
@@ -4545,7 +4678,8 @@ export function restoreProSecurityControlStateFromDisk({
     method: "POST",
     path: "/api/system/security-control/restore",
     chainGuard,
-    chainOverrideApproval
+    chainOverrideApproval,
+    operationDigest: chainRestoreOperationDigest
   });
   if (!chainGuard.allowed) {
     warnings.push(
@@ -4629,6 +4763,8 @@ export function restoreProSecurityControlStateFromDisk({
       confirmOverride: Boolean(chainDualControl.confirmOverride),
       compromised: Boolean(chainDualControl.compromised),
       distinctApproverRequired: Boolean(chainDualControl.distinctApproverRequired),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       secretSlot: text(chainDualControl.secretSlot)
     });
     pushSecurityChainGuardEvent({
@@ -4646,6 +4782,8 @@ export function restoreProSecurityControlStateFromDisk({
       dualControlReason: text(chainDualControl.reason),
       approverId: text(chainDualControl.approverId),
       approvalId: text(chainDualControl.approvalId),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       auditReason: text(chainGuard.auditReason),
       threatReason: text(chainGuard.threatReason)
     });
@@ -4715,7 +4853,9 @@ export function restoreProSecurityControlStateFromDisk({
         confirmOverride: Boolean(chainDualControl.confirmOverride),
         compromised: Boolean(chainDualControl.compromised),
         distinctApproverRequired: Boolean(chainDualControl.distinctApproverRequired),
-        secretSlot: text(chainDualControl.secretSlot)
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
+      secretSlot: text(chainDualControl.secretSlot)
       });
     }
     pushSecurityChainGuardEvent({
@@ -4733,6 +4873,8 @@ export function restoreProSecurityControlStateFromDisk({
       dualControlReason: text(chainDualControl.reason),
       approverId: text(chainDualControl.approverId),
       approvalId: text(chainDualControl.approvalId),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       auditReason: text(chainGuard.auditReason),
       threatReason: text(chainGuard.threatReason)
     });
@@ -4872,6 +5014,15 @@ export function resetProSecurityControlState({
   chainOverrideApproval = null
 } = {}) {
   const warnings = [];
+  const chainResetOperationDigest = computeSecurityChainDualControlOperationDigest({
+    operation: "security-control-reset",
+    method: "POST",
+    path: "/api/system/security-control/reset",
+    payload: {
+      intent: "reset-security-control-state",
+      target: "default-security-baseline"
+    }
+  });
   const guard = evaluateSecurityControlMutationGuard({
     actorId,
     actorRole,
@@ -4924,7 +5075,8 @@ export function resetProSecurityControlState({
     method: "POST",
     path: "/api/system/security-control/reset",
     chainGuard,
-    chainOverrideApproval
+    chainOverrideApproval,
+    operationDigest: chainResetOperationDigest
   });
   if (!chainGuard.allowed) {
     warnings.push(
@@ -5007,6 +5159,8 @@ export function resetProSecurityControlState({
       confirmOverride: Boolean(chainDualControl.confirmOverride),
       compromised: Boolean(chainDualControl.compromised),
       distinctApproverRequired: Boolean(chainDualControl.distinctApproverRequired),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       secretSlot: text(chainDualControl.secretSlot)
     });
     pushSecurityChainGuardEvent({
@@ -5024,6 +5178,8 @@ export function resetProSecurityControlState({
       dualControlReason: text(chainDualControl.reason),
       approverId: text(chainDualControl.approverId),
       approvalId: text(chainDualControl.approvalId),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       auditReason: text(chainGuard.auditReason),
       threatReason: text(chainGuard.threatReason)
     });
@@ -5092,7 +5248,9 @@ export function resetProSecurityControlState({
         confirmOverride: Boolean(chainDualControl.confirmOverride),
         compromised: Boolean(chainDualControl.compromised),
         distinctApproverRequired: Boolean(chainDualControl.distinctApproverRequired),
-        secretSlot: text(chainDualControl.secretSlot)
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
+      secretSlot: text(chainDualControl.secretSlot)
       });
     }
     pushSecurityChainGuardEvent({
@@ -5110,6 +5268,8 @@ export function resetProSecurityControlState({
       dualControlReason: text(chainDualControl.reason),
       approverId: text(chainDualControl.approverId),
       approvalId: text(chainDualControl.approvalId),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       auditReason: text(chainGuard.auditReason),
       threatReason: text(chainGuard.threatReason)
     });
@@ -5176,6 +5336,12 @@ export function updateProSecurityControlState(
   } = {}
 ) {
   const warnings = [];
+  const chainOperationDigest = computeSecurityChainDualControlOperationDigest({
+    operation: mutationOperation,
+    method: mutationMethod,
+    path: mutationPath,
+    payload: patch
+  });
   const guard = enforceMutationGuard
     ? evaluateSecurityControlMutationGuard({
       actorId,
@@ -5266,7 +5432,8 @@ export function updateProSecurityControlState(
       method: mutationMethod,
       path: mutationPath,
       chainGuard,
-      chainOverrideApproval
+      chainOverrideApproval,
+      operationDigest: chainOperationDigest
     })
     : {
       allowed: true,
@@ -5371,6 +5538,8 @@ export function updateProSecurityControlState(
       confirmOverride: Boolean(chainDualControl.confirmOverride),
       compromised: Boolean(chainDualControl.compromised),
       distinctApproverRequired: Boolean(chainDualControl.distinctApproverRequired),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       secretSlot: text(chainDualControl.secretSlot)
     });
     pushSecurityChainGuardEvent({
@@ -5388,6 +5557,8 @@ export function updateProSecurityControlState(
       dualControlReason: text(chainDualControl.reason),
       approverId: text(chainDualControl.approverId),
       approvalId: text(chainDualControl.approvalId),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       auditReason: text(chainGuard.auditReason),
       threatReason: text(chainGuard.threatReason)
     });
@@ -5459,7 +5630,9 @@ export function updateProSecurityControlState(
         confirmOverride: Boolean(chainDualControl.confirmOverride),
         compromised: Boolean(chainDualControl.compromised),
         distinctApproverRequired: Boolean(chainDualControl.distinctApproverRequired),
-        secretSlot: text(chainDualControl.secretSlot)
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
+      secretSlot: text(chainDualControl.secretSlot)
       });
     }
     pushSecurityChainGuardEvent({
@@ -5477,6 +5650,8 @@ export function updateProSecurityControlState(
       dualControlReason: text(chainDualControl.reason),
       approverId: text(chainDualControl.approverId),
       approvalId: text(chainDualControl.approvalId),
+      requiredOperationDigest: text(chainDualControl.requiredOperationDigest).toLowerCase(),
+      approvalOperationDigest: text(chainDualControl.approvalOperationDigest).toLowerCase(),
       auditReason: text(chainGuard.auditReason),
       threatReason: text(chainGuard.threatReason)
     });

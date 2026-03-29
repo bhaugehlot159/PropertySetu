@@ -226,7 +226,8 @@ export const coreSystemsBlueprint = [
       "Runtime hash-chain integrity verification for audit and threat incident streams with mismatch telemetry",
       "Chain-enforcement guard: security-control mutations blocked while chain integrity is compromised unless explicit chain break-glass confirm",
       "Dual-control chain override approvals: compromised-chain break-glass requires a second approver with signed anti-replay approval proof",
-      "Dual-control abuse guard: repeated invalid chain approvals auto-throttled with temporary actor lock"
+      "Dual-control abuse guard: repeated invalid chain approvals auto-throttled with temporary actor lock",
+      "Operation-digest bound approvals: signed chain override cannot be replayed across different mutation payloads"
     ],
     endpoints: [
       "/api/v3/auth/*",
