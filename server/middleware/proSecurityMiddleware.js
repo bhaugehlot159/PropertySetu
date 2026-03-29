@@ -13,7 +13,7 @@ const proSubjectIntelligence = new Map();
 const proAutoPromoteIntel = new Map();
 const proAutoPromotionEvents = [];
 const proAutoEscalationEvents = [];
-let proLastAutoEscalationAt = 0;
+let proLastAutoModeChangeAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -453,13 +453,19 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoEscalationCooldownMinutes: 20,
         autoEscalateToHardenedEvents: 20,
         autoEscalateToLockdownEvents: 40,
-        autoEscalateBlockedEvents: 8
+        autoEscalateBlockedEvents: 8,
+        autoDeEscalationWindowMinutes: 180,
+        autoDeEscalationCooldownMinutes: 30,
+        autoDeEscalateToHardenedMaxEvents: 12,
+        autoDeEscalateToBalancedMaxEvents: 4,
+        autoDeEscalateBlockedMaxEvents: 1
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
-        autoEscalateMode: true
+        autoEscalateMode: true,
+        autoDeEscalateMode: true
       }
     }
   },
@@ -500,13 +506,19 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoEscalationCooldownMinutes: 20,
         autoEscalateToHardenedEvents: 16,
         autoEscalateToLockdownEvents: 28,
-        autoEscalateBlockedEvents: 6
+        autoEscalateBlockedEvents: 6,
+        autoDeEscalationWindowMinutes: 120,
+        autoDeEscalationCooldownMinutes: 30,
+        autoDeEscalateToHardenedMaxEvents: 8,
+        autoDeEscalateToBalancedMaxEvents: 3,
+        autoDeEscalateBlockedMaxEvents: 1
       },
       adminControls: {
         actionKeyEnforced: true,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
-        autoEscalateMode: true
+        autoEscalateMode: true,
+        autoDeEscalateMode: true
       }
     }
   },
@@ -547,13 +559,19 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoEscalationCooldownMinutes: 20,
         autoEscalateToHardenedEvents: 10,
         autoEscalateToLockdownEvents: 18,
-        autoEscalateBlockedEvents: 4
+        autoEscalateBlockedEvents: 4,
+        autoDeEscalationWindowMinutes: 90,
+        autoDeEscalationCooldownMinutes: 20,
+        autoDeEscalateToHardenedMaxEvents: 6,
+        autoDeEscalateToBalancedMaxEvents: 2,
+        autoDeEscalateBlockedMaxEvents: 1
       },
       adminControls: {
         actionKeyEnforced: true,
         readOnlyApi: true,
         autoPromoteBlocklists: true,
-        autoEscalateMode: true
+        autoEscalateMode: true,
+        autoDeEscalateMode: true
       }
     }
   }
@@ -622,13 +640,34 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoEscalateBlockedEvents: Math.max(
       1,
       Number(process.env.AUTO_ESCALATE_BLOCKED_EVENTS || 8)
+    ),
+    autoDeEscalationWindowMinutes: Math.max(
+      30,
+      Number(process.env.AUTO_DE_ESCALATION_WINDOW_MINUTES || 180)
+    ),
+    autoDeEscalationCooldownMinutes: Math.max(
+      5,
+      Number(process.env.AUTO_DE_ESCALATION_COOLDOWN_MINUTES || 30)
+    ),
+    autoDeEscalateToHardenedMaxEvents: Math.max(
+      1,
+      Number(process.env.AUTO_DE_ESCALATE_TO_HARDENED_MAX_EVENTS || 12)
+    ),
+    autoDeEscalateToBalancedMaxEvents: Math.max(
+      1,
+      Number(process.env.AUTO_DE_ESCALATE_TO_BALANCED_MAX_EVENTS || 4)
+    ),
+    autoDeEscalateBlockedMaxEvents: Math.max(
+      0,
+      Number(process.env.AUTO_DE_ESCALATE_BLOCKED_MAX_EVENTS || 1)
     )
   },
   adminControls: {
     actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
     readOnlyApi: false,
     autoPromoteBlocklists: true,
-    autoEscalateMode: true
+    autoEscalateMode: true,
+    autoDeEscalateMode: true
   },
   lists: {
     blockedIps: [],
@@ -1277,6 +1316,46 @@ export function updateProSecurityControlState(
         500
       );
     }
+    if (typeof incoming.autoDeEscalationWindowMinutes !== "undefined") {
+      next.thresholds.autoDeEscalationWindowMinutes = toIntegerInRange(
+        incoming.autoDeEscalationWindowMinutes,
+        next.thresholds.autoDeEscalationWindowMinutes,
+        30,
+        1440
+      );
+    }
+    if (typeof incoming.autoDeEscalationCooldownMinutes !== "undefined") {
+      next.thresholds.autoDeEscalationCooldownMinutes = toIntegerInRange(
+        incoming.autoDeEscalationCooldownMinutes,
+        next.thresholds.autoDeEscalationCooldownMinutes,
+        5,
+        720
+      );
+    }
+    if (typeof incoming.autoDeEscalateToHardenedMaxEvents !== "undefined") {
+      next.thresholds.autoDeEscalateToHardenedMaxEvents = toIntegerInRange(
+        incoming.autoDeEscalateToHardenedMaxEvents,
+        next.thresholds.autoDeEscalateToHardenedMaxEvents,
+        1,
+        1000
+      );
+    }
+    if (typeof incoming.autoDeEscalateToBalancedMaxEvents !== "undefined") {
+      next.thresholds.autoDeEscalateToBalancedMaxEvents = toIntegerInRange(
+        incoming.autoDeEscalateToBalancedMaxEvents,
+        next.thresholds.autoDeEscalateToBalancedMaxEvents,
+        1,
+        1000
+      );
+    }
+    if (typeof incoming.autoDeEscalateBlockedMaxEvents !== "undefined") {
+      next.thresholds.autoDeEscalateBlockedMaxEvents = toIntegerInRange(
+        incoming.autoDeEscalateBlockedMaxEvents,
+        next.thresholds.autoDeEscalateBlockedMaxEvents,
+        0,
+        500
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -1316,6 +1395,12 @@ export function updateProSecurityControlState(
       next.adminControls.autoEscalateMode = toBoolean(
         patch.adminControls.autoEscalateMode,
         Boolean(next.adminControls.autoEscalateMode)
+      );
+    }
+    if (typeof patch.adminControls.autoDeEscalateMode !== "undefined") {
+      next.adminControls.autoDeEscalateMode = toBoolean(
+        patch.adminControls.autoDeEscalateMode,
+        Boolean(next.adminControls.autoDeEscalateMode)
       );
     }
   }
@@ -1369,6 +1454,14 @@ export function updateProSecurityControlState(
   if (next.thresholds.autoEscalateToLockdownEvents <= next.thresholds.autoEscalateToHardenedEvents) {
     next.thresholds.autoEscalateToLockdownEvents = next.thresholds.autoEscalateToHardenedEvents + 1;
     warnings.push("autoEscalateToLockdownEvents was auto-adjusted to be > autoEscalateToHardenedEvents.");
+  }
+  if (next.thresholds.autoDeEscalateToHardenedMaxEvents <= next.thresholds.autoDeEscalateToBalancedMaxEvents) {
+    next.thresholds.autoDeEscalateToHardenedMaxEvents = next.thresholds.autoDeEscalateToBalancedMaxEvents + 1;
+    warnings.push("autoDeEscalateToHardenedMaxEvents was auto-adjusted to be > autoDeEscalateToBalancedMaxEvents.");
+  }
+  if (next.thresholds.autoEscalateToHardenedEvents <= next.thresholds.autoDeEscalateToHardenedMaxEvents) {
+    next.thresholds.autoEscalateToHardenedEvents = next.thresholds.autoDeEscalateToHardenedMaxEvents + 1;
+    warnings.push("autoEscalateToHardenedEvents was auto-adjusted to stay above de-escalation threshold.");
   }
 
   next.meta = {
@@ -2158,7 +2251,7 @@ function maybeAutoEscalateSecurityMode({
     5 * 60 * 1000,
     Math.min(12 * 60 * 60 * 1000, Number(thresholds.autoEscalationCooldownMinutes || 20) * 60 * 1000)
   );
-  if (proLastAutoEscalationAt > 0 && nowTs - proLastAutoEscalationAt < cooldownMs) {
+  if (proLastAutoModeChangeAt > 0 && nowTs - proLastAutoModeChangeAt < cooldownMs) {
     return;
   }
 
@@ -2199,10 +2292,11 @@ function maybeAutoEscalateSecurityMode({
   });
   if (!result.applied) return;
 
-  proLastAutoEscalationAt = nowTs;
+  proLastAutoModeChangeAt = nowTs;
   const row = {
     id: `escalate-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
     at: nowIso(),
+    direction: "escalate",
     fromMode: currentMode,
     toMode: targetMode,
     reason: text(reason).toLowerCase(),
@@ -2220,6 +2314,102 @@ function maybeAutoEscalateSecurityMode({
   pushSecurityAuditEventInternal({
     severity: "high",
     type: "auto-security-mode-escalated",
+    method: "POST",
+    path: safePath || "/api",
+    details: {
+      fromMode: currentMode,
+      toMode: targetMode,
+      requestId: text(requestId),
+      reason: text(reason).toLowerCase(),
+      windowMinutes: Math.round(windowMs / 60_000),
+      totalEvents,
+      blockedEvents,
+      cooldownMinutes: Math.round(cooldownMs / 60_000)
+    }
+  });
+}
+
+function maybeAutoDeEscalateSecurityMode({
+  reason = "",
+  path: requestPath = "",
+  requestId = ""
+} = {}) {
+  const safePath = normalizeRequestPath(requestPath);
+  if (isSecurityControlPath(safePath)) return;
+
+  const currentMode = currentSecurityMode();
+  if (currentMode === "balanced") return;
+
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoDeEscalateMode, true)) return;
+
+  const thresholds = currentSecurityThresholds();
+  const nowTs = Date.now();
+  const cooldownMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.autoDeEscalationCooldownMinutes || 30) * 60 * 1000)
+  );
+  if (proLastAutoModeChangeAt > 0 && nowTs - proLastAutoModeChangeAt < cooldownMs) {
+    return;
+  }
+
+  const windowMs = Math.max(
+    10 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.autoDeEscalationWindowMinutes || 180) * 60 * 1000)
+  );
+  const cutoff = nowTs - windowMs;
+  const recent = proThreatIncidents.filter((item) => {
+    const at = Date.parse(text(item?.at));
+    return Number.isFinite(at) && at >= cutoff;
+  });
+
+  const totalEvents = recent.length;
+  const blockedEvents = recent.filter((item) => Boolean(item?.blocked)).length;
+  const toHardenedMax = Math.max(1, Number(thresholds.autoDeEscalateToHardenedMaxEvents || 12));
+  const toBalancedMax = Math.max(1, Number(thresholds.autoDeEscalateToBalancedMaxEvents || 4));
+  const blockedMax = Math.max(0, Number(thresholds.autoDeEscalateBlockedMaxEvents || 1));
+
+  let targetMode = "";
+  if (currentMode === "lockdown") {
+    if (totalEvents <= toHardenedMax && blockedEvents <= blockedMax) {
+      targetMode = "hardened";
+    }
+  } else if (currentMode === "hardened") {
+    if (totalEvents <= toBalancedMax && blockedEvents <= blockedMax) {
+      targetMode = "balanced";
+    }
+  }
+
+  if (!targetMode) return;
+
+  const result = applyProSecurityControlProfile(targetMode, {
+    actorId: "ai-guardian",
+    actorRole: "system"
+  });
+  if (!result.applied) return;
+
+  proLastAutoModeChangeAt = nowTs;
+  const row = {
+    id: `deescalate-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    direction: "de-escalate",
+    fromMode: currentMode,
+    toMode: targetMode,
+    reason: text(reason).toLowerCase(),
+    requestId: text(requestId),
+    path: safePath,
+    windowMinutes: Math.round(windowMs / 60_000),
+    totalEvents,
+    blockedEvents
+  };
+  proAutoEscalationEvents.unshift(row);
+  if (proAutoEscalationEvents.length > AUTO_ESCALATION_EVENT_MAX_ITEMS) {
+    proAutoEscalationEvents.length = AUTO_ESCALATION_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-security-mode-de-escalated",
     method: "POST",
     path: safePath || "/api",
     details: {
@@ -2660,6 +2850,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       autoEscalations: proAutoEscalationEvents.length,
       autoEscalationLastAt: text(proAutoEscalationEvents[0]?.at),
       autoEscalationLastMode: text(proAutoEscalationEvents[0]?.toMode),
+      autoModeLastDirection: text(proAutoEscalationEvents[0]?.direction),
+      autoModeEscalations: proAutoEscalationEvents.filter((item) => text(item?.direction) === "escalate").length,
+      autoModeDeEscalations: proAutoEscalationEvents.filter((item) => text(item?.direction) === "de-escalate").length,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -3499,6 +3692,12 @@ export function proRequestFirewall(req, res, next) {
   const clientIp = getClientIp(req);
   const userAgent = text(req?.headers?.["user-agent"]).toLowerCase();
   const isControlPath = isSecurityControlPath(pathForChecks);
+
+  maybeAutoDeEscalateSecurityMode({
+    reason: "request-flow",
+    path: pathForChecks,
+    requestId: req.requestId
+  });
 
   const reject = ({
     reason,
