@@ -1,4 +1,7 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const proRateBuckets = new Map();
 const proSecurityAuditEvents = [];
@@ -8,6 +11,13 @@ const proFakeListingSignatureIntel = new Map();
 const proTokenIntelligence = new Map();
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const configuredSecurityControlStateFile = String(process.env.SECURITY_CONTROL_STATE_FILE || "").trim();
+const SECURITY_CONTROL_STATE_FILE = configuredSecurityControlStateFile ||
+  path.resolve(__dirname, "../../database/security-control-state.json");
+const SECURITY_CONTROL_STATE_PERSIST_ENABLED =
+  String(process.env.SECURITY_CONTROL_STATE_PERSIST_ENABLED || "true").trim().toLowerCase() !== "false";
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -538,6 +548,59 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function safeReadJson(filePath = "") {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistSecurityControlStateToDisk(state = {}) {
+  if (!SECURITY_CONTROL_STATE_PERSIST_ENABLED) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "disabled"
+    };
+  }
+
+  try {
+    const target = String(SECURITY_CONTROL_STATE_FILE || "").trim();
+    if (!target) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: "missing-path"
+      };
+    }
+    const dir = path.dirname(target);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${target}.tmp`;
+    const payload = {
+      version: 1,
+      persistedAt: nowIso(),
+      state
+    };
+    fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), "utf8");
+    fs.renameSync(tmp, target);
+    return {
+      ok: true,
+      path: target
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      skipped: false,
+      reason: String(error?.message || "persist-failed")
+    };
+  }
+}
+
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex");
 }
@@ -799,10 +862,59 @@ export function listProSecurityControlProfiles() {
   return listSecurityControlProfilesInternal();
 }
 
+export function getProSecurityControlPersistenceStatus() {
+  const target = String(SECURITY_CONTROL_STATE_FILE || "").trim();
+  const exists = target ? fs.existsSync(target) : false;
+  const stats = exists ? fs.statSync(target) : null;
+  return {
+    enabled: SECURITY_CONTROL_STATE_PERSIST_ENABLED,
+    path: target,
+    exists,
+    sizeBytes: stats ? Number(stats.size || 0) : 0,
+    updatedAt: stats ? new Date(stats.mtimeMs).toISOString() : ""
+  };
+}
+
+export function restoreProSecurityControlStateFromDisk({
+  actorId = "system",
+  actorRole = "system"
+} = {}) {
+  const payload = safeReadJson(SECURITY_CONTROL_STATE_FILE);
+  if (!payload || typeof payload !== "object") {
+    return {
+      restored: false,
+      state: getProSecurityControlState(),
+      warnings: ["No persisted security control state found on disk."]
+    };
+  }
+
+  const persisted = payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)
+    ? payload.state
+    : payload;
+  const patch = {
+    mode: persisted.mode,
+    modules: persisted.modules,
+    thresholds: persisted.thresholds,
+    adminControls: persisted.adminControls,
+    trustedFingerprints: persisted.trustedFingerprints,
+    lists: persisted.lists
+  };
+  const result = updateProSecurityControlState(patch, {
+    actorId,
+    actorRole
+  });
+  return {
+    restored: true,
+    state: result.state,
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
 export function resetProSecurityControlState({
   actorId = "",
   actorRole = ""
 } = {}) {
+  const warnings = [];
   const next = cloneSecurityControlState(DEFAULT_PRO_SECURITY_CONTROL_STATE);
   next.meta = {
     ...next.meta,
@@ -823,9 +935,13 @@ export function resetProSecurityControlState({
       mode: currentSecurityMode()
     }
   });
+  const persist = persistSecurityControlStateToDisk(proSecurityControlState);
+  if (!persist.ok && !persist.skipped) {
+    warnings.push(`Security control persistence failed: ${text(persist.reason)}`);
+  }
   return {
     state: getProSecurityControlState(),
-    warnings: []
+    warnings
   };
 }
 
@@ -1024,6 +1140,10 @@ export function updateProSecurityControlState(
       warnings: warnings.slice(0, 12)
     }
   });
+  const persist = persistSecurityControlStateToDisk(proSecurityControlState);
+  if (!persist.ok && !persist.skipped) {
+    warnings.push(`Security control persistence failed: ${text(persist.reason)}`);
+  }
   return {
     state: getProSecurityControlState(),
     warnings
@@ -1072,6 +1192,33 @@ export function applyProSecurityControlProfile(
     warnings
   };
 }
+
+let hasInitializedSecurityControlFromDisk = false;
+
+function initializeSecurityControlStateFromDisk() {
+  if (hasInitializedSecurityControlFromDisk) return;
+  hasInitializedSecurityControlFromDisk = true;
+  if (!SECURITY_CONTROL_STATE_PERSIST_ENABLED) return;
+  const payload = safeReadJson(SECURITY_CONTROL_STATE_FILE);
+  if (!payload || typeof payload !== "object") return;
+  const persisted = payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)
+    ? payload.state
+    : payload;
+  const patch = {
+    mode: persisted.mode,
+    modules: persisted.modules,
+    thresholds: persisted.thresholds,
+    adminControls: persisted.adminControls,
+    trustedFingerprints: persisted.trustedFingerprints,
+    lists: persisted.lists
+  };
+  updateProSecurityControlState(patch, {
+    actorId: "system-boot",
+    actorRole: "system"
+  });
+}
+
+initializeSecurityControlStateFromDisk();
 
 function normalizeContentType(value) {
   return text(value).split(";")[0].trim().toLowerCase();

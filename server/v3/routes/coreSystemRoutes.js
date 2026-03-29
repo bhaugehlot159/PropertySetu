@@ -8,9 +8,11 @@ import {
   getCoreSystemBlueprint,
   getCoreSystemExecutionPlan,
   getCoreSystemSecurityControlProfiles,
+  getCoreSystemSecurityControlPersistence,
   getCoreSystemSecurityControl,
   getCoreSystemSecurityAudit,
   getCoreSystemSecurityIntelligence,
+  restoreCoreSystemSecurityControl,
   resetCoreSystemSecurityControl,
   quarantineCoreSystemSecurityThreatProfile,
   releaseCoreSystemSecurityThreatProfile,
@@ -31,7 +33,9 @@ router.get("/security-intelligence", coreAuthRequired, coreRoleRequired("admin")
 router.get("/security-control", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityControl);
 router.patch("/security-control", coreAuthRequired, coreRoleRequired("admin"), updateCoreSystemSecurityControl);
 router.get("/security-control/profiles", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityControlProfiles);
+router.get("/security-control/persistence", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityControlPersistence);
 router.post("/security-control/profile", coreAuthRequired, coreRoleRequired("admin"), applyCoreSystemSecurityControlProfile);
+router.post("/security-control/restore", coreAuthRequired, coreRoleRequired("admin"), restoreCoreSystemSecurityControl);
 router.post("/security-control/reset", coreAuthRequired, coreRoleRequired("admin"), resetCoreSystemSecurityControl);
 router.post("/security-intelligence/release", coreAuthRequired, coreRoleRequired("admin"), releaseCoreSystemSecurityThreatProfile);
 router.post("/security-intelligence/quarantine", coreAuthRequired, coreRoleRequired("admin"), quarantineCoreSystemSecurityThreatProfile);

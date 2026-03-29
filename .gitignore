@@ -1,6 +1,7 @@
 server/node_modules/
 server/.env
 database/live-data.json
+database/security-control-state.json
 client/node_modules/
 client/dist/
 client/.env

@@ -11,6 +11,7 @@ import crypto from "crypto";
 import {
   applyProSecurityControlProfile,
   createProSafeStaticOptions,
+  getProSecurityControlPersistenceStatus,
   listProSecurityControlProfiles,
   proAiThreatAutoDetector,
   createProCorsOptions,
@@ -30,6 +31,7 @@ import {
   proAuthRateLimiter,
   proBlockSensitivePublicFiles,
   proRequestFirewall,
+  restoreProSecurityControlStateFromDisk,
   updateProSecurityControlState,
   proTokenFirewall,
   proSecurityHeaders
@@ -1171,6 +1173,8 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
       "/api/system/security-control/profile"
     ],
     securityControlProfiles: "/api/system/security-control/profiles",
+    securityControlPersistence: "/api/system/security-control/persistence",
+    securityControlRestore: "/api/system/security-control/restore",
     securityAuditV3: "/api/v3/system/security-audit",
     securityIntelligenceV3: "/api/v3/system/security-intelligence",
     securityIntelligenceManageV3: [
@@ -1184,6 +1188,8 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
       "/api/v3/system/security-control/profile"
     ],
     securityControlProfilesV3: "/api/v3/system/security-control/profiles",
+    securityControlPersistenceV3: "/api/v3/system/security-control/persistence",
+    securityControlRestoreV3: "/api/v3/system/security-control/restore",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {
@@ -1324,6 +1330,16 @@ app.get("/api/system/security-control/profiles", auth, admin, (req, res) => {
     profiles: listProSecurityControlProfiles()
   });
 });
+app.get("/api/system/security-control/persistence", auth, admin, (req, res) => {
+  return res.json({
+    ok: true,
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role
+    },
+    persistence: getProSecurityControlPersistenceStatus()
+  });
+});
 app.post("/api/system/security-control/profile", auth, admin, (req, res) => {
   const profileId = txt(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
   const result = applyProSecurityControlProfile(profileId, {
@@ -1339,6 +1355,23 @@ app.post("/api/system/security-control/profile", auth, admin, (req, res) => {
       role: req.user.role
     },
     profileId: result.profileId,
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
+  });
+});
+app.post("/api/system/security-control/restore", auth, admin, (req, res) => {
+  const result = restoreProSecurityControlStateFromDisk({
+    actorId: req.user.id,
+    actorRole: req.user.role
+  });
+  const statusCode = result.restored ? 200 : 404;
+  return res.status(statusCode).json({
+    ok: result.restored,
+    action: result.restored ? "restored" : "restore-missed",
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role
+    },
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     state: result.state
   });

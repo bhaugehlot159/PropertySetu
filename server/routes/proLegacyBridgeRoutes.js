@@ -12,6 +12,7 @@ import {
   createProRateLimiter,
   getProSecurityAuditEvents,
   getProSecurityControlState,
+  getProSecurityControlPersistenceStatus,
   getProSecurityThreatIntelligence,
   isValidProSecurityThreatFingerprint,
   listProSecurityControlProfiles,
@@ -19,6 +20,7 @@ import {
   quarantineProSecurityThreatProfile,
   releaseProSecurityThreatProfile,
   resetProSecurityControlState,
+  restoreProSecurityControlStateFromDisk,
   updateProSecurityControlState
 } from "../middleware/proSecurityMiddleware.js";
 import { proMemoryStore } from "../runtime/proMemoryStore.js";
@@ -422,6 +424,8 @@ router.get("/system/capabilities", (_req, res) => {
         "/api/system/security-control/profile"
       ],
       securityControlProfiles: "/api/system/security-control/profiles",
+      securityControlPersistence: "/api/system/security-control/persistence",
+      securityControlRestore: "/api/system/security-control/restore",
       securityAuditV3: "/api/v3/system/security-audit",
       securityIntelligenceV3: "/api/v3/system/security-intelligence",
       securityIntelligenceManageV3: [
@@ -434,7 +438,9 @@ router.get("/system/capabilities", (_req, res) => {
         "/api/v3/system/security-control/reset",
         "/api/v3/system/security-control/profile"
       ],
-      securityControlProfilesV3: "/api/v3/system/security-control/profiles"
+      securityControlProfilesV3: "/api/v3/system/security-control/profiles",
+      securityControlPersistenceV3: "/api/v3/system/security-control/persistence",
+      securityControlRestoreV3: "/api/v3/system/security-control/restore"
     }
   });
 });
@@ -547,6 +553,24 @@ router.get(
   }
 );
 
+router.get(
+  "/system/security-control/persistence",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    return res.json({
+      ok: true,
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      persistence: getProSecurityControlPersistenceStatus()
+    });
+  }
+);
+
 router.post(
   "/system/security-control/profile",
   requireBridgeTrustedActor,
@@ -568,6 +592,31 @@ router.post(
         role: actor.role
       },
       profileId: result.profileId,
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      state: result.state
+    });
+  }
+);
+
+router.post(
+  "/system/security-control/restore",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    const result = restoreProSecurityControlStateFromDisk({
+      actorId: actor.id,
+      actorRole: actor.role
+    });
+    const statusCode = result.restored ? 200 : 404;
+    return res.status(statusCode).json({
+      ok: result.restored,
+      action: result.restored ? "restored" : "restore-missed",
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       state: result.state
     });

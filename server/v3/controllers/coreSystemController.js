@@ -7,6 +7,7 @@ import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
 import {
   applyProSecurityControlProfile,
   getProSecurityAuditEvents,
+  getProSecurityControlPersistenceStatus,
   getProSecurityControlState,
   getProSecurityThreatIntelligence,
   isValidProSecurityThreatFingerprint,
@@ -15,6 +16,7 @@ import {
   quarantineProSecurityThreatProfile,
   releaseProSecurityThreatProfile,
   resetProSecurityControlState,
+  restoreProSecurityControlStateFromDisk,
   updateProSecurityControlState
 } from "../../middleware/proSecurityMiddleware.js";
 import CoreUser from "../models/CoreUser.js";
@@ -625,6 +627,35 @@ export function applyCoreSystemSecurityControlProfile(req, res) {
       role: String(req.coreUser?.role || "")
     },
     profileId: result.profileId,
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
+  });
+}
+
+export function getCoreSystemSecurityControlPersistence(req, res) {
+  return res.json({
+    success: true,
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    persistence: getProSecurityControlPersistenceStatus()
+  });
+}
+
+export function restoreCoreSystemSecurityControl(req, res) {
+  const result = restoreProSecurityControlStateFromDisk({
+    actorId: String(req.coreUser?.id || ""),
+    actorRole: String(req.coreUser?.role || "")
+  });
+  const statusCode = result.restored ? 200 : 404;
+  return res.status(statusCode).json({
+    success: result.restored,
+    action: result.restored ? "restored" : "restore-missed",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     state: result.state
   });

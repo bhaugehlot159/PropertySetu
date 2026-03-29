@@ -197,7 +197,8 @@ export const coreSystemsBlueprint = [
       "AI auto-detected threat scoring and temporary quarantine",
       "Admin-controlled security control plane (modules, thresholds, trusted fingerprints)",
       "Security profiles (balanced/hardened/lockdown) and emergency read-only mode",
-      "Runtime blocklists for IP, fingerprint, user-agent signature, and token subject"
+      "Runtime blocklists for IP, fingerprint, user-agent signature, and token subject",
+      "Persisted security-control state with restore support for admin recovery"
     ],
     endpoints: [
       "/api/v3/auth/*",
@@ -208,7 +209,9 @@ export const coreSystemsBlueprint = [
       "/api/system/security-intelligence",
       "/api/system/security-control",
       "/api/system/security-control/profiles",
+      "/api/system/security-control/persistence",
       "/api/system/security-control/profile",
+      "/api/system/security-control/restore",
       "/api/system/security-control/reset",
       "/api/system/security-intelligence/release",
       "/api/system/security-intelligence/quarantine",
@@ -216,7 +219,9 @@ export const coreSystemsBlueprint = [
       "/api/v3/system/security-intelligence",
       "/api/v3/system/security-control",
       "/api/v3/system/security-control/profiles",
+      "/api/v3/system/security-control/persistence",
       "/api/v3/system/security-control/profile",
+      "/api/v3/system/security-control/restore",
       "/api/v3/system/security-control/reset",
       "/api/v3/system/security-intelligence/release",
       "/api/v3/system/security-intelligence/quarantine"
