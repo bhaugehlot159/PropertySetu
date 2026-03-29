@@ -146,6 +146,14 @@ const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES = Math.max(
   2,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES || 10)
 );
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_ACTOR_THRESHOLD = Math.max(
+  2,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_ACTOR_THRESHOLD || 4)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_OPERATION_DIGEST_THRESHOLD = Math.max(
+  2,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_OPERATION_DIGEST_THRESHOLD || 6)
+);
 const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES = Math.max(
   1,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES || 30)
@@ -2837,6 +2845,16 @@ function pushSecurityChainGuardEvent(event = {}) {
       ) && SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE
       : Boolean(event.legacySignatureAllowed),
     legacySignatureUsed: Boolean(event.legacySignatureUsed),
+    approverShieldDistinctActorCount: Math.max(0, Number(event.approverShieldDistinctActorCount || 0)),
+    approverShieldDistinctActorThreshold: Math.max(0, Number(event.approverShieldDistinctActorThreshold || 0)),
+    approverShieldDistinctOperationDigestCount: Math.max(
+      0,
+      Number(event.approverShieldDistinctOperationDigestCount || 0)
+    ),
+    approverShieldDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(event.approverShieldDistinctOperationDigestThreshold || 0)
+    ),
     auditReason: text(event.auditReason),
     threatReason: text(event.threatReason)
   };
@@ -2949,6 +2967,16 @@ function pushSecurityChainDualControlEvent(event = {}) {
       ) && SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE
       : Boolean(event.legacySignatureAllowed),
     legacySignatureUsed: Boolean(event.legacySignatureUsed),
+    approverShieldDistinctActorCount: Math.max(0, Number(event.approverShieldDistinctActorCount || 0)),
+    approverShieldDistinctActorThreshold: Math.max(0, Number(event.approverShieldDistinctActorThreshold || 0)),
+    approverShieldDistinctOperationDigestCount: Math.max(
+      0,
+      Number(event.approverShieldDistinctOperationDigestCount || 0)
+    ),
+    approverShieldDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(event.approverShieldDistinctOperationDigestThreshold || 0)
+    ),
     secretSlot: text(event.secretSlot)
   };
   proSecurityChainDualControlEvents.unshift(row);
@@ -3211,6 +3239,14 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
   const safeApproverId = text(approverId).toLowerCase();
   const windowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_WINDOW_MINUTES));
   const maxFailures = Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES));
+  const distinctActorThreshold = Math.max(
+    2,
+    Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_ACTOR_THRESHOLD)
+  );
+  const distinctOperationDigestThreshold = Math.max(
+    2,
+    Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_OPERATION_DIGEST_THRESHOLD)
+  );
   const blockDurationMs = Math.max(
     60_000,
     Math.min(24 * 60 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES * 60 * 1000)
@@ -3235,10 +3271,14 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
               : "chain-dual-control-approver-shield-approver-missing"))),
       windowMinutes,
       maxFailures,
+      distinctActorThreshold,
+      distinctOperationDigestThreshold,
       blockDurationMs,
       operation: text(operation),
       method: text(method).toUpperCase(),
-      path: text(path)
+      path: text(path),
+      distinctActorCount: 0,
+      distinctOperationDigestCount: 0
     };
   }
 
@@ -3259,6 +3299,8 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
         reason: "chain-dual-control-attempt-approver-temporary-block",
         windowMinutes,
         maxFailures,
+        distinctActorThreshold,
+        distinctOperationDigestThreshold,
         blockDurationMs,
         operation: text(operation),
         method: text(method).toUpperCase(),
@@ -3266,7 +3308,9 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
         blockUntilTs,
         retryAfterMs: Math.max(0, blockUntilTs - nowTs),
         windowFailureCount: Number(existingBlock.windowFailureCount || 0),
-        lastFailureAt: text(existingBlock.lastFailureAt)
+        lastFailureAt: text(existingBlock.lastFailureAt),
+        distinctActorCount: Math.max(0, Number(existingBlock.distinctActorCount || 0)),
+        distinctOperationDigestCount: Math.max(0, Number(existingBlock.distinctOperationDigestCount || 0))
       };
     }
     proSecurityChainDualControlApproverAttemptBlocks.delete(safeApproverId);
@@ -3281,7 +3325,16 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
       Number(item?.atMs || 0) >= cutoff
   );
   const recentFailures = recentAttempts.filter((item) => !Boolean(item?.approved));
-  if (recentFailures.length < maxFailures) {
+  const distinctActorCount = new Set(
+    recentFailures.map((item) => text(item?.actorKey).toLowerCase()).filter(Boolean)
+  ).size;
+  const distinctOperationDigestCount = new Set(
+    recentFailures.map((item) => text(item?.operationDigest).toLowerCase()).filter(Boolean)
+  ).size;
+  const distributedActorAbuse = distinctActorCount >= distinctActorThreshold;
+  const distributedDigestAbuse = distinctOperationDigestCount >= distinctOperationDigestThreshold;
+  const distributedAbuse = distributedActorAbuse || distributedDigestAbuse;
+  if (recentFailures.length < maxFailures && !distributedAbuse) {
     return {
       allowed: true,
       active: true,
@@ -3293,17 +3346,27 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
       reason: "chain-dual-control-approver-shield-allow",
       windowMinutes,
       maxFailures,
+      distinctActorThreshold,
+      distinctOperationDigestThreshold,
       blockDurationMs,
       operation: text(operation),
       method: text(method).toUpperCase(),
       path: text(path),
-      windowFailureCount: recentFailures.length
+      windowFailureCount: recentFailures.length,
+      distinctActorCount,
+      distinctOperationDigestCount
     };
   }
 
   const latestFailure = recentFailures[0] || null;
   const blockUntilTs = nowTs + blockDurationMs;
-  const reason = "chain-dual-control-attempt-approver-window-limit-exceeded";
+  const reason = distributedActorAbuse && distributedDigestAbuse
+    ? "chain-dual-control-attempt-approver-distributed-actor-digest-abuse"
+    : (distributedActorAbuse
+      ? "chain-dual-control-attempt-approver-distinct-actor-abuse"
+      : (distributedDigestAbuse
+        ? "chain-dual-control-attempt-approver-distinct-digest-abuse"
+        : "chain-dual-control-attempt-approver-window-limit-exceeded"));
   proSecurityChainDualControlApproverAttemptBlocks.set(safeApproverId, {
     approverId: safeApproverId,
     reason,
@@ -3317,7 +3380,11 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
     windowMinutes,
     maxFailures,
     windowFailureCount: recentFailures.length,
-    lastFailureAt: text(latestFailure?.at)
+    lastFailureAt: text(latestFailure?.at),
+    distinctActorThreshold,
+    distinctOperationDigestThreshold,
+    distinctActorCount,
+    distinctOperationDigestCount
   });
   proLastSecurityChainDualControlApproverAttemptBlockAt = nowTs;
   pruneSecurityChainDualControlAttemptTelemetry(nowTs);
@@ -3333,6 +3400,8 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
     reason,
     windowMinutes,
     maxFailures,
+    distinctActorThreshold,
+    distinctOperationDigestThreshold,
     blockDurationMs,
     operation: text(operation),
     method: text(method).toUpperCase(),
@@ -3340,7 +3409,9 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
     blockUntilTs,
     retryAfterMs: Math.max(0, blockUntilTs - nowTs),
     windowFailureCount: recentFailures.length,
-    lastFailureAt: text(latestFailure?.at)
+    lastFailureAt: text(latestFailure?.at),
+    distinctActorCount,
+    distinctOperationDigestCount
   };
 }
 
@@ -3371,6 +3442,12 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
       Boolean(text(item?.approverId))
   );
   const approverRecentFailures = approverRecentAttempts.filter((item) => !Boolean(item?.approved));
+  const approverRecentDistinctActorCount = new Set(
+    approverRecentFailures.map((item) => text(item?.actorKey).toLowerCase()).filter(Boolean)
+  ).size;
+  const approverRecentDistinctOperationDigestCount = new Set(
+    approverRecentFailures.map((item) => text(item?.operationDigest).toLowerCase()).filter(Boolean)
+  ).size;
   const approverActiveBlocks = Array.from(proSecurityChainDualControlApproverAttemptBlocks.values())
     .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
     .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
@@ -3402,12 +3479,22 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
     approverShieldEnabled,
     approverWindowMinutes,
     approverMaxFailures: Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES)),
+    approverDistinctActorThreshold: Math.max(
+      2,
+      Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_ACTOR_THRESHOLD)
+    ),
+    approverDistinctOperationDigestThreshold: Math.max(
+      2,
+      Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_DISTINCT_OPERATION_DIGEST_THRESHOLD)
+    ),
     approverBlockDurationMinutes: Math.max(
       1,
       Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES)
     ),
     approverRecentAttemptCount: approverRecentAttempts.length,
     approverRecentFailureCount: approverRecentFailures.length,
+    approverRecentDistinctActorCount,
+    approverRecentDistinctOperationDigestCount,
     approverActiveBlockCount: approverActiveBlocks.length,
     approverTrackedCount: proSecurityChainDualControlApproverAttemptBlocks.size,
     approverLatestBlockAt: latestApproverBlock
@@ -3763,7 +3850,17 @@ function evaluateSecurityChainDualControlGuard({
       approverShieldMaxFailures: Math.max(0, Number(approverAttemptGuard.maxFailures || 0)),
       approverShieldBlockUntilTs: Number(approverAttemptGuard.blockUntilTs || 0),
       approverShieldRetryAfterMs: Math.max(0, Number(approverAttemptGuard.retryAfterMs || 0)),
-      approverShieldWindowFailureCount: Math.max(0, Number(approverAttemptGuard.windowFailureCount || 0))
+      approverShieldWindowFailureCount: Math.max(0, Number(approverAttemptGuard.windowFailureCount || 0)),
+      approverShieldDistinctActorCount: Math.max(0, Number(approverAttemptGuard.distinctActorCount || 0)),
+      approverShieldDistinctActorThreshold: Math.max(0, Number(approverAttemptGuard.distinctActorThreshold || 0)),
+      approverShieldDistinctOperationDigestCount: Math.max(
+        0,
+        Number(approverAttemptGuard.distinctOperationDigestCount || 0)
+      ),
+      approverShieldDistinctOperationDigestThreshold: Math.max(
+        0,
+        Number(approverAttemptGuard.distinctOperationDigestThreshold || 0)
+      )
     });
   }
   if (!approverRole || !SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES.has(approverRole)) {
@@ -4069,6 +4166,16 @@ function evaluateSecurityChainDualControlGuard({
     signatureVersion: matchedSignatureVersion,
     strictReasonSignature,
     approverShieldEnabled,
+    approverShieldDistinctActorCount: Math.max(0, Number(approverAttemptGuard.distinctActorCount || 0)),
+    approverShieldDistinctActorThreshold: Math.max(0, Number(approverAttemptGuard.distinctActorThreshold || 0)),
+    approverShieldDistinctOperationDigestCount: Math.max(
+      0,
+      Number(approverAttemptGuard.distinctOperationDigestCount || 0)
+    ),
+    approverShieldDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(approverAttemptGuard.distinctOperationDigestThreshold || 0)
+    ),
     legacySignatureAllowed,
     legacySignatureUsed,
     secretSlot
@@ -4224,12 +4331,28 @@ function getSecurityChainEnforcementGuardStatus() {
     dualControlApproverShieldEnabled: Boolean(dualControlAttemptGuard?.approverShieldEnabled),
     dualControlApproverWindowMinutes: Math.max(1, Number(dualControlAttemptGuard?.approverWindowMinutes || 0)),
     dualControlApproverMaxFailures: Math.max(0, Number(dualControlAttemptGuard?.approverMaxFailures || 0)),
+    dualControlApproverDistinctActorThreshold: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.approverDistinctActorThreshold || 0)
+    ),
+    dualControlApproverDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.approverDistinctOperationDigestThreshold || 0)
+    ),
     dualControlApproverBlockDurationMinutes: Math.max(
       0,
       Number(dualControlAttemptGuard?.approverBlockDurationMinutes || 0)
     ),
     dualControlApproverRecentAttempts: Math.max(0, Number(dualControlAttemptGuard?.approverRecentAttemptCount || 0)),
     dualControlApproverRecentFailures: Math.max(0, Number(dualControlAttemptGuard?.approverRecentFailureCount || 0)),
+    dualControlApproverRecentDistinctActors: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.approverRecentDistinctActorCount || 0)
+    ),
+    dualControlApproverRecentDistinctOperationDigests: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.approverRecentDistinctOperationDigestCount || 0)
+    ),
     dualControlApproverActiveBlocks: Math.max(0, Number(dualControlAttemptGuard?.approverActiveBlockCount || 0)),
     dualControlApproverTrackedIds: Math.max(0, Number(dualControlAttemptGuard?.approverTrackedCount || 0)),
     dualControlApproverLatestBlockAt: text(dualControlAttemptGuard?.approverLatestBlockAt),
@@ -10485,6 +10608,14 @@ export function getProSecurityThreatIntelligence(limit = 200) {
         0,
         Number(chainEnforcementGuardStatus?.dualControlApproverMaxFailures || 0)
       ),
+      securityChainDualControlApproverDistinctActorThreshold: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverDistinctActorThreshold || 0)
+      ),
+      securityChainDualControlApproverDistinctOperationDigestThreshold: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverDistinctOperationDigestThreshold || 0)
+      ),
       securityChainDualControlApproverBlockDurationMinutes: Math.max(
         0,
         Number(chainEnforcementGuardStatus?.dualControlApproverBlockDurationMinutes || 0)
@@ -10496,6 +10627,14 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityChainDualControlApproverRecentFailures: Math.max(
         0,
         Number(chainEnforcementGuardStatus?.dualControlApproverRecentFailures || 0)
+      ),
+      securityChainDualControlApproverRecentDistinctActors: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverRecentDistinctActors || 0)
+      ),
+      securityChainDualControlApproverRecentDistinctOperationDigests: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverRecentDistinctOperationDigests || 0)
       ),
       securityChainDualControlApproverActiveBlocks: Math.max(
         0,
