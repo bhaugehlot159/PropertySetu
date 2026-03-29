@@ -211,7 +211,8 @@ export const coreSystemsBlueprint = [
       "Token-subject takeover auto protection with temporary shield and admin overrides",
       "Subject session-churn shield to stop token-family abuse with automated containment",
       "Network-velocity shield for impossible subject movement across IP prefixes",
-      "Admin mutation attack shield for suspicious control-plane write attempts"
+      "Admin mutation attack shield for suspicious control-plane write attempts",
+      "Signed admin mutation requests (HMAC + nonce + timestamp) with anti-replay controls"
     ],
     endpoints: [
       "/api/v3/auth/*",

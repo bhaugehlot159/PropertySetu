@@ -26,6 +26,7 @@ const proSubjectSessionShieldEvents = [];
 const proSubjectNetworkShieldEvents = [];
 const proAdminMutationAttemptIntel = [];
 const proAdminMutationShieldEvents = [];
+const proAdminMutationSignatureNonces = new Map();
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -325,6 +326,18 @@ const ADMIN_MUTATION_SHIELD_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.ADMIN_MUTATION_SHIELD_EVENT_MAX_ITEMS || 500)
 );
+const ADMIN_MUTATION_SIGNATURE_NONCE_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.ADMIN_MUTATION_SIGNATURE_NONCE_MAX_ITEMS || 10000)
+);
+const ADMIN_MUTATION_SIGNATURE_CLOCK_SKEW_SEC = Math.max(
+  15,
+  Number(process.env.ADMIN_MUTATION_SIGNATURE_CLOCK_SKEW_SEC || 300)
+);
+const ADMIN_MUTATION_SIGNATURE_NONCE_TTL_MS = Math.max(
+  60_000,
+  Number(process.env.ADMIN_MUTATION_SIGNATURE_NONCE_TTL_SEC || 900) * 1000
+);
 const CRITICAL_THREAT_PATTERNS = [
   /token-alg-none/i,
   /token-header-injection-pattern/i,
@@ -342,11 +355,17 @@ const CRITICAL_THREAT_PATTERNS = [
 const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
   text(process.env.ADMIN_ACTION_KEY_REQUIRED, "false").toLowerCase() === "true";
+const ADMIN_MUTATION_SIGNATURE_SECRET = text(process.env.ADMIN_MUTATION_SIGNATURE_SECRET);
+const API_ADMIN_MUTATION_SIGNATURE_REQUIRED =
+  text(process.env.ADMIN_MUTATION_SIGNATURE_REQUIRED, "false").toLowerCase() === "true";
+const API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED =
+  API_ADMIN_MUTATION_SIGNATURE_REQUIRED && Boolean(ADMIN_MUTATION_SIGNATURE_SECRET);
 const API_ADMIN_ALLOWLIST_IPS = text(process.env.ADMIN_IP_ALLOWLIST)
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
 const SUSPICIOUS_KEY_RULES = [/^\$/, /__proto__/i, /^constructor$/i, /^prototype$/i];
+const ADMIN_SIGNATURE_NONCE_PATTERN = /^[a-zA-Z0-9._:-]{16,180}$/;
 const NULL_BYTE_PATTERN = /\0/;
 const SUSPICIOUS_USER_AGENT_PATTERNS = [
   /sqlmap/i,
@@ -605,6 +624,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
+        adminMutationSignatureEnforced: API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
@@ -713,6 +733,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
       },
       adminControls: {
         actionKeyEnforced: true,
+        adminMutationSignatureEnforced: true,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
@@ -821,6 +842,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
       },
       adminControls: {
         actionKeyEnforced: true,
+        adminMutationSignatureEnforced: true,
         readOnlyApi: true,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
@@ -1107,6 +1129,7 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
   },
   adminControls: {
     actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
+    adminMutationSignatureEnforced: API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED,
     readOnlyApi: false,
     autoPromoteBlocklists: true,
     autoEscalateMode: true,
@@ -2403,6 +2426,19 @@ export function updateProSecurityControlState(
         warnings.push("actionKeyEnforced not enabled because ADMIN_ACTION_KEY is missing.");
       } else {
         next.adminControls.actionKeyEnforced = desired;
+      }
+    }
+    if (typeof patch.adminControls.adminMutationSignatureEnforced !== "undefined") {
+      const desired = toBoolean(
+        patch.adminControls.adminMutationSignatureEnforced,
+        Boolean(next.adminControls.adminMutationSignatureEnforced)
+      );
+      const hasSignatureSecret = text(ADMIN_MUTATION_SIGNATURE_SECRET).length > 0;
+      if (desired && !hasSignatureSecret) {
+        next.adminControls.adminMutationSignatureEnforced = false;
+        warnings.push("adminMutationSignatureEnforced not enabled because ADMIN_MUTATION_SIGNATURE_SECRET is missing.");
+      } else {
+        next.adminControls.adminMutationSignatureEnforced = desired;
       }
     }
     if (typeof patch.adminControls.readOnlyApi !== "undefined") {
@@ -5391,7 +5427,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
   pruneProtectedAuthIdentities(Date.now());
   pruneProtectedTokenSubjects(Date.now());
+  pruneAdminMutationSignatureNonces(Date.now());
   const thresholds = currentSecurityThresholds();
+  const adminControls = currentSecurityAdminControls();
   const lists = currentSecurityLists();
   const mode = currentSecurityMode();
   const authShieldStatus = currentAuthShieldStatus();
@@ -5601,6 +5639,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       adminMutationAttemptsInWindow,
       adminMutationShields: proAdminMutationShieldEvents.length,
       adminMutationShieldLastAt: text(proAdminMutationShieldEvents[0]?.at),
+      adminMutationSignedRequestsEnforced: toBoolean(adminControls.adminMutationSignatureEnforced, false),
+      adminMutationSignatureSecretConfigured: Boolean(ADMIN_MUTATION_SIGNATURE_SECRET),
+      adminMutationSignatureNonceCacheSize: proAdminMutationSignatureNonces.size,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -6237,6 +6278,216 @@ function isSecureTransport(req) {
   return text(req?.protocol).toLowerCase() === "https";
 }
 
+function pruneAdminMutationSignatureNonces(nowTs = Date.now()) {
+  const safeNow = Number(nowTs);
+  for (const [nonce, row] of proAdminMutationSignatureNonces.entries()) {
+    const expiresAt = Number(row?.expiresAt || 0);
+    if (!Number.isFinite(expiresAt) || expiresAt <= safeNow) {
+      proAdminMutationSignatureNonces.delete(nonce);
+    }
+  }
+
+  if (proAdminMutationSignatureNonces.size <= ADMIN_MUTATION_SIGNATURE_NONCE_MAX_ITEMS) return;
+
+  const ordered = [...proAdminMutationSignatureNonces.entries()]
+    .sort((a, b) => Number(a?.[1]?.expiresAt || 0) - Number(b?.[1]?.expiresAt || 0));
+  const trimCount = proAdminMutationSignatureNonces.size - ADMIN_MUTATION_SIGNATURE_NONCE_MAX_ITEMS;
+  for (let index = 0; index < trimCount; index += 1) {
+    const key = text(ordered[index]?.[0]);
+    if (key) {
+      proAdminMutationSignatureNonces.delete(key);
+    }
+  }
+}
+
+function hashAdminMutationSignatureInput(value) {
+  try {
+    return sha256(stableStringify(value));
+  } catch {
+    try {
+      return sha256(JSON.stringify(value));
+    } catch {
+      return sha256("");
+    }
+  }
+}
+
+function buildAdminMutationBodyHash(req) {
+  const body = req?.body;
+  if (typeof body === "undefined" || body === null) return sha256("");
+  if (typeof body === "string") return sha256(body);
+  if (Buffer.isBuffer(body)) return sha256(body.toString("base64"));
+  return hashAdminMutationSignatureInput(body);
+}
+
+function buildAdminMutationQueryHash(req) {
+  const query = req?.query && typeof req.query === "object" && !Array.isArray(req.query)
+    ? req.query
+    : {};
+  return hashAdminMutationSignatureInput(query);
+}
+
+function computeAdminMutationRequestSignature({
+  requestPath = "",
+  method = "POST",
+  timestampSec = 0,
+  nonce = "",
+  bodyHash = "",
+  queryHash = ""
+} = {}) {
+  if (!ADMIN_MUTATION_SIGNATURE_SECRET) return "";
+  const canonicalMethod = normalizeRequestMethod(method);
+  const canonicalPath = normalizeRequestPath(requestPath || "/api/system");
+  const canonicalTimestamp = String(Math.trunc(Number(timestampSec || 0)));
+  const canonicalNonce = text(nonce);
+  const canonicalBodyHash = text(bodyHash).toLowerCase();
+  const canonicalQueryHash = text(queryHash).toLowerCase();
+  const signingInput = [
+    canonicalMethod,
+    canonicalPath,
+    canonicalTimestamp,
+    canonicalNonce,
+    canonicalBodyHash,
+    canonicalQueryHash
+  ].join("|");
+  return crypto
+    .createHmac("sha256", ADMIN_MUTATION_SIGNATURE_SECRET)
+    .update(signingInput)
+    .digest("hex");
+}
+
+function evaluateAdminMutationRequestSignature(req, {
+  requestPath = "",
+  method = "POST"
+} = {}) {
+  const adminControls = currentSecurityAdminControls();
+  const enforced = toBoolean(adminControls.adminMutationSignatureEnforced, false);
+  if (!enforced) {
+    return {
+      valid: true,
+      reason: "signature-disabled",
+      enforced: false
+    };
+  }
+
+  if (!ADMIN_MUTATION_SIGNATURE_SECRET) {
+    return {
+      valid: false,
+      reason: "secret-missing",
+      enforced: true
+    };
+  }
+
+  const signature = text(req?.headers?.["x-admin-signature"]).toLowerCase();
+  const nonce = text(
+    req?.headers?.["x-admin-signature-nonce"] || req?.headers?.["x-admin-nonce"]
+  );
+  const timestampRaw = text(
+    req?.headers?.["x-admin-signature-ts"] || req?.headers?.["x-admin-timestamp"]
+  );
+
+  if (!signature) {
+    return {
+      valid: false,
+      reason: "missing-signature-header",
+      enforced: true
+    };
+  }
+  if (!timestampRaw) {
+    return {
+      valid: false,
+      reason: "missing-timestamp-header",
+      enforced: true
+    };
+  }
+  if (!nonce) {
+    return {
+      valid: false,
+      reason: "missing-nonce-header",
+      enforced: true
+    };
+  }
+  if (!/^[a-f0-9]{64}$/i.test(signature)) {
+    return {
+      valid: false,
+      reason: "invalid-signature-format",
+      enforced: true
+    };
+  }
+  if (!ADMIN_SIGNATURE_NONCE_PATTERN.test(nonce)) {
+    return {
+      valid: false,
+      reason: "invalid-nonce-format",
+      enforced: true
+    };
+  }
+
+  const timestampSec = Number(timestampRaw);
+  if (!Number.isFinite(timestampSec) || !Number.isInteger(timestampSec) || timestampSec <= 0) {
+    return {
+      valid: false,
+      reason: "invalid-timestamp-format",
+      enforced: true
+    };
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const driftSec = Math.abs(nowSec - timestampSec);
+  if (driftSec > ADMIN_MUTATION_SIGNATURE_CLOCK_SKEW_SEC) {
+    return {
+      valid: false,
+      reason: "timestamp-skew",
+      enforced: true,
+      driftSec
+    };
+  }
+
+  const nowTs = Date.now();
+  pruneAdminMutationSignatureNonces(nowTs);
+  const existingNonce = proAdminMutationSignatureNonces.get(nonce);
+  if (existingNonce && Number(existingNonce?.expiresAt || 0) > nowTs) {
+    return {
+      valid: false,
+      reason: "nonce-replay-detected",
+      enforced: true
+    };
+  }
+
+  const bodyHash = buildAdminMutationBodyHash(req);
+  const queryHash = buildAdminMutationQueryHash(req);
+  const expected = computeAdminMutationRequestSignature({
+    requestPath,
+    method,
+    timestampSec,
+    nonce,
+    bodyHash,
+    queryHash
+  });
+  if (!expected || !timingSafeEqualText(signature, expected)) {
+    return {
+      valid: false,
+      reason: "signature-mismatch",
+      enforced: true
+    };
+  }
+
+  proAdminMutationSignatureNonces.set(nonce, {
+    usedAt: nowTs,
+    expiresAt: nowTs + ADMIN_MUTATION_SIGNATURE_NONCE_TTL_MS,
+    method: normalizeRequestMethod(method),
+    path: normalizeRequestPath(requestPath || req?.path || "/api/system"),
+    requestId: text(req?.requestId)
+  });
+  pruneAdminMutationSignatureNonces(nowTs);
+
+  return {
+    valid: true,
+    reason: "signature-verified",
+    enforced: true,
+    driftSec
+  };
+}
+
 function extractBearerToken(req) {
   const authHeader = text(req?.headers?.authorization);
   if (!authHeader) return { scheme: "", token: "", raw: "" };
@@ -6752,6 +7003,24 @@ export function proRequestFirewall(req, res, next) {
           message: "Admin action blocked by action-key security policy."
         });
       }
+    }
+
+    const signatureCheck = evaluateAdminMutationRequestSignature(req, {
+      requestPath: pathForChecks,
+      method
+    });
+    if (!signatureCheck.valid) {
+      return reject({
+        reason: `firewall-admin-signed-mutation-${text(signatureCheck.reason, "signature-validation-failed")}`,
+        statusCode: 403,
+        riskScore: 99,
+        details: {
+          signatureEnforced: Boolean(signatureCheck.enforced),
+          signatureReason: text(signatureCheck.reason),
+          driftSec: Math.max(0, Number(signatureCheck.driftSec || 0))
+        },
+        message: "Admin action blocked by signed mutation security policy."
+      });
     }
   }
 
