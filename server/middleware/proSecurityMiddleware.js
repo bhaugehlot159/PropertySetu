@@ -35,6 +35,7 @@ const proSecurityChainDualControlEvents = [];
 const proSecurityChainDualControlApprovals = new Map();
 const proSecurityChainDualControlAttempts = [];
 const proSecurityChainDualControlAttemptBlocks = new Map();
+const proSecurityChainDualControlPairAttemptBlocks = new Map();
 const proSecurityChainDualControlActorPenaltyState = new Map();
 const proSecurityChainDualControlApproverAttemptBlocks = new Map();
 const proSecurityChainDualControlApproverPenaltyState = new Map();
@@ -50,6 +51,7 @@ let proLastSecurityControlDowngradeBlockAt = 0;
 let proLastSecurityChainGuardBlockAt = 0;
 let proLastSecurityChainDualControlBlockAt = 0;
 let proLastSecurityChainDualControlAttemptBlockAt = 0;
+let proLastSecurityChainDualControlPairAttemptBlockAt = 0;
 let proLastSecurityChainDualControlActorPenaltyEscalationAt = 0;
 let proLastSecurityChainDualControlApproverAttemptBlockAt = 0;
 let proLastSecurityChainDualControlApproverPenaltyEscalationAt = 0;
@@ -217,6 +219,24 @@ const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_DISTINCT_APPROVER_THRESHOLD = Math.max(
 const SECURITY_CHAIN_DUAL_CONTROL_ACTOR_DISTINCT_OPERATION_DIGEST_THRESHOLD = Math.max(
   2,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_ACTOR_DISTINCT_OPERATION_DIGEST_THRESHOLD || 5)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT =
+  String(process.env.SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CHAIN_DUAL_CONTROL_PAIR_WINDOW_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_PAIR_WINDOW_MINUTES || 30)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_PAIR_MAX_FAILURES = Math.max(
+  2,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_PAIR_MAX_FAILURES || 6)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_PAIR_DISTINCT_OPERATION_DIGEST_THRESHOLD = Math.max(
+  2,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_PAIR_DISTINCT_OPERATION_DIGEST_THRESHOLD || 4)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_PAIR_BLOCK_DURATION_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_PAIR_BLOCK_DURATION_MINUTES || 40)
 );
 const SECURITY_CHAIN_DUAL_CONTROL_MIN_INTERVAL_SEC = Math.max(
   1,
@@ -912,6 +932,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT,
         securityChainDualControlApproverShield: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT,
         securityChainDualControlActorDistributedShield: SECURITY_CHAIN_DUAL_CONTROL_ACTOR_DISTRIBUTED_SHIELD_ENABLED_DEFAULT,
+        securityChainDualControlPairShield: SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT,
         securityChainDualControlActorAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT,
         securityChainDualControlApproverAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_PENALTY_ENABLED_DEFAULT
       }
@@ -1034,6 +1055,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityChainDualControlStrictReasonSignature: true,
         securityChainDualControlApproverShield: true,
         securityChainDualControlActorDistributedShield: true,
+        securityChainDualControlPairShield: true,
         securityChainDualControlActorAdaptivePenalty: true,
         securityChainDualControlApproverAdaptivePenalty: true
       }
@@ -1156,6 +1178,7 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityChainDualControlStrictReasonSignature: true,
         securityChainDualControlApproverShield: true,
         securityChainDualControlActorDistributedShield: true,
+        securityChainDualControlPairShield: true,
         securityChainDualControlActorAdaptivePenalty: true,
         securityChainDualControlApproverAdaptivePenalty: true
       }
@@ -1468,6 +1491,7 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT,
     securityChainDualControlApproverShield: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT,
     securityChainDualControlActorDistributedShield: SECURITY_CHAIN_DUAL_CONTROL_ACTOR_DISTRIBUTED_SHIELD_ENABLED_DEFAULT,
+    securityChainDualControlPairShield: SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT,
     securityChainDualControlActorAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT,
     securityChainDualControlApproverAdaptivePenalty: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_PENALTY_ENABLED_DEFAULT
   },
@@ -2929,6 +2953,23 @@ function pushSecurityChainGuardEvent(event = {}) {
     actorDistinctOperationDigestThreshold: Math.max(0, Number(event.actorDistinctOperationDigestThreshold || 0)),
     actorDistinctApproverCount: Math.max(0, Number(event.actorDistinctApproverCount || 0)),
     actorDistinctOperationDigestCount: Math.max(0, Number(event.actorDistinctOperationDigestCount || 0)),
+    pairShieldEnabled: typeof event.pairShieldEnabled === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlPairShield,
+        SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT
+      )
+      : Boolean(event.pairShieldEnabled),
+    pairKey: text(event.pairKey),
+    pairWindowMinutes: Math.max(0, Number(event.pairWindowMinutes || 0)),
+    pairMaxFailures: Math.max(0, Number(event.pairMaxFailures || 0)),
+    pairDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(event.pairDistinctOperationDigestThreshold || 0)
+    ),
+    pairDistinctOperationDigestCount: Math.max(0, Number(event.pairDistinctOperationDigestCount || 0)),
+    pairWindowFailureCount: Math.max(0, Number(event.pairWindowFailureCount || 0)),
+    pairBlockDurationMs: Math.max(0, Number(event.pairBlockDurationMs || 0)),
+    pairBlockUntilTs: Math.max(0, Number(event.pairBlockUntilTs || 0)),
     actorAdaptivePenaltyEnabled: typeof event.actorAdaptivePenaltyEnabled === "undefined"
       ? toBoolean(
         currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
@@ -3097,6 +3138,23 @@ function pushSecurityChainDualControlEvent(event = {}) {
     actorDistinctOperationDigestThreshold: Math.max(0, Number(event.actorDistinctOperationDigestThreshold || 0)),
     actorDistinctApproverCount: Math.max(0, Number(event.actorDistinctApproverCount || 0)),
     actorDistinctOperationDigestCount: Math.max(0, Number(event.actorDistinctOperationDigestCount || 0)),
+    pairShieldEnabled: typeof event.pairShieldEnabled === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlPairShield,
+        SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT
+      )
+      : Boolean(event.pairShieldEnabled),
+    pairKey: text(event.pairKey),
+    pairWindowMinutes: Math.max(0, Number(event.pairWindowMinutes || 0)),
+    pairMaxFailures: Math.max(0, Number(event.pairMaxFailures || 0)),
+    pairDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(event.pairDistinctOperationDigestThreshold || 0)
+    ),
+    pairDistinctOperationDigestCount: Math.max(0, Number(event.pairDistinctOperationDigestCount || 0)),
+    pairWindowFailureCount: Math.max(0, Number(event.pairWindowFailureCount || 0)),
+    pairBlockDurationMs: Math.max(0, Number(event.pairBlockDurationMs || 0)),
+    pairBlockUntilTs: Math.max(0, Number(event.pairBlockUntilTs || 0)),
     actorAdaptivePenaltyEnabled: typeof event.actorAdaptivePenaltyEnabled === "undefined"
       ? toBoolean(
         currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
@@ -3173,6 +3231,12 @@ function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
       proSecurityChainDualControlAttemptBlocks.delete(key);
     }
   }
+  for (const [key, row] of proSecurityChainDualControlPairAttemptBlocks.entries()) {
+    const blockUntil = Number(row?.blockUntilTs || 0);
+    if (!Number.isFinite(blockUntil) || blockUntil <= safeNow) {
+      proSecurityChainDualControlPairAttemptBlocks.delete(key);
+    }
+  }
   for (const [key, row] of proSecurityChainDualControlApproverAttemptBlocks.entries()) {
     const blockUntil = Number(row?.blockUntilTs || 0);
     if (!Number.isFinite(blockUntil) || blockUntil <= safeNow) {
@@ -3195,6 +3259,11 @@ function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
     const oldestKey = proSecurityChainDualControlAttemptBlocks.keys().next().value;
     if (!oldestKey) break;
     proSecurityChainDualControlAttemptBlocks.delete(oldestKey);
+  }
+  while (proSecurityChainDualControlPairAttemptBlocks.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
+    const oldestKey = proSecurityChainDualControlPairAttemptBlocks.keys().next().value;
+    if (!oldestKey) break;
+    proSecurityChainDualControlPairAttemptBlocks.delete(oldestKey);
   }
   while (proSecurityChainDualControlApproverAttemptBlocks.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
     const oldestKey = proSecurityChainDualControlApproverAttemptBlocks.keys().next().value;
@@ -3253,6 +3322,13 @@ function registerSecurityChainDualControlAttempt({
   }
   pruneSecurityChainDualControlAttemptTelemetry(nowTs);
   return row;
+}
+
+function buildSecurityChainDualControlPairKey(actorKey = "", approverId = "") {
+  const safeActorKey = text(actorKey).toLowerCase();
+  const safeApproverId = text(approverId).toLowerCase();
+  if (!safeActorKey || !safeApproverId) return "";
+  return `${safeActorKey}::${safeApproverId}`;
 }
 
 function evaluateSecurityChainDualControlActorPenalty({
@@ -4085,6 +4161,195 @@ function evaluateSecurityChainDualControlApproverAttemptGuard({
   };
 }
 
+function evaluateSecurityChainDualControlPairAttemptGuard({
+  approverId = "",
+  actorId = "",
+  actorRole = "",
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control",
+  required = false
+} = {}) {
+  const enabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlRequired,
+    SECURITY_CHAIN_DUAL_CONTROL_ENABLED
+  );
+  const shieldEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlPairShield,
+    SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT
+  );
+  const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
+  const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
+  const safeApproverId = text(approverId).toLowerCase();
+  const pairKey = buildSecurityChainDualControlPairKey(actorKey, safeApproverId);
+  const active = Boolean(enabled && shieldEnabled && required && !bypassed && pairKey);
+  const windowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_PAIR_WINDOW_MINUTES));
+  const maxFailures = Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_PAIR_MAX_FAILURES));
+  const distinctOperationDigestThreshold = Math.max(
+    2,
+    Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_PAIR_DISTINCT_OPERATION_DIGEST_THRESHOLD)
+  );
+  const blockDurationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_PAIR_BLOCK_DURATION_MINUTES * 60 * 1000)
+  );
+  if (!active) {
+    return {
+      allowed: true,
+      active,
+      enabled,
+      bypassed,
+      required: Boolean(required),
+      shieldEnabled,
+      actorKey: text(actorKey),
+      approverId: safeApproverId,
+      pairKey: text(pairKey),
+      reason: !enabled
+        ? "chain-dual-control-pair-shield-dual-control-disabled"
+        : (!shieldEnabled
+          ? "chain-dual-control-pair-shield-disabled"
+          : (bypassed
+            ? "chain-dual-control-pair-shield-system-bypass"
+            : (!required
+              ? "chain-dual-control-pair-shield-not-required"
+              : "chain-dual-control-pair-shield-pair-missing"))),
+      windowMinutes,
+      maxFailures,
+      distinctOperationDigestThreshold,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      windowFailureCount: 0,
+      distinctOperationDigestCount: 0
+    };
+  }
+
+  const nowTs = Date.now();
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+  const existingBlock = proSecurityChainDualControlPairAttemptBlocks.get(pairKey);
+  if (existingBlock) {
+    const blockUntilTs = Number(existingBlock.blockUntilTs || 0);
+    if (blockUntilTs > nowTs) {
+      return {
+        allowed: false,
+        active: true,
+        enabled: true,
+        bypassed: false,
+        required: true,
+        shieldEnabled: true,
+        actorKey: text(actorKey),
+        approverId: safeApproverId,
+        pairKey,
+        reason: "chain-dual-control-attempt-pair-temporary-block",
+        windowMinutes,
+        maxFailures,
+        distinctOperationDigestThreshold,
+        blockDurationMs: Math.max(60_000, Number(existingBlock.blockDurationMs || blockDurationMs)),
+        operation: text(operation),
+        method: text(method).toUpperCase(),
+        path: text(path),
+        blockUntilTs,
+        retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+        windowFailureCount: Math.max(0, Number(existingBlock.windowFailureCount || 0)),
+        lastFailureAt: text(existingBlock.lastFailureAt),
+        distinctOperationDigestCount: Math.max(0, Number(existingBlock.distinctOperationDigestCount || 0))
+      };
+    }
+    proSecurityChainDualControlPairAttemptBlocks.delete(pairKey);
+  }
+
+  const windowMs = windowMinutes * 60 * 1000;
+  const cutoff = nowTs - windowMs;
+  const recentAttempts = proSecurityChainDualControlAttempts.filter(
+    (item) =>
+      text(item?.actorKey).toLowerCase() === text(actorKey).toLowerCase() &&
+      text(item?.approverId).toLowerCase() === safeApproverId &&
+      Boolean(item?.required) &&
+      Number(item?.atMs || 0) >= cutoff
+  );
+  const recentFailures = recentAttempts.filter((item) => !Boolean(item?.approved));
+  const distinctOperationDigestCount = new Set(
+    recentFailures.map((item) => text(item?.operationDigest).toLowerCase()).filter(Boolean)
+  ).size;
+  const distributedDigestAbuse = distinctOperationDigestCount >= distinctOperationDigestThreshold;
+  if (recentFailures.length < maxFailures && !distributedDigestAbuse) {
+    return {
+      allowed: true,
+      active: true,
+      enabled: true,
+      bypassed: false,
+      required: true,
+      shieldEnabled: true,
+      actorKey: text(actorKey),
+      approverId: safeApproverId,
+      pairKey,
+      reason: "chain-dual-control-pair-shield-allow",
+      windowMinutes,
+      maxFailures,
+      distinctOperationDigestThreshold,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      windowFailureCount: recentFailures.length,
+      distinctOperationDigestCount
+    };
+  }
+
+  const latestFailure = recentFailures[0] || null;
+  const reason = distributedDigestAbuse
+    ? "chain-dual-control-attempt-pair-distinct-digest-abuse"
+    : "chain-dual-control-attempt-pair-window-limit-exceeded";
+  const blockUntilTs = nowTs + blockDurationMs;
+  proSecurityChainDualControlPairAttemptBlocks.set(pairKey, {
+    pairKey,
+    actorKey: text(actorKey).toLowerCase(),
+    approverId: safeApproverId,
+    reason,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockedAt: nowIso(),
+    blockedAtTs: nowTs,
+    blockUntilTs,
+    blockDurationMs,
+    windowMinutes,
+    maxFailures,
+    distinctOperationDigestThreshold,
+    distinctOperationDigestCount,
+    windowFailureCount: recentFailures.length,
+    lastFailureAt: text(latestFailure?.at)
+  });
+  proLastSecurityChainDualControlPairAttemptBlockAt = nowTs;
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+
+  return {
+    allowed: false,
+    active: true,
+    enabled: true,
+    bypassed: false,
+    required: true,
+    shieldEnabled: true,
+    actorKey: text(actorKey),
+    approverId: safeApproverId,
+    pairKey,
+    reason,
+    windowMinutes,
+    maxFailures,
+    distinctOperationDigestThreshold,
+    blockDurationMs,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockUntilTs,
+    retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+    windowFailureCount: recentFailures.length,
+    lastFailureAt: text(latestFailure?.at),
+    distinctOperationDigestCount
+  };
+}
+
 function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
   const safeNow = Number(nowTs) || Date.now();
   pruneSecurityChainDualControlAttemptTelemetry(safeNow);
@@ -4192,10 +4457,44 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
     .filter((row) => safeNow - Number(row?.lastBlockedAtTs || 0) <= approverPenaltyWindowMs)
     .sort((a, b) => Number(b?.lastBlockedAtTs || 0) - Number(a?.lastBlockedAtTs || 0));
   const approverPenaltyEscalatedStates = approverPenaltyStates.filter((row) => Boolean(row?.escalated));
+  const pairShieldEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlPairShield,
+    SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT
+  );
+  const pairWindowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_PAIR_WINDOW_MINUTES));
+  const pairMaxFailures = Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_PAIR_MAX_FAILURES));
+  const pairDistinctOperationDigestThreshold = Math.max(
+    2,
+    Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_PAIR_DISTINCT_OPERATION_DIGEST_THRESHOLD)
+  );
+  const pairBlockDurationMinutes = Math.max(
+    1,
+    Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_PAIR_BLOCK_DURATION_MINUTES)
+  );
+  const pairWindowMs = pairWindowMinutes * 60 * 1000;
+  const pairCutoff = safeNow - pairWindowMs;
+  const pairRecentAttempts = proSecurityChainDualControlAttempts.filter(
+    (item) =>
+      Boolean(item?.required) &&
+      Number(item?.atMs || 0) >= pairCutoff &&
+      Boolean(text(item?.actorKey)) &&
+      Boolean(text(item?.approverId))
+  );
+  const pairRecentFailures = pairRecentAttempts.filter((item) => !Boolean(item?.approved));
+  const pairRecentDistinctCount = new Set(
+    pairRecentFailures.map((item) => buildSecurityChainDualControlPairKey(item?.actorKey, item?.approverId)).filter(Boolean)
+  ).size;
+  const pairRecentDistinctOperationDigestCount = new Set(
+    pairRecentFailures.map((item) => text(item?.operationDigest).toLowerCase()).filter(Boolean)
+  ).size;
+  const pairActiveBlocks = Array.from(proSecurityChainDualControlPairAttemptBlocks.values())
+    .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
+    .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
   const latestAttempt = proSecurityChainDualControlAttempts[0] || null;
   const latestBlock = activeBlocks[0] || null;
   const latestActorPenalty = actorPenaltyStates[0] || null;
   const latestActorPenaltyEscalation = actorPenaltyEscalatedStates[0] || null;
+  const latestPairBlock = pairActiveBlocks[0] || null;
   const latestApproverBlock = approverActiveBlocks[0] || null;
   const latestApproverPenalty = approverPenaltyStates[0] || null;
   const latestApproverPenaltyEscalation = approverPenaltyEscalatedStates[0] || null;
@@ -4295,7 +4594,28 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
       ? text(latestApproverPenaltyEscalation.lastBlockedAt)
       : (proLastSecurityChainDualControlApproverPenaltyEscalationAt
         ? new Date(proLastSecurityChainDualControlApproverPenaltyEscalationAt).toISOString()
-        : "")
+        : ""),
+    pairShieldEnabled,
+    pairWindowMinutes,
+    pairMaxFailures,
+    pairDistinctOperationDigestThreshold,
+    pairBlockDurationMinutes,
+    pairRecentAttemptCount: pairRecentAttempts.length,
+    pairRecentFailureCount: pairRecentFailures.length,
+    pairRecentDistinctCount,
+    pairRecentDistinctOperationDigestCount,
+    pairActiveBlockCount: pairActiveBlocks.length,
+    pairTrackedCount: proSecurityChainDualControlPairAttemptBlocks.size,
+    pairLatestBlockAt: latestPairBlock
+      ? text(latestPairBlock.blockedAt)
+      : (proLastSecurityChainDualControlPairAttemptBlockAt
+        ? new Date(proLastSecurityChainDualControlPairAttemptBlockAt).toISOString()
+        : ""),
+    pairLatestBlockReason: text(latestPairBlock?.reason),
+    pairLatestBlockKey: text(latestPairBlock?.pairKey),
+    pairLatestBlockUntil: latestPairBlock?.blockUntilTs
+      ? new Date(Number(latestPairBlock.blockUntilTs)).toISOString()
+      : ""
   };
 }
 
@@ -4516,6 +4836,18 @@ function evaluateSecurityChainDualControlGuard({
       actorDistinctApproverCount: 0,
       actorDistinctOperationDigestCount: 0,
       actorDistributedAbuseDetected: false,
+      pairShieldEnabled: toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlPairShield,
+        SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT
+      ),
+      pairKey: "",
+      pairWindowMinutes: 0,
+      pairMaxFailures: 0,
+      pairDistinctOperationDigestThreshold: 0,
+      pairDistinctOperationDigestCount: 0,
+      pairWindowFailureCount: 0,
+      pairBlockDurationMs: 0,
+      pairBlockUntilTs: 0,
       actorAdaptivePenaltyEnabled: toBoolean(
         currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
         SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
@@ -4587,6 +4919,18 @@ function evaluateSecurityChainDualControlGuard({
       actorDistinctApproverCount: 0,
       actorDistinctOperationDigestCount: 0,
       actorDistributedAbuseDetected: false,
+      pairShieldEnabled: toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlPairShield,
+        SECURITY_CHAIN_DUAL_CONTROL_PAIR_SHIELD_ENABLED_DEFAULT
+      ),
+      pairKey: "",
+      pairWindowMinutes: 0,
+      pairMaxFailures: 0,
+      pairDistinctOperationDigestThreshold: 0,
+      pairDistinctOperationDigestCount: 0,
+      pairWindowFailureCount: 0,
+      pairBlockDurationMs: 0,
+      pairBlockUntilTs: 0,
       actorAdaptivePenaltyEnabled: toBoolean(
         currentSecurityAdminControls()?.securityChainDualControlActorAdaptivePenalty,
         SECURITY_CHAIN_DUAL_CONTROL_ACTOR_PENALTY_ENABLED_DEFAULT
@@ -4611,7 +4955,8 @@ function evaluateSecurityChainDualControlGuard({
     };
     if (
       result.reason !== "chain-dual-control-attempt-actor-temporary-block" &&
-      result.reason !== "chain-dual-control-attempt-approver-temporary-block"
+      result.reason !== "chain-dual-control-attempt-approver-temporary-block" &&
+      result.reason !== "chain-dual-control-attempt-pair-temporary-block"
     ) {
       trackAttempt({
         reason: text(result.reason),
@@ -4747,6 +5092,38 @@ function evaluateSecurityChainDualControlGuard({
         Number(approverAttemptGuard.penaltyPreviousStrikes || 0)
       ),
       approverShieldPenaltyEscalated: Boolean(approverAttemptGuard.penaltyEscalated)
+    });
+  }
+  const pairAttemptGuard = evaluateSecurityChainDualControlPairAttemptGuard({
+    approverId: approval.approverId,
+    actorId,
+    actorRole,
+    operation,
+    method,
+    path,
+    required: true
+  });
+  if (!pairAttemptGuard.allowed) {
+    return deny(text(pairAttemptGuard.reason), {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest,
+      pairShieldEnabled: Boolean(pairAttemptGuard.shieldEnabled),
+      pairKey: text(pairAttemptGuard.pairKey),
+      pairWindowMinutes: Math.max(0, Number(pairAttemptGuard.windowMinutes || 0)),
+      pairMaxFailures: Math.max(0, Number(pairAttemptGuard.maxFailures || 0)),
+      pairDistinctOperationDigestThreshold: Math.max(
+        0,
+        Number(pairAttemptGuard.distinctOperationDigestThreshold || 0)
+      ),
+      pairDistinctOperationDigestCount: Math.max(0, Number(pairAttemptGuard.distinctOperationDigestCount || 0)),
+      pairWindowFailureCount: Math.max(0, Number(pairAttemptGuard.windowFailureCount || 0)),
+      pairBlockDurationMs: Math.max(0, Number(pairAttemptGuard.blockDurationMs || 0)),
+      pairBlockUntilTs: Number(pairAttemptGuard.blockUntilTs || 0),
+      pairRetryAfterMs: Math.max(0, Number(pairAttemptGuard.retryAfterMs || 0))
     });
   }
   if (!approverRole || !SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES.has(approverRole)) {
@@ -5078,6 +5455,18 @@ function evaluateSecurityChainDualControlGuard({
       Number(approverAttemptGuard.penaltyPreviousStrikes || 0)
     ),
     approverShieldPenaltyEscalated: Boolean(approverAttemptGuard.penaltyEscalated),
+    pairShieldEnabled: Boolean(pairAttemptGuard.shieldEnabled),
+    pairKey: text(pairAttemptGuard.pairKey),
+    pairWindowMinutes: Math.max(0, Number(pairAttemptGuard.windowMinutes || 0)),
+    pairMaxFailures: Math.max(0, Number(pairAttemptGuard.maxFailures || 0)),
+    pairDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(pairAttemptGuard.distinctOperationDigestThreshold || 0)
+    ),
+    pairDistinctOperationDigestCount: Math.max(0, Number(pairAttemptGuard.distinctOperationDigestCount || 0)),
+    pairWindowFailureCount: Math.max(0, Number(pairAttemptGuard.windowFailureCount || 0)),
+    pairBlockDurationMs: Math.max(0, Number(pairAttemptGuard.blockDurationMs || 0)),
+    pairBlockUntilTs: 0,
     legacySignatureAllowed,
     legacySignatureUsed,
     secretSlot
@@ -5317,6 +5706,30 @@ function getSecurityChainEnforcementGuardStatus() {
     dualControlAttemptLatestBlockReason: text(dualControlAttemptGuard?.latestBlockReason),
     dualControlAttemptLatestBlockActor: text(dualControlAttemptGuard?.latestBlockActor),
     dualControlAttemptLatestBlockUntil: text(dualControlAttemptGuard?.latestBlockUntil),
+    dualControlPairShieldEnabled: Boolean(dualControlAttemptGuard?.pairShieldEnabled),
+    dualControlPairWindowMinutes: Math.max(0, Number(dualControlAttemptGuard?.pairWindowMinutes || 0)),
+    dualControlPairMaxFailures: Math.max(0, Number(dualControlAttemptGuard?.pairMaxFailures || 0)),
+    dualControlPairDistinctOperationDigestThreshold: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.pairDistinctOperationDigestThreshold || 0)
+    ),
+    dualControlPairBlockDurationMinutes: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.pairBlockDurationMinutes || 0)
+    ),
+    dualControlPairRecentAttempts: Math.max(0, Number(dualControlAttemptGuard?.pairRecentAttemptCount || 0)),
+    dualControlPairRecentFailures: Math.max(0, Number(dualControlAttemptGuard?.pairRecentFailureCount || 0)),
+    dualControlPairRecentDistinctPairs: Math.max(0, Number(dualControlAttemptGuard?.pairRecentDistinctCount || 0)),
+    dualControlPairRecentDistinctOperationDigests: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.pairRecentDistinctOperationDigestCount || 0)
+    ),
+    dualControlPairActiveBlocks: Math.max(0, Number(dualControlAttemptGuard?.pairActiveBlockCount || 0)),
+    dualControlPairTrackedPairs: Math.max(0, Number(dualControlAttemptGuard?.pairTrackedCount || 0)),
+    dualControlPairLatestBlockAt: text(dualControlAttemptGuard?.pairLatestBlockAt),
+    dualControlPairLatestBlockReason: text(dualControlAttemptGuard?.pairLatestBlockReason),
+    dualControlPairLatestBlockKey: text(dualControlAttemptGuard?.pairLatestBlockKey),
+    dualControlPairLatestBlockUntil: text(dualControlAttemptGuard?.pairLatestBlockUntil),
     dualControlActorDistributedShieldEnabled: Boolean(dualControlAttemptGuard?.actorDistributedShieldEnabled),
     dualControlActorDistinctApproverThreshold: Math.max(
       0,
@@ -5972,6 +6385,7 @@ function evaluateSecurityControlDowngradeGuard({
     "securityChainDualControlStrictReasonSignature",
     "securityChainDualControlApproverShield",
     "securityChainDualControlActorDistributedShield",
+    "securityChainDualControlPairShield",
     "securityChainDualControlActorAdaptivePenalty",
     "securityChainDualControlApproverAdaptivePenalty"
   ];
@@ -8058,6 +8472,12 @@ export function updateProSecurityControlState(
       next.adminControls.securityChainDualControlActorDistributedShield = toBoolean(
         patch.adminControls.securityChainDualControlActorDistributedShield,
         Boolean(next.adminControls.securityChainDualControlActorDistributedShield)
+      );
+    }
+    if (typeof patch.adminControls.securityChainDualControlPairShield !== "undefined") {
+      next.adminControls.securityChainDualControlPairShield = toBoolean(
+        patch.adminControls.securityChainDualControlPairShield,
+        Boolean(next.adminControls.securityChainDualControlPairShield)
       );
     }
     if (typeof patch.adminControls.securityChainDualControlActorAdaptivePenalty !== "undefined") {
@@ -11759,6 +12179,61 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       ),
       securityChainDualControlAttemptLastBlockUntil: text(
         chainEnforcementGuardStatus?.dualControlAttemptLatestBlockUntil
+      ),
+      securityChainDualControlPairShieldEnabled: Boolean(
+        chainEnforcementGuardStatus?.dualControlPairShieldEnabled
+      ),
+      securityChainDualControlPairWindowMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairWindowMinutes || 0)
+      ),
+      securityChainDualControlPairMaxFailures: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairMaxFailures || 0)
+      ),
+      securityChainDualControlPairDistinctOperationDigestThreshold: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairDistinctOperationDigestThreshold || 0)
+      ),
+      securityChainDualControlPairBlockDurationMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairBlockDurationMinutes || 0)
+      ),
+      securityChainDualControlPairRecentAttempts: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairRecentAttempts || 0)
+      ),
+      securityChainDualControlPairRecentFailures: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairRecentFailures || 0)
+      ),
+      securityChainDualControlPairRecentDistinctPairs: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairRecentDistinctPairs || 0)
+      ),
+      securityChainDualControlPairRecentDistinctOperationDigests: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairRecentDistinctOperationDigests || 0)
+      ),
+      securityChainDualControlPairActiveBlocks: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairActiveBlocks || 0)
+      ),
+      securityChainDualControlPairTrackedPairs: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlPairTrackedPairs || 0)
+      ),
+      securityChainDualControlPairLastBlockAt: text(
+        chainEnforcementGuardStatus?.dualControlPairLatestBlockAt
+      ),
+      securityChainDualControlPairLastBlockReason: text(
+        chainEnforcementGuardStatus?.dualControlPairLatestBlockReason
+      ),
+      securityChainDualControlPairLastBlockKey: text(
+        chainEnforcementGuardStatus?.dualControlPairLatestBlockKey
+      ),
+      securityChainDualControlPairLastBlockUntil: text(
+        chainEnforcementGuardStatus?.dualControlPairLatestBlockUntil
       ),
       securityChainDualControlActorDistributedShieldEnabled: Boolean(
         chainEnforcementGuardStatus?.dualControlActorDistributedShieldEnabled
