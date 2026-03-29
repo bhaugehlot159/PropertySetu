@@ -35,6 +35,7 @@ const proSecurityChainDualControlEvents = [];
 const proSecurityChainDualControlApprovals = new Map();
 const proSecurityChainDualControlAttempts = [];
 const proSecurityChainDualControlAttemptBlocks = new Map();
+const proSecurityChainDualControlApproverAttemptBlocks = new Map();
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -47,6 +48,7 @@ let proLastSecurityControlDowngradeBlockAt = 0;
 let proLastSecurityChainGuardBlockAt = 0;
 let proLastSecurityChainDualControlBlockAt = 0;
 let proLastSecurityChainDualControlAttemptBlockAt = 0;
+let proLastSecurityChainDualControlApproverAttemptBlockAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -134,6 +136,20 @@ const SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT =
   String(process.env.SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE || "false").trim().toLowerCase() === "true";
 const SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE =
   String(process.env.SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE || "true").trim().toLowerCase() !== "false";
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT =
+  String(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_WINDOW_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_WINDOW_MINUTES || 30)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES = Math.max(
+  2,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES || 10)
+);
+const SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES = Math.max(
+  1,
+  Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES || 30)
+);
 const SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES = Math.max(
   1,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES || 20)
@@ -833,7 +849,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityControlDowngradeGuard: true,
         securityChainEnforcementGuard: true,
         securityChainDualControlRequired: true,
-        securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+        securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT,
+        securityChainDualControlApproverShield: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
       }
     }
   },
@@ -951,7 +968,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityControlDowngradeGuard: true,
         securityChainEnforcementGuard: true,
         securityChainDualControlRequired: true,
-        securityChainDualControlStrictReasonSignature: true
+        securityChainDualControlStrictReasonSignature: true,
+        securityChainDualControlApproverShield: true
       }
     }
   },
@@ -1069,7 +1087,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         securityControlDowngradeGuard: true,
         securityChainEnforcementGuard: true,
         securityChainDualControlRequired: true,
-        securityChainDualControlStrictReasonSignature: true
+        securityChainDualControlStrictReasonSignature: true,
+        securityChainDualControlApproverShield: true
       }
     }
   }
@@ -1377,7 +1396,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     securityControlDowngradeGuard: SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED,
     securityChainEnforcementGuard: SECURITY_CHAIN_ENFORCEMENT_ENABLED,
     securityChainDualControlRequired: SECURITY_CHAIN_DUAL_CONTROL_ENABLED,
-    securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+    securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT,
+    securityChainDualControlApproverShield: SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
   },
   lists: {
     blockedIps: [],
@@ -2798,8 +2818,24 @@ function pushSecurityChainGuardEvent(event = {}) {
     requiredReasonDigest: text(event.requiredReasonDigest).toLowerCase(),
     approvalReasonDigest: text(event.approvalReasonDigest).toLowerCase(),
     signatureVersion: text(event.signatureVersion).toLowerCase(),
-    strictReasonSignature: Boolean(event.strictReasonSignature),
-    legacySignatureAllowed: Boolean(event.legacySignatureAllowed),
+    strictReasonSignature: typeof event.strictReasonSignature === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+        SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+      )
+      : Boolean(event.strictReasonSignature),
+    approverShieldEnabled: typeof event.approverShieldEnabled === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlApproverShield,
+        SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
+      )
+      : Boolean(event.approverShieldEnabled),
+    legacySignatureAllowed: typeof event.legacySignatureAllowed === "undefined"
+      ? !toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+        SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+      ) && SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE
+      : Boolean(event.legacySignatureAllowed),
     legacySignatureUsed: Boolean(event.legacySignatureUsed),
     auditReason: text(event.auditReason),
     threatReason: text(event.threatReason)
@@ -2894,8 +2930,24 @@ function pushSecurityChainDualControlEvent(event = {}) {
     requiredReasonDigest: text(event.requiredReasonDigest).toLowerCase(),
     approvalReasonDigest: text(event.approvalReasonDigest).toLowerCase(),
     signatureVersion: text(event.signatureVersion).toLowerCase(),
-    strictReasonSignature: Boolean(event.strictReasonSignature),
-    legacySignatureAllowed: Boolean(event.legacySignatureAllowed),
+    strictReasonSignature: typeof event.strictReasonSignature === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+        SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+      )
+      : Boolean(event.strictReasonSignature),
+    approverShieldEnabled: typeof event.approverShieldEnabled === "undefined"
+      ? toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlApproverShield,
+        SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
+      )
+      : Boolean(event.approverShieldEnabled),
+    legacySignatureAllowed: typeof event.legacySignatureAllowed === "undefined"
+      ? !toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+        SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+      ) && SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE
+      : Boolean(event.legacySignatureAllowed),
     legacySignatureUsed: Boolean(event.legacySignatureUsed),
     secretSlot: text(event.secretSlot)
   };
@@ -2927,10 +2979,21 @@ function pruneSecurityChainDualControlAttemptTelemetry(nowTs = Date.now()) {
       proSecurityChainDualControlAttemptBlocks.delete(key);
     }
   }
+  for (const [key, row] of proSecurityChainDualControlApproverAttemptBlocks.entries()) {
+    const blockUntil = Number(row?.blockUntilTs || 0);
+    if (!Number.isFinite(blockUntil) || blockUntil <= safeNow) {
+      proSecurityChainDualControlApproverAttemptBlocks.delete(key);
+    }
+  }
   while (proSecurityChainDualControlAttemptBlocks.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
     const oldestKey = proSecurityChainDualControlAttemptBlocks.keys().next().value;
     if (!oldestKey) break;
     proSecurityChainDualControlAttemptBlocks.delete(oldestKey);
+  }
+  while (proSecurityChainDualControlApproverAttemptBlocks.size > SECURITY_CHAIN_DUAL_CONTROL_BLOCK_CACHE_MAX) {
+    const oldestKey = proSecurityChainDualControlApproverAttemptBlocks.keys().next().value;
+    if (!oldestKey) break;
+    proSecurityChainDualControlApproverAttemptBlocks.delete(oldestKey);
   }
 }
 
@@ -3126,6 +3189,161 @@ function evaluateSecurityChainDualControlAttemptGuard({
   };
 }
 
+function evaluateSecurityChainDualControlApproverAttemptGuard({
+  approverId = "",
+  actorId = "",
+  actorRole = "",
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control",
+  required = false
+} = {}) {
+  const enabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlRequired,
+    SECURITY_CHAIN_DUAL_CONTROL_ENABLED
+  );
+  const shieldEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlApproverShield,
+    SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
+  );
+  const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
+  const active = Boolean(enabled && shieldEnabled && required && !bypassed);
+  const safeApproverId = text(approverId).toLowerCase();
+  const windowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_WINDOW_MINUTES));
+  const maxFailures = Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES));
+  const blockDurationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES * 60 * 1000)
+  );
+  if (!active || !safeApproverId) {
+    return {
+      allowed: true,
+      active,
+      enabled,
+      bypassed,
+      required: Boolean(required),
+      shieldEnabled,
+      approverId: safeApproverId,
+      reason: !enabled
+        ? "chain-dual-control-approver-shield-dual-control-disabled"
+        : (!shieldEnabled
+          ? "chain-dual-control-approver-shield-disabled"
+          : (bypassed
+            ? "chain-dual-control-approver-shield-system-bypass"
+            : (!required
+              ? "chain-dual-control-approver-shield-not-required"
+              : "chain-dual-control-approver-shield-approver-missing"))),
+      windowMinutes,
+      maxFailures,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path)
+    };
+  }
+
+  const nowTs = Date.now();
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+  const existingBlock = proSecurityChainDualControlApproverAttemptBlocks.get(safeApproverId);
+  if (existingBlock) {
+    const blockUntilTs = Number(existingBlock.blockUntilTs || 0);
+    if (blockUntilTs > nowTs) {
+      return {
+        allowed: false,
+        active: true,
+        enabled: true,
+        bypassed: false,
+        required: true,
+        shieldEnabled: true,
+        approverId: safeApproverId,
+        reason: "chain-dual-control-attempt-approver-temporary-block",
+        windowMinutes,
+        maxFailures,
+        blockDurationMs,
+        operation: text(operation),
+        method: text(method).toUpperCase(),
+        path: text(path),
+        blockUntilTs,
+        retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+        windowFailureCount: Number(existingBlock.windowFailureCount || 0),
+        lastFailureAt: text(existingBlock.lastFailureAt)
+      };
+    }
+    proSecurityChainDualControlApproverAttemptBlocks.delete(safeApproverId);
+  }
+
+  const windowMs = windowMinutes * 60 * 1000;
+  const cutoff = nowTs - windowMs;
+  const recentAttempts = proSecurityChainDualControlAttempts.filter(
+    (item) =>
+      text(item?.approverId).toLowerCase() === safeApproverId &&
+      Boolean(item?.required) &&
+      Number(item?.atMs || 0) >= cutoff
+  );
+  const recentFailures = recentAttempts.filter((item) => !Boolean(item?.approved));
+  if (recentFailures.length < maxFailures) {
+    return {
+      allowed: true,
+      active: true,
+      enabled: true,
+      bypassed: false,
+      required: true,
+      shieldEnabled: true,
+      approverId: safeApproverId,
+      reason: "chain-dual-control-approver-shield-allow",
+      windowMinutes,
+      maxFailures,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      windowFailureCount: recentFailures.length
+    };
+  }
+
+  const latestFailure = recentFailures[0] || null;
+  const blockUntilTs = nowTs + blockDurationMs;
+  const reason = "chain-dual-control-attempt-approver-window-limit-exceeded";
+  proSecurityChainDualControlApproverAttemptBlocks.set(safeApproverId, {
+    approverId: safeApproverId,
+    reason,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockedAt: nowIso(),
+    blockedAtTs: nowTs,
+    blockUntilTs,
+    blockDurationMs,
+    windowMinutes,
+    maxFailures,
+    windowFailureCount: recentFailures.length,
+    lastFailureAt: text(latestFailure?.at)
+  });
+  proLastSecurityChainDualControlApproverAttemptBlockAt = nowTs;
+  pruneSecurityChainDualControlAttemptTelemetry(nowTs);
+
+  return {
+    allowed: false,
+    active: true,
+    enabled: true,
+    bypassed: false,
+    required: true,
+    shieldEnabled: true,
+    approverId: safeApproverId,
+    reason,
+    windowMinutes,
+    maxFailures,
+    blockDurationMs,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockUntilTs,
+    retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+    windowFailureCount: recentFailures.length,
+    lastFailureAt: text(latestFailure?.at)
+  };
+}
+
 function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
   const safeNow = Number(nowTs) || Date.now();
   pruneSecurityChainDualControlAttemptTelemetry(safeNow);
@@ -3139,8 +3357,26 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
   const activeBlocks = Array.from(proSecurityChainDualControlAttemptBlocks.values())
     .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
     .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
+  const approverShieldEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlApproverShield,
+    SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
+  );
+  const approverWindowMinutes = Math.max(1, Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_WINDOW_MINUTES));
+  const approverWindowMs = approverWindowMinutes * 60 * 1000;
+  const approverCutoff = safeNow - approverWindowMs;
+  const approverRecentAttempts = proSecurityChainDualControlAttempts.filter(
+    (item) =>
+      Boolean(item?.required) &&
+      Number(item?.atMs || 0) >= approverCutoff &&
+      Boolean(text(item?.approverId))
+  );
+  const approverRecentFailures = approverRecentAttempts.filter((item) => !Boolean(item?.approved));
+  const approverActiveBlocks = Array.from(proSecurityChainDualControlApproverAttemptBlocks.values())
+    .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
+    .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
   const latestAttempt = proSecurityChainDualControlAttempts[0] || null;
   const latestBlock = activeBlocks[0] || null;
+  const latestApproverBlock = approverActiveBlocks[0] || null;
   return {
     windowMinutes,
     maxFailures: Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_MAX_FAILURES)),
@@ -3162,6 +3398,27 @@ function getSecurityChainDualControlAttemptGuardStatus(nowTs = Date.now()) {
     latestBlockActor: text(latestBlock?.actorKey),
     latestBlockUntil: latestBlock?.blockUntilTs
       ? new Date(Number(latestBlock.blockUntilTs)).toISOString()
+      : "",
+    approverShieldEnabled,
+    approverWindowMinutes,
+    approverMaxFailures: Math.max(2, Math.min(5000, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_MAX_FAILURES)),
+    approverBlockDurationMinutes: Math.max(
+      1,
+      Math.min(24 * 60, SECURITY_CHAIN_DUAL_CONTROL_APPROVER_BLOCK_DURATION_MINUTES)
+    ),
+    approverRecentAttemptCount: approverRecentAttempts.length,
+    approverRecentFailureCount: approverRecentFailures.length,
+    approverActiveBlockCount: approverActiveBlocks.length,
+    approverTrackedCount: proSecurityChainDualControlApproverAttemptBlocks.size,
+    approverLatestBlockAt: latestApproverBlock
+      ? text(latestApproverBlock.blockedAt)
+      : (proLastSecurityChainDualControlApproverAttemptBlockAt
+        ? new Date(proLastSecurityChainDualControlApproverAttemptBlockAt).toISOString()
+        : ""),
+    approverLatestBlockReason: text(latestApproverBlock?.reason),
+    approverLatestBlockApproverId: text(latestApproverBlock?.approverId),
+    approverLatestBlockUntil: latestApproverBlock?.blockUntilTs
+      ? new Date(Number(latestApproverBlock.blockUntilTs)).toISOString()
       : ""
   };
 }
@@ -3316,6 +3573,10 @@ function evaluateSecurityChainDualControlGuard({
     currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
     SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
   );
+  const approverShieldEnabled = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlApproverShield,
+    SECURITY_CHAIN_DUAL_CONTROL_APPROVER_SHIELD_ENABLED_DEFAULT
+  );
   const legacySignatureAllowed = !strictReasonSignature && SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE;
 
   const trackAttempt = ({
@@ -3363,6 +3624,7 @@ function evaluateSecurityChainDualControlGuard({
       distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
       strictReasonSignature,
+      approverShieldEnabled,
       legacySignatureAllowed,
       legacySignatureUsed: false,
       signatureVersion: "",
@@ -3405,6 +3667,7 @@ function evaluateSecurityChainDualControlGuard({
       distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
       strictReasonSignature,
+      approverShieldEnabled,
       legacySignatureAllowed,
       legacySignatureUsed: false,
       signatureVersion: "",
@@ -3414,7 +3677,10 @@ function evaluateSecurityChainDualControlGuard({
       approvalReasonDigest: "",
       ...payload
     };
-    if (result.reason !== "chain-dual-control-attempt-actor-temporary-block") {
+    if (
+      result.reason !== "chain-dual-control-attempt-actor-temporary-block" &&
+      result.reason !== "chain-dual-control-attempt-approver-temporary-block"
+    ) {
       trackAttempt({
         reason: text(result.reason),
         approverId: text(result.approverId),
@@ -3474,6 +3740,30 @@ function evaluateSecurityChainDualControlGuard({
       approverRole,
       approvalId: text(approval.approvalId),
       approvalOperationDigest
+    });
+  }
+  const approverAttemptGuard = evaluateSecurityChainDualControlApproverAttemptGuard({
+    approverId: approval.approverId,
+    actorId,
+    actorRole,
+    operation,
+    method,
+    path,
+    required: true
+  });
+  if (!approverAttemptGuard.allowed) {
+    return deny(text(approverAttemptGuard.reason), {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest,
+      approverShieldWindowMinutes: Math.max(1, Number(approverAttemptGuard.windowMinutes || 0)),
+      approverShieldMaxFailures: Math.max(0, Number(approverAttemptGuard.maxFailures || 0)),
+      approverShieldBlockUntilTs: Number(approverAttemptGuard.blockUntilTs || 0),
+      approverShieldRetryAfterMs: Math.max(0, Number(approverAttemptGuard.retryAfterMs || 0)),
+      approverShieldWindowFailureCount: Math.max(0, Number(approverAttemptGuard.windowFailureCount || 0))
     });
   }
   if (!approverRole || !SECURITY_CHAIN_DUAL_CONTROL_APPROVER_ROLES.has(approverRole)) {
@@ -3754,6 +4044,7 @@ function evaluateSecurityChainDualControlGuard({
     approvalReasonDigest,
     signatureVersion: matchedSignatureVersion,
     strictReasonSignature,
+    approverShieldEnabled,
     legacySignatureAllowed,
     legacySignatureUsed,
     secretSlot
@@ -3777,6 +4068,7 @@ function evaluateSecurityChainDualControlGuard({
     approvalReasonDigest: approvalReasonDigest || requiredReasonDigest,
     signatureVersion: matchedSignatureVersion,
     strictReasonSignature,
+    approverShieldEnabled,
     legacySignatureAllowed,
     legacySignatureUsed,
     secretSlot
@@ -3929,6 +4221,21 @@ function getSecurityChainEnforcementGuardStatus() {
     dualControlLatestBlockedAt: proLastSecurityChainDualControlBlockAt
       ? new Date(proLastSecurityChainDualControlBlockAt).toISOString()
       : "",
+    dualControlApproverShieldEnabled: Boolean(dualControlAttemptGuard?.approverShieldEnabled),
+    dualControlApproverWindowMinutes: Math.max(1, Number(dualControlAttemptGuard?.approverWindowMinutes || 0)),
+    dualControlApproverMaxFailures: Math.max(0, Number(dualControlAttemptGuard?.approverMaxFailures || 0)),
+    dualControlApproverBlockDurationMinutes: Math.max(
+      0,
+      Number(dualControlAttemptGuard?.approverBlockDurationMinutes || 0)
+    ),
+    dualControlApproverRecentAttempts: Math.max(0, Number(dualControlAttemptGuard?.approverRecentAttemptCount || 0)),
+    dualControlApproverRecentFailures: Math.max(0, Number(dualControlAttemptGuard?.approverRecentFailureCount || 0)),
+    dualControlApproverActiveBlocks: Math.max(0, Number(dualControlAttemptGuard?.approverActiveBlockCount || 0)),
+    dualControlApproverTrackedIds: Math.max(0, Number(dualControlAttemptGuard?.approverTrackedCount || 0)),
+    dualControlApproverLatestBlockAt: text(dualControlAttemptGuard?.approverLatestBlockAt),
+    dualControlApproverLatestBlockReason: text(dualControlAttemptGuard?.approverLatestBlockReason),
+    dualControlApproverLatestBlockApproverId: text(dualControlAttemptGuard?.approverLatestBlockApproverId),
+    dualControlApproverLatestBlockUntil: text(dualControlAttemptGuard?.approverLatestBlockUntil),
     dualControlAttemptWindowMinutes: Math.max(1, Number(dualControlAttemptGuard?.windowMinutes || 0)),
     dualControlAttemptMaxFailures: Math.max(0, Number(dualControlAttemptGuard?.maxFailures || 0)),
     dualControlAttemptMinIntervalSec: Math.max(0, Number(dualControlAttemptGuard?.minIntervalSec || 0)),
@@ -4545,7 +4852,8 @@ function evaluateSecurityControlDowngradeGuard({
     "securityControlDowngradeGuard",
     "securityChainEnforcementGuard",
     "securityChainDualControlRequired",
-    "securityChainDualControlStrictReasonSignature"
+    "securityChainDualControlStrictReasonSignature",
+    "securityChainDualControlApproverShield"
   ];
   const disabledCriticalModules = criticalModuleKeys.filter(
     (key) => toBoolean(currentModules[key], false) && !toBoolean(nextModules[key], false)
@@ -6618,6 +6926,12 @@ export function updateProSecurityControlState(
       next.adminControls.securityChainDualControlStrictReasonSignature = toBoolean(
         patch.adminControls.securityChainDualControlStrictReasonSignature,
         Boolean(next.adminControls.securityChainDualControlStrictReasonSignature)
+      );
+    }
+    if (typeof patch.adminControls.securityChainDualControlApproverShield !== "undefined") {
+      next.adminControls.securityChainDualControlApproverShield = toBoolean(
+        patch.adminControls.securityChainDualControlApproverShield,
+        Boolean(next.adminControls.securityChainDualControlApproverShield)
       );
     }
   }
@@ -10136,6 +10450,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityChainDualControlLegacySignatureAllowed: Boolean(
         chainEnforcementGuardStatus?.dualControlLegacySignatureAllowed
       ),
+      securityChainDualControlApproverShieldEnabled: Boolean(
+        chainEnforcementGuardStatus?.dualControlApproverShieldEnabled
+      ),
       securityChainDualControlDistinctApproverRequired: Boolean(
         chainEnforcementGuardStatus?.dualControlDistinctApproverRequired
       ),
@@ -10160,6 +10477,46 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityChainDualControlLastApproverId: text(chainEnforcementGuardStatus?.dualControlLatestApproverId),
       securityChainDualControlLastApprovalId: text(chainEnforcementGuardStatus?.dualControlLatestApprovalId),
       securityChainDualControlLastBlockedAt: text(chainEnforcementGuardStatus?.dualControlLatestBlockedAt),
+      securityChainDualControlApproverWindowMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverWindowMinutes || 0)
+      ),
+      securityChainDualControlApproverMaxFailures: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverMaxFailures || 0)
+      ),
+      securityChainDualControlApproverBlockDurationMinutes: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverBlockDurationMinutes || 0)
+      ),
+      securityChainDualControlApproverRecentAttempts: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverRecentAttempts || 0)
+      ),
+      securityChainDualControlApproverRecentFailures: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverRecentFailures || 0)
+      ),
+      securityChainDualControlApproverActiveBlocks: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverActiveBlocks || 0)
+      ),
+      securityChainDualControlApproverTrackedIds: Math.max(
+        0,
+        Number(chainEnforcementGuardStatus?.dualControlApproverTrackedIds || 0)
+      ),
+      securityChainDualControlApproverLastBlockAt: text(
+        chainEnforcementGuardStatus?.dualControlApproverLatestBlockAt
+      ),
+      securityChainDualControlApproverLastBlockReason: text(
+        chainEnforcementGuardStatus?.dualControlApproverLatestBlockReason
+      ),
+      securityChainDualControlApproverLastBlockedApproverId: text(
+        chainEnforcementGuardStatus?.dualControlApproverLatestBlockApproverId
+      ),
+      securityChainDualControlApproverLastBlockUntil: text(
+        chainEnforcementGuardStatus?.dualControlApproverLatestBlockUntil
+      ),
       securityChainDualControlAttemptWindowMinutes: Math.max(
         0,
         Number(chainEnforcementGuardStatus?.dualControlAttemptWindowMinutes || 0)

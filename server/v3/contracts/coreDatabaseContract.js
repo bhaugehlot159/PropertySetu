@@ -227,6 +227,7 @@ export const coreSystemsBlueprint = [
       "Chain-enforcement guard: security-control mutations blocked while chain integrity is compromised unless explicit chain break-glass confirm",
       "Dual-control chain override approvals: compromised-chain break-glass requires a second approver with signed anti-replay approval proof",
       "Dual-control abuse guard: repeated invalid chain approvals auto-throttled with temporary actor lock",
+      "Approver abuse shield: repeated invalid approvals for the same approverId are auto-blocked even across different actors",
       "Operation-digest bound approvals: signed chain override cannot be replayed across different mutation payloads",
       "Reason-bound dual signatures: strict admin mode enforces reason-integrity-bound override signatures while optional legacy signatures can stay enabled for staged migration"
     ],
