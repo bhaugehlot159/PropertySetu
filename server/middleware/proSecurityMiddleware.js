@@ -19,6 +19,8 @@ const proAuthFailureTelemetry = [];
 const proAuthShieldEvents = [];
 const proProtectedAuthIdentities = new Map();
 const proIdentityProtectionEvents = [];
+const proProtectedTokenSubjects = new Map();
+const proSubjectProtectionEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -279,6 +281,14 @@ const IDENTITY_PROTECTION_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.IDENTITY_PROTECTION_EVENT_MAX_ITEMS || 500)
 );
+const PROTECTED_TOKEN_SUBJECTS_MAX_ITEMS = Math.max(
+  50,
+  Number(process.env.PROTECTED_TOKEN_SUBJECTS_MAX_ITEMS || 3000)
+);
+const SUBJECT_PROTECTION_EVENT_MAX_ITEMS = Math.max(
+  20,
+  Number(process.env.SUBJECT_PROTECTION_EVENT_MAX_ITEMS || 500)
+);
 const CRITICAL_THREAT_PATTERNS = [
   /token-alg-none/i,
   /token-header-injection-pattern/i,
@@ -530,7 +540,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         identityProtectionDistinctFingerprints: 6,
         identityProtectionDistinctIps: 6,
         identityProtectionDurationMinutes: 30,
-        identityProtectionCooldownMinutes: 10
+        identityProtectionCooldownMinutes: 10,
+        subjectProtectionWindowMinutes: 45,
+        subjectProtectionIncidentThreshold: 8,
+        subjectProtectionDistinctFingerprints: 4,
+        subjectProtectionDistinctIps: 4,
+        subjectProtectionDurationMinutes: 30,
+        subjectProtectionCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -543,7 +559,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCriticalImmediateBlocklist: true,
         autoCampaignLockdown: true,
         autoAuthStormShield: true,
-        autoIdentityProtection: true
+        autoIdentityProtection: true,
+        autoSubjectProtection: true
       }
     }
   },
@@ -609,7 +626,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         identityProtectionDistinctFingerprints: 5,
         identityProtectionDistinctIps: 5,
         identityProtectionDurationMinutes: 45,
-        identityProtectionCooldownMinutes: 10
+        identityProtectionCooldownMinutes: 10,
+        subjectProtectionWindowMinutes: 35,
+        subjectProtectionIncidentThreshold: 6,
+        subjectProtectionDistinctFingerprints: 3,
+        subjectProtectionDistinctIps: 3,
+        subjectProtectionDurationMinutes: 45,
+        subjectProtectionCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -622,7 +645,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCriticalImmediateBlocklist: true,
         autoCampaignLockdown: true,
         autoAuthStormShield: true,
-        autoIdentityProtection: true
+        autoIdentityProtection: true,
+        autoSubjectProtection: true
       }
     }
   },
@@ -688,7 +712,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         identityProtectionDistinctFingerprints: 4,
         identityProtectionDistinctIps: 4,
         identityProtectionDurationMinutes: 60,
-        identityProtectionCooldownMinutes: 8
+        identityProtectionCooldownMinutes: 8,
+        subjectProtectionWindowMinutes: 25,
+        subjectProtectionIncidentThreshold: 4,
+        subjectProtectionDistinctFingerprints: 2,
+        subjectProtectionDistinctIps: 2,
+        subjectProtectionDurationMinutes: 60,
+        subjectProtectionCooldownMinutes: 8
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -701,7 +731,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoCriticalImmediateBlocklist: true,
         autoCampaignLockdown: true,
         autoAuthStormShield: true,
-        autoIdentityProtection: true
+        autoIdentityProtection: true,
+        autoSubjectProtection: true
       }
     }
   }
@@ -870,6 +901,30 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     identityProtectionCooldownMinutes: Math.max(
       1,
       Number(process.env.IDENTITY_PROTECTION_COOLDOWN_MINUTES || 10)
+    ),
+    subjectProtectionWindowMinutes: Math.max(
+      5,
+      Number(process.env.SUBJECT_PROTECTION_WINDOW_MINUTES || 45)
+    ),
+    subjectProtectionIncidentThreshold: Math.max(
+      2,
+      Number(process.env.SUBJECT_PROTECTION_INCIDENT_THRESHOLD || 8)
+    ),
+    subjectProtectionDistinctFingerprints: Math.max(
+      2,
+      Number(process.env.SUBJECT_PROTECTION_DISTINCT_FINGERPRINTS || 4)
+    ),
+    subjectProtectionDistinctIps: Math.max(
+      2,
+      Number(process.env.SUBJECT_PROTECTION_DISTINCT_IPS || 4)
+    ),
+    subjectProtectionDurationMinutes: Math.max(
+      1,
+      Number(process.env.SUBJECT_PROTECTION_DURATION_MINUTES || 30)
+    ),
+    subjectProtectionCooldownMinutes: Math.max(
+      1,
+      Number(process.env.SUBJECT_PROTECTION_COOLDOWN_MINUTES || 10)
     )
   },
   adminControls: {
@@ -883,7 +938,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoCriticalImmediateBlocklist: true,
     autoCampaignLockdown: true,
     autoAuthStormShield: true,
-    autoIdentityProtection: true
+    autoIdentityProtection: true,
+    autoSubjectProtection: true
   },
   lists: {
     blockedIps: [],
@@ -1732,6 +1788,54 @@ export function updateProSecurityControlState(
         720
       );
     }
+    if (typeof incoming.subjectProtectionWindowMinutes !== "undefined") {
+      next.thresholds.subjectProtectionWindowMinutes = toIntegerInRange(
+        incoming.subjectProtectionWindowMinutes,
+        next.thresholds.subjectProtectionWindowMinutes,
+        5,
+        1440
+      );
+    }
+    if (typeof incoming.subjectProtectionIncidentThreshold !== "undefined") {
+      next.thresholds.subjectProtectionIncidentThreshold = toIntegerInRange(
+        incoming.subjectProtectionIncidentThreshold,
+        next.thresholds.subjectProtectionIncidentThreshold,
+        2,
+        5000
+      );
+    }
+    if (typeof incoming.subjectProtectionDistinctFingerprints !== "undefined") {
+      next.thresholds.subjectProtectionDistinctFingerprints = toIntegerInRange(
+        incoming.subjectProtectionDistinctFingerprints,
+        next.thresholds.subjectProtectionDistinctFingerprints,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.subjectProtectionDistinctIps !== "undefined") {
+      next.thresholds.subjectProtectionDistinctIps = toIntegerInRange(
+        incoming.subjectProtectionDistinctIps,
+        next.thresholds.subjectProtectionDistinctIps,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.subjectProtectionDurationMinutes !== "undefined") {
+      next.thresholds.subjectProtectionDurationMinutes = toIntegerInRange(
+        incoming.subjectProtectionDurationMinutes,
+        next.thresholds.subjectProtectionDurationMinutes,
+        1,
+        1440
+      );
+    }
+    if (typeof incoming.subjectProtectionCooldownMinutes !== "undefined") {
+      next.thresholds.subjectProtectionCooldownMinutes = toIntegerInRange(
+        incoming.subjectProtectionCooldownMinutes,
+        next.thresholds.subjectProtectionCooldownMinutes,
+        1,
+        720
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -1813,6 +1917,12 @@ export function updateProSecurityControlState(
       next.adminControls.autoIdentityProtection = toBoolean(
         patch.adminControls.autoIdentityProtection,
         Boolean(next.adminControls.autoIdentityProtection)
+      );
+    }
+    if (typeof patch.adminControls.autoSubjectProtection !== "undefined") {
+      next.adminControls.autoSubjectProtection = toBoolean(
+        patch.adminControls.autoSubjectProtection,
+        Boolean(next.adminControls.autoSubjectProtection)
       );
     }
   }
@@ -2028,6 +2138,10 @@ function normalizeAuthIdentity(value = "") {
   return text(value).toLowerCase().slice(0, 120);
 }
 
+function normalizeTokenSubject(value = "") {
+  return text(value).toLowerCase().slice(0, 120);
+}
+
 function pruneProtectedAuthIdentities(nowTs = Date.now()) {
   const now = Number(nowTs);
   for (const [identity, row] of proProtectedAuthIdentities.entries()) {
@@ -2064,6 +2178,48 @@ function getProtectedAuthIdentityStatus(identity = "", nowTs = Date.now()) {
     remainingSec: Math.max(0, Math.ceil((until - safeNow) / 1000)),
     reason: text(row?.reason),
     failureCount: Math.max(0, Number(row?.failureCount || 0)),
+    distinctFingerprintCount: Math.max(0, Number(row?.distinctFingerprintCount || 0)),
+    distinctIpCount: Math.max(0, Number(row?.distinctIpCount || 0)),
+    lastAppliedAt: Math.max(0, Number(row?.lastAppliedAt || 0))
+  };
+}
+
+function pruneProtectedTokenSubjects(nowTs = Date.now()) {
+  const now = Number(nowTs);
+  for (const [subject, row] of proProtectedTokenSubjects.entries()) {
+    const until = Number(row?.until || 0);
+    if (!Number.isFinite(until) || until <= now) {
+      proProtectedTokenSubjects.delete(subject);
+    }
+  }
+  if (proProtectedTokenSubjects.size <= PROTECTED_TOKEN_SUBJECTS_MAX_ITEMS) return;
+  const overflow = proProtectedTokenSubjects.size - PROTECTED_TOKEN_SUBJECTS_MAX_ITEMS;
+  const ordered = [...proProtectedTokenSubjects.entries()].sort(
+    (a, b) => Number(a?.[1]?.updatedAt || 0) - Number(b?.[1]?.updatedAt || 0)
+  );
+  for (let index = 0; index < overflow; index += 1) {
+    const key = text(ordered[index]?.[0]);
+    if (key) proProtectedTokenSubjects.delete(key);
+  }
+}
+
+function getProtectedTokenSubjectStatus(subject = "", nowTs = Date.now()) {
+  const key = normalizeTokenSubject(subject);
+  if (!key) return { active: false, subject: "" };
+  const row = proProtectedTokenSubjects.get(key);
+  const safeNow = Number(nowTs);
+  const until = Math.max(0, Number(row?.until || 0));
+  if (!row || until <= safeNow) {
+    if (row) proProtectedTokenSubjects.delete(key);
+    return { active: false, subject: key };
+  }
+  return {
+    active: true,
+    subject: key,
+    until,
+    remainingSec: Math.max(0, Math.ceil((until - safeNow) / 1000)),
+    reason: text(row?.reason),
+    incidentCount: Math.max(0, Number(row?.incidentCount || 0)),
     distinctFingerprintCount: Math.max(0, Number(row?.distinctFingerprintCount || 0)),
     distinctIpCount: Math.max(0, Number(row?.distinctIpCount || 0)),
     lastAppliedAt: Math.max(0, Number(row?.lastAppliedAt || 0))
@@ -3238,6 +3394,151 @@ function maybeApplyAuthIdentityProtection({
   });
 }
 
+function maybeApplySubjectProtection({
+  requestId = "",
+  path: requestPath = "",
+  reason = "subject-takeover-suspected",
+  method = "GET",
+  subject = "",
+  replaySuspected = false,
+  subjectTakeoverSuspected = false,
+  subjectUsage = null
+} = {}) {
+  const safeSubject = normalizeTokenSubject(subject);
+  if (!safeSubject) return;
+  const safePath = normalizeRequestPath(requestPath || "/api");
+  if (isSecurityControlPath(safePath)) return;
+
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoSubjectProtection, true)) return;
+
+  const thresholds = currentSecurityThresholds();
+  const nowTs = Date.now();
+  pruneProtectedTokenSubjects(nowTs);
+
+  const windowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectProtectionWindowMinutes || 45) * 60 * 1000)
+  );
+  const cooldownMs = Math.max(
+    60_000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.subjectProtectionCooldownMinutes || 10) * 60 * 1000)
+  );
+  const existing = proProtectedTokenSubjects.get(safeSubject);
+  const lastAppliedAt = Math.max(0, Number(existing?.lastAppliedAt || 0));
+  if (lastAppliedAt > 0 && nowTs - lastAppliedAt < cooldownMs) {
+    return;
+  }
+
+  const cutoff = nowTs - windowMs;
+  const subjectIncidents = proThreatIncidents.filter((item) => {
+    const at = Date.parse(text(item?.at));
+    if (!Number.isFinite(at) || at < cutoff) return false;
+    return normalizeTokenSubject(item?.subject) === safeSubject;
+  });
+  const incidentThreshold = Math.max(2, Number(thresholds.subjectProtectionIncidentThreshold || 8));
+  const distinctFingerprintThreshold = Math.max(
+    2,
+    Number(thresholds.subjectProtectionDistinctFingerprints || 4)
+  );
+  const distinctIpThreshold = Math.max(2, Number(thresholds.subjectProtectionDistinctIps || 4));
+
+  const incidentFingerprintSet = new Set();
+  const incidentIpSet = new Set();
+  for (const row of subjectIncidents) {
+    const fp = normalizeProSecurityThreatFingerprint(row?.fingerprint);
+    if (isValidProSecurityThreatFingerprint(fp)) incidentFingerprintSet.add(fp);
+    const safeIp = normalizeIpEntry(row?.ip);
+    if (safeIp) incidentIpSet.add(safeIp);
+  }
+
+  const usageFingerprintCount = Math.max(0, Number(subjectUsage?.distinctFingerprintCount || 0));
+  const usageIpCount = Math.max(0, Number(subjectUsage?.distinctIpCount || 0));
+  const usageOccurrenceCount = Math.max(0, Number(subjectUsage?.occurrences || 0));
+
+  const incidentCount = Math.max(subjectIncidents.length, usageOccurrenceCount);
+  const distinctFingerprintCount = Math.max(incidentFingerprintSet.size, usageFingerprintCount);
+  const distinctIpCount = Math.max(incidentIpSet.size, usageIpCount);
+  const spreadDetected =
+    distinctFingerprintCount >= distinctFingerprintThreshold ||
+    distinctIpCount >= distinctIpThreshold;
+  const anomalyDetected = Boolean(replaySuspected) || Boolean(subjectTakeoverSuspected);
+
+  if ((incidentCount < incidentThreshold && !anomalyDetected) || !spreadDetected) return;
+
+  const durationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.subjectProtectionDurationMinutes || 30) * 60 * 1000)
+  );
+  const activeUntilTs = Math.max(Math.max(0, Number(existing?.until || 0)), nowTs + durationMs);
+  const record = {
+    subject: safeSubject,
+    reason: text(reason).toLowerCase(),
+    until: activeUntilTs,
+    updatedAt: nowTs,
+    lastAppliedAt: nowTs,
+    incidentCount,
+    distinctFingerprintCount,
+    distinctIpCount
+  };
+  proProtectedTokenSubjects.set(safeSubject, record);
+  pruneProtectedTokenSubjects(nowTs);
+
+  const event = {
+    id: `subject-protect-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    subject: safeSubject,
+    reason: text(reason).toLowerCase(),
+    replaySuspected: Boolean(replaySuspected),
+    subjectTakeoverSuspected: Boolean(subjectTakeoverSuspected),
+    windowMinutes: Math.round(windowMs / 60_000),
+    cooldownMinutes: Math.round(cooldownMs / 60_000),
+    protectionDurationMinutes: Math.round(durationMs / 60_000),
+    activeUntil: new Date(activeUntilTs).toISOString(),
+    incidentCount,
+    distinctFingerprintCount,
+    distinctIpCount,
+    thresholds: {
+      incidentThreshold,
+      distinctFingerprintThreshold,
+      distinctIpThreshold
+    }
+  };
+  proSubjectProtectionEvents.unshift(event);
+  if (proSubjectProtectionEvents.length > SUBJECT_PROTECTION_EVENT_MAX_ITEMS) {
+    proSubjectProtectionEvents.length = SUBJECT_PROTECTION_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-token-subject-protection",
+    requestId: text(requestId),
+    path: safePath,
+    method: text(method).toUpperCase(),
+    details: {
+      subject: safeSubject,
+      reason: text(reason).toLowerCase(),
+      replaySuspected: Boolean(replaySuspected),
+      subjectTakeoverSuspected: Boolean(subjectTakeoverSuspected),
+      activeUntil: new Date(activeUntilTs).toISOString(),
+      windowMinutes: Math.round(windowMs / 60_000),
+      cooldownMinutes: Math.round(cooldownMs / 60_000),
+      protectionDurationMinutes: Math.round(durationMs / 60_000),
+      incidentCount,
+      distinctFingerprintCount,
+      distinctIpCount,
+      thresholds: {
+        incidentThreshold,
+        distinctFingerprintThreshold,
+        distinctIpThreshold
+      }
+    }
+  });
+}
+
 function maybeAutoEscalateSecurityMode({
   reason = "",
   path: requestPath = "",
@@ -3769,6 +4070,7 @@ export function quarantineProSecurityThreatProfile(
 export function getProSecurityThreatIntelligence(limit = 200) {
   const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
   pruneProtectedAuthIdentities(Date.now());
+  pruneProtectedTokenSubjects(Date.now());
   const thresholds = currentSecurityThresholds();
   const lists = currentSecurityLists();
   const mode = currentSecurityMode();
@@ -3792,6 +4094,20 @@ export function getProSecurityThreatIntelligence(limit = 200) {
         : "",
       remainingSec: Math.max(0, Math.ceil((Number(item?.until || 0) - Date.now()) / 1000)),
       failureCount: Math.max(0, Number(item?.failureCount || 0)),
+      distinctFingerprintCount: Math.max(0, Number(item?.distinctFingerprintCount || 0)),
+      distinctIpCount: Math.max(0, Number(item?.distinctIpCount || 0))
+    }));
+  const activeSubjectProtections = [...proProtectedTokenSubjects.values()]
+    .filter((item) => Number(item?.until || 0) > Date.now())
+    .slice(0, Math.min(200, safeLimit))
+    .map((item) => ({
+      subject: text(item?.subject),
+      reason: text(item?.reason),
+      activeUntil: Number(item?.until || 0)
+        ? new Date(Number(item?.until || 0)).toISOString()
+        : "",
+      remainingSec: Math.max(0, Math.ceil((Number(item?.until || 0) - Date.now()) / 1000)),
+      incidentCount: Math.max(0, Number(item?.incidentCount || 0)),
       distinctFingerprintCount: Math.max(0, Number(item?.distinctFingerprintCount || 0)),
       distinctIpCount: Math.max(0, Number(item?.distinctIpCount || 0))
     }));
@@ -3858,7 +4174,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     recentCampaignResponses: proCampaignResponseEvents.slice(0, Math.min(100, safeLimit)),
     recentAuthShieldEvents: proAuthShieldEvents.slice(0, Math.min(100, safeLimit)),
     recentIdentityProtectionEvents: proIdentityProtectionEvents.slice(0, Math.min(100, safeLimit)),
+    recentSubjectProtectionEvents: proSubjectProtectionEvents.slice(0, Math.min(100, safeLimit)),
     activeIdentityProtections,
+    activeSubjectProtections,
     controlState: getProSecurityControlState(),
     summary: {
       mode,
@@ -3904,6 +4222,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       identityProtectionsActive: activeIdentityProtections.length,
       identityProtectionsTotal: proIdentityProtectionEvents.length,
       identityProtectionLastAt: text(proIdentityProtectionEvents[0]?.at),
+      subjectProtectionsActive: activeSubjectProtections.length,
+      subjectProtectionsTotal: proSubjectProtectionEvents.length,
+      subjectProtectionLastAt: text(proSubjectProtectionEvents[0]?.at),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -5107,6 +5428,48 @@ export function proTokenFirewall(req, res, next) {
       requestId: req.requestId
     });
   }
+  const protectedSubjectStatus = getProtectedTokenSubjectStatus(metadata.subject);
+  if (protectedSubjectStatus.active) {
+    const headerKey = text(req?.headers?.["x-admin-action-key"]);
+    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+    const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    if (isTrusted || bypassByActionKey) {
+      pushProSecurityAuditEvent(req, {
+        severity: "medium",
+        type: "token-subject-protection-bypass",
+        details: {
+          subject: protectedSubjectStatus.subject,
+          reason: protectedSubjectStatus.reason,
+          remainingSec: protectedSubjectStatus.remainingSec,
+          bypassByTrustedFingerprint: Boolean(isTrusted),
+          bypassByActionKey: Boolean(bypassByActionKey)
+        }
+      });
+    } else {
+      req.proSecurityBlockSource = "token-subject-temporary-protection";
+      const incident = quarantineByFirewall(req, {
+        reason: req.proSecurityBlockSource,
+        requestPath,
+        method,
+        riskScore: 97,
+        details: {
+          subject: protectedSubjectStatus.subject,
+          protectionReason: protectedSubjectStatus.reason,
+          protectedUntil: protectedSubjectStatus.until
+            ? new Date(protectedSubjectStatus.until).toISOString()
+            : ""
+        }
+      });
+      res.setHeader("Retry-After", String(incident.retryAfterSec));
+      return res.status(401).json({
+        success: false,
+        message: "Authorization token temporarily protected due to takeover signals.",
+        reasons: [req.proSecurityBlockSource],
+        retryAfterSec: incident.retryAfterSec,
+        requestId: req.requestId
+      });
+    }
+  }
   const tokenKey = tokenKeyFromEvaluation(evaluation, token);
   const usage = registerTokenUsage({
     tokenKey,
@@ -5154,6 +5517,18 @@ export function proTokenFirewall(req, res, next) {
       )
     );
   const hasTokenAnomaly = replaySuspected || subjectTakeoverSuspected;
+  if (hasTokenAnomaly && !isTrusted) {
+    maybeApplySubjectProtection({
+      requestId: req.requestId,
+      path: requestPath,
+      method,
+      reason: replaySuspected ? "token-replay-suspected" : "subject-takeover-suspected",
+      subject: metadata.subject,
+      replaySuspected,
+      subjectTakeoverSuspected,
+      subjectUsage
+    });
+  }
 
   if (!hasTokenAnomaly || !modules.autoQuarantine || isTrusted) {
     if (hasTokenAnomaly) {
