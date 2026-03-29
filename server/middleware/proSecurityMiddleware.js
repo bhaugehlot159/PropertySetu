@@ -27,6 +27,8 @@ const proSubjectNetworkShieldEvents = [];
 const proAdminMutationAttemptIntel = [];
 const proAdminMutationShieldEvents = [];
 const proAdminMutationSignatureNonces = new Map();
+const proSecurityControlMutationEvents = [];
+const proSecurityControlMutationBlocks = new Map();
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -34,6 +36,7 @@ let proAuthShieldUntil = 0;
 let proLastAuthShieldAppliedAt = 0;
 let proAdminMutationShieldUntil = 0;
 let proLastAdminMutationShieldAppliedAt = 0;
+let proLastSecurityControlMutationBlockAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -68,6 +71,14 @@ const SECURITY_CONTROL_STATE_CHAIN_CONTINUITY_ENABLED =
 const SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH = Math.max(
   2,
   Number(process.env.SECURITY_CONTROL_STATE_CHAIN_VERIFICATION_MAX_DEPTH || SECURITY_CONTROL_STATE_BACKUP_KEEP + 2)
+);
+const SECURITY_CONTROL_MUTATION_EVENT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.SECURITY_CONTROL_MUTATION_EVENT_MAX_ITEMS || 1600)
+);
+const SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX = Math.max(
+  50,
+  Number(process.env.SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX || 600)
 );
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
@@ -671,11 +682,16 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         adminMutationDistinctFingerprints: 4,
         adminMutationDistinctIps: 3,
         adminMutationShieldDurationMinutes: 30,
-        adminMutationCooldownMinutes: 10
+        adminMutationCooldownMinutes: 10,
+        securityControlMutationWindowMinutes: 20,
+        securityControlMutationMaxEvents: 12,
+        securityControlMutationMinIntervalSec: 5,
+        securityControlMutationBlockDurationMinutes: 20
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
         adminMutationSignatureEnforced: API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED,
+        securityControlMutationGuard: true,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
@@ -780,11 +796,16 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         adminMutationDistinctFingerprints: 3,
         adminMutationDistinctIps: 3,
         adminMutationShieldDurationMinutes: 45,
-        adminMutationCooldownMinutes: 10
+        adminMutationCooldownMinutes: 10,
+        securityControlMutationWindowMinutes: 15,
+        securityControlMutationMaxEvents: 8,
+        securityControlMutationMinIntervalSec: 8,
+        securityControlMutationBlockDurationMinutes: 30
       },
       adminControls: {
         actionKeyEnforced: true,
         adminMutationSignatureEnforced: true,
+        securityControlMutationGuard: true,
         readOnlyApi: false,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
@@ -889,11 +910,16 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         adminMutationDistinctFingerprints: 2,
         adminMutationDistinctIps: 2,
         adminMutationShieldDurationMinutes: 60,
-        adminMutationCooldownMinutes: 8
+        adminMutationCooldownMinutes: 8,
+        securityControlMutationWindowMinutes: 10,
+        securityControlMutationMaxEvents: 6,
+        securityControlMutationMinIntervalSec: 12,
+        securityControlMutationBlockDurationMinutes: 60
       },
       adminControls: {
         actionKeyEnforced: true,
         adminMutationSignatureEnforced: true,
+        securityControlMutationGuard: true,
         readOnlyApi: true,
         autoPromoteBlocklists: true,
         autoEscalateMode: true,
@@ -1176,11 +1202,28 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     adminMutationCooldownMinutes: Math.max(
       1,
       Number(process.env.ADMIN_MUTATION_COOLDOWN_MINUTES || 10)
+    ),
+    securityControlMutationWindowMinutes: Math.max(
+      5,
+      Number(process.env.SECURITY_CONTROL_MUTATION_WINDOW_MINUTES || 20)
+    ),
+    securityControlMutationMaxEvents: Math.max(
+      2,
+      Number(process.env.SECURITY_CONTROL_MUTATION_MAX_EVENTS || 12)
+    ),
+    securityControlMutationMinIntervalSec: Math.max(
+      1,
+      Number(process.env.SECURITY_CONTROL_MUTATION_MIN_INTERVAL_SEC || 5)
+    ),
+    securityControlMutationBlockDurationMinutes: Math.max(
+      1,
+      Number(process.env.SECURITY_CONTROL_MUTATION_BLOCK_DURATION_MINUTES || 20)
     )
   },
   adminControls: {
     actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
     adminMutationSignatureEnforced: API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED,
+    securityControlMutationGuard: true,
     readOnlyApi: false,
     autoPromoteBlocklists: true,
     autoEscalateMode: true,
@@ -2396,6 +2439,278 @@ function isBlockedSecurityTokenSubject(value = "") {
   return blocked.includes(subject);
 }
 
+function isSecurityControlMutationGuardBypassActor(actorId = "", actorRole = "") {
+  const safeRole = text(actorRole).toLowerCase();
+  const safeActor = text(actorId).toLowerCase();
+  if (safeRole === "system" || safeRole === "service") return true;
+  if (safeActor.startsWith("system-")) return true;
+  if (safeActor === "system" || safeActor === "ai-guardian") return true;
+  return false;
+}
+
+function resolveSecurityControlMutationActorKey(actorId = "", actorRole = "") {
+  const safeRole = text(actorRole, "unknown-role").toLowerCase();
+  const safeActor = text(actorId, "unknown-actor").toLowerCase();
+  return `${safeRole}:${safeActor}`;
+}
+
+function pruneSecurityControlMutationTelemetry(nowTs = Date.now()) {
+  const safeNow = Number(nowTs);
+  const thresholds = currentSecurityThresholds();
+  const windowMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.securityControlMutationWindowMinutes || 20) * 60 * 1000)
+  );
+  const blockDurationMs = Math.max(
+    60_000,
+    Math.min(
+      24 * 60 * 60 * 1000,
+      Number(thresholds.securityControlMutationBlockDurationMinutes || 20) * 60 * 1000
+    )
+  );
+  const retentionMs = Math.max(windowMs * 3, blockDurationMs * 2, 60 * 60 * 1000);
+  const cutoff = safeNow - retentionMs;
+  while (proSecurityControlMutationEvents.length) {
+    const tail = proSecurityControlMutationEvents[proSecurityControlMutationEvents.length - 1];
+    const atMs = Number(tail?.atMs || 0);
+    if (Number.isFinite(atMs) && atMs >= cutoff) break;
+    proSecurityControlMutationEvents.pop();
+  }
+
+  for (const [key, row] of proSecurityControlMutationBlocks.entries()) {
+    const blockUntil = Number(row?.blockUntilTs || 0);
+    if (!Number.isFinite(blockUntil) || blockUntil <= safeNow) {
+      proSecurityControlMutationBlocks.delete(key);
+    }
+  }
+  while (proSecurityControlMutationBlocks.size > SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX) {
+    const oldestKey = proSecurityControlMutationBlocks.keys().next().value;
+    if (!oldestKey) break;
+    proSecurityControlMutationBlocks.delete(oldestKey);
+  }
+}
+
+function registerSecurityControlMutationEvent({
+  actorId = "",
+  actorRole = "",
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control",
+  warnings = []
+} = {}) {
+  const nowTs = Date.now();
+  const row = {
+    at: nowIso(),
+    atMs: nowTs,
+    actorId: text(actorId),
+    actorRole: text(actorRole),
+    actorKey: resolveSecurityControlMutationActorKey(actorId, actorRole),
+    operation: text(operation, "security-control-update"),
+    method: text(method, "PATCH").toUpperCase(),
+    path: text(path, "/api/system/security-control"),
+    warningCount: Array.isArray(warnings) ? warnings.length : 0
+  };
+  proSecurityControlMutationEvents.unshift(row);
+  if (proSecurityControlMutationEvents.length > SECURITY_CONTROL_MUTATION_EVENT_MAX_ITEMS) {
+    proSecurityControlMutationEvents.length = SECURITY_CONTROL_MUTATION_EVENT_MAX_ITEMS;
+  }
+  pruneSecurityControlMutationTelemetry(nowTs);
+  return row;
+}
+
+function evaluateSecurityControlMutationGuard({
+  actorId = "",
+  actorRole = "",
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control"
+} = {}) {
+  const nowTs = Date.now();
+  const adminControls = currentSecurityAdminControls();
+  const thresholds = currentSecurityThresholds();
+  const enabled = toBoolean(adminControls.securityControlMutationGuard, true);
+  const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
+  const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
+  const windowMinutes = Math.max(
+    1,
+    Math.min(24 * 60, Number(thresholds.securityControlMutationWindowMinutes || 20))
+  );
+  const maxEvents = Math.max(
+    2,
+    Math.min(5000, Number(thresholds.securityControlMutationMaxEvents || 12))
+  );
+  const minIntervalMs = Math.max(
+    500,
+    Math.min(5 * 60 * 1000, Number(thresholds.securityControlMutationMinIntervalSec || 5) * 1000)
+  );
+  const blockDurationMs = Math.max(
+    60_000,
+    Math.min(
+      24 * 60 * 60 * 1000,
+      Number(thresholds.securityControlMutationBlockDurationMinutes || 20) * 60 * 1000
+    )
+  );
+  if (!enabled || bypassed) {
+    return {
+      allowed: true,
+      enabled,
+      bypassed,
+      reason: !enabled ? "mutation-guard-disabled" : "mutation-guard-system-bypass",
+      actorKey,
+      windowMinutes,
+      maxEvents,
+      minIntervalMs,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path)
+    };
+  }
+
+  pruneSecurityControlMutationTelemetry(nowTs);
+
+  const existingBlock = proSecurityControlMutationBlocks.get(actorKey);
+  if (existingBlock) {
+    const blockUntilTs = Number(existingBlock.blockUntilTs || 0);
+    if (blockUntilTs > nowTs) {
+      return {
+        allowed: false,
+        enabled,
+        bypassed: false,
+        reason: "actor-temporary-block",
+        actorKey,
+        windowMinutes,
+        maxEvents,
+        minIntervalMs,
+        blockDurationMs,
+        operation: text(operation),
+        method: text(method).toUpperCase(),
+        path: text(path),
+        blockUntilTs,
+        retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+        windowEventCount: Number(existingBlock.windowEventCount || 0),
+        lastEventAt: text(existingBlock.lastEventAt)
+      };
+    }
+    proSecurityControlMutationBlocks.delete(actorKey);
+  }
+
+  const windowMs = windowMinutes * 60 * 1000;
+  const cutoff = nowTs - windowMs;
+  const actorEvents = proSecurityControlMutationEvents.filter(
+    (item) => item.actorKey === actorKey && Number(item.atMs || 0) >= cutoff
+  );
+  const latestActorEvent = actorEvents[0] || null;
+  const lastEventAtMs = Number(latestActorEvent?.atMs || 0);
+  const elapsedSinceLastEventMs = Number.isFinite(lastEventAtMs) && lastEventAtMs > 0
+    ? Math.max(0, nowTs - lastEventAtMs)
+    : Number.POSITIVE_INFINITY;
+  const tooFast = Number.isFinite(elapsedSinceLastEventMs) && elapsedSinceLastEventMs < minIntervalMs;
+  const aboveLimit = actorEvents.length >= maxEvents;
+  if (!tooFast && !aboveLimit) {
+    return {
+      allowed: true,
+      enabled,
+      bypassed: false,
+      reason: "mutation-guard-allow",
+      actorKey,
+      windowMinutes,
+      maxEvents,
+      minIntervalMs,
+      blockDurationMs,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      windowEventCount: actorEvents.length
+    };
+  }
+
+  const blockUntilTs = nowTs + blockDurationMs;
+  const reason = tooFast ? "min-interval-violation" : "window-limit-exceeded";
+  const blockRow = {
+    actorKey,
+    actorId: text(actorId),
+    actorRole: text(actorRole),
+    reason,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockedAt: nowIso(),
+    blockedAtTs: nowTs,
+    blockUntilTs,
+    blockDurationMs,
+    windowMinutes,
+    maxEvents,
+    minIntervalMs,
+    windowEventCount: actorEvents.length,
+    lastEventAt: text(latestActorEvent?.at)
+  };
+  proSecurityControlMutationBlocks.set(actorKey, blockRow);
+  proLastSecurityControlMutationBlockAt = nowTs;
+  pruneSecurityControlMutationTelemetry(nowTs);
+
+  return {
+    allowed: false,
+    enabled,
+    bypassed: false,
+    reason,
+    actorKey,
+    windowMinutes,
+    maxEvents,
+    minIntervalMs,
+    blockDurationMs,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    blockUntilTs,
+    retryAfterMs: Math.max(0, blockUntilTs - nowTs),
+    windowEventCount: actorEvents.length,
+    lastEventAt: text(latestActorEvent?.at)
+  };
+}
+
+function getSecurityControlMutationGuardStatus(nowTs = Date.now()) {
+  pruneSecurityControlMutationTelemetry(nowTs);
+  const adminControls = currentSecurityAdminControls();
+  const thresholds = currentSecurityThresholds();
+  const safeNow = Number(nowTs);
+  const windowMinutes = Math.max(
+    1,
+    Math.min(24 * 60, Number(thresholds.securityControlMutationWindowMinutes || 20))
+  );
+  const windowMs = windowMinutes * 60 * 1000;
+  const cutoff = safeNow - windowMs;
+  const recentEvents = proSecurityControlMutationEvents.filter((item) => Number(item?.atMs || 0) >= cutoff);
+  const activeBlocks = Array.from(proSecurityControlMutationBlocks.values())
+    .filter((row) => Number(row?.blockUntilTs || 0) > safeNow)
+    .sort((a, b) => Number(b?.blockedAtTs || 0) - Number(a?.blockedAtTs || 0));
+  const latestEvent = proSecurityControlMutationEvents[0] || null;
+  const latestBlock = activeBlocks[0] || null;
+  return {
+    enabled: toBoolean(adminControls.securityControlMutationGuard, true),
+    windowMinutes,
+    maxEvents: Math.max(2, Math.min(5000, Number(thresholds.securityControlMutationMaxEvents || 12))),
+    minIntervalSec: Math.max(1, Math.min(300, Number(thresholds.securityControlMutationMinIntervalSec || 5))),
+    blockDurationMinutes: Math.max(
+      1,
+      Math.min(24 * 60, Number(thresholds.securityControlMutationBlockDurationMinutes || 20))
+    ),
+    recentEventCount: recentEvents.length,
+    activeBlockCount: activeBlocks.length,
+    trackedActorCount: proSecurityControlMutationBlocks.size,
+    latestEventAt: text(latestEvent?.at),
+    latestEventOperation: text(latestEvent?.operation),
+    latestBlockAt: latestBlock ? text(latestBlock.blockedAt) : (proLastSecurityControlMutationBlockAt
+      ? new Date(proLastSecurityControlMutationBlockAt).toISOString()
+      : ""),
+    latestBlockReason: text(latestBlock?.reason),
+    latestBlockActor: text(latestBlock?.actorKey),
+    latestBlockUntil: latestBlock?.blockUntilTs
+      ? new Date(Number(latestBlock.blockUntilTs)).toISOString()
+      : ""
+  };
+}
+
 function listSecurityControlProfilesInternal() {
   return Object.values(SECURITY_CONTROL_PROFILE_DEFS).map((profile) => ({
     id: profile.id,
@@ -2439,6 +2754,7 @@ export function getProSecurityControlPersistenceStatus() {
   const latestSnapshot = snapshots[0] || null;
   const latestValidSnapshot = findLatestValidSecurityControlStateSnapshot(target);
   const activeLoad = loadSecurityControlStatePayloadWithSnapshotFallback(target);
+  const mutationGuard = getSecurityControlMutationGuardStatus();
   return {
     enabled: SECURITY_CONTROL_STATE_PERSIST_ENABLED,
     path: target,
@@ -2469,6 +2785,7 @@ export function getProSecurityControlPersistenceStatus() {
           ? activeLoad.rollbackGuard.details
           : null
     },
+    mutationGuard,
     backup: {
       enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
       dir: backupDir,
@@ -2518,6 +2835,43 @@ export function restoreProSecurityControlStateFromDisk({
   actorRole = "system"
 } = {}) {
   const warnings = [];
+  const guard = evaluateSecurityControlMutationGuard({
+    actorId,
+    actorRole,
+    operation: "security-control-restore",
+    method: "POST",
+    path: "/api/system/security-control/restore"
+  });
+  if (!guard.allowed) {
+    const retrySeconds = Math.max(1, Math.ceil(Number(guard.retryAfterMs || 0) / 1000));
+    warnings.push(
+      `Security control restore temporarily blocked (${text(guard.reason)}). Retry in ~${retrySeconds}s.`
+    );
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-restore-guard-blocked",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(guard.reason),
+        retryAfterMs: Math.max(0, Number(guard.retryAfterMs || 0)),
+        blockUntil: Number(guard.blockUntilTs || 0)
+          ? new Date(Number(guard.blockUntilTs)).toISOString()
+          : "",
+        windowEventCount: Math.max(0, Number(guard.windowEventCount || 0))
+      }
+    });
+    return {
+      restored: false,
+      blocked: true,
+      guard,
+      state: getProSecurityControlState(),
+      warnings
+    };
+  }
+
   const loadResult = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
   if (Array.isArray(loadResult.warnings) && loadResult.warnings.length) {
     warnings.push(...loadResult.warnings.slice(0, 12));
@@ -2540,6 +2894,8 @@ export function restoreProSecurityControlStateFromDisk({
     });
     return {
       restored: false,
+      blocked: false,
+      guard,
       state: getProSecurityControlState(),
       warnings: warnings.length
         ? warnings
@@ -2609,10 +2965,25 @@ export function restoreProSecurityControlStateFromDisk({
   };
   const result = updateProSecurityControlState(patch, {
     actorId,
-    actorRole
+    actorRole,
+    enforceMutationGuard: false,
+    mutationOperation: "security-control-restore-apply",
+    mutationMethod: "POST",
+    mutationPath: "/api/system/security-control/restore",
+    registerMutationEvent: false
+  });
+  registerSecurityControlMutationEvent({
+    actorId,
+    actorRole,
+    operation: "security-control-restore",
+    method: "POST",
+    path: "/api/system/security-control/restore",
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
   });
   return {
     restored: true,
+    blocked: false,
+    guard,
     state: result.state,
     warnings: [
       ...warnings,
@@ -2626,6 +2997,41 @@ export function resetProSecurityControlState({
   actorRole = ""
 } = {}) {
   const warnings = [];
+  const guard = evaluateSecurityControlMutationGuard({
+    actorId,
+    actorRole,
+    operation: "security-control-reset",
+    method: "POST",
+    path: "/api/system/security-control/reset"
+  });
+  if (!guard.allowed) {
+    const retrySeconds = Math.max(1, Math.ceil(Number(guard.retryAfterMs || 0) / 1000));
+    warnings.push(
+      `Security control reset temporarily blocked (${text(guard.reason)}). Retry in ~${retrySeconds}s.`
+    );
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-reset-guard-blocked",
+      method: "POST",
+      path: "/api/system/security-control/reset",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        reason: text(guard.reason),
+        retryAfterMs: Math.max(0, Number(guard.retryAfterMs || 0)),
+        blockUntil: Number(guard.blockUntilTs || 0)
+          ? new Date(Number(guard.blockUntilTs)).toISOString()
+          : "",
+        windowEventCount: Math.max(0, Number(guard.windowEventCount || 0))
+      }
+    });
+    return {
+      state: getProSecurityControlState(),
+      warnings,
+      blocked: true,
+      guard
+    };
+  }
   const next = cloneSecurityControlState(DEFAULT_PRO_SECURITY_CONTROL_STATE);
   next.meta = {
     ...next.meta,
@@ -2653,9 +3059,19 @@ export function resetProSecurityControlState({
   if (persist?.snapshot && !persist.snapshot.ok && !persist.snapshot.skipped) {
     warnings.push(`Security control backup snapshot failed: ${text(persist.snapshot.reason)}`);
   }
+  registerSecurityControlMutationEvent({
+    actorId,
+    actorRole,
+    operation: "security-control-reset",
+    method: "POST",
+    path: "/api/system/security-control/reset",
+    warnings
+  });
   return {
     state: getProSecurityControlState(),
-    warnings
+    warnings,
+    blocked: false,
+    guard
   };
 }
 
@@ -2663,14 +3079,64 @@ export function updateProSecurityControlState(
   patch = {},
   {
     actorId = "",
-    actorRole = ""
+    actorRole = "",
+    enforceMutationGuard = true,
+    mutationOperation = "security-control-update",
+    mutationMethod = "PATCH",
+    mutationPath = "/api/system/security-control",
+    registerMutationEvent = true
   } = {}
 ) {
   const warnings = [];
+  const guard = enforceMutationGuard
+    ? evaluateSecurityControlMutationGuard({
+      actorId,
+      actorRole,
+      operation: mutationOperation,
+      method: mutationMethod,
+      path: mutationPath
+    })
+    : {
+      allowed: true,
+      enabled: false,
+      bypassed: true,
+      reason: "mutation-guard-explicit-bypass",
+      actorKey: resolveSecurityControlMutationActorKey(actorId, actorRole)
+    };
+  if (enforceMutationGuard && !guard.allowed) {
+    const retrySeconds = Math.max(1, Math.ceil(Number(guard.retryAfterMs || 0) / 1000));
+    const message = `Security control mutation temporarily blocked (${text(guard.reason)}). Retry in ~${retrySeconds}s.`;
+    warnings.push(message);
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-mutation-guard-blocked",
+      method: text(mutationMethod, "PATCH"),
+      path: text(mutationPath, "/api/system/security-control"),
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        operation: text(mutationOperation),
+        reason: text(guard.reason),
+        retryAfterMs: Math.max(0, Number(guard.retryAfterMs || 0)),
+        blockUntil: Number(guard.blockUntilTs || 0)
+          ? new Date(Number(guard.blockUntilTs)).toISOString()
+          : "",
+        windowEventCount: Math.max(0, Number(guard.windowEventCount || 0))
+      }
+    });
+    return {
+      state: getProSecurityControlState(),
+      warnings,
+      blocked: true,
+      guard
+    };
+  }
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
     return {
       state: getProSecurityControlState(),
-      warnings: ["Invalid patch payload. Existing security control state returned."]
+      warnings: ["Invalid patch payload. Existing security control state returned."],
+      blocked: false,
+      guard
     };
   }
 
@@ -3259,6 +3725,38 @@ export function updateProSecurityControlState(
         720
       );
     }
+    if (typeof incoming.securityControlMutationWindowMinutes !== "undefined") {
+      next.thresholds.securityControlMutationWindowMinutes = toIntegerInRange(
+        incoming.securityControlMutationWindowMinutes,
+        next.thresholds.securityControlMutationWindowMinutes,
+        1,
+        1440
+      );
+    }
+    if (typeof incoming.securityControlMutationMaxEvents !== "undefined") {
+      next.thresholds.securityControlMutationMaxEvents = toIntegerInRange(
+        incoming.securityControlMutationMaxEvents,
+        next.thresholds.securityControlMutationMaxEvents,
+        2,
+        5000
+      );
+    }
+    if (typeof incoming.securityControlMutationMinIntervalSec !== "undefined") {
+      next.thresholds.securityControlMutationMinIntervalSec = toIntegerInRange(
+        incoming.securityControlMutationMinIntervalSec,
+        next.thresholds.securityControlMutationMinIntervalSec,
+        1,
+        300
+      );
+    }
+    if (typeof incoming.securityControlMutationBlockDurationMinutes !== "undefined") {
+      next.thresholds.securityControlMutationBlockDurationMinutes = toIntegerInRange(
+        incoming.securityControlMutationBlockDurationMinutes,
+        next.thresholds.securityControlMutationBlockDurationMinutes,
+        1,
+        1440
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -3296,6 +3794,12 @@ export function updateProSecurityControlState(
       } else {
         next.adminControls.adminMutationSignatureEnforced = desired;
       }
+    }
+    if (typeof patch.adminControls.securityControlMutationGuard !== "undefined") {
+      next.adminControls.securityControlMutationGuard = toBoolean(
+        patch.adminControls.securityControlMutationGuard,
+        Boolean(next.adminControls.securityControlMutationGuard)
+      );
     }
     if (typeof patch.adminControls.readOnlyApi !== "undefined") {
       next.adminControls.readOnlyApi = toBoolean(
@@ -3454,11 +3958,12 @@ export function updateProSecurityControlState(
   pushSecurityAuditEventInternal({
     severity: "high",
     type: "security-control-updated",
-    method: "PATCH",
-    path: "/api/system/security-control",
+    method: text(mutationMethod, "PATCH"),
+    path: text(mutationPath, "/api/system/security-control"),
     details: {
       actorId: text(actorId),
       actorRole: text(actorRole),
+      operation: text(mutationOperation),
       mode: currentSecurityMode(),
       warnings: warnings.slice(0, 12)
     }
@@ -3470,9 +3975,21 @@ export function updateProSecurityControlState(
   if (persist?.snapshot && !persist.snapshot.ok && !persist.snapshot.skipped) {
     warnings.push(`Security control backup snapshot failed: ${text(persist.snapshot.reason)}`);
   }
+  if (registerMutationEvent) {
+    registerSecurityControlMutationEvent({
+      actorId,
+      actorRole,
+      operation: mutationOperation,
+      method: mutationMethod,
+      path: mutationPath,
+      warnings
+    });
+  }
   return {
     state: getProSecurityControlState(),
-    warnings
+    warnings,
+    blocked: false,
+    guard
   };
 }
 
@@ -3496,8 +4013,21 @@ export function applyProSecurityControlProfile(
 
   const result = updateProSecurityControlState(profile.patch, {
     actorId,
-    actorRole
+    actorRole,
+    mutationOperation: "security-control-profile-apply",
+    mutationMethod: "POST",
+    mutationPath: "/api/system/security-control/profile"
   });
+  if (result.blocked) {
+    return {
+      applied: false,
+      blocked: true,
+      profileId: profile.id,
+      state: result.state,
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      guard: result.guard && typeof result.guard === "object" ? result.guard : null
+    };
+  }
   const warnings = [...(Array.isArray(result.warnings) ? result.warnings : [])];
   pushSecurityAuditEventInternal({
     severity: "high",
@@ -3513,9 +4043,11 @@ export function applyProSecurityControlProfile(
   });
   return {
     applied: true,
+    blocked: false,
     profileId: profile.id,
     state: result.state,
-    warnings
+    warnings,
+    guard: result.guard && typeof result.guard === "object" ? result.guard : null
   };
 }
 
@@ -6427,6 +6959,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const controlBackupLatest = controlBackupSnapshots[0] || null;
   const controlBackupLatestValid = findLatestValidSecurityControlStateSnapshot(SECURITY_CONTROL_STATE_FILE);
   const controlPersistenceLoad = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
+  const controlMutationGuardStatus = getSecurityControlMutationGuardStatus();
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -6669,6 +7202,25 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlRollbackTriggered: Boolean(controlPersistenceLoad?.rollbackGuard?.triggered),
       securityControlRollbackReason: text(controlPersistenceLoad?.rollbackGuard?.reason),
       securityControlActivePersistenceSource: text(controlPersistenceLoad?.source),
+      securityControlMutationGuardEnabled: Boolean(controlMutationGuardStatus?.enabled),
+      securityControlMutationGuardWindowMinutes: Math.max(1, Number(controlMutationGuardStatus?.windowMinutes || 0)),
+      securityControlMutationGuardMaxEvents: Math.max(0, Number(controlMutationGuardStatus?.maxEvents || 0)),
+      securityControlMutationGuardMinIntervalSec: Math.max(
+        0,
+        Number(controlMutationGuardStatus?.minIntervalSec || 0)
+      ),
+      securityControlMutationGuardBlockDurationMinutes: Math.max(
+        0,
+        Number(controlMutationGuardStatus?.blockDurationMinutes || 0)
+      ),
+      securityControlMutationGuardRecentEvents: Math.max(0, Number(controlMutationGuardStatus?.recentEventCount || 0)),
+      securityControlMutationGuardActiveBlocks: Math.max(0, Number(controlMutationGuardStatus?.activeBlockCount || 0)),
+      securityControlMutationGuardLatestEventAt: text(controlMutationGuardStatus?.latestEventAt),
+      securityControlMutationGuardLatestEventOperation: text(controlMutationGuardStatus?.latestEventOperation),
+      securityControlMutationGuardLatestBlockAt: text(controlMutationGuardStatus?.latestBlockAt),
+      securityControlMutationGuardLatestBlockReason: text(controlMutationGuardStatus?.latestBlockReason),
+      securityControlMutationGuardLatestBlockActor: text(controlMutationGuardStatus?.latestBlockActor),
+      securityControlMutationGuardLatestBlockUntil: text(controlMutationGuardStatus?.latestBlockUntil),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,

@@ -219,7 +219,8 @@ export const coreSystemsBlueprint = [
       "Signed admin-security responses with body-hash integrity headers for tamper detection",
       "Signed security-control snapshot backups with tamper-evident hash-chain and automatic fallback restore",
       "Rollback attack protection: stale primary state auto-detected and replaced with latest valid snapshot",
-      "Snapshot chain continuity verification: missing/looped/duplicate links are auto-rejected before restore"
+      "Snapshot chain continuity verification: missing/looped/duplicate links are auto-rejected before restore",
+      "Security-control mutation abuse guard: rapid admin update/reset/restore/profile actions auto-throttled with temporary actor block"
     ],
     endpoints: [
       "/api/v3/auth/*",

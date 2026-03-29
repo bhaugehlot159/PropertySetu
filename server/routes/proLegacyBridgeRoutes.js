@@ -521,6 +521,19 @@ router.patch(
       actorId: actor.id,
       actorRole: actor.role
     });
+    if (result.blocked) {
+      return res.status(429).json({
+        ok: false,
+        action: "update-blocked",
+        requestedBy: {
+          id: actor.id,
+          role: actor.role
+        },
+        warnings: Array.isArray(result.warnings) ? result.warnings : [],
+        guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+        state: result.state
+      });
+    }
 
     return res.json({
       ok: true,
@@ -530,6 +543,7 @@ router.patch(
         role: actor.role
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       state: result.state
     });
   }
@@ -583,16 +597,17 @@ router.post(
       actorId: actor.id,
       actorRole: actor.role
     });
-    const statusCode = result.applied ? 200 : 400;
+    const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
     return res.status(statusCode).json({
       ok: result.applied,
-      action: result.applied ? "profile-applied" : "profile-rejected",
+      action: result.blocked ? "profile-blocked" : (result.applied ? "profile-applied" : "profile-rejected"),
       requestedBy: {
         id: actor.id,
         role: actor.role
       },
       profileId: result.profileId,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       state: result.state
     });
   }
@@ -609,15 +624,16 @@ router.post(
       actorId: actor.id,
       actorRole: actor.role
     });
-    const statusCode = result.restored ? 200 : 404;
+    const statusCode = result.blocked ? 429 : (result.restored ? 200 : 404);
     return res.status(statusCode).json({
       ok: result.restored,
-      action: result.restored ? "restored" : "restore-missed",
+      action: result.blocked ? "restore-blocked" : (result.restored ? "restored" : "restore-missed"),
       requestedBy: {
         id: actor.id,
         role: actor.role
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       state: result.state
     });
   }
@@ -634,14 +650,16 @@ router.post(
       actorId: actor.id,
       actorRole: actor.role
     });
-    return res.json({
-      ok: true,
-      action: "reset",
+    const statusCode = result.blocked ? 429 : 200;
+    return res.status(statusCode).json({
+      ok: !result.blocked,
+      action: result.blocked ? "reset-blocked" : "reset",
       requestedBy: {
         id: actor.id,
         role: actor.role
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      guard: result.guard && typeof result.guard === "object" ? result.guard : null,
       state: result.state
     });
   }
