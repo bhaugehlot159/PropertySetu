@@ -343,6 +343,8 @@ const CRITICAL_THREAT_PATTERNS = [
   /token-header-injection-pattern/i,
   /header-smuggling/i,
   /firewall-scanner-path/i,
+  /firewall-admin-action-key-mismatch/i,
+  /firewall-admin-signed-mutation-/i,
   /sql-injection-pattern/i,
   /command-injection-pattern/i,
   /xss-pattern/i,
@@ -351,6 +353,10 @@ const CRITICAL_THREAT_PATTERNS = [
   /token-replay-suspected/i,
   /subject-takeover-suspected/i,
   /manual-admin-quarantine/i
+];
+const ADMIN_CREDENTIAL_ATTACK_PATTERNS = [
+  /firewall-admin-action-key-mismatch/i,
+  /firewall-admin-signed-mutation-/i
 ];
 const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
@@ -3703,6 +3709,69 @@ function isCriticalThreatIncidentRow(row = {}) {
   return CRITICAL_THREAT_PATTERNS.some((pattern) => pattern.test(bag));
 }
 
+function isAdminCredentialAttackIncidentRow(row = {}) {
+  const reason = text(row?.reason).toLowerCase();
+  const rules = Array.isArray(row?.rules) ? row.rules.map((item) => text(item).toLowerCase()) : [];
+  const bag = [reason, ...rules].join(" | ");
+  return ADMIN_CREDENTIAL_ATTACK_PATTERNS.some((pattern) => pattern.test(bag));
+}
+
+function evaluateAdminCredentialAttackWindow(nowTs = Date.now()) {
+  const safeNow = Number(nowTs);
+  const thresholds = currentSecurityThresholds();
+  const windowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.adminMutationWindowMinutes || 30) * 60 * 1000)
+  );
+  const cutoff = safeNow - windowMs;
+  const eventThreshold = Math.max(2, Number(thresholds.adminMutationAttemptThreshold || 8));
+  const distinctFingerprintThreshold = Math.max(1, Number(thresholds.adminMutationDistinctFingerprints || 4));
+  const distinctIpThreshold = Math.max(1, Number(thresholds.adminMutationDistinctIps || 3));
+
+  let totalEvents = 0;
+  let blockedEvents = 0;
+  const fingerprintSet = new Set();
+  const ipSet = new Set();
+
+  for (const item of proThreatIncidents) {
+    const atTs = Date.parse(text(item?.at));
+    if (!Number.isFinite(atTs) || atTs < cutoff) continue;
+    if (!isAdminCredentialAttackIncidentRow(item)) continue;
+    totalEvents += 1;
+    if (toBoolean(item?.blocked, false)) {
+      blockedEvents += 1;
+    }
+    const fingerprint = normalizeProSecurityThreatFingerprint(item?.fingerprint);
+    if (isValidProSecurityThreatFingerprint(fingerprint)) {
+      fingerprintSet.add(fingerprint);
+    }
+    const safeIp = normalizeIpEntry(item?.ip);
+    if (safeIp) ipSet.add(safeIp);
+  }
+
+  const distinctFingerprintCount = fingerprintSet.size;
+  const distinctIpCount = ipSet.size;
+  const meets =
+    totalEvents >= eventThreshold &&
+    (
+      distinctFingerprintCount >= distinctFingerprintThreshold ||
+      distinctIpCount >= distinctIpThreshold ||
+      blockedEvents >= eventThreshold
+    );
+
+  return {
+    windowMinutes: Math.round(windowMs / 60_000),
+    totalEvents,
+    blockedEvents,
+    distinctFingerprintCount,
+    distinctIpCount,
+    eventThreshold,
+    distinctFingerprintThreshold,
+    distinctIpThreshold,
+    meets
+  };
+}
+
 function maybeApplyCriticalThreatResponse(row = {}) {
   if (!row || typeof row !== "object") return;
   if (!isCriticalThreatIncidentRow(row)) return;
@@ -3712,9 +3781,16 @@ function maybeApplyCriticalThreatResponse(row = {}) {
 
   const reason = text(row.reason).toLowerCase();
   const safePath = normalizeRequestPath(row.path || "/api");
-  if (isSecurityControlPath(safePath)) return;
+  const isAdminCredentialAttack = isAdminCredentialAttackIncidentRow(row);
+  if (isSecurityControlPath(safePath) && !isAdminCredentialAttack) return;
 
   const nowTs = Date.now();
+  const adminCredentialWindow = isAdminCredentialAttack
+    ? evaluateAdminCredentialAttackWindow(nowTs)
+    : null;
+  if (isAdminCredentialAttack && !adminCredentialWindow?.meets) {
+    return;
+  }
   const currentLists = currentSecurityLists();
   const nextLists = {
     blockedIps: Array.isArray(currentLists.blockedIps) ? [...currentLists.blockedIps] : [],
@@ -3801,7 +3877,9 @@ function maybeApplyCriticalThreatResponse(row = {}) {
     modeChanged,
     fromMode,
     toMode,
-    promotions
+    promotions,
+    adminCredentialAttack: Boolean(isAdminCredentialAttack),
+    adminCredentialWindow: adminCredentialWindow
   };
   proCriticalResponseEvents.unshift(responseEvent);
   if (proCriticalResponseEvents.length > CRITICAL_RESPONSE_EVENT_MAX_ITEMS) {
@@ -3823,6 +3901,8 @@ function maybeApplyCriticalThreatResponse(row = {}) {
       fromMode,
       toMode,
       promotions,
+      adminCredentialAttack: Boolean(isAdminCredentialAttack),
+      adminCredentialWindow,
       warnings: warnings.slice(0, 8)
     }
   });
@@ -5452,6 +5532,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     if (!Number.isFinite(atTs) || atTs < adminMutationCutoff) return false;
     return isAdminMutationPath(item?.path, item?.method);
   }).length;
+  const adminCredentialAttackWindow = evaluateAdminCredentialAttackWindow(Date.now());
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -5637,6 +5718,12 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       adminMutationShieldRemainingSec: adminMutationShieldStatus.remainingSec,
       adminMutationWindowMinutes: Math.round(adminMutationWindowMs / 60_000),
       adminMutationAttemptsInWindow,
+      adminCredentialAttackWindowMinutes: adminCredentialAttackWindow.windowMinutes,
+      adminCredentialAttackEventsInWindow: adminCredentialAttackWindow.totalEvents,
+      adminCredentialAttackBlockedInWindow: adminCredentialAttackWindow.blockedEvents,
+      adminCredentialAttackDistinctFingerprints: adminCredentialAttackWindow.distinctFingerprintCount,
+      adminCredentialAttackDistinctIps: adminCredentialAttackWindow.distinctIpCount,
+      adminCredentialAttackThresholdReached: Boolean(adminCredentialAttackWindow.meets),
       adminMutationShields: proAdminMutationShieldEvents.length,
       adminMutationShieldLastAt: text(proAdminMutationShieldEvents[0]?.at),
       adminMutationSignedRequestsEnforced: toBoolean(adminControls.adminMutationSignatureEnforced, false),
