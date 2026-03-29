@@ -48,6 +48,15 @@ const SECURITY_CONTROL_STATE_SIGNING_KEY = String(
 ).trim();
 const SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED =
   String(process.env.SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED || "false").trim().toLowerCase() === "true";
+const SECURITY_CONTROL_STATE_BACKUP_ENABLED =
+  String(process.env.SECURITY_CONTROL_STATE_BACKUP_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CONTROL_STATE_BACKUP_KEEP = Math.max(
+  2,
+  Number(process.env.SECURITY_CONTROL_STATE_BACKUP_KEEP || 20)
+);
+const SECURITY_CONTROL_STATE_BACKUP_DIR = String(
+  process.env.SECURITY_CONTROL_STATE_BACKUP_DIR || ""
+).trim();
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -1369,6 +1378,222 @@ function verifySecurityControlStatePayload(payload = {}) {
   };
 }
 
+function resolveSecurityControlStateBackupDir(targetPath = "") {
+  const configured = text(SECURITY_CONTROL_STATE_BACKUP_DIR);
+  if (configured) return path.resolve(configured);
+  const baseTarget = text(targetPath || SECURITY_CONTROL_STATE_FILE);
+  if (!baseTarget) return "";
+  return path.resolve(path.dirname(baseTarget), "security-control-state-snapshots");
+}
+
+function listSecurityControlStateSnapshotFiles(backupDir = "") {
+  try {
+    const safeDir = text(backupDir);
+    if (!safeDir || !fs.existsSync(safeDir)) return [];
+    const rows = fs.readdirSync(safeDir, { withFileTypes: true })
+      .filter((entry) => entry?.isFile?.() && /\.json$/i.test(text(entry.name)))
+      .map((entry) => {
+        const filePath = path.join(safeDir, entry.name);
+        let mtimeMs = 0;
+        let sizeBytes = 0;
+        try {
+          const stat = fs.statSync(filePath);
+          mtimeMs = Number(stat.mtimeMs || 0);
+          sizeBytes = Number(stat.size || 0);
+        } catch {
+          mtimeMs = 0;
+          sizeBytes = 0;
+        }
+        return {
+          name: entry.name,
+          path: filePath,
+          mtimeMs,
+          sizeBytes
+        };
+      })
+      .sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+function pruneSecurityControlStateSnapshots(backupDir = "") {
+  const snapshots = listSecurityControlStateSnapshotFiles(backupDir);
+  if (snapshots.length <= SECURITY_CONTROL_STATE_BACKUP_KEEP) {
+    return {
+      ok: true,
+      removed: 0,
+      remaining: snapshots.length
+    };
+  }
+  let removed = 0;
+  for (const row of snapshots.slice(SECURITY_CONTROL_STATE_BACKUP_KEEP)) {
+    try {
+      fs.unlinkSync(row.path);
+      removed += 1;
+    } catch {
+      // Ignore deletion errors to avoid blocking persistence path.
+    }
+  }
+  const remaining = Math.max(0, snapshots.length - removed);
+  return {
+    ok: true,
+    removed,
+    remaining
+  };
+}
+
+function persistSecurityControlStateSnapshotToDisk(payload = {}, targetPath = "") {
+  if (!SECURITY_CONTROL_STATE_BACKUP_ENABLED) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "snapshot-disabled"
+    };
+  }
+
+  try {
+    const backupDir = resolveSecurityControlStateBackupDir(targetPath || SECURITY_CONTROL_STATE_FILE);
+    if (!backupDir) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: "snapshot-path-missing"
+      };
+    }
+    fs.mkdirSync(backupDir, { recursive: true });
+    const safePersistedAt = text(payload?.persistedAt, nowIso()).replace(/[^\dT:\-.Z]/g, "");
+    const safeStamp = safePersistedAt
+      .replace(/:/g, "-")
+      .replace(/\./g, "-")
+      .replace(/Z$/i, "Z");
+    const revision = Math.max(1, Number(payload?.state?.meta?.revision || 1));
+    const fileName = `security-control-state-${safeStamp}-rev-${revision}.json`;
+    const snapshotPath = path.join(backupDir, fileName);
+    const tmpPath = `${snapshotPath}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
+    fs.renameSync(tmpPath, snapshotPath);
+    const pruneResult = pruneSecurityControlStateSnapshots(backupDir);
+    return {
+      ok: true,
+      path: snapshotPath,
+      backupDir,
+      prune: pruneResult
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      skipped: false,
+      reason: String(error?.message || "snapshot-persist-failed")
+    };
+  }
+}
+
+function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
+  const backupDir = resolveSecurityControlStateBackupDir(targetPath || SECURITY_CONTROL_STATE_FILE);
+  const files = listSecurityControlStateSnapshotFiles(backupDir);
+  const warnings = [];
+
+  for (const row of files) {
+    const payload = safeReadJson(row.path);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      warnings.push(`Snapshot skipped due to invalid JSON: ${text(row.name)}`);
+      continue;
+    }
+    const integrity = verifySecurityControlStatePayload(payload);
+    if (!integrity.valid) {
+      warnings.push(
+        `Snapshot rejected (${text(row.name)}): ${text(integrity.reason, "integrity-check-failed")}.`
+      );
+      continue;
+    }
+    if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
+      for (const warning of integrity.warnings.slice(0, 5)) {
+        warnings.push(`Snapshot warning (${text(row.name)}): ${text(warning)}`);
+      }
+    }
+    return {
+      found: true,
+      payload,
+      integrity,
+      snapshot: row,
+      backupDir,
+      warnings
+    };
+  }
+
+  return {
+    found: false,
+    payload: null,
+    integrity: {
+      valid: false,
+      reason: "no-valid-snapshot",
+      warnings: [],
+      signed: false
+    },
+    snapshot: null,
+    backupDir,
+    warnings
+  };
+}
+
+function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
+  const safeTarget = text(targetPath || SECURITY_CONTROL_STATE_FILE);
+  const warnings = [];
+  const primary = safeReadJson(safeTarget);
+  if (primary && typeof primary === "object" && !Array.isArray(primary)) {
+    const integrity = verifySecurityControlStatePayload(primary);
+    if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
+      warnings.push(...integrity.warnings);
+    }
+    if (integrity.valid) {
+      return {
+        found: true,
+        source: "primary",
+        sourcePath: safeTarget,
+        payload: primary,
+        integrity,
+        warnings
+      };
+    }
+    warnings.push(
+      `Primary persisted security control state rejected: ${text(integrity.reason, "integrity-check-failed")}.`
+    );
+  } else {
+    warnings.push("Primary persisted security control state missing or unreadable.");
+  }
+
+  const snapshotResult = findLatestValidSecurityControlStateSnapshot(safeTarget);
+  if (Array.isArray(snapshotResult.warnings) && snapshotResult.warnings.length) {
+    warnings.push(...snapshotResult.warnings.slice(0, 12));
+  }
+  if (snapshotResult.found) {
+    return {
+      found: true,
+      source: "snapshot",
+      sourcePath: text(snapshotResult.snapshot?.path),
+      payload: snapshotResult.payload,
+      integrity: snapshotResult.integrity,
+      warnings
+    };
+  }
+
+  return {
+    found: false,
+    source: "none",
+    sourcePath: "",
+    payload: null,
+    integrity: {
+      valid: false,
+      reason: "no-valid-persisted-state",
+      warnings: [],
+      signed: false
+    },
+    warnings
+  };
+}
+
 function persistSecurityControlStateToDisk(state = {}) {
   if (!SECURITY_CONTROL_STATE_PERSIST_ENABLED) {
     return {
@@ -1403,10 +1628,22 @@ function persistSecurityControlStateToDisk(state = {}) {
     };
     fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), "utf8");
     fs.renameSync(tmp, target);
+    const snapshot = persistSecurityControlStateSnapshotToDisk(payload, target);
     return {
       ok: true,
       path: target,
-      signed: Boolean(signature)
+      signed: Boolean(signature),
+      snapshot: {
+        enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
+        ok: Boolean(snapshot?.ok),
+        skipped: Boolean(snapshot?.skipped),
+        reason: text(snapshot?.reason),
+        path: text(snapshot?.path),
+        backupDir: text(snapshot?.backupDir),
+        prune: snapshot?.prune && typeof snapshot.prune === "object"
+          ? snapshot.prune
+          : null
+      }
     };
   } catch (error) {
     return {
@@ -1699,6 +1936,11 @@ export function getProSecurityControlPersistenceStatus() {
       hasSigningKey: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
       signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED
     };
+  const backupDir = resolveSecurityControlStateBackupDir(target);
+  const snapshots = listSecurityControlStateSnapshotFiles(backupDir);
+  const latestSnapshot = snapshots[0] || null;
+  const latestValidSnapshot = findLatestValidSecurityControlStateSnapshot(target);
+  const activeLoad = loadSecurityControlStatePayloadWithSnapshotFallback(target);
   return {
     enabled: SECURITY_CONTROL_STATE_PERSIST_ENABLED,
     path: target,
@@ -1716,6 +1958,26 @@ export function getProSecurityControlPersistenceStatus() {
       reason: text(integrityCheck.reason),
       warnings: Array.isArray(integrityCheck.warnings) ? integrityCheck.warnings : [],
       signed: Boolean(integrityCheck.signed)
+    },
+    activeSource: text(activeLoad.source),
+    activeSourcePath: text(activeLoad.sourcePath),
+    backup: {
+      enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
+      dir: backupDir,
+      keepLimit: SECURITY_CONTROL_STATE_BACKUP_KEEP,
+      snapshotCount: snapshots.length,
+      latestSnapshotPath: text(latestSnapshot?.path),
+      latestSnapshotAt: Number(latestSnapshot?.mtimeMs || 0)
+        ? new Date(Number(latestSnapshot.mtimeMs)).toISOString()
+        : "",
+      latestValidSnapshotPath: latestValidSnapshot.found ? text(latestValidSnapshot.snapshot?.path) : "",
+      latestValidSnapshotAt:
+        latestValidSnapshot.found && Number(latestValidSnapshot.snapshot?.mtimeMs || 0)
+          ? new Date(Number(latestValidSnapshot.snapshot.mtimeMs)).toISOString()
+          : "",
+      warnings: Array.isArray(latestValidSnapshot.warnings)
+        ? latestValidSnapshot.warnings.slice(0, 10)
+        : []
     }
   };
 }
@@ -1725,42 +1987,58 @@ export function restoreProSecurityControlStateFromDisk({
   actorRole = "system"
 } = {}) {
   const warnings = [];
-  const payload = safeReadJson(SECURITY_CONTROL_STATE_FILE);
-  if (!payload || typeof payload !== "object") {
-    return {
-      restored: false,
-      state: getProSecurityControlState(),
-      warnings: ["No persisted security control state found on disk."]
-    };
+  const loadResult = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
+  if (Array.isArray(loadResult.warnings) && loadResult.warnings.length) {
+    warnings.push(...loadResult.warnings.slice(0, 12));
   }
-
-  const integrity = verifySecurityControlStatePayload(payload);
-  if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
-    warnings.push(...integrity.warnings);
-  }
-  if (!integrity.valid) {
-    const reason = text(integrity.reason, "integrity-check-failed");
-    warnings.push(`Persisted security control state rejected: ${reason}.`);
+  if (!loadResult.found || !loadResult.payload || typeof loadResult.payload !== "object") {
     pushSecurityAuditEventInternal({
       severity: "critical",
-      type: "security-control-persistence-integrity-failed",
+      type: "security-control-persistence-restore-no-valid-source",
       method: "POST",
       path: "/api/system/security-control/restore",
       details: {
         actorId: text(actorId),
         actorRole: text(actorRole),
-        reason,
+        source: text(loadResult.source),
+        sourcePath: text(loadResult.sourcePath),
         signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED,
-        signatureConfigured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY)
+        signatureConfigured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
+        backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
       }
     });
     return {
       restored: false,
       state: getProSecurityControlState(),
-      warnings
+      warnings: warnings.length
+        ? warnings
+        : ["No valid persisted security control state found on disk or snapshots."]
     };
   }
-  if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
+
+  const payload = loadResult.payload;
+  const integrity = loadResult.integrity && typeof loadResult.integrity === "object"
+    ? loadResult.integrity
+    : {
+      valid: true,
+      reason: "unknown",
+      warnings: []
+    };
+  if (text(loadResult.source).toLowerCase() === "snapshot") {
+    pushSecurityAuditEventInternal({
+      severity: "high",
+      type: "security-control-persistence-restored-from-snapshot",
+      method: "POST",
+      path: "/api/system/security-control/restore",
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        sourcePath: text(loadResult.sourcePath),
+        integrityReason: text(integrity.reason),
+        backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
+      }
+    });
+  } else if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
     pushSecurityAuditEventInternal({
       severity: "medium",
       type: "security-control-persistence-integrity-warning",
@@ -1828,6 +2106,9 @@ export function resetProSecurityControlState({
   const persist = persistSecurityControlStateToDisk(proSecurityControlState);
   if (!persist.ok && !persist.skipped) {
     warnings.push(`Security control persistence failed: ${text(persist.reason)}`);
+  }
+  if (persist?.snapshot && !persist.snapshot.ok && !persist.snapshot.skipped) {
+    warnings.push(`Security control backup snapshot failed: ${text(persist.snapshot.reason)}`);
   }
   return {
     state: getProSecurityControlState(),
@@ -2643,6 +2924,9 @@ export function updateProSecurityControlState(
   if (!persist.ok && !persist.skipped) {
     warnings.push(`Security control persistence failed: ${text(persist.reason)}`);
   }
+  if (persist?.snapshot && !persist.snapshot.ok && !persist.snapshot.skipped) {
+    warnings.push(`Security control backup snapshot failed: ${text(persist.snapshot.reason)}`);
+  }
   return {
     state: getProSecurityControlState(),
     warnings
@@ -2698,10 +2982,8 @@ function initializeSecurityControlStateFromDisk() {
   if (hasInitializedSecurityControlFromDisk) return;
   hasInitializedSecurityControlFromDisk = true;
   if (!SECURITY_CONTROL_STATE_PERSIST_ENABLED) return;
-  const payload = safeReadJson(SECURITY_CONTROL_STATE_FILE);
-  if (!payload || typeof payload !== "object") return;
-  const integrity = verifySecurityControlStatePayload(payload);
-  if (!integrity.valid) {
+  const loadResult = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
+  if (!loadResult.found || !loadResult.payload || typeof loadResult.payload !== "object") {
     pushSecurityAuditEventInternal({
       severity: "critical",
       type: "security-control-persistence-boot-rejected",
@@ -2710,12 +2992,38 @@ function initializeSecurityControlStateFromDisk() {
       details: {
         actorId: "system-boot",
         actorRole: "system",
-        reason: text(integrity.reason, "integrity-check-failed"),
+        reason: "no-valid-persisted-state",
+        source: text(loadResult.source),
+        sourcePath: text(loadResult.sourcePath),
         signatureRequired: SECURITY_CONTROL_STATE_SIGNATURE_REQUIRED,
-        signatureConfigured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY)
+        signatureConfigured: Boolean(SECURITY_CONTROL_STATE_SIGNING_KEY),
+        backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
       }
     });
     return;
+  }
+  const payload = loadResult.payload;
+  const integrity = loadResult.integrity && typeof loadResult.integrity === "object"
+    ? loadResult.integrity
+    : {
+      valid: true,
+      reason: "unknown",
+      warnings: []
+    };
+  if (text(loadResult.source).toLowerCase() === "snapshot") {
+    pushSecurityAuditEventInternal({
+      severity: "high",
+      type: "security-control-persistence-boot-restored-from-snapshot",
+      method: "BOOT",
+      path: "/system/security-control/boot-restore",
+      details: {
+        actorId: "system-boot",
+        actorRole: "system",
+        sourcePath: text(loadResult.sourcePath),
+        integrityReason: text(integrity.reason),
+        backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
+      }
+    });
   }
   if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
     pushSecurityAuditEventInternal({
@@ -5559,6 +5867,9 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     return isAdminMutationPath(item?.path, item?.method);
   }).length;
   const adminCredentialAttackWindow = evaluateAdminCredentialAttackWindow(Date.now());
+  const controlBackupDir = resolveSecurityControlStateBackupDir(SECURITY_CONTROL_STATE_FILE);
+  const controlBackupSnapshots = listSecurityControlStateSnapshotFiles(controlBackupDir);
+  const controlBackupLatest = controlBackupSnapshots[0] || null;
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -5764,6 +6075,14 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityResponseSigningSecondaryConfigured: Boolean(SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET),
       securityResponseSigningKeyRotationEnabled: SECURITY_RESPONSE_SIGNING_SECRETS.length > 1,
       securityResponseSigningProtectedPathGroups: SECURITY_RESPONSE_SIGNING_PATH_RULES.length,
+      securityControlBackupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
+      securityControlBackupDirConfigured: Boolean(text(SECURITY_CONTROL_STATE_BACKUP_DIR)),
+      securityControlBackupDir: controlBackupDir,
+      securityControlBackupKeepLimit: SECURITY_CONTROL_STATE_BACKUP_KEEP,
+      securityControlBackupSnapshots: controlBackupSnapshots.length,
+      securityControlBackupLatestAt: Number(controlBackupLatest?.mtimeMs || 0)
+        ? new Date(Number(controlBackupLatest.mtimeMs)).toISOString()
+        : "",
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,

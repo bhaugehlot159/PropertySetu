@@ -216,7 +216,8 @@ export const coreSystemsBlueprint = [
       "Volume-gated admin credential attack auto-detection with controlled critical response",
       "High-risk shield bypass hardening: action-key bypass now requires signed proof verification",
       "Admin signature key rotation support (primary + secondary secret) for zero-downtime secret rollover",
-      "Signed admin-security responses with body-hash integrity headers for tamper detection"
+      "Signed admin-security responses with body-hash integrity headers for tamper detection",
+      "Signed security-control snapshot backups with automatic fallback restore on tampered primary state"
     ],
     endpoints: [
       "/api/v3/auth/*",
