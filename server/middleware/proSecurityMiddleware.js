@@ -130,6 +130,10 @@ const SECURITY_CHAIN_DUAL_CONTROL_REASON_MIN = Math.max(
   8,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_REASON_MIN || 16)
 );
+const SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT =
+  String(process.env.SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE || "false").trim().toLowerCase() === "true";
+const SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE =
+  String(process.env.SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE || "true").trim().toLowerCase() !== "false";
 const SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES = Math.max(
   1,
   Number(process.env.SECURITY_CHAIN_DUAL_CONTROL_WINDOW_MINUTES || 20)
@@ -828,7 +832,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoAdminMutationShield: true,
         securityControlDowngradeGuard: true,
         securityChainEnforcementGuard: true,
-        securityChainDualControlRequired: true
+        securityChainDualControlRequired: true,
+        securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
       }
     }
   },
@@ -945,7 +950,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoAdminMutationShield: true,
         securityControlDowngradeGuard: true,
         securityChainEnforcementGuard: true,
-        securityChainDualControlRequired: true
+        securityChainDualControlRequired: true,
+        securityChainDualControlStrictReasonSignature: true
       }
     }
   },
@@ -1062,7 +1068,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoAdminMutationShield: true,
         securityControlDowngradeGuard: true,
         securityChainEnforcementGuard: true,
-        securityChainDualControlRequired: true
+        securityChainDualControlRequired: true,
+        securityChainDualControlStrictReasonSignature: true
       }
     }
   }
@@ -1369,7 +1376,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoAdminMutationShield: true,
     securityControlDowngradeGuard: SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED,
     securityChainEnforcementGuard: SECURITY_CHAIN_ENFORCEMENT_ENABLED,
-    securityChainDualControlRequired: SECURITY_CHAIN_DUAL_CONTROL_ENABLED
+    securityChainDualControlRequired: SECURITY_CHAIN_DUAL_CONTROL_ENABLED,
+    securityChainDualControlStrictReasonSignature: SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
   },
   lists: {
     blockedIps: [],
@@ -2787,6 +2795,12 @@ function pushSecurityChainGuardEvent(event = {}) {
     approvalId: text(event.approvalId),
     requiredOperationDigest: text(event.requiredOperationDigest).toLowerCase(),
     approvalOperationDigest: text(event.approvalOperationDigest).toLowerCase(),
+    requiredReasonDigest: text(event.requiredReasonDigest).toLowerCase(),
+    approvalReasonDigest: text(event.approvalReasonDigest).toLowerCase(),
+    signatureVersion: text(event.signatureVersion).toLowerCase(),
+    strictReasonSignature: Boolean(event.strictReasonSignature),
+    legacySignatureAllowed: Boolean(event.legacySignatureAllowed),
+    legacySignatureUsed: Boolean(event.legacySignatureUsed),
     auditReason: text(event.auditReason),
     threatReason: text(event.threatReason)
   };
@@ -2835,7 +2849,9 @@ function normalizeSecurityChainDualControlApproval(value = {}) {
     issuedAtSec,
     expiresAtSec,
     signature: text(source.signature || source.sig).toLowerCase(),
+    signatureVersion: text(source.signatureVersion || source.version || source.sigVersion).toLowerCase(),
     reason: text(source.reason).slice(0, 240),
+    reasonDigest: text(source.reasonDigest || source.reasonHash || source.reasonSha256).toLowerCase(),
     operationDigest: text(
       source.operationDigest ||
         source.requiredDigest ||
@@ -2875,6 +2891,12 @@ function pushSecurityChainDualControlEvent(event = {}) {
     distinctApproverRequired: Boolean(event.distinctApproverRequired),
     requiredOperationDigest: text(event.requiredOperationDigest).toLowerCase(),
     approvalOperationDigest: text(event.approvalOperationDigest).toLowerCase(),
+    requiredReasonDigest: text(event.requiredReasonDigest).toLowerCase(),
+    approvalReasonDigest: text(event.approvalReasonDigest).toLowerCase(),
+    signatureVersion: text(event.signatureVersion).toLowerCase(),
+    strictReasonSignature: Boolean(event.strictReasonSignature),
+    legacySignatureAllowed: Boolean(event.legacySignatureAllowed),
+    legacySignatureUsed: Boolean(event.legacySignatureUsed),
     secretSlot: text(event.secretSlot)
   };
   proSecurityChainDualControlEvents.unshift(row);
@@ -3168,6 +3190,10 @@ function computeSecurityChainDualControlOperationDigest({
   return sha256(stableStringify(canonical));
 }
 
+function computeSecurityChainDualControlReasonDigest(reason = "") {
+  return sha256(text(reason).slice(0, 240));
+}
+
 function computeSecurityChainDualControlSignatureWithSecret(secret = "", {
   operation = "security-control-update",
   method = "PATCH",
@@ -3210,6 +3236,53 @@ function computeSecurityChainDualControlSignatureWithSecret(secret = "", {
     .digest("hex");
 }
 
+function computeSecurityChainDualControlReasonBoundSignatureWithSecret(secret = "", {
+  operation = "security-control-update",
+  method = "PATCH",
+  path: requestPath = "/api/system/security-control",
+  actorId = "",
+  actorRole = "",
+  approverId = "",
+  approverRole = "",
+  approvalId = "",
+  issuedAtSec = 0,
+  expiresAtSec = 0,
+  operationDigest = "",
+  reasonDigest = "",
+  auditReason = "",
+  threatReason = "",
+  auditChainHead = "",
+  threatChainHead = ""
+} = {}) {
+  const safeSecret = text(secret);
+  if (!safeSecret) return "";
+  const safeReasonDigest = text(reasonDigest).toLowerCase();
+  if (!SHA256_HEX_PATTERN.test(safeReasonDigest)) return "";
+  const canonical = [
+    text(operation).toLowerCase(),
+    normalizeRequestMethod(method),
+    normalizeRequestPath(requestPath || "/api/system/security-control"),
+    text(actorId).toLowerCase(),
+    text(actorRole).toLowerCase(),
+    text(approverId).toLowerCase(),
+    text(approverRole).toLowerCase(),
+    text(approvalId),
+    String(Math.max(0, Math.trunc(Number(issuedAtSec || 0)))),
+    String(Math.max(0, Math.trunc(Number(expiresAtSec || 0)))),
+    text(operationDigest).toLowerCase(),
+    safeReasonDigest,
+    text(auditReason),
+    text(threatReason),
+    text(auditChainHead).toLowerCase(),
+    text(threatChainHead).toLowerCase(),
+    "v2"
+  ].join("|");
+  return crypto
+    .createHmac("sha256", safeSecret)
+    .update(canonical)
+    .digest("hex");
+}
+
 function evaluateSecurityChainDualControlGuard({
   actorId = "",
   actorRole = "",
@@ -3239,6 +3312,11 @@ function evaluateSecurityChainDualControlGuard({
       path,
       payload: null
     });
+  const strictReasonSignature = toBoolean(
+    currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+    SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+  );
+  const legacySignatureAllowed = !strictReasonSignature && SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE;
 
   const trackAttempt = ({
     reason = "",
@@ -3284,8 +3362,14 @@ function evaluateSecurityChainDualControlGuard({
       compromised,
       distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
+      strictReasonSignature,
+      legacySignatureAllowed,
+      legacySignatureUsed: false,
+      signatureVersion: "",
       requiredOperationDigest,
       approvalOperationDigest: "",
+      requiredReasonDigest: "",
+      approvalReasonDigest: "",
       ...payload
     };
     if (required) {
@@ -3320,8 +3404,14 @@ function evaluateSecurityChainDualControlGuard({
       compromised: true,
       distinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
       secretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
+      strictReasonSignature,
+      legacySignatureAllowed,
+      legacySignatureUsed: false,
+      signatureVersion: "",
       requiredOperationDigest,
       approvalOperationDigest: "",
+      requiredReasonDigest: "",
+      approvalReasonDigest: "",
       ...payload
     };
     if (result.reason !== "chain-dual-control-attempt-actor-temporary-block") {
@@ -3376,6 +3466,9 @@ function evaluateSecurityChainDualControlGuard({
   const approval = normalizeSecurityChainDualControlApproval(chainOverrideApproval);
   const approverRole = text(approval.approverRole).toLowerCase();
   const approvalOperationDigest = text(approval.operationDigest).toLowerCase();
+  const requiredReasonDigest = computeSecurityChainDualControlReasonDigest(approval.reason);
+  const approvalReasonDigest = text(approval.reasonDigest).toLowerCase();
+  const signatureVersionHint = text(approval.signatureVersion).toLowerCase();
   if (!approval.approverId) {
     return deny("chain-dual-control-approver-missing", {
       approverRole,
@@ -3396,7 +3489,39 @@ function evaluateSecurityChainDualControlGuard({
       approverId: text(approval.approverId),
       approverRole,
       approvalId: text(approval.approvalId),
-      approvalOperationDigest
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest
+    });
+  }
+  if (!SHA256_HEX_PATTERN.test(requiredReasonDigest)) {
+    return deny("chain-dual-control-required-reason-digest-invalid", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest
+    });
+  }
+  if (approvalReasonDigest && !SHA256_HEX_PATTERN.test(approvalReasonDigest)) {
+    return deny("chain-dual-control-reason-digest-invalid", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest
+    });
+  }
+  if (approvalReasonDigest && !timingSafeEqualText(requiredReasonDigest, approvalReasonDigest)) {
+    return deny("chain-dual-control-reason-digest-mismatch", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest
     });
   }
   if (!approval.approvalId) {
@@ -3522,7 +3647,9 @@ function evaluateSecurityChainDualControlGuard({
       approverId: text(approval.approverId),
       approverRole,
       approvalId: text(approval.approvalId),
-      approvalOperationDigest
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest
     });
   }
 
@@ -3534,7 +3661,9 @@ function evaluateSecurityChainDualControlGuard({
       approverId: text(approval.approverId),
       approverRole,
       approvalId: text(approval.approvalId),
-      approvalOperationDigest
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest
     });
   }
 
@@ -3550,31 +3679,64 @@ function evaluateSecurityChainDualControlGuard({
     issuedAtSec: approval.issuedAtSec,
     expiresAtSec: approval.expiresAtSec,
     operationDigest: requiredOperationDigest,
+    reasonDigest: requiredReasonDigest,
     auditReason: text(safeChainGuard.auditReason),
     threatReason: text(safeChainGuard.threatReason),
     auditChainHead: text(proSecurityAuditChainHead),
     threatChainHead: text(proThreatIncidentChainHead)
   };
   let matchedSecretIndex = -1;
+  let matchedSignatureVersion = "";
   for (let index = 0; index < SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length; index += 1) {
-    const expected = computeSecurityChainDualControlSignatureWithSecret(
+    const expectedReasonBound = computeSecurityChainDualControlReasonBoundSignatureWithSecret(
       SECURITY_CHAIN_DUAL_CONTROL_SECRETS[index],
       signaturePayload
     );
-    if (expected && timingSafeEqualText(expected, approval.signature)) {
+    if (expectedReasonBound && timingSafeEqualText(expectedReasonBound, approval.signature)) {
       matchedSecretIndex = index;
+      matchedSignatureVersion = "v2";
       break;
+    }
+    if (legacySignatureAllowed) {
+      const expectedLegacy = computeSecurityChainDualControlSignatureWithSecret(
+        SECURITY_CHAIN_DUAL_CONTROL_SECRETS[index],
+        signaturePayload
+      );
+      if (expectedLegacy && timingSafeEqualText(expectedLegacy, approval.signature)) {
+        matchedSecretIndex = index;
+        matchedSignatureVersion = "v1";
+        break;
+      }
     }
   }
   if (matchedSecretIndex < 0) {
-    return deny("chain-dual-control-signature-mismatch", {
+    const reason =
+      strictReasonSignature || signatureVersionHint === "v2"
+        ? "chain-dual-control-reason-bound-signature-required"
+        : "chain-dual-control-signature-mismatch";
+    return deny(reason, {
       approverId: text(approval.approverId),
       approverRole,
       approvalId: text(approval.approvalId),
-      approvalOperationDigest
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest,
+      signatureVersion: signatureVersionHint
     });
   }
 
+  const legacySignatureUsed = matchedSignatureVersion === "v1";
+  if (signatureVersionHint === "v2" && matchedSignatureVersion !== "v2") {
+    return deny("chain-dual-control-signature-version-mismatch", {
+      approverId: text(approval.approverId),
+      approverRole,
+      approvalId: text(approval.approvalId),
+      approvalOperationDigest,
+      requiredReasonDigest,
+      approvalReasonDigest,
+      signatureVersion: matchedSignatureVersion
+    });
+  }
   const secretSlot = matchedSecretIndex === 0 ? "primary" : "secondary";
   proSecurityChainDualControlApprovals.set(approval.approvalId, {
     usedAt: nowTs,
@@ -3588,6 +3750,12 @@ function evaluateSecurityChainDualControlGuard({
     path: text(path),
     requiredOperationDigest,
     approvalOperationDigest,
+    requiredReasonDigest,
+    approvalReasonDigest,
+    signatureVersion: matchedSignatureVersion,
+    strictReasonSignature,
+    legacySignatureAllowed,
+    legacySignatureUsed,
     secretSlot
   });
   pruneSecurityChainDualControlApprovals(nowTs);
@@ -3605,6 +3773,12 @@ function evaluateSecurityChainDualControlGuard({
     secretConfigured: true,
     requiredOperationDigest,
     approvalOperationDigest,
+    requiredReasonDigest,
+    approvalReasonDigest: approvalReasonDigest || requiredReasonDigest,
+    signatureVersion: matchedSignatureVersion,
+    strictReasonSignature,
+    legacySignatureAllowed,
+    legacySignatureUsed,
     secretSlot
   });
 }
@@ -3730,6 +3904,16 @@ function getSecurityChainEnforcementGuardStatus() {
       currentSecurityAdminControls()?.securityChainDualControlRequired,
       SECURITY_CHAIN_DUAL_CONTROL_ENABLED
     ),
+    dualControlStrictReasonSignature: toBoolean(
+      currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+      SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+    ),
+    dualControlLegacySignatureAllowed:
+      !toBoolean(
+        currentSecurityAdminControls()?.securityChainDualControlStrictReasonSignature,
+        SECURITY_CHAIN_DUAL_CONTROL_STRICT_REASON_SIGNATURE_DEFAULT
+      ) &&
+      SECURITY_CHAIN_DUAL_CONTROL_ALLOW_LEGACY_SIGNATURE,
     dualControlDistinctApproverRequired: SECURITY_CHAIN_DUAL_CONTROL_REQUIRE_DISTINCT_APPROVER,
     dualControlSecretConfigured: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 0,
     dualControlKeyRotationEnabled: SECURITY_CHAIN_DUAL_CONTROL_SECRETS.length > 1,
@@ -4360,7 +4544,8 @@ function evaluateSecurityControlDowngradeGuard({
     "securityControlMutationGuard",
     "securityControlDowngradeGuard",
     "securityChainEnforcementGuard",
-    "securityChainDualControlRequired"
+    "securityChainDualControlRequired",
+    "securityChainDualControlStrictReasonSignature"
   ];
   const disabledCriticalModules = criticalModuleKeys.filter(
     (key) => toBoolean(currentModules[key], false) && !toBoolean(nextModules[key], false)
@@ -6428,6 +6613,12 @@ export function updateProSecurityControlState(
       } else {
         next.adminControls.securityChainDualControlRequired = desired;
       }
+    }
+    if (typeof patch.adminControls.securityChainDualControlStrictReasonSignature !== "undefined") {
+      next.adminControls.securityChainDualControlStrictReasonSignature = toBoolean(
+        patch.adminControls.securityChainDualControlStrictReasonSignature,
+        Boolean(next.adminControls.securityChainDualControlStrictReasonSignature)
+      );
     }
   }
 
@@ -9939,6 +10130,12 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityChainEnforcementLastEventReason: text(chainEnforcementGuardStatus?.latestEventReason),
       securityChainEnforcementLastBlockedAt: text(chainEnforcementGuardStatus?.latestBlockedAt),
       securityChainDualControlRequired: Boolean(chainEnforcementGuardStatus?.dualControlRequired),
+      securityChainDualControlStrictReasonSignature: Boolean(
+        chainEnforcementGuardStatus?.dualControlStrictReasonSignature
+      ),
+      securityChainDualControlLegacySignatureAllowed: Boolean(
+        chainEnforcementGuardStatus?.dualControlLegacySignatureAllowed
+      ),
       securityChainDualControlDistinctApproverRequired: Boolean(
         chainEnforcementGuardStatus?.dualControlDistinctApproverRequired
       ),
