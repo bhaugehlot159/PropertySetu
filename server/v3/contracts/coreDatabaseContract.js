@@ -93,12 +93,14 @@ export const coreSystemsBlueprint = [
       "1 video upload",
       "Document upload (private)",
       "Private document visibility only for owner/admin",
+      "Masked private-doc URLs with short-lived secure access token flow",
       "Auto description generator"
     ],
     endpoints: [
       "/api/v3/properties/professional",
       "/api/v3/properties/auto-description",
-      "/api/v3/uploads/property-media"
+      "/api/v3/uploads/property-media",
+      "/api/v3/uploads/private-docs/access"
     ],
     dependencies: ["fileStorage"]
   },

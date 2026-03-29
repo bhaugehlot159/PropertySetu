@@ -41,6 +41,24 @@ const coreUploadSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    privateDocProtected: {
+      type: Boolean,
+      default: false
+    },
+    privateDocHash: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocAccessCount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    privateDocLastAccessAt: {
+      type: Date,
+      default: null
+    },
     storageProvider: {
       type: String,
       default: "memory",

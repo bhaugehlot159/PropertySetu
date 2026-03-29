@@ -3,6 +3,11 @@ import CoreProperty from "../models/CoreProperty.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import {
+  buildMaskedPrivateDocUrl,
+  buildPrivateDocAccessEnvelope,
+  hashPrivateDocSourceUrl
+} from "../utils/corePrivateDocSecurity.js";
+import {
   CORE_PROPERTY_CATEGORY_VALUES,
   CORE_PROPERTY_TYPE_VALUES,
   getCorePropertyTaxonomy as getCorePropertyTaxonomyConfig,
@@ -237,27 +242,132 @@ function buildRestrictedPrivateDocs(privateDocs = {}) {
   };
 }
 
-function normalizePrivateDocsForSecureView(privateDocs = {}) {
+function buildSecurePrivateDocRecord(
+  {
+    sourceUrl = "",
+    docId = "",
+    uploadId = "",
+    category = "",
+    name = "",
+    sizeBytes = 0
+  } = {},
+  {
+    viewer = null,
+    property = {}
+  } = {}
+) {
+  const resolvedSourceUrl = text(sourceUrl);
+  const sourceHash = hashPrivateDocSourceUrl(resolvedSourceUrl);
+  const envelope =
+    resolvedSourceUrl &&
+    viewer &&
+    toId(viewer.id) &&
+    buildPrivateDocAccessEnvelope({
+      sourceUrl: resolvedSourceUrl,
+      ownerId: toId(property?.ownerId),
+      propertyId: toId(property?.id || property?._id),
+      uploadId: text(uploadId),
+      docId: text(docId, sourceHash.slice(0, 18)),
+      category: text(category),
+      name: text(name),
+      viewerId: toId(viewer.id),
+      viewerRole: text(viewer.role, "buyer").toLowerCase()
+    });
+  const maskedUrl = envelope?.maskedUrl || buildMaskedPrivateDocUrl(resolvedSourceUrl);
+
+  return {
+    id: text(docId, sourceHash.slice(0, 18)),
+    uploadId: text(uploadId),
+    category: text(category),
+    name: text(name),
+    sizeBytes: Math.max(0, numberValue(sizeBytes, 0)),
+    url: maskedUrl,
+    maskedUrl,
+    hash: sourceHash,
+    secureAccess: envelope
+      ? {
+          token: text(envelope.token),
+          expiresAt: text(envelope.expiresAt),
+          expiresInSec: Math.max(0, numberValue(envelope.expiresInSec, 0)),
+          accessPath: text(envelope.accessPath),
+          maskedUrl: text(envelope.maskedUrl),
+          hash: text(envelope.hash)
+        }
+      : null
+  };
+}
+
+function normalizePrivateDocsForSecureView(
+  privateDocs = {},
+  {
+    viewer = null,
+    property = {}
+  } = {}
+) {
   const docs =
     privateDocs && typeof privateDocs === "object" && !Array.isArray(privateDocs)
       ? privateDocs
       : {};
+  const ownerIdProofRecord = text(docs.ownerIdProof)
+    ? buildSecurePrivateDocRecord(
+        {
+          sourceUrl: text(docs.ownerIdProof),
+          docId: "owner-id-proof",
+          category: "owner-id-proof",
+          name: "Owner ID Proof"
+        },
+        { viewer, property }
+      )
+    : null;
+  const addressProofRecord = text(docs.addressProof)
+    ? buildSecurePrivateDocRecord(
+        {
+          sourceUrl: text(docs.addressProof),
+          docId: "address-proof",
+          category: "address-proof",
+          name: "Address Proof"
+        },
+        { viewer, property }
+      )
+    : null;
+  const propertyDocumentAccess = normalizeStringArray(docs.propertyDocuments).map((item, index) =>
+    buildSecurePrivateDocRecord(
+      {
+        sourceUrl: item,
+        docId: `property-document-${index + 1}`,
+        category: "property-document",
+        name: `Property Document ${index + 1}`
+      },
+      { viewer, property }
+    )
+  );
+  const uploadedPrivateDocs = Array.isArray(docs.uploadedPrivateDocs)
+    ? docs.uploadedPrivateDocs
+        .filter((item) => item && typeof item === "object")
+        .map((item, index) =>
+          buildSecurePrivateDocRecord(
+            {
+              sourceUrl: text(item.url),
+              docId: text(item.id, `uploaded-private-doc-${index + 1}`),
+              uploadId: text(item.id),
+              category: text(item.category),
+              name: text(item.name),
+              sizeBytes: numberValue(item.sizeBytes, 0)
+            },
+            { viewer, property }
+          )
+        )
+    : [];
+
   return {
-    propertyDocuments: normalizeStringArray(docs.propertyDocuments),
-    ownerIdProof: text(docs.ownerIdProof),
-    addressProof: text(docs.addressProof),
+    propertyDocuments: propertyDocumentAccess.map((item) => item.maskedUrl),
+    propertyDocumentAccess,
+    ownerIdProof: ownerIdProofRecord?.maskedUrl || "",
+    ownerIdProofAccess: ownerIdProofRecord,
+    addressProof: addressProofRecord?.maskedUrl || "",
+    addressProofAccess: addressProofRecord,
     privateViewMode: text(docs.privateViewMode, "Private View Only"),
-    uploadedPrivateDocs: Array.isArray(docs.uploadedPrivateDocs)
-      ? docs.uploadedPrivateDocs
-          .filter((item) => item && typeof item === "object")
-          .map((item) => ({
-            id: text(item.id),
-            category: text(item.category),
-            name: text(item.name),
-            url: text(item.url),
-            sizeBytes: numberValue(item.sizeBytes, 0)
-          }))
-      : []
+    uploadedPrivateDocs
   };
 }
 
@@ -266,7 +376,13 @@ function projectPropertyForViewer(property, viewer = null, options = {}) {
   if (!normalized) return null;
 
   if (options.includePrivateDocs || canViewerAccessPrivateDocs(normalized, viewer)) {
-    return normalized;
+    return {
+      ...normalized,
+      privateDocs: normalizePrivateDocsForSecureView(normalized.privateDocs, {
+        viewer,
+        property: normalized
+      })
+    };
   }
 
   return {
@@ -1119,7 +1235,10 @@ export async function getCorePropertyPrivateDocs(req, res, next) {
     return res.json({
       success: true,
       propertyId: normalized.id,
-      privateDocs: normalizePrivateDocsForSecureView(normalized.privateDocs)
+      privateDocs: normalizePrivateDocsForSecureView(normalized.privateDocs, {
+        viewer,
+        property: normalized
+      })
     });
   } catch (error) {
     return next(error);

@@ -136,6 +136,14 @@ export const coreUploadWriteLimiter = createCoreRateLimiter({
   message: "Too many upload attempts. Please retry after a short pause."
 });
 
+export const coreUploadPrivateDocAccessLimiter = createCoreRateLimiter({
+  scope: "upload-private-doc-access",
+  limit: Math.max(10, Number(process.env.CORE_UPLOAD_PRIVATE_DOC_ACCESS_RATE_LIMIT || 120)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "anon")}:${toIp(req)}`,
+  message: "Too many private document access attempts. Please retry shortly."
+});
+
 export const coreAiRequestLimiter = createCoreRateLimiter({
   scope: "ai-request",
   limit: Math.max(20, Number(process.env.CORE_AI_REQUEST_RATE_LIMIT || 120)),

@@ -13,6 +13,7 @@ export const proMemoryStore = {
   coreSubscriptions: [],
   coreMessages: [],
   coreUploads: [],
+  corePrivateDocAccessEvents: [],
   coreOwnerVerificationRequests: [],
   corePropertyCareRequests: [],
   coreWishlistItems: [],
