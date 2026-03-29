@@ -321,18 +321,150 @@ const SUSPICIOUS_LINK_PATTERN =
 const ADMIN_MUTATION_PATH_RULES = [
   /^\/api\/system\/security-intelligence\/(?:release|quarantine)(?:\/|$)/i,
   /^\/api\/v3\/system\/security-intelligence\/(?:release|quarantine)(?:\/|$)/i,
+  /^\/api\/system\/security-control(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-control(?:\/|$)/i,
   /^\/api\/sealed-bids\/decision(?:\/|$)/i,
   /^\/api\/v3\/sealed-bids\/decision(?:\/|$)/i,
   /^\/api\/admin(?:\/|$)/i,
   /^\/api\/v3\/admin(?:\/|$)/i,
   /^\/api\/export(?:\/|$)/i
 ];
+const SECURITY_CONTROL_PATH_RULES = [
+  /^\/api\/system\/security-control(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-control(?:\/|$)/i
+];
+const READ_ONLY_BYPASS_PATH_RULES = [
+  /^\/api\/auth(?:\/|$)/i,
+  /^\/api\/v3\/auth(?:\/|$)/i,
+  /^\/api\/health(?:\/|$)/i,
+  /^\/api\/v2\/health(?:\/|$)/i,
+  /^\/api\/v3\/health(?:\/|$)/i,
+  /^\/api\/system\/security-control(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-control(?:\/|$)/i,
+  /^\/api\/system\/security-intelligence(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i
+];
 const MAX_TRUSTED_FINGERPRINTS = Math.max(
   20,
   Number(process.env.MAX_TRUSTED_FINGERPRINTS || 200)
 );
+const MAX_BLOCKED_IP_ITEMS = Math.max(
+  20,
+  Number(process.env.MAX_BLOCKED_IP_ITEMS || 500)
+);
+const MAX_BLOCKED_FINGERPRINT_ITEMS = Math.max(
+  20,
+  Number(process.env.MAX_BLOCKED_FINGERPRINT_ITEMS || 400)
+);
+const MAX_BLOCKED_USER_AGENT_ITEMS = Math.max(
+  20,
+  Number(process.env.MAX_BLOCKED_USER_AGENT_ITEMS || 300)
+);
+const MAX_BLOCKED_TOKEN_SUBJECT_ITEMS = Math.max(
+  20,
+  Number(process.env.MAX_BLOCKED_TOKEN_SUBJECT_ITEMS || 500)
+);
+const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
+  balanced: {
+    id: "balanced",
+    label: "Balanced",
+    description: "Normal production mode with strong defaults.",
+    patch: {
+      mode: "balanced",
+      modules: {
+        requestFirewall: true,
+        tokenFirewall: true,
+        aiThreatDetector: true,
+        fakeListingAi: true,
+        authFailureIntelligence: true,
+        autoQuarantine: true,
+        strictAdminMutationGuard: true
+      },
+      thresholds: {
+        threatAlert: 35,
+        threatBlock: 120,
+        fakeListingAlert: 48,
+        fakeListingBlock: 84,
+        auth401: 18,
+        auth403: 10,
+        tokenReplayEvents: 8,
+        tokenReplayDistinctFingerprints: 3,
+        tokenReplayDistinctIps: 3
+      },
+      adminControls: {
+        actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
+        readOnlyApi: false
+      }
+    }
+  },
+  hardened: {
+    id: "hardened",
+    label: "Hardened",
+    description: "Stricter AI thresholds and tighter incident controls.",
+    patch: {
+      mode: "hardened",
+      modules: {
+        requestFirewall: true,
+        tokenFirewall: true,
+        aiThreatDetector: true,
+        fakeListingAi: true,
+        authFailureIntelligence: true,
+        autoQuarantine: true,
+        strictAdminMutationGuard: true
+      },
+      thresholds: {
+        threatAlert: 28,
+        threatBlock: 90,
+        fakeListingAlert: 40,
+        fakeListingBlock: 72,
+        auth401: 12,
+        auth403: 7,
+        tokenReplayEvents: 6,
+        tokenReplayDistinctFingerprints: 2,
+        tokenReplayDistinctIps: 2
+      },
+      adminControls: {
+        actionKeyEnforced: true,
+        readOnlyApi: false
+      }
+    }
+  },
+  lockdown: {
+    id: "lockdown",
+    label: "Lockdown",
+    description: "Emergency mode: write APIs blocked unless admin action key bypass is provided.",
+    patch: {
+      mode: "lockdown",
+      modules: {
+        requestFirewall: true,
+        tokenFirewall: true,
+        aiThreatDetector: true,
+        fakeListingAi: true,
+        authFailureIntelligence: true,
+        autoQuarantine: true,
+        strictAdminMutationGuard: true
+      },
+      thresholds: {
+        threatAlert: 20,
+        threatBlock: 65,
+        fakeListingAlert: 34,
+        fakeListingBlock: 60,
+        auth401: 8,
+        auth403: 5,
+        tokenReplayEvents: 4,
+        tokenReplayDistinctFingerprints: 2,
+        tokenReplayDistinctIps: 2
+      },
+      adminControls: {
+        actionKeyEnforced: true,
+        readOnlyApi: true
+      }
+    }
+  }
+});
 
 const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
+  mode: "balanced",
   modules: {
     requestFirewall: true,
     tokenFirewall: TOKEN_FIREWALL_ENABLED,
@@ -354,7 +486,14 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     tokenReplayDistinctIps: TOKEN_REPLAY_DISTINCT_IP_THRESHOLD
   },
   adminControls: {
-    actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED
+    actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
+    readOnlyApi: false
+  },
+  lists: {
+    blockedIps: [],
+    blockedFingerprints: [],
+    blockedUserAgentSignatures: [],
+    blockedTokenSubjects: []
   },
   trustedFingerprints: [],
   meta: {
@@ -484,6 +623,52 @@ function sanitizeTrustedFingerprints(value) {
   return [...new Set(normalized)].slice(0, MAX_TRUSTED_FINGERPRINTS);
 }
 
+function normalizeIpEntry(value = "") {
+  return text(value).toLowerCase().replace(/^::ffff:/i, "");
+}
+
+function isValidBlockedIpEntry(value = "") {
+  const candidate = normalizeIpEntry(value);
+  if (!candidate) return false;
+  if (candidate.length > 90) return false;
+  if (candidate.includes("*")) return false;
+  const ipv4WithOptionalCidr = /^(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?$/;
+  const ipv6WithOptionalCidr = /^[a-f0-9:]+(?:\/\d{1,3})?$/i;
+  return ipv4WithOptionalCidr.test(candidate) || ipv6WithOptionalCidr.test(candidate);
+}
+
+function sanitizeBlockedIps(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((item) => normalizeIpEntry(item))
+    .filter((item) => isValidBlockedIpEntry(item));
+  return [...new Set(normalized)].slice(0, MAX_BLOCKED_IP_ITEMS);
+}
+
+function sanitizeBlockedFingerprints(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((item) => normalizeProSecurityThreatFingerprint(item))
+    .filter((item) => isValidProSecurityThreatFingerprint(item));
+  return [...new Set(normalized)].slice(0, MAX_BLOCKED_FINGERPRINT_ITEMS);
+}
+
+function sanitizeBlockedUserAgentSignatures(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((item) => text(item).toLowerCase())
+    .filter((item) => item.length >= 3 && item.length <= 80);
+  return [...new Set(normalized)].slice(0, MAX_BLOCKED_USER_AGENT_ITEMS);
+}
+
+function sanitizeBlockedTokenSubjects(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((item) => text(item).toLowerCase())
+    .filter((item) => item.length >= 1 && item.length <= 180);
+  return [...new Set(normalized)].slice(0, MAX_BLOCKED_TOKEN_SUBJECT_ITEMS);
+}
+
 function currentSecurityControlModules() {
   return proSecurityControlState?.modules || DEFAULT_PRO_SECURITY_CONTROL_STATE.modules;
 }
@@ -496,6 +681,14 @@ function currentSecurityAdminControls() {
   return proSecurityControlState?.adminControls || DEFAULT_PRO_SECURITY_CONTROL_STATE.adminControls;
 }
 
+function currentSecurityLists() {
+  return proSecurityControlState?.lists || DEFAULT_PRO_SECURITY_CONTROL_STATE.lists;
+}
+
+function currentSecurityMode() {
+  return text(proSecurityControlState?.mode || DEFAULT_PRO_SECURITY_CONTROL_STATE.mode || "balanced").toLowerCase();
+}
+
 function isTrustedSecurityFingerprint(fingerprint = "") {
   const safe = normalizeProSecurityThreatFingerprint(fingerprint);
   if (!safe) return false;
@@ -505,8 +698,105 @@ function isTrustedSecurityFingerprint(fingerprint = "") {
   return trusted.includes(safe);
 }
 
+function isBlockedSecurityFingerprint(fingerprint = "") {
+  const safe = normalizeProSecurityThreatFingerprint(fingerprint);
+  if (!safe) return false;
+  const blocked = Array.isArray(currentSecurityLists()?.blockedFingerprints)
+    ? currentSecurityLists().blockedFingerprints
+    : [];
+  return blocked.includes(safe);
+}
+
+function isBlockedSecurityIp(ip = "") {
+  const safe = normalizeIpEntry(ip);
+  if (!safe) return false;
+  const blocked = Array.isArray(currentSecurityLists()?.blockedIps)
+    ? currentSecurityLists().blockedIps
+    : [];
+  const exactIpOnly = safe.split("/")[0];
+
+  const matchesIpv4Cidr = (candidateIp, cidrBase, cidrBits) => {
+    const ipParts = candidateIp.split(".");
+    const baseParts = cidrBase.split(".");
+    if (ipParts.length !== 4 || baseParts.length !== 4) return false;
+    if (!Number.isFinite(cidrBits) || cidrBits <= 0 || cidrBits > 32) return false;
+    const wholeOctets = Math.floor(cidrBits / 8);
+    for (let index = 0; index < wholeOctets; index += 1) {
+      if (ipParts[index] !== baseParts[index]) return false;
+    }
+    if (wholeOctets === 0) return true;
+    return true;
+  };
+
+  const matchesIpv6Cidr = (candidateIp, cidrBase, cidrBits) => {
+    if (!Number.isFinite(cidrBits) || cidrBits <= 0 || cidrBits > 128) return false;
+    const ipParts = candidateIp.toLowerCase().split(":");
+    const baseParts = cidrBase.toLowerCase().split(":");
+    const wholeGroups = Math.floor(cidrBits / 16);
+    if (!wholeGroups) return true;
+    for (let index = 0; index < wholeGroups; index += 1) {
+      if (text(ipParts[index]) !== text(baseParts[index])) return false;
+    }
+    return true;
+  };
+
+  for (const item of blocked) {
+    const rule = normalizeIpEntry(item);
+    if (!rule) continue;
+    if (!rule.includes("/")) {
+      if (exactIpOnly === rule) return true;
+      continue;
+    }
+
+    const [cidrBaseRaw, cidrBitsRaw] = rule.split("/");
+    const cidrBase = normalizeIpEntry(cidrBaseRaw);
+    const cidrBits = Number(cidrBitsRaw);
+    if (!cidrBase || !Number.isFinite(cidrBits)) continue;
+    if (cidrBase.includes(".")) {
+      if (matchesIpv4Cidr(exactIpOnly, cidrBase, cidrBits)) return true;
+      continue;
+    }
+    if (cidrBase.includes(":")) {
+      if (matchesIpv6Cidr(exactIpOnly, cidrBase, cidrBits)) return true;
+    }
+  }
+
+  return false;
+}
+
+function isBlockedSecurityUserAgent(rawUserAgent = "") {
+  const safe = text(rawUserAgent).toLowerCase();
+  if (!safe) return false;
+  const blocked = Array.isArray(currentSecurityLists()?.blockedUserAgentSignatures)
+    ? currentSecurityLists().blockedUserAgentSignatures
+    : [];
+  return blocked.some((signature) => safe.includes(text(signature).toLowerCase()));
+}
+
+function isBlockedSecurityTokenSubject(value = "") {
+  const subject = text(value).toLowerCase();
+  if (!subject) return false;
+  const blocked = Array.isArray(currentSecurityLists()?.blockedTokenSubjects)
+    ? currentSecurityLists().blockedTokenSubjects
+    : [];
+  return blocked.includes(subject);
+}
+
+function listSecurityControlProfilesInternal() {
+  return Object.values(SECURITY_CONTROL_PROFILE_DEFS).map((profile) => ({
+    id: profile.id,
+    label: profile.label,
+    description: profile.description,
+    mode: text(profile.patch?.mode || profile.id).toLowerCase()
+  }));
+}
+
 export function getProSecurityControlState() {
   return cloneSecurityControlState(proSecurityControlState);
+}
+
+export function listProSecurityControlProfiles() {
+  return listSecurityControlProfilesInternal();
 }
 
 export function resetProSecurityControlState({
@@ -522,6 +812,17 @@ export function resetProSecurityControlState({
     revision: Math.max(1, Number(proSecurityControlState?.meta?.revision || 1)) + 1
   };
   proSecurityControlState = next;
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "security-control-reset",
+    method: "POST",
+    path: "/api/system/security-control/reset",
+    details: {
+      actorId: text(actorId),
+      actorRole: text(actorRole),
+      mode: currentSecurityMode()
+    }
+  });
   return {
     state: getProSecurityControlState(),
     warnings: []
@@ -544,6 +845,15 @@ export function updateProSecurityControlState(
   }
 
   const next = cloneSecurityControlState(proSecurityControlState);
+
+  if (typeof patch.mode !== "undefined") {
+    const safeMode = text(patch.mode).toLowerCase();
+    if (safeMode === "balanced" || safeMode === "hardened" || safeMode === "lockdown") {
+      next.mode = safeMode;
+    } else if (safeMode) {
+      warnings.push("Unsupported mode ignored. Allowed values: balanced, hardened, lockdown.");
+    }
+  }
 
   if (patch.modules && typeof patch.modules === "object" && !Array.isArray(patch.modules)) {
     const moduleKeys = [
@@ -638,6 +948,50 @@ export function updateProSecurityControlState(
         next.adminControls.actionKeyEnforced = desired;
       }
     }
+    if (typeof patch.adminControls.readOnlyApi !== "undefined") {
+      next.adminControls.readOnlyApi = toBoolean(
+        patch.adminControls.readOnlyApi,
+        Boolean(next.adminControls.readOnlyApi)
+      );
+    }
+  }
+
+  if (patch.lists && typeof patch.lists === "object" && !Array.isArray(patch.lists)) {
+    if (typeof patch.lists.blockedIps !== "undefined") {
+      next.lists.blockedIps = sanitizeBlockedIps(patch.lists.blockedIps);
+      if (Array.isArray(patch.lists.blockedIps) && patch.lists.blockedIps.length > next.lists.blockedIps.length) {
+        warnings.push("Some blocked IP entries were ignored because they were invalid.");
+      }
+    }
+    if (typeof patch.lists.blockedFingerprints !== "undefined") {
+      next.lists.blockedFingerprints = sanitizeBlockedFingerprints(patch.lists.blockedFingerprints);
+      if (
+        Array.isArray(patch.lists.blockedFingerprints) &&
+        patch.lists.blockedFingerprints.length > next.lists.blockedFingerprints.length
+      ) {
+        warnings.push("Some blocked fingerprints were ignored because they were invalid.");
+      }
+    }
+    if (typeof patch.lists.blockedUserAgentSignatures !== "undefined") {
+      next.lists.blockedUserAgentSignatures = sanitizeBlockedUserAgentSignatures(
+        patch.lists.blockedUserAgentSignatures
+      );
+      if (
+        Array.isArray(patch.lists.blockedUserAgentSignatures) &&
+        patch.lists.blockedUserAgentSignatures.length > next.lists.blockedUserAgentSignatures.length
+      ) {
+        warnings.push("Some blocked user-agent signatures were ignored because they were invalid.");
+      }
+    }
+    if (typeof patch.lists.blockedTokenSubjects !== "undefined") {
+      next.lists.blockedTokenSubjects = sanitizeBlockedTokenSubjects(patch.lists.blockedTokenSubjects);
+      if (
+        Array.isArray(patch.lists.blockedTokenSubjects) &&
+        patch.lists.blockedTokenSubjects.length > next.lists.blockedTokenSubjects.length
+      ) {
+        warnings.push("Some blocked token subjects were ignored because they were invalid.");
+      }
+    }
   }
 
   if (next.thresholds.threatBlock < next.thresholds.threatAlert) {
@@ -658,8 +1012,63 @@ export function updateProSecurityControlState(
   };
 
   proSecurityControlState = next;
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "security-control-updated",
+    method: "PATCH",
+    path: "/api/system/security-control",
+    details: {
+      actorId: text(actorId),
+      actorRole: text(actorRole),
+      mode: currentSecurityMode(),
+      warnings: warnings.slice(0, 12)
+    }
+  });
   return {
     state: getProSecurityControlState(),
+    warnings
+  };
+}
+
+export function applyProSecurityControlProfile(
+  profileId = "",
+  {
+    actorId = "",
+    actorRole = ""
+  } = {}
+) {
+  const safeProfileId = text(profileId).toLowerCase();
+  const profile = SECURITY_CONTROL_PROFILE_DEFS[safeProfileId];
+  if (!profile) {
+    return {
+      applied: false,
+      profileId: safeProfileId,
+      state: getProSecurityControlState(),
+      warnings: ["Invalid profile. Allowed values: balanced, hardened, lockdown."]
+    };
+  }
+
+  const result = updateProSecurityControlState(profile.patch, {
+    actorId,
+    actorRole
+  });
+  const warnings = [...(Array.isArray(result.warnings) ? result.warnings : [])];
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "security-control-profile-applied",
+    method: "POST",
+    path: "/api/system/security-control/profile",
+    details: {
+      actorId: text(actorId),
+      actorRole: text(actorRole),
+      profileId: profile.id,
+      mode: currentSecurityMode()
+    }
+  });
+  return {
+    applied: true,
+    profileId: profile.id,
+    state: result.state,
     warnings
   };
 }
@@ -1256,6 +1665,8 @@ export function quarantineProSecurityThreatProfile(
 export function getProSecurityThreatIntelligence(limit = 200) {
   const safeLimit = Math.min(1000, Math.max(1, toNumber(limit, 200)));
   const thresholds = currentSecurityThresholds();
+  const lists = currentSecurityLists();
+  const mode = currentSecurityMode();
   const tokenReplayFingerprintThreshold = Math.max(
     2,
     Number(thresholds.tokenReplayDistinctFingerprints || TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD)
@@ -1299,6 +1710,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     hotTokenIntelligence: hotTokens,
     controlState: getProSecurityControlState(),
     summary: {
+      mode,
       activeProfiles: proThreatProfiles.size,
       blockedProfiles: hotProfiles.filter((item) => item.blockUntil > Date.now()).length,
       highRiskProfiles: hotProfiles.filter((item) => item.riskScore >= THREAT_SCORE_BLOCK_THRESHOLD).length,
@@ -1312,6 +1724,14 @@ export function getProSecurityThreatIntelligence(limit = 200) {
           item.distinctFingerprintCount >= tokenReplayFingerprintThreshold ||
           item.distinctIpCount >= tokenReplayIpThreshold
       ).length,
+      blockLists: {
+        ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
+        fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
+        userAgentSignatures: Array.isArray(lists.blockedUserAgentSignatures)
+          ? lists.blockedUserAgentSignatures.length
+          : 0,
+        tokenSubjects: Array.isArray(lists.blockedTokenSubjects) ? lists.blockedTokenSubjects.length : 0
+      },
       auditEventCount: proSecurityAuditEvents.length,
       integrity: {
         auditChainHead: proSecurityAuditChainHead,
@@ -1904,6 +2324,16 @@ function isAdminMutationPath(requestPath = "", method = "") {
   return ADMIN_MUTATION_PATH_RULES.some((rule) => rule.test(normalized));
 }
 
+function isSecurityControlPath(requestPath = "") {
+  const normalized = normalizeRequestPath(requestPath);
+  return SECURITY_CONTROL_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
+function isReadOnlyBypassPath(requestPath = "") {
+  const normalized = normalizeRequestPath(requestPath);
+  return READ_ONLY_BYPASS_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
 function isAllowedAdminIp(rawIp = "") {
   const ip = text(rawIp).toLowerCase();
   if (!ip) return false;
@@ -2128,6 +2558,10 @@ export function proRequestFirewall(req, res, next) {
 
   const method = normalizeRequestMethod(req.method);
   const pathForChecks = normalizeRequestPath(req.path || rawPath || "/");
+  const fingerprint = requestFingerprint(req);
+  const clientIp = getClientIp(req);
+  const userAgent = text(req?.headers?.["user-agent"]).toLowerCase();
+  const isControlPath = isSecurityControlPath(pathForChecks);
 
   const reject = ({
     reason,
@@ -2219,8 +2653,66 @@ export function proRequestFirewall(req, res, next) {
     });
   }
 
+  if (!isControlPath && isBlockedSecurityFingerprint(fingerprint)) {
+    return reject({
+      reason: "firewall-fingerprint-blocklist",
+      statusCode: 403,
+      riskScore: 98,
+      details: {
+        fingerprint
+      },
+      message: "Request blocked by security fingerprint policy."
+    });
+  }
+
+  if (!isControlPath && isBlockedSecurityIp(clientIp)) {
+    return reject({
+      reason: "firewall-ip-blocklist",
+      statusCode: 403,
+      riskScore: 99,
+      details: {
+        clientIp
+      },
+      message: "Request blocked by security IP policy."
+    });
+  }
+
+  if (!isControlPath && isBlockedSecurityUserAgent(userAgent)) {
+    return reject({
+      reason: "firewall-user-agent-blocklist",
+      statusCode: 403,
+      riskScore: 93,
+      details: {
+        userAgent: userAgent.slice(0, 120)
+      },
+      message: "Request blocked by user-agent security policy."
+    });
+  }
+
+  const adminControls = currentSecurityAdminControls();
+  if (
+    adminControls.readOnlyApi &&
+    isApiMutationMethod(method) &&
+    !isReadOnlyBypassPath(pathForChecks)
+  ) {
+    const headerKey = text(req?.headers?.["x-admin-action-key"]);
+    const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+    const bypassAllowed = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+    if (!bypassAllowed) {
+      return reject({
+        reason: "firewall-read-only-lockdown",
+        statusCode: 423,
+        riskScore: 85,
+        details: {
+          mode: currentSecurityMode(),
+          requestPath: pathForChecks
+        },
+        message: "API write actions are temporarily locked by admin security mode."
+      });
+    }
+  }
+
   if (modules.strictAdminMutationGuard && isAdminMutationPath(pathForChecks, method)) {
-    const clientIp = getClientIp(req);
     if (!isAllowedAdminIp(clientIp)) {
       return reject({
         reason: "firewall-admin-ip-not-allowlisted",
@@ -2242,7 +2734,6 @@ export function proRequestFirewall(req, res, next) {
       });
     }
 
-    const adminControls = currentSecurityAdminControls();
     if (adminControls.actionKeyEnforced) {
       const headerKey = text(req?.headers?.["x-admin-action-key"]);
       const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
@@ -2331,6 +2822,26 @@ export function proTokenFirewall(req, res, next) {
   const metadata = evaluation.metadata && typeof evaluation.metadata === "object"
     ? evaluation.metadata
     : {};
+  if (isBlockedSecurityTokenSubject(metadata.subject)) {
+    req.proSecurityBlockSource = "token-subject-blocklist";
+    const incident = quarantineByFirewall(req, {
+      reason: req.proSecurityBlockSource,
+      requestPath,
+      method,
+      riskScore: 95,
+      details: {
+        subject: text(metadata.subject).slice(0, 80)
+      }
+    });
+    res.setHeader("Retry-After", String(incident.retryAfterSec));
+    return res.status(401).json({
+      success: false,
+      message: "Authorization token blocked by security subject policy.",
+      reasons: [req.proSecurityBlockSource],
+      retryAfterSec: incident.retryAfterSec,
+      requestId: req.requestId
+    });
+  }
   const tokenKey = tokenKeyFromEvaluation(evaluation, token);
   const usage = registerTokenUsage({
     tokenKey,

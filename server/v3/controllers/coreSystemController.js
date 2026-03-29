@@ -5,10 +5,12 @@ import { proRuntime } from "../../config/proRuntime.js";
 import { getStorageProvider } from "../../config/proStorage.js";
 import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
 import {
+  applyProSecurityControlProfile,
   getProSecurityAuditEvents,
   getProSecurityControlState,
   getProSecurityThreatIntelligence,
   isValidProSecurityThreatFingerprint,
+  listProSecurityControlProfiles,
   normalizeProSecurityThreatFingerprint,
   quarantineProSecurityThreatProfile,
   releaseProSecurityThreatProfile,
@@ -592,6 +594,37 @@ export function updateCoreSystemSecurityControl(req, res) {
       id: String(req.coreUser?.id || ""),
       role: String(req.coreUser?.role || "")
     },
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
+  });
+}
+
+export function getCoreSystemSecurityControlProfiles(req, res) {
+  return res.json({
+    success: true,
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    profiles: listProSecurityControlProfiles()
+  });
+}
+
+export function applyCoreSystemSecurityControlProfile(req, res) {
+  const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+  const result = applyProSecurityControlProfile(profileId, {
+    actorId: String(req.coreUser?.id || ""),
+    actorRole: String(req.coreUser?.role || "")
+  });
+  const statusCode = result.applied ? 200 : 400;
+  return res.status(statusCode).json({
+    success: result.applied,
+    action: result.applied ? "profile-applied" : "profile-rejected",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    profileId: result.profileId,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     state: result.state
   });

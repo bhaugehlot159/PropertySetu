@@ -9,7 +9,9 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import {
+  applyProSecurityControlProfile,
   createProSafeStaticOptions,
+  listProSecurityControlProfiles,
   proAiThreatAutoDetector,
   createProCorsOptions,
   getProSecurityControlState,
@@ -1165,8 +1167,10 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     securityControl: "/api/system/security-control",
     securityControlManage: [
       "/api/system/security-control",
-      "/api/system/security-control/reset"
+      "/api/system/security-control/reset",
+      "/api/system/security-control/profile"
     ],
+    securityControlProfiles: "/api/system/security-control/profiles",
     securityAuditV3: "/api/v3/system/security-audit",
     securityIntelligenceV3: "/api/v3/system/security-intelligence",
     securityIntelligenceManageV3: [
@@ -1176,8 +1180,10 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     securityControlV3: "/api/v3/system/security-control",
     securityControlManageV3: [
       "/api/v3/system/security-control",
-      "/api/v3/system/security-control/reset"
+      "/api/v3/system/security-control/reset",
+      "/api/v3/system/security-control/profile"
     ],
+    securityControlProfilesV3: "/api/v3/system/security-control/profiles",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {
@@ -1304,6 +1310,35 @@ app.patch("/api/system/security-control", auth, admin, (req, res) => {
       id: req.user.id,
       role: req.user.role
     },
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    state: result.state
+  });
+});
+app.get("/api/system/security-control/profiles", auth, admin, (req, res) => {
+  return res.json({
+    ok: true,
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role
+    },
+    profiles: listProSecurityControlProfiles()
+  });
+});
+app.post("/api/system/security-control/profile", auth, admin, (req, res) => {
+  const profileId = txt(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+  const result = applyProSecurityControlProfile(profileId, {
+    actorId: req.user.id,
+    actorRole: req.user.role
+  });
+  const statusCode = result.applied ? 200 : 400;
+  return res.status(statusCode).json({
+    ok: result.applied,
+    action: result.applied ? "profile-applied" : "profile-rejected",
+    requestedBy: {
+      id: req.user.id,
+      role: req.user.role
+    },
+    profileId: result.profileId,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     state: result.state
   });

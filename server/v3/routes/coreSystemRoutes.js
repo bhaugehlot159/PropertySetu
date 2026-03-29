@@ -1,11 +1,13 @@
 import { Router } from "express";
 import {
+  applyCoreSystemSecurityControlProfile,
   getCoreSystemArchitecturePlan,
   getCoreSystemStackOptions,
   getCoreSystemStackReadiness,
   getCoreSystemDatabaseStructure,
   getCoreSystemBlueprint,
   getCoreSystemExecutionPlan,
+  getCoreSystemSecurityControlProfiles,
   getCoreSystemSecurityControl,
   getCoreSystemSecurityAudit,
   getCoreSystemSecurityIntelligence,
@@ -28,6 +30,8 @@ router.get("/security-audit", coreAuthRequired, coreRoleRequired("admin"), getCo
 router.get("/security-intelligence", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityIntelligence);
 router.get("/security-control", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityControl);
 router.patch("/security-control", coreAuthRequired, coreRoleRequired("admin"), updateCoreSystemSecurityControl);
+router.get("/security-control/profiles", coreAuthRequired, coreRoleRequired("admin"), getCoreSystemSecurityControlProfiles);
+router.post("/security-control/profile", coreAuthRequired, coreRoleRequired("admin"), applyCoreSystemSecurityControlProfile);
 router.post("/security-control/reset", coreAuthRequired, coreRoleRequired("admin"), resetCoreSystemSecurityControl);
 router.post("/security-intelligence/release", coreAuthRequired, coreRoleRequired("admin"), releaseCoreSystemSecurityThreatProfile);
 router.post("/security-intelligence/quarantine", coreAuthRequired, coreRoleRequired("admin"), quarantineCoreSystemSecurityThreatProfile);

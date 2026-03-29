@@ -8,11 +8,13 @@ import {
   updateProPropertyRecord
 } from "../controllers/proPropertyController.js";
 import {
+  applyProSecurityControlProfile,
   createProRateLimiter,
   getProSecurityAuditEvents,
   getProSecurityControlState,
   getProSecurityThreatIntelligence,
   isValidProSecurityThreatFingerprint,
+  listProSecurityControlProfiles,
   normalizeProSecurityThreatFingerprint,
   quarantineProSecurityThreatProfile,
   releaseProSecurityThreatProfile,
@@ -416,8 +418,10 @@ router.get("/system/capabilities", (_req, res) => {
       securityControl: "/api/system/security-control",
       securityControlManage: [
         "/api/system/security-control",
-        "/api/system/security-control/reset"
+        "/api/system/security-control/reset",
+        "/api/system/security-control/profile"
       ],
+      securityControlProfiles: "/api/system/security-control/profiles",
       securityAuditV3: "/api/v3/system/security-audit",
       securityIntelligenceV3: "/api/v3/system/security-intelligence",
       securityIntelligenceManageV3: [
@@ -427,8 +431,10 @@ router.get("/system/capabilities", (_req, res) => {
       securityControlV3: "/api/v3/system/security-control",
       securityControlManageV3: [
         "/api/v3/system/security-control",
-        "/api/v3/system/security-control/reset"
-      ]
+        "/api/v3/system/security-control/reset",
+        "/api/v3/system/security-control/profile"
+      ],
+      securityControlProfilesV3: "/api/v3/system/security-control/profiles"
     }
   });
 });
@@ -517,6 +523,51 @@ router.patch(
         id: actor.id,
         role: actor.role
       },
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      state: result.state
+    });
+  }
+);
+
+router.get(
+  "/system/security-control/profiles",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    return res.json({
+      ok: true,
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      profiles: listProSecurityControlProfiles()
+    });
+  }
+);
+
+router.post(
+  "/system/security-control/profile",
+  requireBridgeTrustedActor,
+  requireBridgeRole("admin"),
+  bridgeAdminActionLimiter,
+  (req, res) => {
+    const actor = req.bridgeActor;
+    const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+    const result = applyProSecurityControlProfile(profileId, {
+      actorId: actor.id,
+      actorRole: actor.role
+    });
+    const statusCode = result.applied ? 200 : 400;
+    return res.status(statusCode).json({
+      ok: result.applied,
+      action: result.applied ? "profile-applied" : "profile-rejected",
+      requestedBy: {
+        id: actor.id,
+        role: actor.role
+      },
+      profileId: result.profileId,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       state: result.state
     });

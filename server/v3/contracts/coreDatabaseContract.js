@@ -195,7 +195,9 @@ export const coreSystemsBlueprint = [
       "Brute-force protection on auth/OTP endpoints",
       "High-risk route throttling for admin and write actions",
       "AI auto-detected threat scoring and temporary quarantine",
-      "Admin-controlled security control plane (modules, thresholds, trusted fingerprints)"
+      "Admin-controlled security control plane (modules, thresholds, trusted fingerprints)",
+      "Security profiles (balanced/hardened/lockdown) and emergency read-only mode",
+      "Runtime blocklists for IP, fingerprint, user-agent signature, and token subject"
     ],
     endpoints: [
       "/api/v3/auth/*",
@@ -205,12 +207,16 @@ export const coreSystemsBlueprint = [
       "/api/system/security-audit",
       "/api/system/security-intelligence",
       "/api/system/security-control",
+      "/api/system/security-control/profiles",
+      "/api/system/security-control/profile",
       "/api/system/security-control/reset",
       "/api/system/security-intelligence/release",
       "/api/system/security-intelligence/quarantine",
       "/api/v3/system/security-audit",
       "/api/v3/system/security-intelligence",
       "/api/v3/system/security-control",
+      "/api/v3/system/security-control/profiles",
+      "/api/v3/system/security-control/profile",
       "/api/v3/system/security-control/reset",
       "/api/v3/system/security-intelligence/release",
       "/api/v3/system/security-intelligence/quarantine"
