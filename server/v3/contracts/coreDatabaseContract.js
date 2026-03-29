@@ -217,7 +217,8 @@ export const coreSystemsBlueprint = [
       "High-risk shield bypass hardening: action-key bypass now requires signed proof verification",
       "Admin signature key rotation support (primary + secondary secret) for zero-downtime secret rollover",
       "Signed admin-security responses with body-hash integrity headers for tamper detection",
-      "Signed security-control snapshot backups with tamper-evident hash-chain and automatic fallback restore"
+      "Signed security-control snapshot backups with tamper-evident hash-chain and automatic fallback restore",
+      "Rollback attack protection: stale primary state auto-detected and replaced with latest valid snapshot"
     ],
     endpoints: [
       "/api/v3/auth/*",

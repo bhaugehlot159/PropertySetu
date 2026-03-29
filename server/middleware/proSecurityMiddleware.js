@@ -57,6 +57,12 @@ const SECURITY_CONTROL_STATE_BACKUP_KEEP = Math.max(
 const SECURITY_CONTROL_STATE_BACKUP_DIR = String(
   process.env.SECURITY_CONTROL_STATE_BACKUP_DIR || ""
 ).trim();
+const SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED =
+  String(process.env.SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED || "true").trim().toLowerCase() !== "false";
+const SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS = Math.max(
+  0,
+  Number(process.env.SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS || 5 * 60 * 1000)
+);
 
 const SECURITY_AUDIT_MAX_ITEMS = Math.max(
   200,
@@ -1687,6 +1693,53 @@ function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
   };
 }
 
+function extractSecurityControlPayloadMeta(payload = {}) {
+  const normalizedPayload = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload
+    : {};
+  const state = normalizedPayload.state && typeof normalizedPayload.state === "object" && !Array.isArray(normalizedPayload.state)
+    ? normalizedPayload.state
+    : normalizedPayload;
+  const revisionRaw = Number(state?.meta?.revision || normalizedPayload?.meta?.revision || 0);
+  const revision = Number.isFinite(revisionRaw) ? Math.max(0, Math.round(revisionRaw)) : 0;
+  const persistedAtText = text(normalizedPayload.persistedAt);
+  const persistedAtMsParsed = Date.parse(persistedAtText);
+  const persistedAtMs = Number.isFinite(persistedAtMsParsed) ? persistedAtMsParsed : 0;
+  return {
+    revision,
+    persistedAt: persistedAtText,
+    persistedAtMs
+  };
+}
+
+function evaluateSecurityControlRollbackRisk({
+  primaryPayload = {},
+  snapshotPayload = {}
+} = {}) {
+  const primaryMeta = extractSecurityControlPayloadMeta(primaryPayload);
+  const snapshotMeta = extractSecurityControlPayloadMeta(snapshotPayload);
+  const maxDriftMs = Math.max(0, Number(SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS || 0));
+  const revisionDelta = Math.max(0, snapshotMeta.revision - primaryMeta.revision);
+  const timeDeltaMs = Math.max(0, snapshotMeta.persistedAtMs - primaryMeta.persistedAtMs);
+  const revisionRollback = revisionDelta > 0;
+  const staleTimestampRollback = !revisionRollback && timeDeltaMs > maxDriftMs;
+  const detected = revisionRollback || staleTimestampRollback;
+  const reason = revisionRollback
+    ? "snapshot-higher-revision"
+    : staleTimestampRollback
+      ? "snapshot-newer-timestamp"
+      : "no-rollback-signal";
+  return {
+    detected,
+    reason,
+    revisionDelta,
+    timeDeltaMs,
+    maxDriftMs,
+    primaryMeta,
+    snapshotMeta
+  };
+}
+
 function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
   const safeTarget = text(targetPath || SECURITY_CONTROL_STATE_FILE);
   const warnings = [];
@@ -1697,7 +1750,7 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       warnings.push(...integrity.warnings);
     }
     if (integrity.valid) {
-      return {
+      const primaryResult = {
         found: true,
         source: "primary",
         sourcePath: safeTarget,
@@ -1710,6 +1763,56 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
           warnings: [],
           previousSnapshotHash: "",
           snapshotHash: ""
+        },
+        rollbackGuard: {
+          enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
+          triggered: false,
+          reason: "not-evaluated"
+        },
+        warnings
+      };
+
+      if (!SECURITY_CONTROL_STATE_BACKUP_ENABLED || !SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED) {
+        primaryResult.rollbackGuard.reason = !SECURITY_CONTROL_STATE_BACKUP_ENABLED
+          ? "backup-disabled"
+          : "rollback-protection-disabled";
+        return primaryResult;
+      }
+
+      const snapshotResult = findLatestValidSecurityControlStateSnapshot(safeTarget);
+      if (Array.isArray(snapshotResult.warnings) && snapshotResult.warnings.length) {
+        warnings.push(...snapshotResult.warnings.slice(0, 8));
+      }
+      if (!snapshotResult.found || !snapshotResult.payload) {
+        primaryResult.rollbackGuard.reason = "no-valid-snapshot";
+        return primaryResult;
+      }
+
+      const rollbackRisk = evaluateSecurityControlRollbackRisk({
+        primaryPayload: primary,
+        snapshotPayload: snapshotResult.payload
+      });
+      if (!rollbackRisk.detected) {
+        primaryResult.rollbackGuard.reason = "primary-current";
+        primaryResult.rollbackGuard.details = rollbackRisk;
+        return primaryResult;
+      }
+
+      warnings.push(
+        `Primary persisted state rollback detected (${text(rollbackRisk.reason)}). Using latest valid snapshot.`
+      );
+      return {
+        found: true,
+        source: "snapshot-rollback-guard",
+        sourcePath: text(snapshotResult.snapshot?.path),
+        payload: snapshotResult.payload,
+        integrity: snapshotResult.integrity,
+        snapshotIntegrity: snapshotResult.snapshotIntegrity,
+        rollbackGuard: {
+          enabled: true,
+          triggered: true,
+          reason: text(rollbackRisk.reason),
+          details: rollbackRisk
         },
         warnings
       };
@@ -1733,6 +1836,11 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       payload: snapshotResult.payload,
       integrity: snapshotResult.integrity,
       snapshotIntegrity: snapshotResult.snapshotIntegrity,
+      rollbackGuard: {
+        enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
+        triggered: false,
+        reason: "primary-invalid-fallback"
+      },
       warnings
     };
   }
@@ -1755,6 +1863,11 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       warnings: [],
       previousSnapshotHash: "",
       snapshotHash: ""
+    },
+    rollbackGuard: {
+      enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
+      triggered: false,
+      reason: "no-valid-source"
     },
     warnings
   };
@@ -2129,6 +2242,16 @@ export function getProSecurityControlPersistenceStatus() {
     },
     activeSource: text(activeLoad.source),
     activeSourcePath: text(activeLoad.sourcePath),
+    rollback: {
+      enabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
+      maxTimeDriftMs: SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS,
+      triggered: Boolean(activeLoad?.rollbackGuard?.triggered),
+      reason: text(activeLoad?.rollbackGuard?.reason),
+      details:
+        activeLoad?.rollbackGuard?.details && typeof activeLoad.rollbackGuard.details === "object"
+          ? activeLoad.rollbackGuard.details
+          : null
+    },
     backup: {
       enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
       dir: backupDir,
@@ -2201,7 +2324,8 @@ export function restoreProSecurityControlStateFromDisk({
       reason: "unknown",
       warnings: []
     };
-  if (text(loadResult.source).toLowerCase() === "snapshot") {
+  const sourceKind = text(loadResult.source).toLowerCase();
+  if (sourceKind.includes("snapshot")) {
     const snapshotIntegrity = loadResult.snapshotIntegrity && typeof loadResult.snapshotIntegrity === "object"
       ? loadResult.snapshotIntegrity
       : {};
@@ -2214,6 +2338,9 @@ export function restoreProSecurityControlStateFromDisk({
         actorId: text(actorId),
         actorRole: text(actorRole),
         sourcePath: text(loadResult.sourcePath),
+        source: sourceKind,
+        rollbackGuardTriggered: Boolean(loadResult?.rollbackGuard?.triggered),
+        rollbackGuardReason: text(loadResult?.rollbackGuard?.reason),
         integrityReason: text(integrity.reason),
         snapshotChainReason: text(snapshotIntegrity.reason),
         snapshotChainHash: text(snapshotIntegrity.snapshotHash),
@@ -3192,7 +3319,8 @@ function initializeSecurityControlStateFromDisk() {
       reason: "unknown",
       warnings: []
     };
-  if (text(loadResult.source).toLowerCase() === "snapshot") {
+  const sourceKind = text(loadResult.source).toLowerCase();
+  if (sourceKind.includes("snapshot")) {
     const snapshotIntegrity = loadResult.snapshotIntegrity && typeof loadResult.snapshotIntegrity === "object"
       ? loadResult.snapshotIntegrity
       : {};
@@ -3205,6 +3333,9 @@ function initializeSecurityControlStateFromDisk() {
         actorId: "system-boot",
         actorRole: "system",
         sourcePath: text(loadResult.sourcePath),
+        source: sourceKind,
+        rollbackGuardTriggered: Boolean(loadResult?.rollbackGuard?.triggered),
+        rollbackGuardReason: text(loadResult?.rollbackGuard?.reason),
         integrityReason: text(integrity.reason),
         snapshotChainReason: text(snapshotIntegrity.reason),
         snapshotChainHash: text(snapshotIntegrity.snapshotHash),
@@ -6058,6 +6189,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const controlBackupSnapshots = listSecurityControlStateSnapshotFiles(controlBackupDir);
   const controlBackupLatest = controlBackupSnapshots[0] || null;
   const controlBackupLatestValid = findLatestValidSecurityControlStateSnapshot(SECURITY_CONTROL_STATE_FILE);
+  const controlPersistenceLoad = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -6281,6 +6413,11 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlBackupLatestChainReason: controlBackupLatestValid.found
         ? text(controlBackupLatestValid.snapshotIntegrity?.reason)
         : "",
+      securityControlRollbackProtectionEnabled: SECURITY_CONTROL_STATE_ROLLBACK_PROTECTION_ENABLED,
+      securityControlRollbackMaxTimeDriftMs: SECURITY_CONTROL_STATE_ROLLBACK_MAX_TIME_DRIFT_MS,
+      securityControlRollbackTriggered: Boolean(controlPersistenceLoad?.rollbackGuard?.triggered),
+      securityControlRollbackReason: text(controlPersistenceLoad?.rollbackGuard?.reason),
+      securityControlActivePersistenceSource: text(controlPersistenceLoad?.source),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
