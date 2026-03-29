@@ -9,6 +9,7 @@ const proThreatProfiles = new Map();
 const proThreatIncidents = [];
 const proFakeListingSignatureIntel = new Map();
 const proTokenIntelligence = new Map();
+const proSubjectIntelligence = new Map();
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -203,6 +204,26 @@ const TOKEN_REPLAY_DISTINCT_IP_THRESHOLD = Math.max(
 const TOKEN_INTEL_MAX_ITEMS = Math.max(
   200,
   Number(process.env.TOKEN_INTEL_MAX_ITEMS || 6000)
+);
+const SUBJECT_INTEL_WINDOW_MS = Math.max(
+  10 * 60 * 1000,
+  Number(process.env.SUBJECT_INTEL_WINDOW_MS || 30 * 60 * 1000)
+);
+const SUBJECT_INTEL_EVENT_THRESHOLD = Math.max(
+  4,
+  Number(process.env.SUBJECT_INTEL_EVENT_THRESHOLD || 8)
+);
+const SUBJECT_INTEL_DISTINCT_FINGERPRINT_THRESHOLD = Math.max(
+  2,
+  Number(process.env.SUBJECT_INTEL_DISTINCT_FINGERPRINT_THRESHOLD || 3)
+);
+const SUBJECT_INTEL_DISTINCT_IP_THRESHOLD = Math.max(
+  2,
+  Number(process.env.SUBJECT_INTEL_DISTINCT_IP_THRESHOLD || 3)
+);
+const SUBJECT_INTEL_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.SUBJECT_INTEL_MAX_ITEMS || 6000)
 );
 const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
@@ -399,7 +420,10 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         auth403: 10,
         tokenReplayEvents: 8,
         tokenReplayDistinctFingerprints: 3,
-        tokenReplayDistinctIps: 3
+        tokenReplayDistinctIps: 3,
+        subjectReplayEvents: 8,
+        subjectReplayDistinctFingerprints: 3,
+        subjectReplayDistinctIps: 3
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -431,7 +455,10 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         auth403: 7,
         tokenReplayEvents: 6,
         tokenReplayDistinctFingerprints: 2,
-        tokenReplayDistinctIps: 2
+        tokenReplayDistinctIps: 2,
+        subjectReplayEvents: 6,
+        subjectReplayDistinctFingerprints: 2,
+        subjectReplayDistinctIps: 2
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -463,7 +490,10 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         auth403: 5,
         tokenReplayEvents: 4,
         tokenReplayDistinctFingerprints: 2,
-        tokenReplayDistinctIps: 2
+        tokenReplayDistinctIps: 2,
+        subjectReplayEvents: 4,
+        subjectReplayDistinctFingerprints: 2,
+        subjectReplayDistinctIps: 2
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -493,7 +523,10 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     auth403: AUTH_FAILURE_403_THRESHOLD,
     tokenReplayEvents: TOKEN_REPLAY_EVENT_THRESHOLD,
     tokenReplayDistinctFingerprints: TOKEN_REPLAY_DISTINCT_FINGERPRINT_THRESHOLD,
-    tokenReplayDistinctIps: TOKEN_REPLAY_DISTINCT_IP_THRESHOLD
+    tokenReplayDistinctIps: TOKEN_REPLAY_DISTINCT_IP_THRESHOLD,
+    subjectReplayEvents: SUBJECT_INTEL_EVENT_THRESHOLD,
+    subjectReplayDistinctFingerprints: SUBJECT_INTEL_DISTINCT_FINGERPRINT_THRESHOLD,
+    subjectReplayDistinctIps: SUBJECT_INTEL_DISTINCT_IP_THRESHOLD
   },
   adminControls: {
     actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -850,7 +883,8 @@ function listSecurityControlProfilesInternal() {
     id: profile.id,
     label: profile.label,
     description: profile.description,
-    mode: text(profile.patch?.mode || profile.id).toLowerCase()
+    mode: text(profile.patch?.mode || profile.id).toLowerCase(),
+    defaults: cloneSecurityControlState(profile.patch || {})
   }));
 }
 
@@ -1037,6 +1071,30 @@ export function updateProSecurityControlState(
       next.thresholds.tokenReplayDistinctIps = toIntegerInRange(
         incoming.tokenReplayDistinctIps,
         next.thresholds.tokenReplayDistinctIps,
+        2,
+        50
+      );
+    }
+    if (typeof incoming.subjectReplayEvents !== "undefined") {
+      next.thresholds.subjectReplayEvents = toIntegerInRange(
+        incoming.subjectReplayEvents,
+        next.thresholds.subjectReplayEvents,
+        3,
+        200
+      );
+    }
+    if (typeof incoming.subjectReplayDistinctFingerprints !== "undefined") {
+      next.thresholds.subjectReplayDistinctFingerprints = toIntegerInRange(
+        incoming.subjectReplayDistinctFingerprints,
+        next.thresholds.subjectReplayDistinctFingerprints,
+        2,
+        50
+      );
+    }
+    if (typeof incoming.subjectReplayDistinctIps !== "undefined") {
+      next.thresholds.subjectReplayDistinctIps = toIntegerInRange(
+        incoming.subjectReplayDistinctIps,
+        next.thresholds.subjectReplayDistinctIps,
         2,
         50
       );
@@ -1509,6 +1567,114 @@ function hotTokenIntelligence(limit = 20) {
     .slice(0, Math.max(1, Math.min(100, Number(limit || 20))));
 }
 
+function pruneSubjectIntelligence(nowTs = Date.now()) {
+  if (!proSubjectIntelligence.size) return;
+
+  for (const [subjectKey, row] of proSubjectIntelligence.entries()) {
+    const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+      (item) => Number(item?.at || 0) >= nowTs - SUBJECT_INTEL_WINDOW_MS
+    );
+    if (!recent.length) {
+      proSubjectIntelligence.delete(subjectKey);
+      continue;
+    }
+    proSubjectIntelligence.set(subjectKey, {
+      ...row,
+      events: recent,
+      lastSeenAt: Math.max(...recent.map((item) => Number(item?.at || 0)))
+    });
+  }
+
+  if (proSubjectIntelligence.size <= SUBJECT_INTEL_MAX_ITEMS) return;
+  const overflow = proSubjectIntelligence.size - SUBJECT_INTEL_MAX_ITEMS;
+  const ordered = [...proSubjectIntelligence.entries()].sort(
+    (a, b) => Number(a[1]?.lastSeenAt || 0) - Number(b[1]?.lastSeenAt || 0)
+  );
+  for (let index = 0; index < overflow; index += 1) {
+    const key = ordered[index]?.[0];
+    if (key) proSubjectIntelligence.delete(key);
+  }
+}
+
+function registerSubjectUsage({
+  subject = "",
+  fingerprint = "",
+  ip = "",
+  tokenKey = "",
+  nowTs = Date.now()
+} = {}) {
+  const safeSubject = text(subject).toLowerCase();
+  if (!safeSubject) {
+    return {
+      subject: "",
+      occurrences: 0,
+      distinctFingerprintCount: 0,
+      distinctIpCount: 0,
+      firstSeenAt: 0,
+      lastSeenAt: nowTs
+    };
+  }
+
+  const previous = proSubjectIntelligence.get(safeSubject);
+  const events = [
+    ...(Array.isArray(previous?.events) ? previous.events : []),
+    {
+      at: nowTs,
+      fingerprint: text(fingerprint),
+      ip: text(ip).replace(/^::ffff:/i, ""),
+      tokenKey: text(tokenKey)
+    }
+  ].filter((item) => Number(item?.at || 0) >= nowTs - SUBJECT_INTEL_WINDOW_MS);
+
+  const distinctFingerprintCount = new Set(
+    events.map((item) => text(item?.fingerprint)).filter(Boolean)
+  ).size;
+  const distinctIpCount = new Set(
+    events.map((item) => text(item?.ip)).filter(Boolean)
+  ).size;
+  const row = {
+    subject: safeSubject,
+    events,
+    occurrences: events.length,
+    distinctFingerprintCount,
+    distinctIpCount,
+    firstSeenAt: Number(events[0]?.at || nowTs),
+    lastSeenAt: Number(events[events.length - 1]?.at || nowTs)
+  };
+  proSubjectIntelligence.set(safeSubject, row);
+  pruneSubjectIntelligence(nowTs);
+
+  return {
+    subject: safeSubject,
+    occurrences: row.occurrences,
+    distinctFingerprintCount: row.distinctFingerprintCount,
+    distinctIpCount: row.distinctIpCount,
+    firstSeenAt: row.firstSeenAt,
+    lastSeenAt: row.lastSeenAt
+  };
+}
+
+function hotSubjectIntelligence(limit = 20) {
+  const nowTs = Date.now();
+  pruneSubjectIntelligence(nowTs);
+  return [...proSubjectIntelligence.values()]
+    .map((row) => ({
+      subject: text(row?.subject),
+      occurrences: Math.max(0, Number(row?.occurrences || 0)),
+      distinctFingerprintCount: Math.max(0, Number(row?.distinctFingerprintCount || 0)),
+      distinctIpCount: Math.max(0, Number(row?.distinctIpCount || 0)),
+      firstSeenAt: Number(row?.firstSeenAt || 0),
+      lastSeenAt: Number(row?.lastSeenAt || 0)
+    }))
+    .sort((a, b) =>
+      b.distinctFingerprintCount - a.distinctFingerprintCount ||
+      b.distinctIpCount - a.distinctIpCount ||
+      b.occurrences - a.occurrences ||
+      b.lastSeenAt - a.lastSeenAt
+    )
+    .slice(0, Math.max(1, Math.min(100, Number(limit || 20))));
+}
+
 function pushThreatIncident(incident = {}) {
   const row = {
     id: `threat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1672,6 +1838,24 @@ function applyBehaviorSignals({ req, state, nowTs }) {
     score += 28;
     matchedRules.push("burst-traffic-pattern");
   }
+  if (recentHits.length >= 8) {
+    const sorted = [...recentHits].sort((a, b) => a - b);
+    const intervals = [];
+    for (let index = 1; index < sorted.length; index += 1) {
+      intervals.push(Math.max(0, Number(sorted[index] - sorted[index - 1])));
+    }
+    const avgIntervalMs = intervals.length
+      ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+      : 0;
+    const variance = intervals.length
+      ? intervals.reduce((sum, value) => sum + Math.pow(value - avgIntervalMs, 2), 0) / intervals.length
+      : 0;
+    const stdDevMs = Math.sqrt(Math.max(0, variance));
+    if (avgIntervalMs > 0 && avgIntervalMs <= 3000 && stdDevMs <= 90) {
+      score += 22;
+      matchedRules.push("automation-timing-pattern");
+    }
+  }
 
   const requestPath = text(req?.originalUrl || req?.path || "/");
   const recentPaths = [...state.recentPaths, { path: requestPath, at: nowTs }].filter(
@@ -1822,9 +2006,18 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     2,
     Number(thresholds.tokenReplayDistinctIps || TOKEN_REPLAY_DISTINCT_IP_THRESHOLD)
   );
+  const subjectReplayFingerprintThreshold = Math.max(
+    2,
+    Number(thresholds.subjectReplayDistinctFingerprints || SUBJECT_INTEL_DISTINCT_FINGERPRINT_THRESHOLD)
+  );
+  const subjectReplayIpThreshold = Math.max(
+    2,
+    Number(thresholds.subjectReplayDistinctIps || SUBJECT_INTEL_DISTINCT_IP_THRESHOLD)
+  );
   const incidents = proThreatIncidents.slice(0, safeLimit);
   const hotSignatures = hotFakeListingSignatures(Math.min(50, safeLimit));
   const hotTokens = hotTokenIntelligence(Math.min(50, safeLimit));
+  const hotSubjects = hotSubjectIntelligence(Math.min(50, safeLimit));
   const fakeListingIncidents = proThreatIncidents.filter(
     (item) =>
       text(item?.reason).includes("fake-listing") ||
@@ -1836,6 +2029,12 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       text(item?.reason).includes("token-") ||
       (Array.isArray(item?.rules) &&
         item.rules.some((rule) => text(rule).includes("token-")))
+  );
+  const subjectIncidents = proThreatIncidents.filter(
+    (item) =>
+      text(item?.reason).includes("subject-") ||
+      (Array.isArray(item?.rules) &&
+        item.rules.some((rule) => text(rule).includes("subject-")))
   );
   const hotProfiles = [...proThreatProfiles.entries()]
     .map(([fingerprint, profile]) => ({
@@ -1855,6 +2054,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     hotProfiles,
     hotFakeListingSignatures: hotSignatures,
     hotTokenIntelligence: hotTokens,
+    hotSubjectIntelligence: hotSubjects,
     controlState: getProSecurityControlState(),
     summary: {
       mode,
@@ -1866,10 +2066,16 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       fakeListingBlockedIncidents: fakeListingIncidents.filter((item) => Boolean(item?.blocked)).length,
       fakeListingHotSignatures: hotSignatures.length,
       tokenThreatIncidents: tokenIncidents.length,
+      subjectThreatIncidents: subjectIncidents.length,
       tokenReplayHotKeys: hotTokens.filter(
         (item) =>
           item.distinctFingerprintCount >= tokenReplayFingerprintThreshold ||
           item.distinctIpCount >= tokenReplayIpThreshold
+      ).length,
+      subjectTakeoverHotSubjects: hotSubjects.filter(
+        (item) =>
+          item.distinctFingerprintCount >= subjectReplayFingerprintThreshold ||
+          item.distinctIpCount >= subjectReplayIpThreshold
       ).length,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
@@ -3001,6 +3207,13 @@ export function proTokenFirewall(req, res, next) {
     nowTs: Date.now()
   });
   const thresholds = currentSecurityThresholds();
+  const subjectUsage = registerSubjectUsage({
+    subject: metadata.subject,
+    fingerprint,
+    ip: getClientIp(req),
+    tokenKey,
+    nowTs: Date.now()
+  });
   const replaySuspected =
     usage.occurrences >= Math.max(2, Number(thresholds.tokenReplayEvents || TOKEN_REPLAY_EVENT_THRESHOLD)) &&
     (
@@ -3013,16 +3226,43 @@ export function proTokenFirewall(req, res, next) {
         Number(thresholds.tokenReplayDistinctIps || TOKEN_REPLAY_DISTINCT_IP_THRESHOLD)
       )
     );
-  if (!replaySuspected || !modules.autoQuarantine || isTrusted) {
-    if (replaySuspected) {
+  const subjectTakeoverSuspected =
+    subjectUsage.occurrences >= Math.max(
+      2,
+      Number(thresholds.subjectReplayEvents || SUBJECT_INTEL_EVENT_THRESHOLD)
+    ) &&
+    (
+      subjectUsage.distinctFingerprintCount >= Math.max(
+        2,
+        Number(thresholds.subjectReplayDistinctFingerprints || SUBJECT_INTEL_DISTINCT_FINGERPRINT_THRESHOLD)
+      ) ||
+      subjectUsage.distinctIpCount >= Math.max(
+        2,
+        Number(thresholds.subjectReplayDistinctIps || SUBJECT_INTEL_DISTINCT_IP_THRESHOLD)
+      )
+    );
+  const hasTokenAnomaly = replaySuspected || subjectTakeoverSuspected;
+
+  if (!hasTokenAnomaly || !modules.autoQuarantine || isTrusted) {
+    if (hasTokenAnomaly) {
       pushProSecurityAuditEvent(req, {
         severity: "high",
-        type: isTrusted ? "token-replay-trusted-bypass" : "token-replay-alert",
+        type: isTrusted
+          ? replaySuspected
+            ? "token-replay-trusted-bypass"
+            : "subject-takeover-trusted-bypass"
+          : replaySuspected
+            ? "token-replay-alert"
+            : "subject-takeover-alert",
         details: {
           tokenKey,
           occurrences: usage.occurrences,
           distinctFingerprintCount: usage.distinctFingerprintCount,
           distinctIpCount: usage.distinctIpCount,
+          subject: text(subjectUsage.subject).slice(0, 80),
+          subjectOccurrences: subjectUsage.occurrences,
+          subjectDistinctFingerprintCount: subjectUsage.distinctFingerprintCount,
+          subjectDistinctIpCount: subjectUsage.distinctIpCount,
           trustedBypass: Boolean(isTrusted)
         }
       });
@@ -3030,7 +3270,7 @@ export function proTokenFirewall(req, res, next) {
     return next();
   }
 
-  req.proSecurityBlockSource = "token-replay-suspected";
+  req.proSecurityBlockSource = replaySuspected ? "token-replay-suspected" : "subject-takeover-suspected";
   const incident = quarantineByFirewall(req, {
     reason: req.proSecurityBlockSource,
     requestPath,
@@ -3042,14 +3282,19 @@ export function proTokenFirewall(req, res, next) {
       distinctFingerprintCount: usage.distinctFingerprintCount,
       distinctIpCount: usage.distinctIpCount,
       subject: text(usage.subject).slice(0, 60),
-      issuer: text(usage.issuer).slice(0, 60)
+      issuer: text(usage.issuer).slice(0, 60),
+      subjectOccurrences: subjectUsage.occurrences,
+      subjectDistinctFingerprintCount: subjectUsage.distinctFingerprintCount,
+      subjectDistinctIpCount: subjectUsage.distinctIpCount
     }
   });
   res.setHeader("Retry-After", String(incident.retryAfterSec));
   return res.status(401).json({
     success: false,
-    message: "Authorization token blocked due to replay anomaly.",
-    reasons: ["token-replay-suspected"],
+    message: replaySuspected
+      ? "Authorization token blocked due to replay anomaly."
+      : "Authorization token blocked due to account-takeover anomaly.",
+    reasons: [req.proSecurityBlockSource],
     retryAfterSec: incident.retryAfterSec,
     requestId: req.requestId
   });

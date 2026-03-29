@@ -198,7 +198,8 @@ export const coreSystemsBlueprint = [
       "Admin-controlled security control plane (modules, thresholds, trusted fingerprints)",
       "Security profiles (balanced/hardened/lockdown) and emergency read-only mode",
       "Runtime blocklists for IP, fingerprint, user-agent signature, and token subject",
-      "Persisted security-control state with restore support for admin recovery"
+      "Persisted security-control state with restore support for admin recovery",
+      "AI-based account takeover detection using subject-level anomaly intelligence"
     ],
     endpoints: [
       "/api/v3/auth/*",
