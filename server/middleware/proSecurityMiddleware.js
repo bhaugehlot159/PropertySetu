@@ -1418,6 +1418,117 @@ function listSecurityControlStateSnapshotFiles(backupDir = "") {
   }
 }
 
+function buildSecurityControlSnapshotHashInput(payload = {}, previousSnapshotHash = "") {
+  const normalizedPayload = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload
+    : {};
+  const version = Math.max(1, Number(normalizedPayload.version || 1));
+  const persistedAt = text(normalizedPayload.persistedAt);
+  const state = normalizedPayload.state && typeof normalizedPayload.state === "object" && !Array.isArray(normalizedPayload.state)
+    ? normalizedPayload.state
+    : {};
+  const integrity = normalizedPayload.integrity && typeof normalizedPayload.integrity === "object" && !Array.isArray(normalizedPayload.integrity)
+    ? normalizedPayload.integrity
+    : {};
+  const normalizedPrevious = /^[a-f0-9]{64}$/i.test(text(previousSnapshotHash))
+    ? text(previousSnapshotHash).toLowerCase()
+    : "";
+  return `${version}|${persistedAt}|${stableStringify(state)}|${stableStringify(integrity)}|${normalizedPrevious}`;
+}
+
+function computeSecurityControlSnapshotHash(payload = {}, previousSnapshotHash = "") {
+  return sha256(buildSecurityControlSnapshotHashInput(payload, previousSnapshotHash));
+}
+
+function resolveSecurityControlSnapshotHash(payload = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const chain = payload.snapshotChain && typeof payload.snapshotChain === "object" && !Array.isArray(payload.snapshotChain)
+    ? payload.snapshotChain
+    : {};
+  const chainHash = text(chain.snapshotHash).toLowerCase();
+  if (/^[a-f0-9]{64}$/i.test(chainHash)) {
+    return chainHash;
+  }
+  const previousSnapshotHash = text(chain.previousSnapshotHash).toLowerCase();
+  const normalizedPrevious = /^[a-f0-9]{64}$/i.test(previousSnapshotHash)
+    ? previousSnapshotHash
+    : "";
+  return computeSecurityControlSnapshotHash(payload, normalizedPrevious);
+}
+
+function verifySecurityControlSnapshotPayload(payload = {}) {
+  const warnings = [];
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      valid: false,
+      chained: false,
+      reason: "invalid-snapshot-payload",
+      warnings,
+      previousSnapshotHash: "",
+      snapshotHash: ""
+    };
+  }
+
+  const chain = payload.snapshotChain && typeof payload.snapshotChain === "object" && !Array.isArray(payload.snapshotChain)
+    ? payload.snapshotChain
+    : null;
+  if (!chain) {
+    warnings.push("Snapshot chain metadata missing (legacy snapshot).");
+    return {
+      valid: true,
+      chained: false,
+      reason: "legacy-no-snapshot-chain",
+      warnings,
+      previousSnapshotHash: "",
+      snapshotHash: ""
+    };
+  }
+
+  const previousSnapshotHash = text(chain.previousSnapshotHash).toLowerCase();
+  const snapshotHash = text(chain.snapshotHash).toLowerCase();
+  if (previousSnapshotHash && !/^[a-f0-9]{64}$/i.test(previousSnapshotHash)) {
+    return {
+      valid: false,
+      chained: true,
+      reason: "invalid-snapshot-previous-hash-format",
+      warnings,
+      previousSnapshotHash: "",
+      snapshotHash
+    };
+  }
+  if (!/^[a-f0-9]{64}$/i.test(snapshotHash)) {
+    return {
+      valid: false,
+      chained: true,
+      reason: "invalid-snapshot-hash-format",
+      warnings,
+      previousSnapshotHash,
+      snapshotHash: ""
+    };
+  }
+
+  const expected = computeSecurityControlSnapshotHash(payload, previousSnapshotHash);
+  if (!expected || !timingSafeEqualText(snapshotHash, expected)) {
+    return {
+      valid: false,
+      chained: true,
+      reason: "snapshot-hash-mismatch",
+      warnings,
+      previousSnapshotHash,
+      snapshotHash
+    };
+  }
+
+  return {
+    valid: true,
+    chained: true,
+    reason: "snapshot-chain-verified",
+    warnings,
+    previousSnapshotHash,
+    snapshotHash
+  };
+}
+
 function pruneSecurityControlStateSnapshots(backupDir = "") {
   const snapshots = listSecurityControlStateSnapshotFiles(backupDir);
   if (snapshots.length <= SECURITY_CONTROL_STATE_BACKUP_KEEP) {
@@ -1463,6 +1574,13 @@ function persistSecurityControlStateSnapshotToDisk(payload = {}, targetPath = ""
       };
     }
     fs.mkdirSync(backupDir, { recursive: true });
+    const latestSnapshots = listSecurityControlStateSnapshotFiles(backupDir);
+    const latestSnapshot = latestSnapshots[0] || null;
+    let previousSnapshotHash = "";
+    if (latestSnapshot?.path) {
+      const previousPayload = safeReadJson(latestSnapshot.path);
+      previousSnapshotHash = resolveSecurityControlSnapshotHash(previousPayload);
+    }
     const safePersistedAt = text(payload?.persistedAt, nowIso()).replace(/[^\dT:\-.Z]/g, "");
     const safeStamp = safePersistedAt
       .replace(/:/g, "-")
@@ -1472,13 +1590,23 @@ function persistSecurityControlStateSnapshotToDisk(payload = {}, targetPath = ""
     const fileName = `security-control-state-${safeStamp}-rev-${revision}.json`;
     const snapshotPath = path.join(backupDir, fileName);
     const tmpPath = `${snapshotPath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
+    const snapshotPayload = JSON.parse(JSON.stringify(payload || {}));
+    const snapshotHash = computeSecurityControlSnapshotHash(snapshotPayload, previousSnapshotHash);
+    snapshotPayload.snapshotChain = {
+      version: 1,
+      previousSnapshotHash,
+      snapshotHash,
+      createdAt: nowIso()
+    };
+    fs.writeFileSync(tmpPath, JSON.stringify(snapshotPayload, null, 2), "utf8");
     fs.renameSync(tmpPath, snapshotPath);
     const pruneResult = pruneSecurityControlStateSnapshots(backupDir);
     return {
       ok: true,
       path: snapshotPath,
       backupDir,
+      snapshotHash,
+      previousSnapshotHash,
       prune: pruneResult
     };
   } catch (error) {
@@ -1508,15 +1636,28 @@ function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
       );
       continue;
     }
+    const snapshotIntegrity = verifySecurityControlSnapshotPayload(payload);
+    if (!snapshotIntegrity.valid) {
+      warnings.push(
+        `Snapshot rejected (${text(row.name)}): ${text(snapshotIntegrity.reason, "snapshot-integrity-failed")}.`
+      );
+      continue;
+    }
     if (Array.isArray(integrity.warnings) && integrity.warnings.length) {
       for (const warning of integrity.warnings.slice(0, 5)) {
         warnings.push(`Snapshot warning (${text(row.name)}): ${text(warning)}`);
+      }
+    }
+    if (Array.isArray(snapshotIntegrity.warnings) && snapshotIntegrity.warnings.length) {
+      for (const warning of snapshotIntegrity.warnings.slice(0, 5)) {
+        warnings.push(`Snapshot chain warning (${text(row.name)}): ${text(warning)}`);
       }
     }
     return {
       found: true,
       payload,
       integrity,
+      snapshotIntegrity,
       snapshot: row,
       backupDir,
       warnings
@@ -1531,6 +1672,14 @@ function findLatestValidSecurityControlStateSnapshot(targetPath = "") {
       reason: "no-valid-snapshot",
       warnings: [],
       signed: false
+    },
+    snapshotIntegrity: {
+      valid: false,
+      chained: false,
+      reason: "no-valid-snapshot",
+      warnings: [],
+      previousSnapshotHash: "",
+      snapshotHash: ""
     },
     snapshot: null,
     backupDir,
@@ -1554,6 +1703,14 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
         sourcePath: safeTarget,
         payload: primary,
         integrity,
+        snapshotIntegrity: {
+          valid: false,
+          chained: false,
+          reason: "primary-not-snapshot",
+          warnings: [],
+          previousSnapshotHash: "",
+          snapshotHash: ""
+        },
         warnings
       };
     }
@@ -1575,6 +1732,7 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       sourcePath: text(snapshotResult.snapshot?.path),
       payload: snapshotResult.payload,
       integrity: snapshotResult.integrity,
+      snapshotIntegrity: snapshotResult.snapshotIntegrity,
       warnings
     };
   }
@@ -1589,6 +1747,14 @@ function loadSecurityControlStatePayloadWithSnapshotFallback(targetPath = "") {
       reason: "no-valid-persisted-state",
       warnings: [],
       signed: false
+    },
+    snapshotIntegrity: {
+      valid: false,
+      chained: false,
+      reason: "no-valid-persisted-state",
+      warnings: [],
+      previousSnapshotHash: "",
+      snapshotHash: ""
     },
     warnings
   };
@@ -1640,6 +1806,8 @@ function persistSecurityControlStateToDisk(state = {}) {
         reason: text(snapshot?.reason),
         path: text(snapshot?.path),
         backupDir: text(snapshot?.backupDir),
+        snapshotHash: text(snapshot?.snapshotHash),
+        previousSnapshotHash: text(snapshot?.previousSnapshotHash),
         prune: snapshot?.prune && typeof snapshot.prune === "object"
           ? snapshot.prune
           : null
@@ -1975,6 +2143,15 @@ export function getProSecurityControlPersistenceStatus() {
         latestValidSnapshot.found && Number(latestValidSnapshot.snapshot?.mtimeMs || 0)
           ? new Date(Number(latestValidSnapshot.snapshot.mtimeMs)).toISOString()
           : "",
+      latestValidSnapshotChainReason: latestValidSnapshot.found
+        ? text(latestValidSnapshot.snapshotIntegrity?.reason)
+        : "",
+      latestValidSnapshotChainVerified: latestValidSnapshot.found
+        ? Boolean(latestValidSnapshot.snapshotIntegrity?.valid)
+        : false,
+      latestValidSnapshotChainHash: latestValidSnapshot.found
+        ? text(latestValidSnapshot.snapshotIntegrity?.snapshotHash)
+        : "",
       warnings: Array.isArray(latestValidSnapshot.warnings)
         ? latestValidSnapshot.warnings.slice(0, 10)
         : []
@@ -2025,6 +2202,9 @@ export function restoreProSecurityControlStateFromDisk({
       warnings: []
     };
   if (text(loadResult.source).toLowerCase() === "snapshot") {
+    const snapshotIntegrity = loadResult.snapshotIntegrity && typeof loadResult.snapshotIntegrity === "object"
+      ? loadResult.snapshotIntegrity
+      : {};
     pushSecurityAuditEventInternal({
       severity: "high",
       type: "security-control-persistence-restored-from-snapshot",
@@ -2035,6 +2215,8 @@ export function restoreProSecurityControlStateFromDisk({
         actorRole: text(actorRole),
         sourcePath: text(loadResult.sourcePath),
         integrityReason: text(integrity.reason),
+        snapshotChainReason: text(snapshotIntegrity.reason),
+        snapshotChainHash: text(snapshotIntegrity.snapshotHash),
         backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
       }
     });
@@ -3011,6 +3193,9 @@ function initializeSecurityControlStateFromDisk() {
       warnings: []
     };
   if (text(loadResult.source).toLowerCase() === "snapshot") {
+    const snapshotIntegrity = loadResult.snapshotIntegrity && typeof loadResult.snapshotIntegrity === "object"
+      ? loadResult.snapshotIntegrity
+      : {};
     pushSecurityAuditEventInternal({
       severity: "high",
       type: "security-control-persistence-boot-restored-from-snapshot",
@@ -3021,6 +3206,8 @@ function initializeSecurityControlStateFromDisk() {
         actorRole: "system",
         sourcePath: text(loadResult.sourcePath),
         integrityReason: text(integrity.reason),
+        snapshotChainReason: text(snapshotIntegrity.reason),
+        snapshotChainHash: text(snapshotIntegrity.snapshotHash),
         backupEnabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED
       }
     });
@@ -5870,6 +6057,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const controlBackupDir = resolveSecurityControlStateBackupDir(SECURITY_CONTROL_STATE_FILE);
   const controlBackupSnapshots = listSecurityControlStateSnapshotFiles(controlBackupDir);
   const controlBackupLatest = controlBackupSnapshots[0] || null;
+  const controlBackupLatestValid = findLatestValidSecurityControlStateSnapshot(SECURITY_CONTROL_STATE_FILE);
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -6082,6 +6270,16 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlBackupSnapshots: controlBackupSnapshots.length,
       securityControlBackupLatestAt: Number(controlBackupLatest?.mtimeMs || 0)
         ? new Date(Number(controlBackupLatest.mtimeMs)).toISOString()
+        : "",
+      securityControlBackupLatestValidAt:
+        controlBackupLatestValid.found && Number(controlBackupLatestValid.snapshot?.mtimeMs || 0)
+          ? new Date(Number(controlBackupLatestValid.snapshot.mtimeMs)).toISOString()
+          : "",
+      securityControlBackupLatestChainVerified: controlBackupLatestValid.found
+        ? Boolean(controlBackupLatestValid.snapshotIntegrity?.valid)
+        : false,
+      securityControlBackupLatestChainReason: controlBackupLatestValid.found
+        ? text(controlBackupLatestValid.snapshotIntegrity?.reason)
         : "",
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
