@@ -29,6 +29,7 @@ const proAdminMutationShieldEvents = [];
 const proAdminMutationSignatureNonces = new Map();
 const proSecurityControlMutationEvents = [];
 const proSecurityControlMutationBlocks = new Map();
+const proSecurityControlDowngradeGuardEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
@@ -37,6 +38,7 @@ let proLastAuthShieldAppliedAt = 0;
 let proAdminMutationShieldUntil = 0;
 let proLastAdminMutationShieldAppliedAt = 0;
 let proLastSecurityControlMutationBlockAt = 0;
+let proLastSecurityControlDowngradeBlockAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -80,6 +82,12 @@ const SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX = Math.max(
   50,
   Number(process.env.SECURITY_CONTROL_MUTATION_BLOCK_CACHE_MAX || 600)
 );
+const SECURITY_CONTROL_DOWNGRADE_GUARD_EVENT_MAX_ITEMS = Math.max(
+  100,
+  Number(process.env.SECURITY_CONTROL_DOWNGRADE_GUARD_EVENT_MAX_ITEMS || 800)
+);
+const SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED =
+  String(process.env.SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED || "true").trim().toLowerCase() !== "false";
 const SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED =
   String(process.env.SECURITY_CONTROL_STATE_PATH_HARDENING_ENABLED || "true").trim().toLowerCase() !== "false";
 const SECURITY_CONTROL_STATE_ALLOW_SYMLINKS =
@@ -733,7 +741,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoSubjectProtection: true,
         autoSubjectSessionShield: true,
         autoSubjectNetworkShield: true,
-        autoAdminMutationShield: true
+        autoAdminMutationShield: true,
+        securityControlDowngradeGuard: true
       }
     }
   },
@@ -847,7 +856,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoSubjectProtection: true,
         autoSubjectSessionShield: true,
         autoSubjectNetworkShield: true,
-        autoAdminMutationShield: true
+        autoAdminMutationShield: true,
+        securityControlDowngradeGuard: true
       }
     }
   },
@@ -961,7 +971,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoSubjectProtection: true,
         autoSubjectSessionShield: true,
         autoSubjectNetworkShield: true,
-        autoAdminMutationShield: true
+        autoAdminMutationShield: true,
+        securityControlDowngradeGuard: true
       }
     }
   }
@@ -1265,7 +1276,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoSubjectProtection: true,
     autoSubjectSessionShield: true,
     autoSubjectNetworkShield: true,
-    autoAdminMutationShield: true
+    autoAdminMutationShield: true,
+    securityControlDowngradeGuard: SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED
   },
   lists: {
     blockedIps: [],
@@ -3003,6 +3015,173 @@ function getSecurityControlMutationGuardStatus(nowTs = Date.now()) {
   };
 }
 
+function pushSecurityControlDowngradeGuardEvent(event = {}) {
+  const row = {
+    id: `sec-downgrade-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    actorId: text(event.actorId),
+    actorRole: text(event.actorRole),
+    actorKey: text(event.actorKey),
+    operation: text(event.operation),
+    method: text(event.method).toUpperCase(),
+    path: text(event.path),
+    blocked: Boolean(event.blocked),
+    reason: text(event.reason),
+    riskScore: Math.max(0, Number(event.riskScore || 0)),
+    confirmedOverride: Boolean(event.confirmedOverride),
+    disabledCriticalModules: Array.isArray(event.disabledCriticalModules)
+      ? event.disabledCriticalModules.slice(0, 12)
+      : [],
+    weakenedCriticalAdminControls: Array.isArray(event.weakenedCriticalAdminControls)
+      ? event.weakenedCriticalAdminControls.slice(0, 12)
+      : [],
+    modeDowngrade: Boolean(event.modeDowngrade)
+  };
+  proSecurityControlDowngradeGuardEvents.unshift(row);
+  if (proSecurityControlDowngradeGuardEvents.length > SECURITY_CONTROL_DOWNGRADE_GUARD_EVENT_MAX_ITEMS) {
+    proSecurityControlDowngradeGuardEvents.length = SECURITY_CONTROL_DOWNGRADE_GUARD_EVENT_MAX_ITEMS;
+  }
+  if (row.blocked) {
+    proLastSecurityControlDowngradeBlockAt = Date.now();
+  }
+  return row;
+}
+
+function evaluateSecurityControlDowngradeGuard({
+  currentState = {},
+  nextState = {},
+  actorId = "",
+  actorRole = "",
+  confirmHighRiskDowngrade = false,
+  operation = "security-control-update",
+  method = "PATCH",
+  path = "/api/system/security-control"
+} = {}) {
+  const actorKey = resolveSecurityControlMutationActorKey(actorId, actorRole);
+  const bypassed = isSecurityControlMutationGuardBypassActor(actorId, actorRole);
+  const current = currentState && typeof currentState === "object" && !Array.isArray(currentState)
+    ? currentState
+    : {};
+  const next = nextState && typeof nextState === "object" && !Array.isArray(nextState)
+    ? nextState
+    : {};
+  const currentAdmin = current.adminControls && typeof current.adminControls === "object" ? current.adminControls : {};
+  const nextAdmin = next.adminControls && typeof next.adminControls === "object" ? next.adminControls : {};
+  const enabledBefore = toBoolean(currentAdmin.securityControlDowngradeGuard, SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED);
+  const enabledAfter = toBoolean(nextAdmin.securityControlDowngradeGuard, enabledBefore);
+  const enabled = enabledBefore;
+  if (!enabled || bypassed) {
+    return {
+      allowed: true,
+      enabled,
+      bypassed,
+      confirmedOverride: false,
+      reason: !enabled ? "downgrade-guard-disabled-before-change" : "downgrade-guard-system-bypass",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      riskScore: 0,
+      risky: false,
+      enabledAfter,
+      disabledCriticalModules: [],
+      weakenedCriticalAdminControls: [],
+      modeDowngrade: false
+    };
+  }
+
+  const currentModules = current.modules && typeof current.modules === "object" ? current.modules : {};
+  const nextModules = next.modules && typeof next.modules === "object" ? next.modules : {};
+  const currentMode = text(current.mode, "balanced").toLowerCase();
+  const nextMode = text(next.mode, currentMode).toLowerCase();
+  const criticalModuleKeys = [
+    "requestFirewall",
+    "tokenFirewall",
+    "strictAdminMutationGuard",
+    "authFailureIntelligence",
+    "autoQuarantine"
+  ];
+  const criticalAdminControlKeys = [
+    "actionKeyEnforced",
+    "adminMutationSignatureEnforced",
+    "securityControlMutationGuard",
+    "securityControlDowngradeGuard"
+  ];
+  const disabledCriticalModules = criticalModuleKeys.filter(
+    (key) => toBoolean(currentModules[key], false) && !toBoolean(nextModules[key], false)
+  );
+  const weakenedCriticalAdminControls = criticalAdminControlKeys.filter(
+    (key) => toBoolean(currentAdmin[key], false) && !toBoolean(nextAdmin[key], false)
+  );
+  const modeDowngrade =
+    (currentMode === "lockdown" && nextMode !== "lockdown") ||
+    (currentMode === "hardened" && nextMode === "balanced");
+  const riskScore =
+    disabledCriticalModules.length * 30 +
+    weakenedCriticalAdminControls.length * 35 +
+    (modeDowngrade ? 20 : 0);
+  const risky = riskScore > 0;
+  const confirmed = risky && toBoolean(confirmHighRiskDowngrade, false);
+
+  if (!risky) {
+    return {
+      allowed: true,
+      enabled,
+      bypassed: false,
+      confirmedOverride: false,
+      reason: "downgrade-guard-no-risk",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      riskScore,
+      risky: false,
+      enabledAfter,
+      disabledCriticalModules,
+      weakenedCriticalAdminControls,
+      modeDowngrade
+    };
+  }
+
+  if (confirmed) {
+    return {
+      allowed: true,
+      enabled,
+      bypassed: false,
+      confirmedOverride: true,
+      reason: "downgrade-guard-confirmed-override",
+      actorKey,
+      operation: text(operation),
+      method: text(method).toUpperCase(),
+      path: text(path),
+      riskScore,
+      risky: true,
+      enabledAfter,
+      disabledCriticalModules,
+      weakenedCriticalAdminControls,
+      modeDowngrade
+    };
+  }
+
+  return {
+    allowed: false,
+    enabled,
+    bypassed: false,
+    confirmedOverride: false,
+    reason: "high-risk-security-downgrade-blocked",
+    actorKey,
+    operation: text(operation),
+    method: text(method).toUpperCase(),
+    path: text(path),
+    riskScore,
+    risky: true,
+    enabledAfter,
+    disabledCriticalModules,
+    weakenedCriticalAdminControls,
+    modeDowngrade
+  };
+}
+
 function listSecurityControlProfilesInternal() {
   return Object.values(SECURITY_CONTROL_PROFILE_DEFS).map((profile) => ({
     id: profile.id,
@@ -3069,6 +3248,9 @@ export function getProSecurityControlPersistenceStatus() {
   const latestValidSnapshot = findLatestValidSecurityControlStateSnapshot(target);
   const activeLoad = loadSecurityControlStatePayloadWithSnapshotFallback(target);
   const mutationGuard = getSecurityControlMutationGuardStatus();
+  const downgradeGuardEvents = proSecurityControlDowngradeGuardEvents.slice(0, 50);
+  const latestDowngradeGuardEvent = downgradeGuardEvents[0] || null;
+  const blockedDowngradeEvents = downgradeGuardEvents.filter((item) => Boolean(item?.blocked)).length;
   return {
     enabled: SECURITY_CONTROL_STATE_PERSIST_ENABLED,
     path: target,
@@ -3109,6 +3291,16 @@ export function getProSecurityControlPersistenceStatus() {
           : null
     },
     mutationGuard,
+    downgradeGuard: {
+      enabled: toBoolean(currentSecurityAdminControls()?.securityControlDowngradeGuard, SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED),
+      totalEvents: proSecurityControlDowngradeGuardEvents.length,
+      blockedEvents: blockedDowngradeEvents,
+      latestEventAt: text(latestDowngradeGuardEvent?.at),
+      latestEventReason: text(latestDowngradeGuardEvent?.reason),
+      latestBlockedAt: proLastSecurityControlDowngradeBlockAt
+        ? new Date(proLastSecurityControlDowngradeBlockAt).toISOString()
+        : ""
+    },
     backup: {
       enabled: SECURITY_CONTROL_STATE_BACKUP_ENABLED,
       dir: backupDirValidation.ok ? backupDir : "",
@@ -3292,6 +3484,7 @@ export function restoreProSecurityControlStateFromDisk({
     actorId,
     actorRole,
     enforceMutationGuard: false,
+    confirmHighRiskDowngrade: true,
     mutationOperation: "security-control-restore-apply",
     mutationMethod: "POST",
     mutationPath: "/api/system/security-control/restore",
@@ -3406,6 +3599,7 @@ export function updateProSecurityControlState(
     actorId = "",
     actorRole = "",
     enforceMutationGuard = true,
+    confirmHighRiskDowngrade = false,
     mutationOperation = "security-control-update",
     mutationMethod = "PATCH",
     mutationPath = "/api/system/security-control",
@@ -3453,7 +3647,8 @@ export function updateProSecurityControlState(
       state: getProSecurityControlState(),
       warnings,
       blocked: true,
-      guard
+      guard,
+      downgradeGuard: null
     };
   }
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
@@ -3461,7 +3656,8 @@ export function updateProSecurityControlState(
       state: getProSecurityControlState(),
       warnings: ["Invalid patch payload. Existing security control state returned."],
       blocked: false,
-      guard
+      guard,
+      downgradeGuard: null
     };
   }
 
@@ -4210,6 +4406,12 @@ export function updateProSecurityControlState(
         Boolean(next.adminControls.autoAdminMutationShield)
       );
     }
+    if (typeof patch.adminControls.securityControlDowngradeGuard !== "undefined") {
+      next.adminControls.securityControlDowngradeGuard = toBoolean(
+        patch.adminControls.securityControlDowngradeGuard,
+        Boolean(next.adminControls.securityControlDowngradeGuard)
+      );
+    }
   }
 
   if (patch.lists && typeof patch.lists === "object" && !Array.isArray(patch.lists)) {
@@ -4271,6 +4473,106 @@ export function updateProSecurityControlState(
     warnings.push("autoEscalateToHardenedEvents was auto-adjusted to stay above de-escalation threshold.");
   }
 
+  const downgradeGuard = evaluateSecurityControlDowngradeGuard({
+    currentState: proSecurityControlState,
+    nextState: next,
+    actorId,
+    actorRole,
+    confirmHighRiskDowngrade,
+    operation: mutationOperation,
+    method: mutationMethod,
+    path: mutationPath
+  });
+  if (!downgradeGuard.allowed) {
+    const criticalSummary = [
+      ...downgradeGuard.disabledCriticalModules.map((item) => `module:${item}`),
+      ...downgradeGuard.weakenedCriticalAdminControls.map((item) => `adminControl:${item}`),
+      ...(downgradeGuard.modeDowngrade ? ["mode:downgrade"] : [])
+    ];
+    warnings.push(
+      `High-risk security downgrade blocked (${text(downgradeGuard.reason)}). ${
+        criticalSummary.length ? `Risk items: ${criticalSummary.join(", ")}.` : ""
+      }`
+    );
+    pushSecurityAuditEventInternal({
+      severity: "critical",
+      type: "security-control-downgrade-guard-blocked",
+      method: text(mutationMethod, "PATCH"),
+      path: text(mutationPath, "/api/system/security-control"),
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        operation: text(mutationOperation),
+        reason: text(downgradeGuard.reason),
+        riskScore: Math.max(0, Number(downgradeGuard.riskScore || 0)),
+        disabledCriticalModules: downgradeGuard.disabledCriticalModules,
+        weakenedCriticalAdminControls: downgradeGuard.weakenedCriticalAdminControls,
+        modeDowngrade: Boolean(downgradeGuard.modeDowngrade)
+      }
+    });
+    pushSecurityControlDowngradeGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(downgradeGuard.actorKey),
+      operation: text(mutationOperation),
+      method: text(mutationMethod),
+      path: text(mutationPath),
+      blocked: true,
+      reason: text(downgradeGuard.reason),
+      riskScore: Math.max(0, Number(downgradeGuard.riskScore || 0)),
+      confirmedOverride: false,
+      disabledCriticalModules: downgradeGuard.disabledCriticalModules,
+      weakenedCriticalAdminControls: downgradeGuard.weakenedCriticalAdminControls,
+      modeDowngrade: Boolean(downgradeGuard.modeDowngrade)
+    });
+    return {
+      state: getProSecurityControlState(),
+      warnings,
+      blocked: true,
+      guard: downgradeGuard,
+      downgradeGuard
+    };
+  }
+
+  if (downgradeGuard.risky && downgradeGuard.confirmedOverride) {
+    warnings.push(
+      "High-risk security downgrade applied due to explicit confirm override. Audit trail recorded."
+    );
+    pushSecurityAuditEventInternal({
+      severity: "high",
+      type: "security-control-downgrade-guard-confirmed-override",
+      method: text(mutationMethod, "PATCH"),
+      path: text(mutationPath, "/api/system/security-control"),
+      details: {
+        actorId: text(actorId),
+        actorRole: text(actorRole),
+        operation: text(mutationOperation),
+        reason: text(downgradeGuard.reason),
+        riskScore: Math.max(0, Number(downgradeGuard.riskScore || 0)),
+        disabledCriticalModules: downgradeGuard.disabledCriticalModules,
+        weakenedCriticalAdminControls: downgradeGuard.weakenedCriticalAdminControls,
+        modeDowngrade: Boolean(downgradeGuard.modeDowngrade)
+      }
+    });
+  }
+  if (downgradeGuard.risky) {
+    pushSecurityControlDowngradeGuardEvent({
+      actorId,
+      actorRole,
+      actorKey: text(downgradeGuard.actorKey),
+      operation: text(mutationOperation),
+      method: text(mutationMethod),
+      path: text(mutationPath),
+      blocked: false,
+      reason: text(downgradeGuard.reason),
+      riskScore: Math.max(0, Number(downgradeGuard.riskScore || 0)),
+      confirmedOverride: Boolean(downgradeGuard.confirmedOverride),
+      disabledCriticalModules: downgradeGuard.disabledCriticalModules,
+      weakenedCriticalAdminControls: downgradeGuard.weakenedCriticalAdminControls,
+      modeDowngrade: Boolean(downgradeGuard.modeDowngrade)
+    });
+  }
+
   next.meta = {
     ...next.meta,
     updatedAt: nowIso(),
@@ -4314,7 +4616,8 @@ export function updateProSecurityControlState(
     state: getProSecurityControlState(),
     warnings,
     blocked: false,
-    guard
+    guard,
+    downgradeGuard
   };
 }
 
@@ -4322,7 +4625,8 @@ export function applyProSecurityControlProfile(
   profileId = "",
   {
     actorId = "",
-    actorRole = ""
+    actorRole = "",
+    confirmHighRiskDowngrade = false
   } = {}
 ) {
   const safeProfileId = text(profileId).toLowerCase();
@@ -4339,6 +4643,7 @@ export function applyProSecurityControlProfile(
   const result = updateProSecurityControlState(profile.patch, {
     actorId,
     actorRole,
+    confirmHighRiskDowngrade,
     mutationOperation: "security-control-profile-apply",
     mutationMethod: "POST",
     mutationPath: "/api/system/security-control/profile"
@@ -4350,7 +4655,10 @@ export function applyProSecurityControlProfile(
       profileId: profile.id,
       state: result.state,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
-      guard: result.guard && typeof result.guard === "object" ? result.guard : null
+      guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+        ? result.downgradeGuard
+        : null
     };
   }
   const warnings = [...(Array.isArray(result.warnings) ? result.warnings : [])];
@@ -4372,7 +4680,10 @@ export function applyProSecurityControlProfile(
     profileId: profile.id,
     state: result.state,
     warnings,
-    guard: result.guard && typeof result.guard === "object" ? result.guard : null
+    guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+      ? result.downgradeGuard
+      : null
   };
 }
 
@@ -7419,6 +7730,10 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     recentSubjectSessionShieldEvents: proSubjectSessionShieldEvents.slice(0, Math.min(100, safeLimit)),
     recentSubjectNetworkShieldEvents: proSubjectNetworkShieldEvents.slice(0, Math.min(100, safeLimit)),
     recentAdminMutationShieldEvents: proAdminMutationShieldEvents.slice(0, Math.min(100, safeLimit)),
+    recentSecurityControlDowngradeGuardEvents: proSecurityControlDowngradeGuardEvents.slice(
+      0,
+      Math.min(100, safeLimit)
+    ),
     activeIdentityProtections,
     activeSubjectProtections,
     controlState: getProSecurityControlState(),
@@ -7567,6 +7882,19 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       securityControlMutationGuardLatestBlockReason: text(controlMutationGuardStatus?.latestBlockReason),
       securityControlMutationGuardLatestBlockActor: text(controlMutationGuardStatus?.latestBlockActor),
       securityControlMutationGuardLatestBlockUntil: text(controlMutationGuardStatus?.latestBlockUntil),
+      securityControlDowngradeGuardEnabled: toBoolean(
+        adminControls.securityControlDowngradeGuard,
+        SECURITY_CONTROL_DOWNGRADE_GUARD_ENABLED
+      ),
+      securityControlDowngradeGuardEvents: proSecurityControlDowngradeGuardEvents.length,
+      securityControlDowngradeGuardBlockedEvents: proSecurityControlDowngradeGuardEvents.filter(
+        (item) => Boolean(item?.blocked)
+      ).length,
+      securityControlDowngradeGuardLastEventAt: text(proSecurityControlDowngradeGuardEvents[0]?.at),
+      securityControlDowngradeGuardLastReason: text(proSecurityControlDowngradeGuardEvents[0]?.reason),
+      securityControlDowngradeGuardLastBlockedAt: proLastSecurityControlDowngradeBlockAt
+        ? new Date(proLastSecurityControlDowngradeBlockAt).toISOString()
+        : "",
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,

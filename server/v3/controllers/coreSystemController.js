@@ -60,6 +60,14 @@ function safeBool(value) {
   return Boolean(value);
 }
 
+function toBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  const normalized = text(value).toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  return fallback;
+}
+
 function checkModelCoverage(model, requiredFields = []) {
   const schemaPaths = model?.schema?.paths
     ? Object.keys(model.schema.paths)
@@ -581,13 +589,18 @@ export function updateCoreSystemSecurityControl(req, res) {
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body
     : {};
+  const confirmHighRiskDowngrade = toBoolean(
+    body.confirmHighRiskDowngrade || body.breakGlass || body.confirmHighRiskChange,
+    false
+  );
   const patch =
     body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
       ? body.patch
       : body;
   const result = updateProSecurityControlState(patch, {
     actorId: String(req.coreUser?.id || ""),
-    actorRole: String(req.coreUser?.role || "")
+    actorRole: String(req.coreUser?.role || ""),
+    confirmHighRiskDowngrade
   });
   if (result.blocked) {
     return res.status(429).json({
@@ -599,6 +612,9 @@ export function updateCoreSystemSecurityControl(req, res) {
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+        ? result.downgradeGuard
+        : null,
       state: result.state
     });
   }
@@ -611,6 +627,9 @@ export function updateCoreSystemSecurityControl(req, res) {
     },
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+      ? result.downgradeGuard
+      : null,
     state: result.state
   });
 }
@@ -628,9 +647,14 @@ export function getCoreSystemSecurityControlProfiles(req, res) {
 
 export function applyCoreSystemSecurityControlProfile(req, res) {
   const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+  const confirmHighRiskDowngrade = toBoolean(
+    req.body?.confirmHighRiskDowngrade || req.body?.breakGlass || req.body?.confirmHighRiskChange,
+    false
+  );
   const result = applyProSecurityControlProfile(profileId, {
     actorId: String(req.coreUser?.id || ""),
-    actorRole: String(req.coreUser?.role || "")
+    actorRole: String(req.coreUser?.role || ""),
+    confirmHighRiskDowngrade
   });
   const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
   return res.status(statusCode).json({
@@ -643,6 +667,9 @@ export function applyCoreSystemSecurityControlProfile(req, res) {
     profileId: result.profileId,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+    downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+      ? result.downgradeGuard
+      : null,
     state: result.state
   });
 }

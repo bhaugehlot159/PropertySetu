@@ -221,7 +221,8 @@ export const coreSystemsBlueprint = [
       "Rollback attack protection: stale primary state auto-detected and replaced with latest valid snapshot",
       "Snapshot chain continuity verification: missing/looped/duplicate links are auto-rejected before restore",
       "Security-control mutation abuse guard: rapid admin update/reset/restore/profile actions auto-throttled with temporary actor block",
-      "Filesystem path hardening for security-control persistence: allowed-root enforcement plus symlink path rejection"
+      "Filesystem path hardening for security-control persistence: allowed-root enforcement plus symlink path rejection",
+      "High-risk security downgrade guard: critical module/control weakening blocked unless explicit break-glass confirm"
     ],
     endpoints: [
       "/api/v3/auth/*",

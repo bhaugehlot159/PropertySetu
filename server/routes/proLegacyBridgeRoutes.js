@@ -75,6 +75,14 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function toBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  const normalized = text(value).toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  return fallback;
+}
+
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
   return normalized || fallback;
@@ -514,12 +522,17 @@ router.patch(
     const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? req.body
       : {};
+    const confirmHighRiskDowngrade = toBoolean(
+      body.confirmHighRiskDowngrade || body.breakGlass || body.confirmHighRiskChange,
+      false
+    );
     const patch = body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
       ? body.patch
       : body;
     const result = updateProSecurityControlState(patch, {
       actorId: actor.id,
-      actorRole: actor.role
+      actorRole: actor.role,
+      confirmHighRiskDowngrade
     });
     if (result.blocked) {
       return res.status(429).json({
@@ -531,6 +544,9 @@ router.patch(
         },
         warnings: Array.isArray(result.warnings) ? result.warnings : [],
         guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+        downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+          ? result.downgradeGuard
+          : null,
         state: result.state
       });
     }
@@ -544,6 +560,9 @@ router.patch(
       },
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+        ? result.downgradeGuard
+        : null,
       state: result.state
     });
   }
@@ -593,9 +612,14 @@ router.post(
   (req, res) => {
     const actor = req.bridgeActor;
     const profileId = text(req.body?.profileId || req.body?.profile || req.body?.mode).toLowerCase();
+    const confirmHighRiskDowngrade = toBoolean(
+      req.body?.confirmHighRiskDowngrade || req.body?.breakGlass || req.body?.confirmHighRiskChange,
+      false
+    );
     const result = applyProSecurityControlProfile(profileId, {
       actorId: actor.id,
-      actorRole: actor.role
+      actorRole: actor.role,
+      confirmHighRiskDowngrade
     });
     const statusCode = result.blocked ? 429 : (result.applied ? 200 : 400);
     return res.status(statusCode).json({
@@ -608,6 +632,9 @@ router.post(
       profileId: result.profileId,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       guard: result.guard && typeof result.guard === "object" ? result.guard : null,
+      downgradeGuard: result.downgradeGuard && typeof result.downgradeGuard === "object"
+        ? result.downgradeGuard
+        : null,
       state: result.state
     });
   }
