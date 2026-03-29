@@ -362,10 +362,18 @@ const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
   text(process.env.ADMIN_ACTION_KEY_REQUIRED, "false").toLowerCase() === "true";
 const ADMIN_MUTATION_SIGNATURE_SECRET = text(process.env.ADMIN_MUTATION_SIGNATURE_SECRET);
+const ADMIN_MUTATION_SIGNATURE_SECONDARY_SECRET = text(
+  process.env.ADMIN_MUTATION_SIGNATURE_SECONDARY_SECRET
+);
+const ADMIN_MUTATION_SIGNATURE_SECRETS = [...new Set(
+  [ADMIN_MUTATION_SIGNATURE_SECRET, ADMIN_MUTATION_SIGNATURE_SECONDARY_SECRET]
+    .map((item) => text(item))
+    .filter(Boolean)
+)];
 const API_ADMIN_MUTATION_SIGNATURE_REQUIRED =
   text(process.env.ADMIN_MUTATION_SIGNATURE_REQUIRED, "false").toLowerCase() === "true";
 const API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED =
-  API_ADMIN_MUTATION_SIGNATURE_REQUIRED && Boolean(ADMIN_MUTATION_SIGNATURE_SECRET);
+  API_ADMIN_MUTATION_SIGNATURE_REQUIRED && ADMIN_MUTATION_SIGNATURE_SECRETS.length > 0;
 const API_ADMIN_ALLOWLIST_IPS = text(process.env.ADMIN_IP_ALLOWLIST)
   .split(",")
   .map((item) => item.trim())
@@ -2439,10 +2447,12 @@ export function updateProSecurityControlState(
         patch.adminControls.adminMutationSignatureEnforced,
         Boolean(next.adminControls.adminMutationSignatureEnforced)
       );
-      const hasSignatureSecret = text(ADMIN_MUTATION_SIGNATURE_SECRET).length > 0;
+      const hasSignatureSecret = ADMIN_MUTATION_SIGNATURE_SECRETS.length > 0;
       if (desired && !hasSignatureSecret) {
         next.adminControls.adminMutationSignatureEnforced = false;
-        warnings.push("adminMutationSignatureEnforced not enabled because ADMIN_MUTATION_SIGNATURE_SECRET is missing.");
+        warnings.push(
+          "adminMutationSignatureEnforced not enabled because ADMIN_MUTATION_SIGNATURE_SECRET/ADMIN_MUTATION_SIGNATURE_SECONDARY_SECRET is missing."
+        );
       } else {
         next.adminControls.adminMutationSignatureEnforced = desired;
       }
@@ -5727,7 +5737,10 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       adminMutationShields: proAdminMutationShieldEvents.length,
       adminMutationShieldLastAt: text(proAdminMutationShieldEvents[0]?.at),
       adminMutationSignedRequestsEnforced: toBoolean(adminControls.adminMutationSignatureEnforced, false),
-      adminMutationSignatureSecretConfigured: Boolean(ADMIN_MUTATION_SIGNATURE_SECRET),
+      adminMutationSignatureSecretConfigured: ADMIN_MUTATION_SIGNATURE_SECRETS.length > 0,
+      adminMutationSignaturePrimaryConfigured: Boolean(ADMIN_MUTATION_SIGNATURE_SECRET),
+      adminMutationSignatureSecondaryConfigured: Boolean(ADMIN_MUTATION_SIGNATURE_SECONDARY_SECRET),
+      adminMutationSignatureKeyRotationEnabled: ADMIN_MUTATION_SIGNATURE_SECRETS.length > 1,
       adminMutationSignatureNonceCacheSize: proAdminMutationSignatureNonces.size,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
@@ -6414,7 +6427,7 @@ function buildAdminMutationQueryHash(req) {
   return hashAdminMutationSignatureInput(query);
 }
 
-function computeAdminMutationRequestSignature({
+function computeAdminMutationRequestSignatureWithSecret(secret = "", {
   requestPath = "",
   method = "POST",
   timestampSec = 0,
@@ -6422,7 +6435,8 @@ function computeAdminMutationRequestSignature({
   bodyHash = "",
   queryHash = ""
 } = {}) {
-  if (!ADMIN_MUTATION_SIGNATURE_SECRET) return "";
+  const safeSecret = text(secret);
+  if (!safeSecret) return "";
   const canonicalMethod = normalizeRequestMethod(method);
   const canonicalPath = normalizeRequestPath(requestPath || "/api/system");
   const canonicalTimestamp = String(Math.trunc(Number(timestampSec || 0)));
@@ -6438,9 +6452,17 @@ function computeAdminMutationRequestSignature({
     canonicalQueryHash
   ].join("|");
   return crypto
-    .createHmac("sha256", ADMIN_MUTATION_SIGNATURE_SECRET)
+    .createHmac("sha256", safeSecret)
     .update(signingInput)
     .digest("hex");
+}
+
+function computeAdminMutationRequestSignature(payload = {}) {
+  if (!ADMIN_MUTATION_SIGNATURE_SECRETS.length) return "";
+  return computeAdminMutationRequestSignatureWithSecret(
+    ADMIN_MUTATION_SIGNATURE_SECRETS[0],
+    payload
+  );
 }
 
 function evaluateAdminMutationRequestSignature(req, {
@@ -6457,7 +6479,7 @@ function evaluateAdminMutationRequestSignature(req, {
     };
   }
 
-  if (!ADMIN_MUTATION_SIGNATURE_SECRET) {
+  if (!ADMIN_MUTATION_SIGNATURE_SECRETS.length) {
     return {
       valid: false,
       reason: "secret-missing",
@@ -6542,15 +6564,26 @@ function evaluateAdminMutationRequestSignature(req, {
 
   const bodyHash = buildAdminMutationBodyHash(req);
   const queryHash = buildAdminMutationQueryHash(req);
-  const expected = computeAdminMutationRequestSignature({
+  const signaturePayload = {
     requestPath,
     method,
     timestampSec,
     nonce,
     bodyHash,
     queryHash
-  });
-  if (!expected || !timingSafeEqualText(signature, expected)) {
+  };
+  let matchedSecretIndex = -1;
+  for (let index = 0; index < ADMIN_MUTATION_SIGNATURE_SECRETS.length; index += 1) {
+    const expected = computeAdminMutationRequestSignatureWithSecret(
+      ADMIN_MUTATION_SIGNATURE_SECRETS[index],
+      signaturePayload
+    );
+    if (expected && timingSafeEqualText(signature, expected)) {
+      matchedSecretIndex = index;
+      break;
+    }
+  }
+  if (matchedSecretIndex < 0) {
     return {
       valid: false,
       reason: "signature-mismatch",
@@ -6558,12 +6591,14 @@ function evaluateAdminMutationRequestSignature(req, {
     };
   }
 
+  const matchedSecretSlot = matchedSecretIndex === 0 ? "primary" : "secondary";
   proAdminMutationSignatureNonces.set(nonce, {
     usedAt: nowTs,
     expiresAt: nowTs + ADMIN_MUTATION_SIGNATURE_NONCE_TTL_MS,
     method: normalizeRequestMethod(method),
     path: normalizeRequestPath(requestPath || req?.path || "/api/system"),
-    requestId: text(req?.requestId)
+    requestId: text(req?.requestId),
+    secretSlot: matchedSecretSlot
   });
   pruneAdminMutationSignatureNonces(nowTs);
 
@@ -6571,7 +6606,9 @@ function evaluateAdminMutationRequestSignature(req, {
     valid: true,
     reason: "signature-verified",
     enforced: true,
-    driftSec
+    driftSec,
+    secretSlot: matchedSecretSlot,
+    keyRotationEnabled: ADMIN_MUTATION_SIGNATURE_SECRETS.length > 1
   };
 }
 
