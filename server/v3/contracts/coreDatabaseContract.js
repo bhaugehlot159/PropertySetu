@@ -209,7 +209,8 @@ export const coreSystemsBlueprint = [
       "Targeted identity protection for attacked login/OTP identities with temporary shield",
       "Token-subject takeover auto protection with temporary shield and admin overrides",
       "Subject session-churn shield to stop token-family abuse with automated containment",
-      "Network-velocity shield for impossible subject movement across IP prefixes"
+      "Network-velocity shield for impossible subject movement across IP prefixes",
+      "Admin mutation attack shield for suspicious control-plane write attempts"
     ],
     endpoints: [
       "/api/v3/auth/*",

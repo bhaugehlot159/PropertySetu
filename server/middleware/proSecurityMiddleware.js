@@ -24,11 +24,15 @@ const proSubjectProtectionEvents = [];
 const proSubjectSessionIntel = new Map();
 const proSubjectSessionShieldEvents = [];
 const proSubjectNetworkShieldEvents = [];
+const proAdminMutationAttemptIntel = [];
+const proAdminMutationShieldEvents = [];
 let proLastAutoModeChangeAt = 0;
 let proLastCriticalLockdownAt = 0;
 let proLastCampaignLockdownAt = 0;
 let proAuthShieldUntil = 0;
 let proLastAuthShieldAppliedAt = 0;
+let proAdminMutationShieldUntil = 0;
+let proLastAdminMutationShieldAppliedAt = 0;
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -308,6 +312,14 @@ const SUBJECT_NETWORK_SHIELD_EVENT_MAX_ITEMS = Math.max(
   20,
   Number(process.env.SUBJECT_NETWORK_SHIELD_EVENT_MAX_ITEMS || 500)
 );
+const ADMIN_MUTATION_ATTEMPT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.ADMIN_MUTATION_ATTEMPT_MAX_ITEMS || 8000)
+);
+const ADMIN_MUTATION_SHIELD_EVENT_MAX_ITEMS = Math.max(
+  20,
+  Number(process.env.ADMIN_MUTATION_SHIELD_EVENT_MAX_ITEMS || 500)
+);
 const CRITICAL_THREAT_PATTERNS = [
   /token-alg-none/i,
   /token-header-injection-pattern/i,
@@ -578,7 +590,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectNetworkDistinctPrefixes: 4,
         subjectNetworkJumpThreshold: 3,
         subjectNetworkShieldDurationMinutes: 60,
-        subjectNetworkCooldownMinutes: 10
+        subjectNetworkCooldownMinutes: 10,
+        adminMutationWindowMinutes: 30,
+        adminMutationAttemptThreshold: 8,
+        adminMutationDistinctFingerprints: 4,
+        adminMutationDistinctIps: 3,
+        adminMutationShieldDurationMinutes: 30,
+        adminMutationCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
@@ -594,7 +612,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoIdentityProtection: true,
         autoSubjectProtection: true,
         autoSubjectSessionShield: true,
-        autoSubjectNetworkShield: true
+        autoSubjectNetworkShield: true,
+        autoAdminMutationShield: true
       }
     }
   },
@@ -679,7 +698,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectNetworkDistinctPrefixes: 3,
         subjectNetworkJumpThreshold: 2,
         subjectNetworkShieldDurationMinutes: 75,
-        subjectNetworkCooldownMinutes: 10
+        subjectNetworkCooldownMinutes: 10,
+        adminMutationWindowMinutes: 20,
+        adminMutationAttemptThreshold: 6,
+        adminMutationDistinctFingerprints: 3,
+        adminMutationDistinctIps: 3,
+        adminMutationShieldDurationMinutes: 45,
+        adminMutationCooldownMinutes: 10
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -695,7 +720,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoIdentityProtection: true,
         autoSubjectProtection: true,
         autoSubjectSessionShield: true,
-        autoSubjectNetworkShield: true
+        autoSubjectNetworkShield: true,
+        autoAdminMutationShield: true
       }
     }
   },
@@ -780,7 +806,13 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         subjectNetworkDistinctPrefixes: 2,
         subjectNetworkJumpThreshold: 1,
         subjectNetworkShieldDurationMinutes: 120,
-        subjectNetworkCooldownMinutes: 8
+        subjectNetworkCooldownMinutes: 8,
+        adminMutationWindowMinutes: 15,
+        adminMutationAttemptThreshold: 4,
+        adminMutationDistinctFingerprints: 2,
+        adminMutationDistinctIps: 2,
+        adminMutationShieldDurationMinutes: 60,
+        adminMutationCooldownMinutes: 8
       },
       adminControls: {
         actionKeyEnforced: true,
@@ -796,7 +828,8 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         autoIdentityProtection: true,
         autoSubjectProtection: true,
         autoSubjectSessionShield: true,
-        autoSubjectNetworkShield: true
+        autoSubjectNetworkShield: true,
+        autoAdminMutationShield: true
       }
     }
   }
@@ -1041,6 +1074,30 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     subjectNetworkCooldownMinutes: Math.max(
       1,
       Number(process.env.SUBJECT_NETWORK_COOLDOWN_MINUTES || 10)
+    ),
+    adminMutationWindowMinutes: Math.max(
+      5,
+      Number(process.env.ADMIN_MUTATION_WINDOW_MINUTES || 30)
+    ),
+    adminMutationAttemptThreshold: Math.max(
+      2,
+      Number(process.env.ADMIN_MUTATION_ATTEMPT_THRESHOLD || 8)
+    ),
+    adminMutationDistinctFingerprints: Math.max(
+      2,
+      Number(process.env.ADMIN_MUTATION_DISTINCT_FINGERPRINTS || 4)
+    ),
+    adminMutationDistinctIps: Math.max(
+      2,
+      Number(process.env.ADMIN_MUTATION_DISTINCT_IPS || 3)
+    ),
+    adminMutationShieldDurationMinutes: Math.max(
+      1,
+      Number(process.env.ADMIN_MUTATION_SHIELD_DURATION_MINUTES || 30)
+    ),
+    adminMutationCooldownMinutes: Math.max(
+      1,
+      Number(process.env.ADMIN_MUTATION_COOLDOWN_MINUTES || 10)
     )
   },
   adminControls: {
@@ -1057,7 +1114,8 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     autoIdentityProtection: true,
     autoSubjectProtection: true,
     autoSubjectSessionShield: true,
-    autoSubjectNetworkShield: true
+    autoSubjectNetworkShield: true,
+    autoAdminMutationShield: true
   },
   lists: {
     blockedIps: [],
@@ -2058,6 +2116,54 @@ export function updateProSecurityControlState(
         720
       );
     }
+    if (typeof incoming.adminMutationWindowMinutes !== "undefined") {
+      next.thresholds.adminMutationWindowMinutes = toIntegerInRange(
+        incoming.adminMutationWindowMinutes,
+        next.thresholds.adminMutationWindowMinutes,
+        5,
+        1440
+      );
+    }
+    if (typeof incoming.adminMutationAttemptThreshold !== "undefined") {
+      next.thresholds.adminMutationAttemptThreshold = toIntegerInRange(
+        incoming.adminMutationAttemptThreshold,
+        next.thresholds.adminMutationAttemptThreshold,
+        2,
+        5000
+      );
+    }
+    if (typeof incoming.adminMutationDistinctFingerprints !== "undefined") {
+      next.thresholds.adminMutationDistinctFingerprints = toIntegerInRange(
+        incoming.adminMutationDistinctFingerprints,
+        next.thresholds.adminMutationDistinctFingerprints,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.adminMutationDistinctIps !== "undefined") {
+      next.thresholds.adminMutationDistinctIps = toIntegerInRange(
+        incoming.adminMutationDistinctIps,
+        next.thresholds.adminMutationDistinctIps,
+        2,
+        1000
+      );
+    }
+    if (typeof incoming.adminMutationShieldDurationMinutes !== "undefined") {
+      next.thresholds.adminMutationShieldDurationMinutes = toIntegerInRange(
+        incoming.adminMutationShieldDurationMinutes,
+        next.thresholds.adminMutationShieldDurationMinutes,
+        1,
+        1440
+      );
+    }
+    if (typeof incoming.adminMutationCooldownMinutes !== "undefined") {
+      next.thresholds.adminMutationCooldownMinutes = toIntegerInRange(
+        incoming.adminMutationCooldownMinutes,
+        next.thresholds.adminMutationCooldownMinutes,
+        1,
+        720
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -2157,6 +2263,12 @@ export function updateProSecurityControlState(
       next.adminControls.autoSubjectNetworkShield = toBoolean(
         patch.adminControls.autoSubjectNetworkShield,
         Boolean(next.adminControls.autoSubjectNetworkShield)
+      );
+    }
+    if (typeof patch.adminControls.autoAdminMutationShield !== "undefined") {
+      next.adminControls.autoAdminMutationShield = toBoolean(
+        patch.adminControls.autoAdminMutationShield,
+        Boolean(next.adminControls.autoAdminMutationShield)
       );
     }
   }
@@ -3563,6 +3675,155 @@ function currentAuthShieldStatus(nowTs = Date.now()) {
   };
 }
 
+function currentAdminMutationShieldStatus(nowTs = Date.now()) {
+  const safeNow = Number(nowTs);
+  const expiresAt = Math.max(0, Number(proAdminMutationShieldUntil || 0));
+  const active = expiresAt > safeNow;
+  return {
+    active,
+    expiresAt,
+    remainingSec: active ? Math.max(0, Math.ceil((expiresAt - safeNow) / 1000)) : 0
+  };
+}
+
+function maybeApplyAdminMutationShield({
+  requestId = "",
+  path: requestPath = "",
+  method = "POST",
+  reason = "admin-mutation-attempt",
+  fingerprint = "",
+  ip = ""
+} = {}) {
+  const safePath = normalizeRequestPath(requestPath || "/api/admin");
+  const safeMethod = text(method).toUpperCase();
+  if (!isAdminMutationPath(safePath, safeMethod)) return;
+
+  const nowTs = Date.now();
+  const attemptRow = {
+    id: `admin-attempt-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    atTs: nowTs,
+    requestId: text(requestId),
+    path: safePath,
+    method: safeMethod,
+    reason: text(reason).toLowerCase(),
+    fingerprint: normalizeProSecurityThreatFingerprint(fingerprint),
+    ip: normalizeIpEntry(ip)
+  };
+  proAdminMutationAttemptIntel.unshift(attemptRow);
+  if (proAdminMutationAttemptIntel.length > ADMIN_MUTATION_ATTEMPT_MAX_ITEMS) {
+    proAdminMutationAttemptIntel.length = ADMIN_MUTATION_ATTEMPT_MAX_ITEMS;
+  }
+
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoAdminMutationShield, true)) return;
+
+  const thresholds = currentSecurityThresholds();
+  const windowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.adminMutationWindowMinutes || 30) * 60 * 1000)
+  );
+  const attemptThreshold = Math.max(2, Number(thresholds.adminMutationAttemptThreshold || 8));
+  const distinctFingerprintThreshold = Math.max(
+    2,
+    Number(thresholds.adminMutationDistinctFingerprints || 4)
+  );
+  const distinctIpThreshold = Math.max(2, Number(thresholds.adminMutationDistinctIps || 3));
+  const cooldownMs = Math.max(
+    60_000,
+    Math.min(12 * 60 * 60 * 1000, Number(thresholds.adminMutationCooldownMinutes || 10) * 60 * 1000)
+  );
+  if (
+    proLastAdminMutationShieldAppliedAt > 0 &&
+    nowTs - proLastAdminMutationShieldAppliedAt < cooldownMs
+  ) {
+    return;
+  }
+
+  const cutoff = nowTs - windowMs;
+  const recent = proAdminMutationAttemptIntel.filter((item) => {
+    const atTs = Number(item?.atTs || 0);
+    if (!Number.isFinite(atTs) || atTs < cutoff) return false;
+    const itemPath = normalizeRequestPath(item?.path || "/api");
+    const itemMethod = text(item?.method).toUpperCase();
+    return isAdminMutationPath(itemPath, itemMethod);
+  });
+  if (!recent.length) return;
+
+  const distinctFingerprintCount = new Set(
+    recent.map((item) => normalizeProSecurityThreatFingerprint(item?.fingerprint)).filter(Boolean)
+  ).size;
+  const distinctIpCount = new Set(
+    recent.map((item) => normalizeIpEntry(item?.ip)).filter(Boolean)
+  ).size;
+  const attemptCount = recent.length;
+
+  if (
+    attemptCount < attemptThreshold ||
+    (distinctFingerprintCount < distinctFingerprintThreshold && distinctIpCount < distinctIpThreshold)
+  ) {
+    return;
+  }
+
+  const durationMs = Math.max(
+    60_000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.adminMutationShieldDurationMinutes || 30) * 60 * 1000)
+  );
+  const nextUntil = nowTs + durationMs;
+  proAdminMutationShieldUntil = Math.max(proAdminMutationShieldUntil, nextUntil);
+  proLastAdminMutationShieldAppliedAt = nowTs;
+
+  const event = {
+    id: `admin-shield-${nowTs}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    requestId: text(requestId),
+    path: safePath,
+    method: safeMethod,
+    reason: text(reason).toLowerCase(),
+    windowMinutes: Math.round(windowMs / 60_000),
+    cooldownMinutes: Math.round(cooldownMs / 60_000),
+    shieldDurationMinutes: Math.round(durationMs / 60_000),
+    activeUntil: new Date(proAdminMutationShieldUntil).toISOString(),
+    attempts: attemptCount,
+    distinctFingerprintCount,
+    distinctIpCount,
+    thresholds: {
+      attemptThreshold,
+      distinctFingerprintThreshold,
+      distinctIpThreshold
+    }
+  };
+  proAdminMutationShieldEvents.unshift(event);
+  if (proAdminMutationShieldEvents.length > ADMIN_MUTATION_SHIELD_EVENT_MAX_ITEMS) {
+    proAdminMutationShieldEvents.length = ADMIN_MUTATION_SHIELD_EVENT_MAX_ITEMS;
+  }
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-admin-mutation-shield",
+    requestId: text(requestId),
+    fingerprint: text(fingerprint),
+    ip: text(ip),
+    path: safePath,
+    method: safeMethod,
+    details: {
+      reason: text(reason).toLowerCase(),
+      activeUntil: new Date(proAdminMutationShieldUntil).toISOString(),
+      windowMinutes: Math.round(windowMs / 60_000),
+      cooldownMinutes: Math.round(cooldownMs / 60_000),
+      shieldDurationMinutes: Math.round(durationMs / 60_000),
+      attempts: attemptCount,
+      distinctFingerprintCount,
+      distinctIpCount,
+      thresholds: {
+        attemptThreshold,
+        distinctFingerprintThreshold,
+        distinctIpThreshold
+      }
+    }
+  });
+}
+
 function maybeApplyAuthStormShield({
   requestId = "",
   path: requestPath = "",
@@ -4872,6 +5133,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const lists = currentSecurityLists();
   const mode = currentSecurityMode();
   const authShieldStatus = currentAuthShieldStatus();
+  const adminMutationShieldStatus = currentAdminMutationShieldStatus();
   const authStormWindowMs = Math.max(
     5 * 60 * 1000,
     Math.min(24 * 60 * 60 * 1000, Number(thresholds.authStormWindowMinutes || 20) * 60 * 1000)
@@ -4880,6 +5142,16 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const authStormFailureCount = proAuthFailureTelemetry.filter(
     (item) => Number(item?.at || 0) >= authStormCutoff
   ).length;
+  const adminMutationWindowMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(24 * 60 * 60 * 1000, Number(thresholds.adminMutationWindowMinutes || 30) * 60 * 1000)
+  );
+  const adminMutationCutoff = Date.now() - adminMutationWindowMs;
+  const adminMutationAttemptsInWindow = proAdminMutationAttemptIntel.filter((item) => {
+    const atTs = Number(item?.atTs || 0);
+    if (!Number.isFinite(atTs) || atTs < adminMutationCutoff) return false;
+    return isAdminMutationPath(item?.path, item?.method);
+  }).length;
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -4999,6 +5271,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     recentSubjectProtectionEvents: proSubjectProtectionEvents.slice(0, Math.min(100, safeLimit)),
     recentSubjectSessionShieldEvents: proSubjectSessionShieldEvents.slice(0, Math.min(100, safeLimit)),
     recentSubjectNetworkShieldEvents: proSubjectNetworkShieldEvents.slice(0, Math.min(100, safeLimit)),
+    recentAdminMutationShieldEvents: proAdminMutationShieldEvents.slice(0, Math.min(100, safeLimit)),
     activeIdentityProtections,
     activeSubjectProtections,
     controlState: getProSecurityControlState(),
@@ -5057,6 +5330,15 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       subjectSessionShieldLastAt: text(proSubjectSessionShieldEvents[0]?.at),
       subjectNetworkShields: proSubjectNetworkShieldEvents.length,
       subjectNetworkShieldLastAt: text(proSubjectNetworkShieldEvents[0]?.at),
+      adminMutationShieldActive: Boolean(adminMutationShieldStatus.active),
+      adminMutationShieldUntil: adminMutationShieldStatus.expiresAt
+        ? new Date(adminMutationShieldStatus.expiresAt).toISOString()
+        : "",
+      adminMutationShieldRemainingSec: adminMutationShieldStatus.remainingSec,
+      adminMutationWindowMinutes: Math.round(adminMutationWindowMs / 60_000),
+      adminMutationAttemptsInWindow,
+      adminMutationShields: proAdminMutationShieldEvents.length,
+      adminMutationShieldLastAt: text(proAdminMutationShieldEvents[0]?.at),
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -5924,6 +6206,16 @@ export function proRequestFirewall(req, res, next) {
       riskScore,
       details
     });
+    if (isAdminMutationPath(pathForChecks, method)) {
+      maybeApplyAdminMutationShield({
+        requestId: req.requestId,
+        path: pathForChecks,
+        method,
+        reason,
+        fingerprint,
+        ip: clientIp
+      });
+    }
     res.setHeader("Retry-After", String(incident.retryAfterSec));
     return res.status(statusCode).json({
       success: false,
@@ -6104,6 +6396,41 @@ export function proRequestFirewall(req, res, next) {
               : ""
           },
           message: "This authentication identity is temporarily protected due to suspicious attack patterns."
+        });
+      }
+    }
+  }
+  if (isAdminMutationPath(pathForChecks, method)) {
+    const adminMutationShield = currentAdminMutationShieldStatus();
+    if (adminMutationShield.active) {
+      const headerKey = text(req?.headers?.["x-admin-action-key"]);
+      const hasConfiguredSecret = text(API_ADMIN_ACTION_KEY).length > 0;
+      const bypassByActionKey = hasConfiguredSecret && timingSafeEqualText(headerKey, API_ADMIN_ACTION_KEY);
+      const bypassByTrustedFingerprint = isTrustedSecurityFingerprint(fingerprint);
+      if (bypassByActionKey || bypassByTrustedFingerprint) {
+        pushProSecurityAuditEvent(req, {
+          severity: "medium",
+          type: "admin-mutation-shield-bypass",
+          details: {
+            path: pathForChecks,
+            method,
+            bypassByActionKey: Boolean(bypassByActionKey),
+            bypassByTrustedFingerprint: Boolean(bypassByTrustedFingerprint),
+            shieldRemainingSec: adminMutationShield.remainingSec
+          }
+        });
+      } else {
+        return reject({
+          reason: "firewall-admin-mutation-shield",
+          statusCode: 429,
+          riskScore: 96,
+          details: {
+            shieldActiveUntil: adminMutationShield.expiresAt
+              ? new Date(adminMutationShield.expiresAt).toISOString()
+              : "",
+            shieldRemainingSec: adminMutationShield.remainingSec
+          },
+          message: "Admin mutation endpoints are temporarily shielded due to suspicious activity."
         });
       }
     }
