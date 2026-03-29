@@ -10,6 +10,8 @@ const proThreatIncidents = [];
 const proFakeListingSignatureIntel = new Map();
 const proTokenIntelligence = new Map();
 const proSubjectIntelligence = new Map();
+const proAutoPromoteIntel = new Map();
+const proAutoPromotionEvents = [];
 let proSecurityAuditChainHead = "";
 let proThreatIncidentChainHead = "";
 const __filename = fileURLToPath(import.meta.url);
@@ -225,6 +227,18 @@ const SUBJECT_INTEL_MAX_ITEMS = Math.max(
   200,
   Number(process.env.SUBJECT_INTEL_MAX_ITEMS || 6000)
 );
+const AUTO_PROMOTE_STORAGE_WINDOW_MS = Math.max(
+  60 * 60 * 1000,
+  Number(process.env.AUTO_PROMOTE_STORAGE_WINDOW_MS || 24 * 60 * 60 * 1000)
+);
+const AUTO_PROMOTE_INTEL_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.AUTO_PROMOTE_INTEL_MAX_ITEMS || 8000)
+);
+const AUTO_PROMOTION_EVENT_MAX_ITEMS = Math.max(
+  50,
+  Number(process.env.AUTO_PROMOTION_EVENT_MAX_ITEMS || 500)
+);
 const API_ADMIN_ACTION_KEY = text(process.env.ADMIN_ACTION_KEY);
 const API_ADMIN_ACTION_KEY_ENFORCED =
   text(process.env.ADMIN_ACTION_KEY_REQUIRED, "false").toLowerCase() === "true";
@@ -423,11 +437,17 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         tokenReplayDistinctIps: 3,
         subjectReplayEvents: 8,
         subjectReplayDistinctFingerprints: 3,
-        subjectReplayDistinctIps: 3
+        subjectReplayDistinctIps: 3,
+        autoPromoteWindowMinutes: 120,
+        autoPromoteFingerprintEvents: 12,
+        autoPromoteIpEvents: 15,
+        autoPromoteSubjectEvents: 8,
+        autoPromoteBlockedEvents: 3
       },
       adminControls: {
         actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
-        readOnlyApi: false
+        readOnlyApi: false,
+        autoPromoteBlocklists: true
       }
     }
   },
@@ -458,11 +478,17 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         tokenReplayDistinctIps: 2,
         subjectReplayEvents: 6,
         subjectReplayDistinctFingerprints: 2,
-        subjectReplayDistinctIps: 2
+        subjectReplayDistinctIps: 2,
+        autoPromoteWindowMinutes: 120,
+        autoPromoteFingerprintEvents: 9,
+        autoPromoteIpEvents: 12,
+        autoPromoteSubjectEvents: 6,
+        autoPromoteBlockedEvents: 2
       },
       adminControls: {
         actionKeyEnforced: true,
-        readOnlyApi: false
+        readOnlyApi: false,
+        autoPromoteBlocklists: true
       }
     }
   },
@@ -493,11 +519,17 @@ const SECURITY_CONTROL_PROFILE_DEFS = Object.freeze({
         tokenReplayDistinctIps: 2,
         subjectReplayEvents: 4,
         subjectReplayDistinctFingerprints: 2,
-        subjectReplayDistinctIps: 2
+        subjectReplayDistinctIps: 2,
+        autoPromoteWindowMinutes: 180,
+        autoPromoteFingerprintEvents: 6,
+        autoPromoteIpEvents: 8,
+        autoPromoteSubjectEvents: 4,
+        autoPromoteBlockedEvents: 1
       },
       adminControls: {
         actionKeyEnforced: true,
-        readOnlyApi: true
+        readOnlyApi: true,
+        autoPromoteBlocklists: true
       }
     }
   }
@@ -526,11 +558,32 @@ const DEFAULT_PRO_SECURITY_CONTROL_STATE = Object.freeze({
     tokenReplayDistinctIps: TOKEN_REPLAY_DISTINCT_IP_THRESHOLD,
     subjectReplayEvents: SUBJECT_INTEL_EVENT_THRESHOLD,
     subjectReplayDistinctFingerprints: SUBJECT_INTEL_DISTINCT_FINGERPRINT_THRESHOLD,
-    subjectReplayDistinctIps: SUBJECT_INTEL_DISTINCT_IP_THRESHOLD
+    subjectReplayDistinctIps: SUBJECT_INTEL_DISTINCT_IP_THRESHOLD,
+    autoPromoteWindowMinutes: Math.max(
+      30,
+      Number(process.env.AUTO_PROMOTE_WINDOW_MINUTES || 120)
+    ),
+    autoPromoteFingerprintEvents: Math.max(
+      3,
+      Number(process.env.AUTO_PROMOTE_FINGERPRINT_EVENTS || 12)
+    ),
+    autoPromoteIpEvents: Math.max(
+      3,
+      Number(process.env.AUTO_PROMOTE_IP_EVENTS || 15)
+    ),
+    autoPromoteSubjectEvents: Math.max(
+      3,
+      Number(process.env.AUTO_PROMOTE_SUBJECT_EVENTS || 8)
+    ),
+    autoPromoteBlockedEvents: Math.max(
+      1,
+      Number(process.env.AUTO_PROMOTE_BLOCKED_EVENTS || 3)
+    )
   },
   adminControls: {
     actionKeyEnforced: API_ADMIN_ACTION_KEY_ENFORCED,
-    readOnlyApi: false
+    readOnlyApi: false,
+    autoPromoteBlocklists: true
   },
   lists: {
     blockedIps: [],
@@ -1099,6 +1152,46 @@ export function updateProSecurityControlState(
         50
       );
     }
+    if (typeof incoming.autoPromoteWindowMinutes !== "undefined") {
+      next.thresholds.autoPromoteWindowMinutes = toIntegerInRange(
+        incoming.autoPromoteWindowMinutes,
+        next.thresholds.autoPromoteWindowMinutes,
+        30,
+        1440
+      );
+    }
+    if (typeof incoming.autoPromoteFingerprintEvents !== "undefined") {
+      next.thresholds.autoPromoteFingerprintEvents = toIntegerInRange(
+        incoming.autoPromoteFingerprintEvents,
+        next.thresholds.autoPromoteFingerprintEvents,
+        3,
+        500
+      );
+    }
+    if (typeof incoming.autoPromoteIpEvents !== "undefined") {
+      next.thresholds.autoPromoteIpEvents = toIntegerInRange(
+        incoming.autoPromoteIpEvents,
+        next.thresholds.autoPromoteIpEvents,
+        3,
+        500
+      );
+    }
+    if (typeof incoming.autoPromoteSubjectEvents !== "undefined") {
+      next.thresholds.autoPromoteSubjectEvents = toIntegerInRange(
+        incoming.autoPromoteSubjectEvents,
+        next.thresholds.autoPromoteSubjectEvents,
+        3,
+        500
+      );
+    }
+    if (typeof incoming.autoPromoteBlockedEvents !== "undefined") {
+      next.thresholds.autoPromoteBlockedEvents = toIntegerInRange(
+        incoming.autoPromoteBlockedEvents,
+        next.thresholds.autoPromoteBlockedEvents,
+        1,
+        100
+      );
+    }
   }
 
   if (typeof patch.trustedFingerprints !== "undefined") {
@@ -1126,6 +1219,12 @@ export function updateProSecurityControlState(
       next.adminControls.readOnlyApi = toBoolean(
         patch.adminControls.readOnlyApi,
         Boolean(next.adminControls.readOnlyApi)
+      );
+    }
+    if (typeof patch.adminControls.autoPromoteBlocklists !== "undefined") {
+      next.adminControls.autoPromoteBlocklists = toBoolean(
+        patch.adminControls.autoPromoteBlocklists,
+        Boolean(next.adminControls.autoPromoteBlocklists)
       );
     }
   }
@@ -1675,12 +1774,285 @@ function hotSubjectIntelligence(limit = 20) {
     .slice(0, Math.max(1, Math.min(100, Number(limit || 20))));
 }
 
+function pruneAutoPromoteIntel(nowTs = Date.now()) {
+  if (!proAutoPromoteIntel.size) return;
+
+  for (const [key, row] of proAutoPromoteIntel.entries()) {
+    const recent = (Array.isArray(row?.events) ? row.events : []).filter(
+      (item) => Number(item?.at || 0) >= nowTs - AUTO_PROMOTE_STORAGE_WINDOW_MS
+    );
+    if (!recent.length) {
+      proAutoPromoteIntel.delete(key);
+      continue;
+    }
+    proAutoPromoteIntel.set(key, {
+      ...row,
+      events: recent,
+      lastSeenAt: Math.max(...recent.map((item) => Number(item?.at || 0)))
+    });
+  }
+
+  if (proAutoPromoteIntel.size <= AUTO_PROMOTE_INTEL_MAX_ITEMS) return;
+  const overflow = proAutoPromoteIntel.size - AUTO_PROMOTE_INTEL_MAX_ITEMS;
+  const ordered = [...proAutoPromoteIntel.entries()].sort(
+    (a, b) => Number(a[1]?.lastSeenAt || 0) - Number(b[1]?.lastSeenAt || 0)
+  );
+  for (let index = 0; index < overflow; index += 1) {
+    const key = ordered[index]?.[0];
+    if (key) proAutoPromoteIntel.delete(key);
+  }
+}
+
+function registerAutoPromoteSignal({
+  kind = "",
+  key = "",
+  blocked = false,
+  reason = "",
+  nowTs = Date.now(),
+  windowMs = 2 * 60 * 60 * 1000
+} = {}) {
+  const safeKind = text(kind).toLowerCase();
+  const safeKey = text(key).toLowerCase();
+  if (!safeKind || !safeKey) {
+    return {
+      key: "",
+      kind: safeKind,
+      events: 0,
+      blockedEvents: 0,
+      firstSeenAt: 0,
+      lastSeenAt: nowTs
+    };
+  }
+
+  const mapKey = `${safeKind}:${safeKey}`;
+  const previous = proAutoPromoteIntel.get(mapKey);
+  const events = [
+    ...(Array.isArray(previous?.events) ? previous.events : []),
+    {
+      at: nowTs,
+      blocked: Boolean(blocked),
+      reason: text(reason).slice(0, 120)
+    }
+  ].filter((item) => Number(item?.at || 0) >= nowTs - AUTO_PROMOTE_STORAGE_WINDOW_MS);
+
+  const recent = events.filter((item) => Number(item?.at || 0) >= nowTs - Math.max(60_000, Number(windowMs || 0)));
+  const blockedEvents = recent.filter((item) => Boolean(item?.blocked)).length;
+  const row = {
+    kind: safeKind,
+    key: safeKey,
+    events,
+    totalEvents: events.length,
+    recentEvents: recent.length,
+    recentBlockedEvents: blockedEvents,
+    firstSeenAt: Number(events[0]?.at || nowTs),
+    lastSeenAt: Number(events[events.length - 1]?.at || nowTs)
+  };
+  proAutoPromoteIntel.set(mapKey, row);
+  pruneAutoPromoteIntel(nowTs);
+
+  return {
+    key: safeKey,
+    kind: safeKind,
+    events: row.recentEvents,
+    blockedEvents: row.recentBlockedEvents,
+    firstSeenAt: row.firstSeenAt,
+    lastSeenAt: row.lastSeenAt
+  };
+}
+
+function pushAutoPromotionEvent(event = {}) {
+  const row = {
+    id: `promo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    at: nowIso(),
+    kind: text(event.kind),
+    value: text(event.value),
+    reason: text(event.reason),
+    blocked: Boolean(event.blocked),
+    requestId: text(event.requestId),
+    path: text(event.path),
+    fingerprint: text(event.fingerprint),
+    ip: text(event.ip),
+    subject: text(event.subject)
+  };
+  proAutoPromotionEvents.unshift(row);
+  if (proAutoPromotionEvents.length > AUTO_PROMOTION_EVENT_MAX_ITEMS) {
+    proAutoPromotionEvents.length = AUTO_PROMOTION_EVENT_MAX_ITEMS;
+  }
+}
+
+function addToLimitedUniqueList(list = [], value = "", max = 100) {
+  const safe = text(value).toLowerCase();
+  if (!safe) return false;
+  if (list.includes(safe)) return false;
+  if (list.length >= Math.max(1, Number(max || 1))) {
+    list.shift();
+  }
+  list.push(safe);
+  return true;
+}
+
+function maybeAutoPromoteSecurityBlocklists({
+  fingerprint = "",
+  ip = "",
+  subject = "",
+  reason = "",
+  blocked = false,
+  path: requestPath = "",
+  requestId = ""
+} = {}) {
+  const safeReason = text(reason).toLowerCase();
+  const safePath = normalizeRequestPath(requestPath);
+  if (!fingerprint && !ip && !subject) return;
+  if (safeReason.startsWith("manual-")) return;
+  if (isSecurityControlPath(safePath)) return;
+
+  const adminControls = currentSecurityAdminControls();
+  if (!toBoolean(adminControls.autoPromoteBlocklists, true)) return;
+
+  const thresholds = currentSecurityThresholds();
+  const windowMinutes = Math.max(30, Number(thresholds.autoPromoteWindowMinutes || 120));
+  const windowMs = Math.min(24 * 60 * 60 * 1000, Math.max(5 * 60 * 1000, windowMinutes * 60 * 1000));
+  const fingerprintThreshold = Math.max(3, Number(thresholds.autoPromoteFingerprintEvents || 12));
+  const ipThreshold = Math.max(3, Number(thresholds.autoPromoteIpEvents || 15));
+  const subjectThreshold = Math.max(3, Number(thresholds.autoPromoteSubjectEvents || 8));
+  const blockedThreshold = Math.max(1, Number(thresholds.autoPromoteBlockedEvents || 3));
+
+  const currentLists = currentSecurityLists();
+  const nextLists = {
+    blockedIps: Array.isArray(currentLists.blockedIps) ? [...currentLists.blockedIps] : [],
+    blockedFingerprints: Array.isArray(currentLists.blockedFingerprints) ? [...currentLists.blockedFingerprints] : [],
+    blockedUserAgentSignatures: Array.isArray(currentLists.blockedUserAgentSignatures)
+      ? [...currentLists.blockedUserAgentSignatures]
+      : [],
+    blockedTokenSubjects: Array.isArray(currentLists.blockedTokenSubjects) ? [...currentLists.blockedTokenSubjects] : []
+  };
+  const promotions = [];
+  const nowTs = Date.now();
+
+  const safeFingerprint = normalizeProSecurityThreatFingerprint(fingerprint);
+  if (
+    isValidProSecurityThreatFingerprint(safeFingerprint) &&
+    !isTrustedSecurityFingerprint(safeFingerprint) &&
+    !nextLists.blockedFingerprints.includes(safeFingerprint)
+  ) {
+    const stats = registerAutoPromoteSignal({
+      kind: "fingerprint",
+      key: safeFingerprint,
+      blocked,
+      reason: safeReason,
+      nowTs,
+      windowMs
+    });
+    if (stats.events >= fingerprintThreshold || stats.blockedEvents >= blockedThreshold) {
+      const inserted = addToLimitedUniqueList(nextLists.blockedFingerprints, safeFingerprint, MAX_BLOCKED_FINGERPRINT_ITEMS);
+      if (inserted) {
+        promotions.push({
+          kind: "fingerprint",
+          value: safeFingerprint,
+          stats
+        });
+      }
+    }
+  }
+
+  const safeIp = normalizeIpEntry(ip);
+  if (isValidBlockedIpEntry(safeIp) && !isBlockedSecurityIp(safeIp)) {
+    const stats = registerAutoPromoteSignal({
+      kind: "ip",
+      key: safeIp,
+      blocked,
+      reason: safeReason,
+      nowTs,
+      windowMs
+    });
+    if (stats.events >= ipThreshold || stats.blockedEvents >= blockedThreshold) {
+      const inserted = addToLimitedUniqueList(nextLists.blockedIps, safeIp, MAX_BLOCKED_IP_ITEMS);
+      if (inserted) {
+        promotions.push({
+          kind: "ip",
+          value: safeIp,
+          stats
+        });
+      }
+    }
+  }
+
+  const safeSubject = text(subject).toLowerCase();
+  if (safeSubject && !nextLists.blockedTokenSubjects.includes(safeSubject)) {
+    const stats = registerAutoPromoteSignal({
+      kind: "subject",
+      key: safeSubject,
+      blocked,
+      reason: safeReason,
+      nowTs,
+      windowMs
+    });
+    if (stats.events >= subjectThreshold || stats.blockedEvents >= blockedThreshold) {
+      const inserted = addToLimitedUniqueList(nextLists.blockedTokenSubjects, safeSubject, MAX_BLOCKED_TOKEN_SUBJECT_ITEMS);
+      if (inserted) {
+        promotions.push({
+          kind: "subject",
+          value: safeSubject,
+          stats
+        });
+      }
+    }
+  }
+
+  if (!promotions.length) return;
+
+  const updateResult = updateProSecurityControlState(
+    {
+      lists: nextLists
+    },
+    {
+      actorId: "ai-guardian",
+      actorRole: "system"
+    }
+  );
+
+  pushSecurityAuditEventInternal({
+    severity: "high",
+    type: "auto-blocklist-promoted",
+    method: "PATCH",
+    path: safePath || "/api",
+    fingerprint: safeFingerprint,
+    details: {
+      requestId: text(requestId),
+      reason: safeReason,
+      blocked: Boolean(blocked),
+      promotions: promotions.map((item) => ({
+        kind: item.kind,
+        value: item.value,
+        events: item.stats.events,
+        blockedEvents: item.stats.blockedEvents
+      })),
+      warnings: Array.isArray(updateResult?.warnings) ? updateResult.warnings.slice(0, 8) : []
+    }
+  });
+
+  promotions.forEach((item) => {
+    pushAutoPromotionEvent({
+      kind: item.kind,
+      value: item.value,
+      reason: safeReason,
+      blocked: Boolean(blocked),
+      requestId: text(requestId),
+      path: safePath,
+      fingerprint: safeFingerprint,
+      ip: safeIp,
+      subject: safeSubject
+    });
+  });
+}
+
 function pushThreatIncident(incident = {}) {
   const row = {
     id: `threat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     at: nowIso(),
     fingerprint: text(incident.fingerprint),
     ip: text(incident.ip),
+    subject: text(incident.subject).toLowerCase(),
     requestId: text(incident.requestId),
     path: text(incident.path),
     method: text(incident.method).toUpperCase(),
@@ -1701,6 +2073,7 @@ function pushThreatIncident(incident = {}) {
     riskScore: row.riskScore,
     cumulativeRiskScore: row.cumulativeRiskScore,
     blocked: row.blocked,
+    subject: row.subject,
     reason: row.reason,
     rules: row.rules
   }));
@@ -1711,6 +2084,16 @@ function pushThreatIncident(incident = {}) {
   if (proThreatIncidents.length > SECURITY_INCIDENT_MAX_ITEMS) {
     proThreatIncidents.length = SECURITY_INCIDENT_MAX_ITEMS;
   }
+
+  maybeAutoPromoteSecurityBlocklists({
+    fingerprint: row.fingerprint,
+    ip: row.ip,
+    subject: row.subject,
+    reason: row.reason,
+    blocked: row.blocked,
+    path: row.path,
+    requestId: row.requestId
+  });
 }
 
 function normalizeThreatPayloadString(value) {
@@ -2055,6 +2438,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     hotFakeListingSignatures: hotSignatures,
     hotTokenIntelligence: hotTokens,
     hotSubjectIntelligence: hotSubjects,
+    recentAutoPromotions: proAutoPromotionEvents.slice(0, Math.min(100, safeLimit)),
     controlState: getProSecurityControlState(),
     summary: {
       mode,
@@ -2077,6 +2461,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
           item.distinctFingerprintCount >= subjectReplayFingerprintThreshold ||
           item.distinctIpCount >= subjectReplayIpThreshold
       ).length,
+      autoPromotions: proAutoPromotionEvents.length,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -2870,6 +3255,7 @@ function quarantineByFirewall(req, {
   pushThreatIncident({
     fingerprint,
     ip: getClientIp(req),
+    subject: text(details?.subject).toLowerCase(),
     requestId: req.requestId,
     path: requestPath,
     method,

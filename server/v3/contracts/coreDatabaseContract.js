@@ -199,7 +199,8 @@ export const coreSystemsBlueprint = [
       "Security profiles (balanced/hardened/lockdown) and emergency read-only mode",
       "Runtime blocklists for IP, fingerprint, user-agent signature, and token subject",
       "Persisted security-control state with restore support for admin recovery",
-      "AI-based account takeover detection using subject-level anomaly intelligence"
+      "AI-based account takeover detection using subject-level anomaly intelligence",
+      "Automatic offender-to-blocklist promotion with admin-tunable thresholds"
     ],
     endpoints: [
       "/api/v3/auth/*",
