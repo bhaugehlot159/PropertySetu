@@ -133,6 +133,10 @@ const SECURITY_INCIDENT_MAX_ITEMS = Math.max(
   200,
   Number(process.env.SECURITY_INCIDENT_MAX_ITEMS || 1200)
 );
+const SECURITY_CHAIN_VERIFY_MAX_ITEMS = Math.max(
+  100,
+  Number(process.env.SECURITY_CHAIN_VERIFY_MAX_ITEMS || 2000)
+);
 const SECURITY_AI_AUTO_DETECT_ENABLED =
   text(process.env.SECURITY_AI_AUTO_DETECT_ENABLED || "true").toLowerCase() !== "false";
 const THREAT_SCORE_BLOCK_THRESHOLD = Math.max(
@@ -2514,6 +2518,167 @@ function timingSafeEqualText(a = "", b = "") {
   }
 }
 
+function computeThreatIncidentIntegrityHashFromRow(row = {}, prevHash = "") {
+  return sha256(JSON.stringify({
+    prevHash,
+    id: text(row.id),
+    at: text(row.at),
+    fingerprint: text(row.fingerprint),
+    path: text(row.path),
+    method: text(row.method).toUpperCase(),
+    riskScore: Math.max(0, Number(row.riskScore || 0)),
+    cumulativeRiskScore: Math.max(0, Number(row.cumulativeRiskScore || 0)),
+    blocked: Boolean(row.blocked),
+    subject: text(row.subject).toLowerCase(),
+    reason: text(row.reason, "ai-auto-detected-risk"),
+    rules: Array.isArray(row.rules) ? row.rules.slice(0, 12) : []
+  }));
+}
+
+function computeSecurityAuditIntegrityHashFromRow(row = {}, prevHash = "") {
+  return sha256(JSON.stringify({
+    prevHash,
+    id: text(row.id),
+    at: text(row.at),
+    severity: text(row.severity, "medium").toLowerCase(),
+    type: text(row.type, "general"),
+    requestId: text(row.requestId),
+    fingerprint: text(row.fingerprint),
+    path: text(row.path),
+    method: text(row.method).toUpperCase(),
+    details: row.details && typeof row.details === "object" ? row.details : {}
+  }));
+}
+
+function verifySecurityIntegrityChainInternal(
+  rows = [],
+  {
+    type = "audit",
+    head = "",
+    limit = SECURITY_CHAIN_VERIFY_MAX_ITEMS
+  } = {}
+) {
+  const safeRows = Array.isArray(rows)
+    ? rows.slice(0, Math.max(1, Math.min(SECURITY_CHAIN_VERIFY_MAX_ITEMS, Number(limit || SECURITY_CHAIN_VERIFY_MAX_ITEMS))))
+    : [];
+  const safeHead = text(head).toLowerCase();
+  if (!safeRows.length) {
+    return {
+      type: text(type, "audit"),
+      valid: true,
+      reason: "empty-chain",
+      checkedItems: 0,
+      mismatchIndex: -1,
+      headMatches: !safeHead,
+      truncated: false,
+      tailLinkedToHistory: false
+    };
+  }
+
+  const normalizedType = text(type, "audit").toLowerCase();
+  const compute = normalizedType === "threat"
+    ? computeThreatIncidentIntegrityHashFromRow
+    : computeSecurityAuditIntegrityHashFromRow;
+
+  const firstHash = text(safeRows[0]?.integrityHash).toLowerCase();
+  const headMatches = !safeHead || (firstHash && timingSafeEqualText(firstHash, safeHead));
+  if (!headMatches) {
+    return {
+      type: normalizedType,
+      valid: false,
+      reason: "chain-head-mismatch",
+      checkedItems: 0,
+      mismatchIndex: 0,
+      headMatches: false,
+      truncated: safeRows.length < (Array.isArray(rows) ? rows.length : safeRows.length),
+      tailLinkedToHistory: Boolean(text(safeRows[safeRows.length - 1]?.prevHash))
+    };
+  }
+
+  for (let index = 0; index < safeRows.length; index += 1) {
+    const row = safeRows[index] && typeof safeRows[index] === "object" ? safeRows[index] : {};
+    const integrityHash = text(row.integrityHash).toLowerCase();
+    const prevHash = text(row.prevHash).toLowerCase();
+    if (!/^[a-f0-9]{64}$/i.test(integrityHash)) {
+      return {
+        type: normalizedType,
+        valid: false,
+        reason: "invalid-integrity-hash-format",
+        checkedItems: index,
+        mismatchIndex: index,
+        headMatches,
+        truncated: safeRows.length < (Array.isArray(rows) ? rows.length : safeRows.length),
+        tailLinkedToHistory: Boolean(text(safeRows[safeRows.length - 1]?.prevHash))
+      };
+    }
+
+    const expected = compute(row, prevHash);
+    if (!expected || !timingSafeEqualText(expected, integrityHash)) {
+      return {
+        type: normalizedType,
+        valid: false,
+        reason: "integrity-hash-mismatch",
+        checkedItems: index,
+        mismatchIndex: index,
+        headMatches,
+        truncated: safeRows.length < (Array.isArray(rows) ? rows.length : safeRows.length),
+        tailLinkedToHistory: Boolean(text(safeRows[safeRows.length - 1]?.prevHash))
+      };
+    }
+
+    if (index < safeRows.length - 1) {
+      const olderHash = text(safeRows[index + 1]?.integrityHash).toLowerCase();
+      if (!olderHash || !timingSafeEqualText(prevHash, olderHash)) {
+        return {
+          type: normalizedType,
+          valid: false,
+          reason: "prev-hash-link-mismatch",
+          checkedItems: index + 1,
+          mismatchIndex: index,
+          headMatches,
+          truncated: safeRows.length < (Array.isArray(rows) ? rows.length : safeRows.length),
+          tailLinkedToHistory: Boolean(text(safeRows[safeRows.length - 1]?.prevHash))
+        };
+      }
+    }
+  }
+
+  return {
+    type: normalizedType,
+    valid: true,
+    reason: "chain-verified",
+    checkedItems: safeRows.length,
+    mismatchIndex: -1,
+    headMatches,
+    truncated: safeRows.length < (Array.isArray(rows) ? rows.length : safeRows.length),
+    tailLinkedToHistory: Boolean(text(safeRows[safeRows.length - 1]?.prevHash))
+  };
+}
+
+export function getProSecurityChainIntegrityStatus(
+  {
+    auditLimit = 500,
+    threatLimit = 500
+  } = {}
+) {
+  const safeAuditLimit = Math.max(1, Math.min(SECURITY_CHAIN_VERIFY_MAX_ITEMS, Number(auditLimit || 500)));
+  const safeThreatLimit = Math.max(1, Math.min(SECURITY_CHAIN_VERIFY_MAX_ITEMS, Number(threatLimit || 500)));
+  const auditRows = proSecurityAuditEvents.slice(0, safeAuditLimit);
+  const threatRows = proThreatIncidents.slice(0, safeThreatLimit);
+  return {
+    audit: verifySecurityIntegrityChainInternal(auditRows, {
+      type: "audit",
+      head: proSecurityAuditChainHead,
+      limit: safeAuditLimit
+    }),
+    threat: verifySecurityIntegrityChainInternal(threatRows, {
+      type: "threat",
+      head: proThreatIncidentChainHead,
+      limit: safeThreatLimit
+    })
+  };
+}
+
 function decodeBase64UrlToText(value = "") {
   const normalized = String(value || "")
     .replace(/-/g, "+")
@@ -3248,6 +3413,10 @@ export function getProSecurityControlPersistenceStatus() {
   const latestValidSnapshot = findLatestValidSecurityControlStateSnapshot(target);
   const activeLoad = loadSecurityControlStatePayloadWithSnapshotFallback(target);
   const mutationGuard = getSecurityControlMutationGuardStatus();
+  const chainIntegrity = getProSecurityChainIntegrityStatus({
+    auditLimit: 300,
+    threatLimit: 300
+  });
   const downgradeGuardEvents = proSecurityControlDowngradeGuardEvents.slice(0, 50);
   const latestDowngradeGuardEvent = downgradeGuardEvents[0] || null;
   const blockedDowngradeEvents = downgradeGuardEvents.filter((item) => Boolean(item?.blocked)).length;
@@ -3278,6 +3447,7 @@ export function getProSecurityControlPersistenceStatus() {
       warnings: Array.isArray(integrityCheck.warnings) ? integrityCheck.warnings : [],
       signed: Boolean(integrityCheck.signed)
     },
+    chainIntegrity,
     activeSource: text(activeLoad.source),
     activeSourcePath: text(activeLoad.sourcePath),
     rollback: {
@@ -7240,20 +7410,7 @@ function pushThreatIncident(incident = {}) {
     rules: Array.isArray(incident.rules) ? incident.rules.slice(0, 12) : []
   };
   const prevHash = proThreatIncidentChainHead;
-  const integrityHash = sha256(JSON.stringify({
-    prevHash,
-    id: row.id,
-    at: row.at,
-    fingerprint: row.fingerprint,
-    path: row.path,
-    method: row.method,
-    riskScore: row.riskScore,
-    cumulativeRiskScore: row.cumulativeRiskScore,
-    blocked: row.blocked,
-    subject: row.subject,
-    reason: row.reason,
-    rules: row.rules
-  }));
+  const integrityHash = computeThreatIncidentIntegrityHashFromRow(row, prevHash);
   row.prevHash = prevHash;
   row.integrityHash = integrityHash;
   proThreatIncidentChainHead = integrityHash;
@@ -7610,6 +7767,10 @@ export function getProSecurityThreatIntelligence(limit = 200) {
   const controlBackupLatestValid = findLatestValidSecurityControlStateSnapshot(SECURITY_CONTROL_STATE_FILE);
   const controlPersistenceLoad = loadSecurityControlStatePayloadWithSnapshotFallback(SECURITY_CONTROL_STATE_FILE);
   const controlMutationGuardStatus = getSecurityControlMutationGuardStatus();
+  const chainIntegrity = getProSecurityChainIntegrityStatus({
+    auditLimit: Math.min(500, safeLimit),
+    threatLimit: Math.min(500, safeLimit)
+  });
   const activeIdentityProtections = [...proProtectedAuthIdentities.values()]
     .filter((item) => Number(item?.until || 0) > Date.now())
     .slice(0, Math.min(200, safeLimit))
@@ -7736,6 +7897,7 @@ export function getProSecurityThreatIntelligence(limit = 200) {
     ),
     activeIdentityProtections,
     activeSubjectProtections,
+    chainIntegrity,
     controlState: getProSecurityControlState(),
     summary: {
       mode,
@@ -7906,7 +8068,13 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       auditEventCount: proSecurityAuditEvents.length,
       integrity: {
         auditChainHead: proSecurityAuditChainHead,
-        threatChainHead: proThreatIncidentChainHead
+        threatChainHead: proThreatIncidentChainHead,
+        auditChainValid: Boolean(chainIntegrity?.audit?.valid),
+        auditChainReason: text(chainIntegrity?.audit?.reason),
+        auditChainCheckedItems: Math.max(0, Number(chainIntegrity?.audit?.checkedItems || 0)),
+        threatChainValid: Boolean(chainIntegrity?.threat?.valid),
+        threatChainReason: text(chainIntegrity?.threat?.reason),
+        threatChainCheckedItems: Math.max(0, Number(chainIntegrity?.threat?.checkedItems || 0))
       }
     }
   };
@@ -7926,18 +8094,7 @@ function pushSecurityAuditEventInternal(event = {}) {
     details: event.details && typeof event.details === "object" ? event.details : {}
   };
   const prevHash = proSecurityAuditChainHead;
-  const integrityHash = sha256(JSON.stringify({
-    prevHash,
-    id: row.id,
-    at: row.at,
-    severity: row.severity,
-    type: row.type,
-    requestId: row.requestId,
-    fingerprint: row.fingerprint,
-    path: row.path,
-    method: row.method,
-    details: row.details
-  }));
+  const integrityHash = computeSecurityAuditIntegrityHashFromRow(row, prevHash);
   row.prevHash = prevHash;
   row.integrityHash = integrityHash;
   proSecurityAuditChainHead = integrityHash;

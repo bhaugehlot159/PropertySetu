@@ -7,6 +7,7 @@ import { getRazorpayPublicKey } from "../../config/proRazorpay.js";
 import {
   applyProSecurityControlProfile,
   getProSecurityAuditEvents,
+  getProSecurityChainIntegrityStatus,
   getProSecurityControlPersistenceStatus,
   getProSecurityControlState,
   getProSecurityThreatIntelligence,
@@ -550,6 +551,10 @@ export function getCoreSystemExecutionPlan(_req, res) {
 export function getCoreSystemSecurityAudit(req, res) {
   const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
   const items = getProSecurityAuditEvents(limit);
+  const chainIntegrity = getProSecurityChainIntegrityStatus({
+    auditLimit: limit,
+    threatLimit: limit
+  });
   return res.json({
     success: true,
     total: items.length,
@@ -557,6 +562,7 @@ export function getCoreSystemSecurityAudit(req, res) {
       id: String(req.coreUser?.id || ""),
       role: String(req.coreUser?.role || "")
     },
+    chainIntegrity,
     items
   });
 }

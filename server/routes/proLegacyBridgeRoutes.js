@@ -11,6 +11,7 @@ import {
   applyProSecurityControlProfile,
   createProRateLimiter,
   getProSecurityAuditEvents,
+  getProSecurityChainIntegrityStatus,
   getProSecurityControlState,
   getProSecurityControlPersistenceStatus,
   getProSecurityThreatIntelligence,
@@ -462,6 +463,10 @@ router.get(
     const limit = Math.min(500, Math.max(1, toNumber(req.query.limit, 100)));
     const actor = req.bridgeActor;
     const items = getProSecurityAuditEvents(limit);
+    const chainIntegrity = getProSecurityChainIntegrityStatus({
+      auditLimit: limit,
+      threatLimit: limit
+    });
     res.json({
       ok: true,
       requestedBy: {
@@ -469,6 +474,7 @@ router.get(
         role: actor.role
       },
       total: items.length,
+      chainIntegrity,
       items
     });
   }
