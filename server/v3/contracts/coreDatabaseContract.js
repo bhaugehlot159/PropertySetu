@@ -215,7 +215,8 @@ export const coreSystemsBlueprint = [
       "Signed admin mutation requests (HMAC + nonce + timestamp) with anti-replay controls",
       "Volume-gated admin credential attack auto-detection with controlled critical response",
       "High-risk shield bypass hardening: action-key bypass now requires signed proof verification",
-      "Admin signature key rotation support (primary + secondary secret) for zero-downtime secret rollover"
+      "Admin signature key rotation support (primary + secondary secret) for zero-downtime secret rollover",
+      "Signed admin-security responses with body-hash integrity headers for tamper detection"
     ],
     endpoints: [
       "/api/v3/auth/*",

@@ -374,6 +374,17 @@ const API_ADMIN_MUTATION_SIGNATURE_REQUIRED =
   text(process.env.ADMIN_MUTATION_SIGNATURE_REQUIRED, "false").toLowerCase() === "true";
 const API_ADMIN_MUTATION_SIGNATURE_BOOT_ENFORCED =
   API_ADMIN_MUTATION_SIGNATURE_REQUIRED && ADMIN_MUTATION_SIGNATURE_SECRETS.length > 0;
+const SECURITY_RESPONSE_SIGNING_SECRET = text(process.env.SECURITY_RESPONSE_SIGNING_SECRET);
+const SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET = text(
+  process.env.SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET
+);
+const SECURITY_RESPONSE_SIGNING_SECRETS = [...new Set(
+  [SECURITY_RESPONSE_SIGNING_SECRET, SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET]
+    .map((item) => text(item))
+    .filter(Boolean)
+)];
+const SECURITY_RESPONSE_SIGNING_ENABLED =
+  text(process.env.SECURITY_RESPONSE_SIGNING_ENABLED, "true").toLowerCase() !== "false";
 const API_ADMIN_ALLOWLIST_IPS = text(process.env.ADMIN_IP_ALLOWLIST)
   .split(",")
   .map((item) => item.trim())
@@ -455,6 +466,11 @@ const THREAT_DETECTION_EXCLUDED_PATHS = [
   /^\/api\/v3\/system\/security-intelligence(?:\/|$)/i,
   /^\/api\/system\/security-control(?:\/|$)/i,
   /^\/api\/v3\/system\/security-control(?:\/|$)/i
+];
+const SECURITY_RESPONSE_SIGNING_PATH_RULES = [
+  /^\/api\/system\/security-(?:audit|intelligence|control)(?:\/|$)/i,
+  /^\/api\/v3\/system\/security-(?:audit|intelligence|control)(?:\/|$)/i,
+  /^\/api\/bridge\/system\/security-(?:audit|intelligence|control)(?:\/|$)/i
 ];
 const API_SCANNER_PATH_RULES = [
   /^\/api\/(?:wp-admin|wp-login|wordpress)(?:\/|$)/i,
@@ -5742,6 +5758,12 @@ export function getProSecurityThreatIntelligence(limit = 200) {
       adminMutationSignatureSecondaryConfigured: Boolean(ADMIN_MUTATION_SIGNATURE_SECONDARY_SECRET),
       adminMutationSignatureKeyRotationEnabled: ADMIN_MUTATION_SIGNATURE_SECRETS.length > 1,
       adminMutationSignatureNonceCacheSize: proAdminMutationSignatureNonces.size,
+      securityResponseSigningEnabled: SECURITY_RESPONSE_SIGNING_ENABLED,
+      securityResponseSigningConfigured: SECURITY_RESPONSE_SIGNING_SECRETS.length > 0,
+      securityResponseSigningPrimaryConfigured: Boolean(SECURITY_RESPONSE_SIGNING_SECRET),
+      securityResponseSigningSecondaryConfigured: Boolean(SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET),
+      securityResponseSigningKeyRotationEnabled: SECURITY_RESPONSE_SIGNING_SECRETS.length > 1,
+      securityResponseSigningProtectedPathGroups: SECURITY_RESPONSE_SIGNING_PATH_RULES.length,
       blockLists: {
         ips: Array.isArray(lists.blockedIps) ? lists.blockedIps.length : 0,
         fingerprints: Array.isArray(lists.blockedFingerprints) ? lists.blockedFingerprints.length : 0,
@@ -6231,6 +6253,7 @@ export function proAttachRequestContext(req, res, next) {
 
 export function proSecurityHeaders(req, res, next) {
   const requestPath = String(req.originalUrl || req.baseUrl || req.path || "");
+  const normalizedRequestPath = normalizeRequestPath(req.path || requestPath || "/");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -6254,6 +6277,49 @@ export function proSecurityHeaders(req, res, next) {
       "Content-Security-Policy",
       "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
     );
+
+    const shouldSignSecurityResponse =
+      isSecurityResponseSigningPath(normalizedRequestPath) &&
+      SECURITY_RESPONSE_SIGNING_ENABLED &&
+      SECURITY_RESPONSE_SIGNING_SECRETS.length > 0;
+    if (shouldSignSecurityResponse && !res.locals?.proSecurityResponseSigningWrapped) {
+      res.locals = res.locals || {};
+      res.locals.proSecurityResponseSigningWrapped = true;
+      const baseJson = res.json.bind(res);
+      res.json = (body) => {
+        try {
+          const responsePath = normalizeRequestPath(req.path || requestPath || "/");
+          if (isSecurityResponseSigningPath(responsePath)) {
+            const timestampSec = Math.floor(Date.now() / 1000);
+            const bodyHash = hashAdminMutationSignatureInput(body);
+            const signatureResult = computeSecurityResponseSignature({
+              method: req.method,
+              requestPath: responsePath,
+              statusCode: Number(res.statusCode || 200),
+              timestampSec,
+              bodyHash,
+              requestId: text(req.requestId)
+            });
+            if (signatureResult.signature) {
+              res.setHeader("X-Security-Response-Signed", "1");
+              res.setHeader("X-Security-Response-Signature", signatureResult.signature);
+              res.setHeader("X-Security-Response-Signature-Alg", "hmac-sha256");
+              res.setHeader("X-Security-Response-Timestamp", String(timestampSec));
+              res.setHeader("X-Security-Response-Body-Hash", bodyHash);
+              res.setHeader("X-Security-Response-Key-Slot", text(signatureResult.secretSlot));
+              res.setHeader(
+                "X-Security-Response-Key-Rotation",
+                SECURITY_RESPONSE_SIGNING_SECRETS.length > 1 ? "1" : "0"
+              );
+              res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+            }
+          }
+        } catch {
+          // Response signing is best-effort and must not break API responses.
+        }
+        return baseJson(body);
+      };
+    }
   }
 
   if (
@@ -6355,6 +6421,82 @@ function isSecurityControlPath(requestPath = "") {
 function isReadOnlyBypassPath(requestPath = "") {
   const normalized = normalizeRequestPath(requestPath);
   return READ_ONLY_BYPASS_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
+function isSecurityResponseSigningPath(requestPath = "") {
+  const normalized = normalizeRequestPath(requestPath);
+  return SECURITY_RESPONSE_SIGNING_PATH_RULES.some((rule) => rule.test(normalized));
+}
+
+function getActiveSecurityResponseSigningSecret() {
+  if (!SECURITY_RESPONSE_SIGNING_ENABLED || !SECURITY_RESPONSE_SIGNING_SECRETS.length) {
+    return {
+      secret: "",
+      secretSlot: ""
+    };
+  }
+  const primary = text(SECURITY_RESPONSE_SIGNING_SECRET);
+  if (primary) {
+    return {
+      secret: primary,
+      secretSlot: "primary"
+    };
+  }
+  const secondary = text(SECURITY_RESPONSE_SIGNING_SECONDARY_SECRET);
+  if (secondary) {
+    return {
+      secret: secondary,
+      secretSlot: "secondary"
+    };
+  }
+  return {
+    secret: "",
+    secretSlot: ""
+  };
+}
+
+function computeSecurityResponseSignatureWithSecret(secret = "", {
+  method = "GET",
+  requestPath = "/api/system",
+  statusCode = 200,
+  timestampSec = 0,
+  bodyHash = "",
+  requestId = ""
+} = {}) {
+  const safeSecret = text(secret);
+  if (!safeSecret) return "";
+  const canonicalMethod = normalizeRequestMethod(method);
+  const canonicalPath = normalizeRequestPath(requestPath || "/api/system");
+  const canonicalStatus = String(Math.max(100, Math.min(599, Number(statusCode || 200))));
+  const canonicalTimestamp = String(Math.trunc(Number(timestampSec || 0)));
+  const canonicalBodyHash = text(bodyHash).toLowerCase();
+  const canonicalRequestId = text(requestId);
+  const signingInput = [
+    canonicalMethod,
+    canonicalPath,
+    canonicalStatus,
+    canonicalTimestamp,
+    canonicalBodyHash,
+    canonicalRequestId
+  ].join("|");
+  return crypto
+    .createHmac("sha256", safeSecret)
+    .update(signingInput)
+    .digest("hex");
+}
+
+function computeSecurityResponseSignature(payload = {}) {
+  const activeSecret = getActiveSecurityResponseSigningSecret();
+  if (!activeSecret.secret) {
+    return {
+      signature: "",
+      secretSlot: ""
+    };
+  }
+  return {
+    signature: computeSecurityResponseSignatureWithSecret(activeSecret.secret, payload),
+    secretSlot: activeSecret.secretSlot
+  };
 }
 
 function isAllowedAdminIp(rawIp = "") {
