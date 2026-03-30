@@ -255,10 +255,10 @@ button:hover { background:#092f6d; }
 </div>
 
 <div class="container">
-  <h2>Local Data Backup</h2>
+  <h2>Secure Local Data Export</h2>
   <div class="backup-panel">
-    <button id="downloadLocalDataBtn">Download Local Data File (.json)</button>
-    <span id="backupStatus">Browser me jo data saved hai, uska JSON backup yahan se download hoga.</span>
+    <button id="downloadLocalDataBtn">Download Secure Export (.json)</button>
+    <span id="backupStatus">Admin-auth verified export me sensitive fields auto-redacted rahenge.</span>
   </div>
 </div>
 
@@ -418,6 +418,96 @@ button:hover { background:#092f6d; }
     }
   };
 
+  const SENSITIVE_KEY_PATTERNS = [
+    /token/i,
+    /password/i,
+    /secret/i,
+    /auth/i,
+    /otp/i,
+    /aadhaar/i,
+    /aadhar/i,
+    /pan/i,
+    /private/i,
+    /document/i,
+    /idproof/i,
+    /addressproof/i,
+    /api[_-]?key/i,
+    /session/i,
+    /cookie/i,
+  ];
+
+  const isSensitiveKey = (keyPath = '') => {
+    const raw = String(keyPath || '');
+    return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(raw));
+  };
+
+  const looksSensitiveString = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(raw)) return true;
+    if (raw.length >= 40 && /[A-Za-z]/.test(raw) && /\d/.test(raw) && !/\s/.test(raw)) return true;
+    return false;
+  };
+
+  const redactForExport = (value, keyPath = '') => {
+    if (isSensitiveKey(keyPath)) return '[REDACTED]';
+
+    if (Array.isArray(value)) {
+      return value.map((entry, index) => redactForExport(entry, `${keyPath}[${index}]`));
+    }
+
+    if (value && typeof value === 'object') {
+      const out = {};
+      Object.entries(value).forEach(([key, entry]) => {
+        const nextPath = keyPath ? `${keyPath}.${key}` : key;
+        out[key] = redactForExport(entry, nextPath);
+      });
+      return out;
+    }
+
+    if (typeof value === 'string' && looksSensitiveString(value)) return '[REDACTED]';
+    return value;
+  };
+
+  const computeExportChecksum = async (content) => {
+    const normalized = String(content || '');
+    try {
+      if (window.crypto?.subtle) {
+        const bytes = new TextEncoder().encode(normalized);
+        const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+        return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch {
+      // fallback hash below
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < normalized.length; index += 1) {
+      hash ^= normalized.charCodeAt(index);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return `fnv1a32-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  };
+
+  const verifyAdminExportAccess = async () => {
+    const token = getAdminToken();
+    if (!token || !live.request) {
+      const msg = 'Secure export ke liye admin login + live backend required hai.';
+      if (backupStatus) backupStatus.textContent = msg;
+      window.alert(msg);
+      return '';
+    }
+    try {
+      await live.request('/admin/overview', { token });
+      return token;
+    } catch (error) {
+      const message = `Secure export blocked: ${error?.message || 'Admin verification failed.'}`;
+      if (backupStatus) backupStatus.textContent = message;
+      window.alert(message);
+      return '';
+    }
+  };
+
   const getBackupKeys = () => {
     const keys = new Set(BASE_BACKUP_KEYS);
     for (let index = 0; index < localStorage.length; index += 1) {
@@ -429,20 +519,49 @@ button:hover { background:#092f6d; }
     return [...keys];
   };
 
-  const downloadLocalData = () => {
+  const downloadLocalData = async () => {
+    if (!await verifyAdminExportAccess()) return;
+
     const storageData = {};
+    let exportedKeys = 0;
     getBackupKeys().forEach((key) => {
       const value = localStorage.getItem(key);
-      if (value !== null) storageData[key] = safeParse(value);
+      if (value !== null) {
+        exportedKeys += 1;
+        storageData[key] = redactForExport(safeParse(value), key);
+      }
     });
+
     if (!Object.keys(storageData).length) {
-      if (backupStatus) backupStatus.textContent = 'Backup skipped: local data nahi mila.';
+      if (backupStatus) backupStatus.textContent = 'Secure export skipped: local data nahi mila.';
       return;
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `propertysetu-local-data-${timestamp}.json`;
-    const payload = { app: 'PropertySetu', exportedAt: new Date().toISOString(), storage: storageData };
+    const fileName = `propertysetu-secure-export-${timestamp}.json`;
+    const adminSession = (typeof live.getSession === 'function' ? live.getSession('admin') : null) || readJson('propertysetu-admin-session', {});
+    const payload = {
+      app: 'PropertySetu',
+      exportType: 'secure-admin-local-export',
+      exportedAt: new Date().toISOString(),
+      exportedBy: {
+        role: 'admin',
+        name: String(adminSession?.name || '').trim() || 'admin',
+        userId: String(adminSession?.id || adminSession?.userId || '').trim() || '',
+      },
+      summary: {
+        exportedKeys,
+        redaction: 'sensitive fields auto-redacted',
+      },
+      integrity: {
+        algorithm: window.crypto?.subtle ? 'SHA-256' : 'FNV1a-32',
+        checksum: '',
+      },
+      storage: storageData,
+    };
+
+    const checksum = await computeExportChecksum(JSON.stringify(payload));
+    payload.integrity.checksum = checksum;
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -452,14 +571,14 @@ button:hover { background:#092f6d; }
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    if (backupStatus) backupStatus.textContent = `Backup saved: ${fileName}`;
+    if (backupStatus) backupStatus.textContent = `Secure export saved: ${fileName} (${exportedKeys} keys, redacted).`;
     pushNotification(
-      `Admin downloaded local backup: ${fileName}`,
+      `Admin downloaded secure local export: ${fileName}`,
       ['admin'],
-      'Backup Downloaded',
+      'Secure Export Downloaded',
       'info',
     );
-    pushOpsAudit('Downloaded local backup', 'backup', fileName);
+    pushOpsAudit('Downloaded secure local export', 'backup', `${fileName} keys=${exportedKeys}`);
   };
 
   const getLocalListings = () => readJson(LISTINGS_KEY, []).filter(isUdaipurListing);
