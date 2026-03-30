@@ -1365,17 +1365,53 @@ button:hover { background:#092f6d; }
     }
   };
 
+  const truncateForAudit = (value, max = 140) => {
+    const raw = textOf(value);
+    return raw.length > max ? `${raw.slice(0, max)}...` : raw;
+  };
+
+  const needsHighRiskApproval = (actionOrStatus = '') => {
+    const raw = textOf(actionOrStatus).toLowerCase();
+    const markers = ['reject', 'rejected', 'cancel', 'cancelled', 'remove', 'delete', 'block', 'unblock', 'sanctioned'];
+    return markers.some((marker) => raw.includes(marker));
+  };
+
+  const requestHighRiskApproval = (actionLabel, hint = '') => {
+    const challenge = String(window.prompt(`${actionLabel}\nType CONFIRM to continue.`, '') || '').trim().toUpperCase();
+    if (challenge !== 'CONFIRM') {
+      window.alert('Action cancelled: confirmation not matched.');
+      return { ok: false, reason: '' };
+    }
+    const reason = String(window.prompt('Security reason (minimum 8 chars):', hint || '') || '').trim();
+    if (reason.length < 8) {
+      window.alert('Action cancelled: reason minimum 8 characters required.');
+      return { ok: false, reason: '' };
+    }
+    return { ok: true, reason };
+  };
+
   const updateStatus = async (id, status) => {
     const token = getAdminToken();
     if (!token || !live.request) {
       window.alert('Status update ke liye admin login + live backend required hai.');
       return;
     }
+
+    let moderationReason = '';
+    if (needsHighRiskApproval(status)) {
+      const gate = requestHighRiskApproval(`High-risk listing status change: ${status} (${id})`, `Listing ${id} marked as ${status}.`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
+
     try {
       await live.request(`/properties/${encodeURIComponent(id)}/approve`, {
         method: 'POST',
         token,
-        data: { status },
+        data: {
+          status,
+          ...(moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {}),
+        },
       });
     } catch (error) {
       window.alert(error.message || 'Status update failed.');
@@ -1392,7 +1428,11 @@ button:hover { background:#092f6d; }
       'Listing Status Updated',
       status === 'Approved' ? 'success' : 'warn',
     );
-    pushOpsAudit('Updated listing status', 'listings', `${id} -> ${status}`);
+    pushOpsAudit(
+      'Updated listing status',
+      'listings',
+      `${id} -> ${status}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+    );
     await render();
   };
 
@@ -1575,15 +1615,21 @@ button:hover { background:#092f6d; }
     const category = decodeURIComponent(encodedName);
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    const gate = requestHighRiskApproval(`Remove category "${category}"?`, `Category removal requested: ${category}`);
+    if (!gate.ok) return;
     try {
-      await live.request(`/admin/config/categories?name=${encodeURIComponent(category)}`, { method: 'DELETE', token });
+      await live.request(`/admin/config/categories?name=${encodeURIComponent(category)}`, {
+        method: 'DELETE',
+        token,
+        data: { moderationReason: gate.reason, auditTag: 'admin-high-risk' },
+      });
       pushNotification(
         `Admin removed category: ${category}.`,
         ['admin'],
         'Category Removed',
         'warn',
       );
-      pushOpsAudit('Removed category', 'config', category);
+      pushOpsAudit('Removed category', 'config', `${category} | reason=${truncateForAudit(gate.reason)}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Category remove failed.');
@@ -1598,15 +1644,21 @@ button:hover { background:#092f6d; }
     const city = decodeURIComponent(encodedCity);
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    const gate = requestHighRiskApproval(`Remove city route "${city}"?`, `City route removal requested: ${city}`);
+    if (!gate.ok) return;
     try {
-      await live.request(`/admin/config/cities?city=${encodeURIComponent(city)}`, { method: 'DELETE', token });
+      await live.request(`/admin/config/cities?city=${encodeURIComponent(city)}`, {
+        method: 'DELETE',
+        token,
+        data: { moderationReason: gate.reason, auditTag: 'admin-high-risk' },
+      });
       pushNotification(
         `Admin removed city route config: ${city}.`,
         ['admin'],
         'City Removed',
         'warn',
       );
-      pushOpsAudit('Removed city config', 'config', city);
+      pushOpsAudit('Removed city config', 'config', `${city} | reason=${truncateForAudit(gate.reason)}`);
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'City remove failed.');
@@ -1658,15 +1710,29 @@ button:hover { background:#092f6d; }
     if (!action || !userId) return;
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    let moderationReason = '';
+    if (needsHighRiskApproval(action)) {
+      const gate = requestHighRiskApproval(`High-risk user action: ${action} (${userId})`, `User moderation action: ${action} for ${userId}`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
     try {
-      await live.request(`/admin/users/${encodeURIComponent(userId)}/${action}`, { method: 'POST', token });
+      await live.request(`/admin/users/${encodeURIComponent(userId)}/${action}`, {
+        method: 'POST',
+        token,
+        data: moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {},
+      });
       pushNotification(
         `Admin ${action} user ${userId}.`,
         ['admin'],
         'User Moderation',
         'warn',
       );
-      pushOpsAudit('User moderation action', 'users', `${action} ${userId}`);
+      pushOpsAudit(
+        'User moderation action',
+        'users',
+        `${action} ${userId}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'User action failed.');
@@ -1703,11 +1769,20 @@ button:hover { background:#092f6d; }
     if (!requestId || !action) return;
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    let moderationReason = '';
+    if (needsHighRiskApproval(action)) {
+      const gate = requestHighRiskApproval(`High-risk owner verification action: ${action} (${requestId})`, `Owner verification ${requestId} set to ${action}.`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
     try {
       await live.request(`/admin/owner-verification/${encodeURIComponent(requestId)}/decision`, {
         method: 'POST',
         token,
-        data: { status: action },
+        data: {
+          status: action,
+          ...(moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {}),
+        },
       });
       pushNotification(
         `Admin updated owner verification ${requestId}: ${action}.`,
@@ -1715,7 +1790,11 @@ button:hover { background:#092f6d; }
         'Owner Verification Updated',
         action === 'verified' ? 'success' : 'warn',
       );
-      pushOpsAudit('Updated owner verification', 'verification', `${requestId} -> ${action}`);
+      pushOpsAudit(
+        'Updated owner verification',
+        'verification',
+        `${requestId} -> ${action}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Owner verification update failed.');
@@ -1731,11 +1810,20 @@ button:hover { background:#092f6d; }
     if (!requestId || !status) return;
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    let moderationReason = '';
+    if (needsHighRiskApproval(status)) {
+      const gate = requestHighRiskApproval(`High-risk documentation action: ${status} (${requestId})`, `Documentation request ${requestId} set to ${status}.`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
     try {
       await live.request(`/admin/documentation/requests/${encodeURIComponent(requestId)}/status`, {
         method: 'POST',
         token,
-        data: { status },
+        data: {
+          status,
+          ...(moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {}),
+        },
       });
       pushNotification(
         `Admin updated documentation request ${requestId}: ${status}.`,
@@ -1743,7 +1831,11 @@ button:hover { background:#092f6d; }
         'Documentation Queue Updated',
         status === 'rejected' ? 'warn' : 'info',
       );
-      pushOpsAudit('Updated documentation request', 'documentation', `${requestId} -> ${status}`);
+      pushOpsAudit(
+        'Updated documentation request',
+        'documentation',
+        `${requestId} -> ${status}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Documentation update failed.');
@@ -1759,6 +1851,12 @@ button:hover { background:#092f6d; }
     if (!leadId || !status) return;
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    let moderationReason = '';
+    if (needsHighRiskApproval(status)) {
+      const gate = requestHighRiskApproval(`High-risk loan action: ${status} (${leadId})`, `Loan lead ${leadId} set to ${status}.`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
     let finalCommissionAmount;
     if (status === 'sanctioned') {
       const value = window.prompt('Final commission amount (optional):', '');
@@ -1769,7 +1867,11 @@ button:hover { background:#092f6d; }
       await live.request(`/admin/loan/assistance/${encodeURIComponent(leadId)}/status`, {
         method: 'POST',
         token,
-        data: { status, ...(finalCommissionAmount !== undefined ? { finalCommissionAmount } : {}) },
+        data: {
+          status,
+          ...(finalCommissionAmount !== undefined ? { finalCommissionAmount } : {}),
+          ...(moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {}),
+        },
       });
       pushNotification(
         `Admin updated loan lead ${leadId}: ${status}.`,
@@ -1777,7 +1879,11 @@ button:hover { background:#092f6d; }
         'Loan Lead Updated',
         status === 'rejected' ? 'warn' : 'info',
       );
-      pushOpsAudit('Updated loan lead', 'loan', `${leadId} -> ${status}`);
+      pushOpsAudit(
+        'Updated loan lead',
+        'loan',
+        `${leadId} -> ${status}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Loan lead update failed.');
@@ -1793,11 +1899,20 @@ button:hover { background:#092f6d; }
     if (!bookingId || !status) return;
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    let moderationReason = '';
+    if (needsHighRiskApproval(status)) {
+      const gate = requestHighRiskApproval(`High-risk service booking action: ${status} (${bookingId})`, `Service booking ${bookingId} set to ${status}.`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
     try {
       await live.request(`/admin/ecosystem/bookings/${encodeURIComponent(bookingId)}/status`, {
         method: 'POST',
         token,
-        data: { status },
+        data: {
+          status,
+          ...(moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {}),
+        },
       });
       pushNotification(
         `Admin updated ecosystem booking ${bookingId}: ${status}.`,
@@ -1805,7 +1920,11 @@ button:hover { background:#092f6d; }
         'Ecosystem Booking Updated',
         status === 'cancelled' ? 'warn' : 'info',
       );
-      pushOpsAudit('Updated service booking', 'booking', `${bookingId} -> ${status}`);
+      pushOpsAudit(
+        'Updated service booking',
+        'booking',
+        `${bookingId} -> ${status}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Ecosystem booking update failed.');
@@ -1821,11 +1940,20 @@ button:hover { background:#092f6d; }
     if (!requestId || !status) return;
     const token = getAdminToken();
     if (!token || !live.request) return window.alert('Admin login required.');
+    let moderationReason = '';
+    if (needsHighRiskApproval(status)) {
+      const gate = requestHighRiskApproval(`High-risk franchise action: ${status} (${requestId})`, `Franchise request ${requestId} set to ${status}.`);
+      if (!gate.ok) return;
+      moderationReason = gate.reason;
+    }
     try {
       await live.request(`/admin/franchise/requests/${encodeURIComponent(requestId)}/status`, {
         method: 'POST',
         token,
-        data: { status },
+        data: {
+          status,
+          ...(moderationReason ? { moderationReason, auditTag: 'admin-high-risk' } : {}),
+        },
       });
       pushNotification(
         `Admin updated franchise request ${requestId}: ${status}.`,
@@ -1833,7 +1961,11 @@ button:hover { background:#092f6d; }
         'Franchise Queue Updated',
         status === 'rejected' ? 'warn' : 'info',
       );
-      pushOpsAudit('Updated franchise request', 'franchise', `${requestId} -> ${status}`);
+      pushOpsAudit(
+        'Updated franchise request',
+        'franchise',
+        `${requestId} -> ${status}${moderationReason ? ` | reason=${truncateForAudit(moderationReason)}` : ''}`,
+      );
       loadAdminControls();
     } catch (error) {
       window.alert(error.message || 'Franchise update failed.');
