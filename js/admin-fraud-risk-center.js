@@ -450,7 +450,12 @@
         setStatus('Admin login required for report resolve.', false);
         return;
       }
-      Promise.all(ids.map((reportId) => live.request(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, { method: 'POST', token }).catch(() => null)))
+      const reason = 'Fraud-risk center action resolved reports after listing-level risk review.';
+      Promise.all(ids.map((reportId) => live.request(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, {
+        method: 'POST',
+        token,
+        data: { moderationReason: reason, reason },
+      }).catch(() => null)))
         .then(() => {
           setStatus('Resolve reports action completed.');
           refresh().catch(() => null);

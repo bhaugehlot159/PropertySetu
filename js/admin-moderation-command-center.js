@@ -268,11 +268,19 @@
     if (!id || !['block', 'unblock'].includes(act)) {
       return { ok: false, message: 'Invalid user action.' };
     }
+    const reason = text(window.prompt(`${act === 'block' ? 'Block' : 'Unblock'} user reason (minimum 12 characters):`, ''), '');
+    if (reason.length < 12) {
+      return { ok: false, message: 'Reason minimum 12 characters required.' };
+    }
     const token = getAdminToken();
 
     if (token && live.request) {
       try {
-        await live.request(`/admin/users/${encodeURIComponent(id)}/${act}`, { method: 'POST', token });
+        await live.request(`/admin/users/${encodeURIComponent(id)}/${act}`, {
+          method: 'POST',
+          token,
+          data: { moderationReason: reason, reason },
+        });
       } catch (error) {
         return { ok: false, message: text(error?.message, `Failed to ${act} user.`) };
       }
@@ -290,11 +298,19 @@
   const actionResolveReport = async (reportId) => {
     const id = text(reportId);
     if (!id) return { ok: false, message: 'Invalid report id.' };
+    const reason = text(window.prompt('Resolve report reason (minimum 12 characters):', ''), '');
+    if (reason.length < 12) {
+      return { ok: false, message: 'Reason minimum 12 characters required.' };
+    }
     const token = getAdminToken();
 
     if (token && live.request) {
       try {
-        await live.request(`/admin/reports/${encodeURIComponent(id)}/resolve`, { method: 'POST', token });
+        await live.request(`/admin/reports/${encodeURIComponent(id)}/resolve`, {
+          method: 'POST',
+          token,
+          data: { moderationReason: reason, reason },
+        });
       } catch (error) {
         return { ok: false, message: text(error?.message, 'Report resolve failed.') };
       }

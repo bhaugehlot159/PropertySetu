@@ -471,7 +471,7 @@
           await live.request(`/admin/owner-verification/${encodeURIComponent(row.id)}/decision`, {
             method: 'POST',
             token,
-            data: { status: decisionStatus, reason, note: reason },
+            data: { status: decisionStatus, moderationReason: reason, reason, note: reason },
           });
           auditRow.liveDecision = true;
         } catch (error) {

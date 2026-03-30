@@ -516,6 +516,7 @@
     }
     let success = 0;
     for (const plan of plans) {
+      const reason = 'Featured pricing updated via revenue control policy and admin-approved margin strategy.';
       try {
         await live.request('/admin/config/featured-pricing', {
           method: 'POST',
@@ -524,6 +525,8 @@
             planId: plan.id,
             amount: numberFrom(plan.suggestedAmount, 0),
             cycleDays: numberFrom(plan.cycleDays, 30),
+            moderationReason: reason,
+            reason,
           },
         });
         success += 1;
@@ -545,6 +548,7 @@
     }
     const policy = getPolicy();
     const recommended = recommendedAmount(lead, policy);
+    const reason = 'Commission updated from revenue control panel after policy and loan-status validation.';
     try {
       await live.request(`/admin/loan/assistance/${encodeURIComponent(lead.id)}/status`, {
         method: 'POST',
@@ -552,6 +556,9 @@
         data: {
           status: lead.status,
           finalCommissionAmount: recommended,
+          moderationReason: reason,
+          reason,
+          adminNote: reason,
         },
       });
       pushLog('Commission Applied', `${lead.id} -> ${recommended}`);

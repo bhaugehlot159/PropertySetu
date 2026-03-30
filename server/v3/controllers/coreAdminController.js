@@ -37,6 +37,39 @@ const DEFAULT_ADMIN_CONFIG = {
   featuredPricing: FEATURED_PLAN_DEFAULTS
 };
 
+const CORE_ADMIN_ACTION_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_ADMIN_ACTION_REASON_MIN || 12)
+);
+const CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS || 4000)
+);
+const CORE_ADMIN_RISKY_DOC_STATUS = new Set([
+  "rejected",
+  "cancelled",
+  "blocked",
+  "suspended"
+]);
+const CORE_ADMIN_RISKY_LOAN_STATUS = new Set([
+  "rejected",
+  "cancelled",
+  "sanctioned",
+  "approved",
+  "disbursed"
+]);
+const CORE_ADMIN_RISKY_ECOSYSTEM_STATUS = new Set([
+  "rejected",
+  "cancelled",
+  "blocked"
+]);
+const CORE_ADMIN_RISKY_FRANCHISE_STATUS = new Set([
+  "rejected",
+  "cancelled",
+  "declined",
+  "approved"
+]);
+
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
   return normalized || fallback;
@@ -56,6 +89,10 @@ function asIso(value) {
 
 function normalizeStatus(value) {
   return text(value).toLowerCase();
+}
+
+function normalizeStatusKey(value) {
+  return normalizeStatus(value).replace(/[\s_]+/g, "-");
 }
 
 function ensureArrayStore(key) {
@@ -191,6 +228,75 @@ function setStoreStatus(key, id, status, extra = {}) {
   return rows[index];
 }
 
+function getClientIp(req) {
+  const forwarded = req?.headers?.["x-forwarded-for"];
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return text(forwarded[0]).split(",")[0].trim();
+  }
+  if (text(forwarded)) {
+    return text(forwarded).split(",")[0].trim();
+  }
+  return text(req?.ip || req?.socket?.remoteAddress || "0.0.0.0");
+}
+
+function getAdminReason(req) {
+  return text(
+    req?.body?.moderationReason ||
+      req?.body?.reason ||
+      req?.body?.adminReason ||
+      req?.body?.adminNote ||
+      req?.query?.moderationReason ||
+      req?.query?.reason ||
+      req?.query?.adminReason ||
+      req?.query?.adminNote
+  );
+}
+
+function requireAdminReason(req, res, actionLabel = "This action") {
+  const reason = getAdminReason(req);
+  if (reason.length >= CORE_ADMIN_ACTION_REASON_MIN) {
+    return reason;
+  }
+  res.status(400).json({
+    success: false,
+    message: `${actionLabel} requires reason/moderationReason with minimum ${CORE_ADMIN_ACTION_REASON_MIN} characters.`
+  });
+  return null;
+}
+
+function joinAdminNote(adminNote = "", reason = "") {
+  const safeAdminNote = text(adminNote);
+  const safeReason = text(reason);
+  if (!safeReason) return safeAdminNote;
+  if (!safeAdminNote) return safeReason;
+  if (safeAdminNote.toLowerCase().includes(safeReason.toLowerCase())) return safeAdminNote;
+  return `${safeAdminNote} | reason: ${safeReason}`.slice(0, 500);
+}
+
+function trackCoreAdminAction(req, payload = {}) {
+  const rows = ensureArrayStore("coreAdminActionAudit");
+  rows.unshift({
+    id: `admin-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    action: text(payload.action),
+    targetId: text(payload.targetId),
+    status: text(payload.status),
+    severity: text(payload.severity, "high"),
+    reason: text(payload.reason).replace(/\s+/g, " ").slice(0, 300),
+    metadata:
+      payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+        ? payload.metadata
+        : {},
+    adminId: toId(req?.coreUser?.id),
+    adminRole: text(req?.coreUser?.role, "admin"),
+    clientIp: getClientIp(req),
+    userAgent: text(req?.headers?.["user-agent"]).slice(0, 180),
+    createdAt: new Date().toISOString()
+  });
+  if (rows.length > CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS) {
+    rows.length = CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS;
+  }
+}
+
 export async function listCoreAdminProperties(req, res, next) {
   try {
     const statusFilter = normalizeStatus(req.query.status);
@@ -277,11 +383,19 @@ export function addCoreAdminCategory(req, res) {
 export function removeCoreAdminCategory(req, res) {
   const name = text(req.query?.name || req.body?.name || req.params?.name);
   if (!name) return res.status(400).json({ success: false, message: "Category name required." });
+  const reason = requireAdminReason(req, res, "Removing category");
+  if (!reason) return null;
   const config = getAdminConfigMemory();
   const before = config.categories.length;
   config.categories = config.categories.filter((item) => item.toLowerCase() !== name.toLowerCase());
   if (before === config.categories.length) return res.status(404).json({ success: false, message: "Category not found." });
   proMemoryStore.coreAdminConfig = config;
+  trackCoreAdminAction(req, {
+    action: "admin-category-remove",
+    targetId: name,
+    status: "success",
+    reason
+  });
   return res.json({ success: true, items: [...config.categories] });
 }
 
@@ -304,6 +418,8 @@ export function addCoreAdminCity(req, res) {
 export function removeCoreAdminCity(req, res) {
   const city = text(req.query?.city || req.body?.city || req.params?.city);
   if (!city) return res.status(400).json({ success: false, message: "City name required." });
+  const reason = requireAdminReason(req, res, "Removing city");
+  if (!reason) return null;
   if (city.toLowerCase() === "udaipur") {
     return res.status(400).json({ success: false, message: "Udaipur live city cannot be removed." });
   }
@@ -312,6 +428,12 @@ export function removeCoreAdminCity(req, res) {
   config.cities = config.cities.filter((item) => item.toLowerCase() !== city.toLowerCase());
   if (before === config.cities.length) return res.status(404).json({ success: false, message: "City not found." });
   proMemoryStore.coreAdminConfig = config;
+  trackCoreAdminAction(req, {
+    action: "admin-city-remove",
+    targetId: city,
+    status: "success",
+    reason
+  });
   return res.json({ success: true, items: [...config.cities] });
 }
 
@@ -336,12 +458,17 @@ export function setCoreAdminFeaturedPricing(req, res) {
   if (!FEATURED_PLAN_DEFAULTS[planId]) {
     return res.status(400).json({ success: false, message: "Valid featured plan required (featured-7 or featured-30)." });
   }
+  const reason = requireAdminReason(req, res, "Updating featured pricing");
+  if (!reason) return null;
   const amount = Number(req.body?.amount);
   const cycleDays = Number(req.body?.cycleDays);
   if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ success: false, message: "Valid amount is required." });
   if (!Number.isFinite(cycleDays) || cycleDays < 1) return res.status(400).json({ success: false, message: "Valid cycleDays is required." });
   const config = getAdminConfigMemory();
   const pricing = normalizeFeaturedPricing(config.featuredPricing);
+  const previous = pricing[planId]
+    ? { ...pricing[planId] }
+    : { ...FEATURED_PLAN_DEFAULTS[planId] };
   pricing[planId] = {
     label: text(req.body?.label, FEATURED_PLAN_DEFAULTS[planId].label),
     amount: Math.round(amount),
@@ -349,6 +476,16 @@ export function setCoreAdminFeaturedPricing(req, res) {
   };
   config.featuredPricing = pricing;
   proMemoryStore.coreAdminConfig = config;
+  trackCoreAdminAction(req, {
+    action: "admin-featured-pricing-update",
+    targetId: planId,
+    status: "success",
+    reason,
+    metadata: {
+      previous,
+      next: pricing[planId]
+    }
+  });
   return getCoreAdminFeaturedPricing(req, res);
 }
 
@@ -369,6 +506,8 @@ export async function updateCoreAdminUserBlock(req, res, next) {
     if (!userId || !["block", "unblock"].includes(action)) {
       return res.status(400).json({ success: false, message: "userId and action(block/unblock) are required." });
     }
+    const reason = requireAdminReason(req, res, action === "block" ? "Blocking user" : "Unblocking user");
+    if (!reason) return null;
     const blocked = action === "block";
     let updated = null;
     if (proRuntime.dbConnected) {
@@ -385,6 +524,12 @@ export async function updateCoreAdminUserBlock(req, res, next) {
       }
     }
     if (!updated) return res.status(404).json({ success: false, message: "User not found." });
+    trackCoreAdminAction(req, {
+      action: blocked ? "admin-user-block" : "admin-user-unblock",
+      targetId: userId,
+      status: "success",
+      reason
+    });
     return res.json({ success: true, user: normalizeCoreUser(updated) });
   } catch (error) {
     return next(error);
@@ -407,17 +552,31 @@ export function listCoreAdminReports(_req, res) {
 export function resolveCoreAdminReport(req, res) {
   const reportId = text(req.params.reportId);
   if (!reportId) return res.status(400).json({ success: false, message: "reportId is required." });
+  const reason = requireAdminReason(req, res, "Resolving report");
+  if (!reason) return null;
   const coreReports = ensureArrayStore("coreReports");
   const legacyReports = ensureArrayStore("reports");
   let updated = null;
   [coreReports, legacyReports].forEach((rows) => {
     const index = rows.findIndex((item) => text(item.id || item._id) === reportId);
     if (index >= 0) {
-      rows[index] = { ...rows[index], status: "resolved", resolvedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      rows[index] = {
+        ...rows[index],
+        status: "resolved",
+        resolvedAt: new Date().toISOString(),
+        resolvedReason: reason,
+        updatedAt: new Date().toISOString()
+      };
       updated = rows[index];
     }
   });
   if (!updated) return res.status(404).json({ success: false, message: "Report not found." });
+  trackCoreAdminAction(req, {
+    action: "admin-report-resolve",
+    targetId: reportId,
+    status: "success",
+    reason
+  });
   return res.json({ success: true, report: updated });
 }
 
@@ -526,6 +685,8 @@ export async function decideCoreAdminOwnerVerification(req, res, next) {
       return "Pending Review";
     })();
     if (!requestId) return res.status(400).json({ success: false, message: "requestId is required." });
+    const reason = requireAdminReason(req, res, "Owner verification decision");
+    if (!reason) return null;
     let updated = null;
     if (proRuntime.dbConnected) {
       if (!mongoose.Types.ObjectId.isValid(requestId)) {
@@ -533,18 +694,38 @@ export async function decideCoreAdminOwnerVerification(req, res, next) {
       }
       updated = await CoreOwnerVerification.findByIdAndUpdate(
         requestId,
-        { $set: { status, reviewedBy: toId(req.coreUser?.id), reviewedAt: new Date() } },
+        {
+          $set: {
+            status,
+            note: joinAdminNote(req.body?.note, reason),
+            reviewedBy: toId(req.coreUser?.id),
+            reviewedAt: new Date()
+          }
+        },
         { new: true }
       );
     } else {
       const rows = ensureArrayStore("coreOwnerVerificationRequests");
       const index = rows.findIndex((item) => toId(item._id || item.id) === requestId);
       if (index >= 0) {
-        rows[index] = { ...rows[index], status, reviewedBy: toId(req.coreUser?.id), reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        rows[index] = {
+          ...rows[index],
+          status,
+          note: joinAdminNote(rows[index]?.note, reason),
+          reviewedBy: toId(req.coreUser?.id),
+          reviewedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
         updated = rows[index];
       }
     }
     if (!updated) return res.status(404).json({ success: false, message: "Verification request not found." });
+    trackCoreAdminAction(req, {
+      action: "admin-owner-verification-decision",
+      targetId: requestId,
+      status,
+      reason
+    });
     return res.json({
       success: true,
       request: {
@@ -565,8 +746,26 @@ export function listCoreDocumentationRequests(_req, res) {
 }
 
 export function updateCoreDocumentationRequestStatus(req, res) {
-  const updated = setStoreStatus("documentationRequests", req.params.requestId, text(req.body?.status), { adminNote: text(req.body?.adminNote) });
+  const status = text(req.body?.status);
+  const statusKey = normalizeStatusKey(status);
+  const reason = getAdminReason(req);
+  if (CORE_ADMIN_RISKY_DOC_STATUS.has(statusKey)) {
+    const requiredReason = requireAdminReason(req, res, "Updating documentation request to risky status");
+    if (!requiredReason) return null;
+  }
+  const updated = setStoreStatus("documentationRequests", req.params.requestId, status, {
+    adminNote: joinAdminNote(req.body?.adminNote, reason),
+    moderationReason: text(reason)
+  });
   if (!updated) return res.status(404).json({ success: false, message: "Documentation request not found." });
+  if (reason) {
+    trackCoreAdminAction(req, {
+      action: "admin-documentation-status-update",
+      targetId: text(req.params.requestId),
+      status,
+      reason
+    });
+  }
   notifyCoreServiceStatusUpdate({
     userId: toId(updated.userId),
     title: "Documentation Request Updated",
@@ -583,14 +782,30 @@ export function listCoreLoanAssistance(_req, res) {
 }
 
 export function updateCoreLoanAssistanceStatus(req, res) {
-  const updated = setStoreStatus("loanAssistanceLeads", req.params.leadId, text(req.body?.status), {
-    adminNote: text(req.body?.adminNote),
+  const status = text(req.body?.status);
+  const statusKey = normalizeStatusKey(status);
+  const reason = getAdminReason(req);
+  if (CORE_ADMIN_RISKY_LOAN_STATUS.has(statusKey)) {
+    const requiredReason = requireAdminReason(req, res, "Updating loan assistance to risky status");
+    if (!requiredReason) return null;
+  }
+  const updated = setStoreStatus("loanAssistanceLeads", req.params.leadId, status, {
+    adminNote: joinAdminNote(req.body?.adminNote, reason),
+    moderationReason: text(reason),
     finalCommissionAmount:
       typeof req.body?.finalCommissionAmount === "undefined"
         ? undefined
         : Math.max(0, numberValue(req.body?.finalCommissionAmount, 0))
   });
   if (!updated) return res.status(404).json({ success: false, message: "Loan assistance lead not found." });
+  if (reason) {
+    trackCoreAdminAction(req, {
+      action: "admin-loan-status-update",
+      targetId: text(req.params.leadId),
+      status,
+      reason
+    });
+  }
   notifyCoreServiceStatusUpdate({
     userId: toId(updated.userId),
     title: "Loan Assistance Updated",
@@ -607,8 +822,26 @@ export function listCoreEcosystemBookings(_req, res) {
 }
 
 export function updateCoreEcosystemBookingStatus(req, res) {
-  const updated = setStoreStatus("servicePartnerBookings", req.params.bookingId, text(req.body?.status), { adminNote: text(req.body?.adminNote) });
+  const status = text(req.body?.status);
+  const statusKey = normalizeStatusKey(status);
+  const reason = getAdminReason(req);
+  if (CORE_ADMIN_RISKY_ECOSYSTEM_STATUS.has(statusKey)) {
+    const requiredReason = requireAdminReason(req, res, "Updating ecosystem booking to risky status");
+    if (!requiredReason) return null;
+  }
+  const updated = setStoreStatus("servicePartnerBookings", req.params.bookingId, status, {
+    adminNote: joinAdminNote(req.body?.adminNote, reason),
+    moderationReason: text(reason)
+  });
   if (!updated) return res.status(404).json({ success: false, message: "Ecosystem booking not found." });
+  if (reason) {
+    trackCoreAdminAction(req, {
+      action: "admin-ecosystem-booking-status-update",
+      targetId: text(req.params.bookingId),
+      status,
+      reason
+    });
+  }
   notifyCoreServiceStatusUpdate({
     userId: toId(updated.userId),
     title: "Service Booking Updated",
@@ -635,8 +868,26 @@ export function listCoreFranchiseRequests(_req, res) {
 }
 
 export function updateCoreFranchiseRequestStatus(req, res) {
-  const updated = setStoreStatus("franchiseRequests", req.params.requestId, text(req.body?.status), { adminNote: text(req.body?.adminNote) });
+  const status = text(req.body?.status);
+  const statusKey = normalizeStatusKey(status);
+  const reason = getAdminReason(req);
+  if (CORE_ADMIN_RISKY_FRANCHISE_STATUS.has(statusKey)) {
+    const requiredReason = requireAdminReason(req, res, "Updating franchise request to risky status");
+    if (!requiredReason) return null;
+  }
+  const updated = setStoreStatus("franchiseRequests", req.params.requestId, status, {
+    adminNote: joinAdminNote(req.body?.adminNote, reason),
+    moderationReason: text(reason)
+  });
   if (!updated) return res.status(404).json({ success: false, message: "Franchise request not found." });
+  if (reason) {
+    trackCoreAdminAction(req, {
+      action: "admin-franchise-status-update",
+      targetId: text(req.params.requestId),
+      status,
+      reason
+    });
+  }
   notifyCoreServiceStatusUpdate({
     userId: toId(updated.userId),
     title: "Franchise Request Updated",

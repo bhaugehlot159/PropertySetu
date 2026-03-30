@@ -243,6 +243,14 @@
     status("Session cleared.", "warn");
   };
 
+  const promptModerationReason = (title) => {
+    const reason = txt(window.prompt(`${title}\nReason (minimum 12 characters):`, ""));
+    if (reason.length < 12) {
+      throw new Error("Reason minimum 12 characters required.");
+    }
+    return reason;
+  };
+
   const actionDispatch = async (action, id) => {
     if (!action || !id) return;
     if (action === "approve") {
@@ -265,10 +273,11 @@
         "reject-owner": "rejected",
         "needs-info-owner": "needs-info",
       };
+      const reason = promptModerationReason("Owner verification decision");
       await api(`/admin/owner-verification/${encodeURIComponent(id)}/decision`, {
         method: "POST",
         auth: true,
-        body: { status: map[action] },
+        body: { status: map[action], moderationReason: reason, reason, note: reason },
       });
       status("Owner verification decision saved.", "ok");
       await loadVerificationQueue();
@@ -277,7 +286,12 @@
     }
     if (action === "block-user" || action === "unblock-user") {
       const endpoint = action === "block-user" ? "block" : "unblock";
-      await api(`/admin/users/${encodeURIComponent(id)}/${endpoint}`, { method: "POST", auth: true, body: {} });
+      const reason = promptModerationReason(endpoint === "block" ? "Block user action" : "Unblock user action");
+      await api(`/admin/users/${encodeURIComponent(id)}/${endpoint}`, {
+        method: "POST",
+        auth: true,
+        body: { moderationReason: reason, reason },
+      });
       status("User status updated.", "ok");
       await loadUsers();
       await loadOverview();
