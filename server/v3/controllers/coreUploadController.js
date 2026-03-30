@@ -179,6 +179,10 @@ const PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH =
   String(process.env.CORE_PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS =
   String(process.env.CORE_PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN || 12)
+);
 const PRIVATE_DOC_PROXY_ALLOWED_HOST_PATTERNS = (() => {
   const defaults = ["secure-cdn.propertysetu.local", "cdn.propertysetu.local"];
   const raw = text(process.env.CORE_PRIVATE_DOC_PROXY_ALLOWED_HOSTS);
@@ -319,6 +323,20 @@ function normalizePrivateDocIntegrityStatus(value = "") {
   const raw = text(value, "unknown").toLowerCase();
   if (raw === "verified" || raw === "mismatch") return raw;
   return "unknown";
+}
+
+function normalizePrivateDocIntegrityReviewStatus(value = "") {
+  const raw = text(value, "none").toLowerCase();
+  if (raw === "pending" || raw === "approved" || raw === "quarantined") return raw;
+  return "none";
+}
+
+function normalizePrivateDocIntegrityDecisionAction(value = "") {
+  const raw = text(value).toLowerCase();
+  if (raw === "approve" || raw === "approved") return "approved";
+  if (raw === "quarantine" || raw === "quarantined") return "quarantined";
+  if (raw === "reset" || raw === "recheck" || raw === "retry") return "reset";
+  return "";
 }
 
 function normalizeEtagValue(value = "") {
@@ -1409,6 +1427,9 @@ function normalizeUpload(doc, viewer = null) {
     isPrivate ? hashPrivateDocSourceUrl(sourceUrl) : ""
   );
   const privateDocIntegrityStatus = normalizePrivateDocIntegrityStatus(row.privateDocIntegrityStatus);
+  const privateDocIntegrityReviewStatus = normalizePrivateDocIntegrityReviewStatus(
+    row.privateDocIntegrityReviewStatus
+  );
   const privateDocProtected = Boolean(row.privateDocProtected || isPrivate);
   const accessEnvelope =
     isPrivate && sourceUrl
@@ -1456,7 +1477,21 @@ function normalizeUpload(doc, viewer = null) {
             upstreamEtag: text(row.privateDocUpstreamEtag),
             upstreamLastModified: text(row.privateDocUpstreamLastModified),
             mismatchAt: asIso(row.privateDocIntegrityMismatchAt),
-            mismatchReason: text(row.privateDocIntegrityMismatchReason)
+            mismatchReason: text(row.privateDocIntegrityMismatchReason),
+            reviewStatus: privateDocIntegrityReviewStatus,
+            reviewedBy: toId(row.privateDocIntegrityReviewedBy),
+            reviewedAt: asIso(row.privateDocIntegrityReviewedAt),
+            reviewReason: text(row.privateDocIntegrityReviewReason),
+            reviewHistory: Array.isArray(row.privateDocIntegrityReviewHistory)
+              ? row.privateDocIntegrityReviewHistory.slice(-20).map((item) => ({
+                  action: text(item?.action),
+                  byUserId: toId(item?.byUserId),
+                  reason: text(item?.reason),
+                  previousStatus: text(item?.previousStatus),
+                  nextStatus: text(item?.nextStatus),
+                  at: asIso(item?.at)
+                }))
+              : []
           }
         : null,
     secureAccess:
@@ -1517,6 +1552,11 @@ function buildUploadRows(req, files = []) {
       privateDocIntegrityStatus: isPrivate ? "unknown" : "verified",
       privateDocIntegrityMismatchAt: null,
       privateDocIntegrityMismatchReason: "",
+      privateDocIntegrityReviewStatus: "none",
+      privateDocIntegrityReviewedBy: null,
+      privateDocIntegrityReviewedAt: null,
+      privateDocIntegrityReviewReason: "",
+      privateDocIntegrityReviewHistory: [],
       storageProvider: text(proRuntime.storageProvider || "memory", "memory")
     };
   });
@@ -1712,6 +1752,30 @@ async function markPrivateDocAccess(uploadId = "", nowIso = "") {
 async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
   const id = text(uploadId);
   if (!id || !patch || typeof patch !== "object" || Array.isArray(patch)) return;
+  const reviewHistoryInput =
+    patch.privateDocIntegrityReviewHistoryEvent &&
+    typeof patch.privateDocIntegrityReviewHistoryEvent === "object" &&
+    !Array.isArray(patch.privateDocIntegrityReviewHistoryEvent)
+      ? patch.privateDocIntegrityReviewHistoryEvent
+      : null;
+  const reviewAction = text(reviewHistoryInput?.action).toLowerCase();
+  const allowedHistoryActions = new Set([
+    "auto-mismatch",
+    "auto-verified",
+    "approved",
+    "quarantined",
+    "reset"
+  ]);
+  const reviewHistoryEvent = reviewAction && allowedHistoryActions.has(reviewAction)
+    ? {
+        action: reviewAction,
+        byUserId: toObjectIdOrNull(reviewHistoryInput?.byUserId),
+        reason: text(reviewHistoryInput?.reason).slice(0, 400),
+        previousStatus: text(reviewHistoryInput?.previousStatus).slice(0, 40),
+        nextStatus: text(reviewHistoryInput?.nextStatus).slice(0, 40),
+        at: reviewHistoryInput?.at ? new Date(reviewHistoryInput.at) : new Date()
+      }
+    : null;
   const next = {
     privateDocContentHash: text(patch.privateDocContentHash),
     privateDocContentBytes: Math.max(0, numberValue(patch.privateDocContentBytes, 0)),
@@ -1720,6 +1784,14 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
     privateDocUpstreamLastModified: text(patch.privateDocUpstreamLastModified),
     privateDocAttestedAt: patch.privateDocAttestedAt ? new Date(patch.privateDocAttestedAt) : null,
     privateDocIntegrityStatus: normalizePrivateDocIntegrityStatus(patch.privateDocIntegrityStatus),
+    privateDocIntegrityReviewStatus: normalizePrivateDocIntegrityReviewStatus(
+      patch.privateDocIntegrityReviewStatus
+    ),
+    privateDocIntegrityReviewedBy: toObjectIdOrNull(patch.privateDocIntegrityReviewedBy),
+    privateDocIntegrityReviewedAt: patch.privateDocIntegrityReviewedAt
+      ? new Date(patch.privateDocIntegrityReviewedAt)
+      : null,
+    privateDocIntegrityReviewReason: text(patch.privateDocIntegrityReviewReason).slice(0, 600),
     privateDocIntegrityMismatchAt: patch.privateDocIntegrityMismatchAt
       ? new Date(patch.privateDocIntegrityMismatchAt)
       : null,
@@ -1728,9 +1800,18 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
 
   if (proRuntime.dbConnected) {
     if (!mongoose.Types.ObjectId.isValid(id)) return;
-    await CoreUpload.findByIdAndUpdate(id, {
+    const update = {
       $set: next
-    });
+    };
+    if (reviewHistoryEvent) {
+      update.$push = {
+        privateDocIntegrityReviewHistory: {
+          $each: [reviewHistoryEvent],
+          $slice: -120
+        }
+      };
+    }
+    await CoreUpload.findByIdAndUpdate(id, update);
     return;
   }
 
@@ -1739,13 +1820,27 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
   );
   if (index < 0) return;
   const previous = proMemoryStore.coreUploads[index] || {};
+  const previousHistory = Array.isArray(previous.privateDocIntegrityReviewHistory)
+    ? previous.privateDocIntegrityReviewHistory
+    : [];
+  const nextHistory = reviewHistoryEvent
+    ? [...previousHistory, {
+        ...reviewHistoryEvent,
+        byUserId: toId(reviewHistoryEvent.byUserId)
+      }].slice(-120)
+    : previousHistory;
   proMemoryStore.coreUploads[index] = {
     ...previous,
     ...next,
     privateDocAttestedAt: next.privateDocAttestedAt ? next.privateDocAttestedAt.toISOString() : null,
+    privateDocIntegrityReviewedBy: toId(next.privateDocIntegrityReviewedBy),
+    privateDocIntegrityReviewedAt: next.privateDocIntegrityReviewedAt
+      ? next.privateDocIntegrityReviewedAt.toISOString()
+      : null,
     privateDocIntegrityMismatchAt: next.privateDocIntegrityMismatchAt
       ? next.privateDocIntegrityMismatchAt.toISOString()
-      : null
+      : null,
+    privateDocIntegrityReviewHistory: nextHistory
   };
 }
 
@@ -2423,6 +2518,7 @@ export async function streamCorePrivateDoc(req, res, next) {
     let expectedUpstreamEtag = "";
     let expectedUpstreamLastModified = "";
     let uploadIntegrityStatus = "unknown";
+    let uploadIntegrityReviewStatus = "none";
 
     if (uploadId) {
       const uploadRow = await findUploadById(uploadId);
@@ -2470,6 +2566,9 @@ export async function streamCorePrivateDoc(req, res, next) {
       docCategory = text(uploadRow?.category, docCategory);
       sourceUrl = text(uploadRow?.url, sourceUrl);
       uploadIntegrityStatus = normalizePrivateDocIntegrityStatus(uploadRow?.privateDocIntegrityStatus);
+      uploadIntegrityReviewStatus = normalizePrivateDocIntegrityReviewStatus(
+        uploadRow?.privateDocIntegrityReviewStatus
+      );
       expectedContentHash = text(uploadRow?.privateDocContentHash).toLowerCase();
       expectedUpstreamEtag = text(uploadRow?.privateDocUpstreamEtag);
       expectedUpstreamLastModified = text(uploadRow?.privateDocUpstreamLastModified);
@@ -2558,6 +2657,7 @@ export async function streamCorePrivateDoc(req, res, next) {
         PRIVATE_DOC_CONTENT_ATTEST_ENABLED &&
         PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH &&
         uploadIntegrityStatus === "mismatch" &&
+        uploadIntegrityReviewStatus !== "approved" &&
         !(actorIsAdmin && PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS)
       ) {
         recordPrivateDocAccessEvent({
@@ -2728,8 +2828,19 @@ export async function streamCorePrivateDoc(req, res, next) {
           privateDocUpstreamLastModified: expectedUpstreamLastModified || upstreamLastModified,
           privateDocAttestedAt: nowIso,
           privateDocIntegrityStatus: "mismatch",
+          privateDocIntegrityReviewStatus: "pending",
+          privateDocIntegrityReviewedBy: null,
+          privateDocIntegrityReviewedAt: null,
+          privateDocIntegrityReviewReason: "",
           privateDocIntegrityMismatchAt: nowIso,
-          privateDocIntegrityMismatchReason: mismatchReason
+          privateDocIntegrityMismatchReason: mismatchReason,
+          privateDocIntegrityReviewHistoryEvent: {
+            action: "auto-mismatch",
+            byUserId: null,
+            reason: mismatchReason,
+            previousStatus: uploadIntegrityStatus,
+            nextStatus: "mismatch"
+          }
         });
         recordPrivateDocAccessEvent({
           userId: actorId,
@@ -2758,8 +2869,19 @@ export async function streamCorePrivateDoc(req, res, next) {
           privateDocUpstreamLastModified: upstreamLastModified,
           privateDocAttestedAt: nowIso,
           privateDocIntegrityStatus: "verified",
+          privateDocIntegrityReviewStatus: "none",
+          privateDocIntegrityReviewedBy: null,
+          privateDocIntegrityReviewedAt: null,
+          privateDocIntegrityReviewReason: "",
           privateDocIntegrityMismatchAt: null,
-          privateDocIntegrityMismatchReason: ""
+          privateDocIntegrityMismatchReason: "",
+          privateDocIntegrityReviewHistoryEvent: {
+            action: "auto-verified",
+            byUserId: null,
+            reason: "content-attestation-verified",
+            previousStatus: uploadIntegrityStatus,
+            nextStatus: "verified"
+          }
         });
       }
     }
@@ -2784,6 +2906,200 @@ export async function streamCorePrivateDoc(req, res, next) {
       source: "stream-proxy-success"
     });
     return undefined;
+  } catch (error) {
+    return next(error);
+  }
+}
+
+function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
+  const normalized = normalizeUpload(uploadRow, null) || {};
+  const integrity = normalized.privateDocIntegrity || {};
+  return {
+    uploadId: text(normalized.id),
+    propertyId: text(normalized.propertyId),
+    ownerId: text(normalized.userId),
+    category: text(normalized.category),
+    name: text(normalized.name),
+    isPrivate: Boolean(normalized.isPrivate),
+    integrity: {
+      status: normalizePrivateDocIntegrityStatus(integrity.status),
+      reviewStatus: normalizePrivateDocIntegrityReviewStatus(integrity.reviewStatus),
+      mismatchAt: asIso(integrity.mismatchAt),
+      mismatchReason: text(integrity.mismatchReason),
+      attestedAt: asIso(integrity.attestedAt),
+      contentHash: text(integrity.contentHash),
+      contentBytes: Math.max(0, numberValue(integrity.contentBytes, 0)),
+      contentType: text(integrity.contentType),
+      upstreamEtag: text(integrity.upstreamEtag),
+      upstreamLastModified: text(integrity.upstreamLastModified),
+      reviewedBy: text(integrity.reviewedBy),
+      reviewedAt: asIso(integrity.reviewedAt),
+      reviewReason: text(integrity.reviewReason),
+      reviewHistory: Array.isArray(integrity.reviewHistory)
+        ? integrity.reviewHistory.slice(-20)
+        : []
+    },
+    createdAt: asIso(normalized.createdAt),
+    updatedAt: asIso(normalized.updatedAt)
+  };
+}
+
+export async function listCorePrivateDocIntegrityQueue(req, res, next) {
+  try {
+    const limit = Math.min(300, Math.max(1, Number(req.query?.limit || 100)));
+    const requestedStatus = text(req.query?.status).toLowerCase();
+    const statusFilter = normalizePrivateDocIntegrityReviewStatus(requestedStatus);
+    const includeAll = requestedStatus === "all";
+    let rows = [];
+
+    if (proRuntime.dbConnected) {
+      const query = {
+        isPrivate: true,
+        privateDocIntegrityStatus: "mismatch"
+      };
+      if (!includeAll && requestedStatus) {
+        query.privateDocIntegrityReviewStatus = statusFilter;
+      } else if (!includeAll && !requestedStatus) {
+        query.privateDocIntegrityReviewStatus = "pending";
+      }
+      rows = await CoreUpload.find(query).sort({ updatedAt: -1 }).limit(limit).lean();
+    } else {
+      rows = (Array.isArray(proMemoryStore.coreUploads) ? proMemoryStore.coreUploads : [])
+        .filter((item) => {
+          if (!Boolean(item?.isPrivate)) return false;
+          if (normalizePrivateDocIntegrityStatus(item?.privateDocIntegrityStatus) !== "mismatch") return false;
+          const reviewStatus = normalizePrivateDocIntegrityReviewStatus(item?.privateDocIntegrityReviewStatus);
+          if (includeAll) return true;
+          if (requestedStatus) return reviewStatus === statusFilter;
+          return reviewStatus === "pending";
+        })
+        .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
+        .slice(0, limit);
+    }
+
+    const items = rows.map((item) => buildPrivateDocIntegrityQueueItem(item));
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      total: items.length,
+      filters: {
+        status: includeAll ? "all" : (requestedStatus ? statusFilter : "pending"),
+        limit
+      },
+      items
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function decideCorePrivateDocIntegrity(req, res, next) {
+  try {
+    const uploadId = text(req.body?.uploadId || req.params?.uploadId);
+    const action = normalizePrivateDocIntegrityDecisionAction(req.body?.action);
+    const reason = text(req.body?.reason);
+    const adminId = text(req.coreUser?.id);
+    if (!uploadId) {
+      return res.status(400).json({
+        success: false,
+        message: "uploadId is required."
+      });
+    }
+    if (!action) {
+      return res.status(400).json({
+        success: false,
+        message: "action is required. Allowed: approve, quarantine, reset."
+      });
+    }
+    if (reason.length < PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `reason must be at least ${PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN} characters.`
+      });
+    }
+
+    const uploadRow = await findUploadById(uploadId);
+    if (!uploadRow) {
+      return res.status(404).json({
+        success: false,
+        message: "Upload record not found."
+      });
+    }
+    if (!Boolean(uploadRow?.isPrivate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Integrity review is only supported for private documents."
+      });
+    }
+
+    const currentStatus = normalizePrivateDocIntegrityStatus(uploadRow?.privateDocIntegrityStatus);
+    const currentReviewStatus = normalizePrivateDocIntegrityReviewStatus(
+      uploadRow?.privateDocIntegrityReviewStatus
+    );
+    const nowIso = new Date().toISOString();
+    const patch = {
+      privateDocIntegrityReviewedBy: adminId,
+      privateDocIntegrityReviewedAt: nowIso,
+      privateDocIntegrityReviewReason: reason
+    };
+
+    if (action === "approved") {
+      patch.privateDocIntegrityStatus = currentStatus === "unknown" ? "verified" : currentStatus;
+      patch.privateDocIntegrityReviewStatus = "approved";
+      patch.privateDocIntegrityReviewHistoryEvent = {
+        action: "approved",
+        byUserId: adminId,
+        reason,
+        previousStatus: `${currentStatus}:${currentReviewStatus}`,
+        nextStatus: `${patch.privateDocIntegrityStatus}:approved`
+      };
+    } else if (action === "quarantined") {
+      patch.privateDocIntegrityStatus = "mismatch";
+      patch.privateDocIntegrityReviewStatus = "quarantined";
+      patch.privateDocIntegrityMismatchAt =
+        asIso(uploadRow?.privateDocIntegrityMismatchAt) || nowIso;
+      patch.privateDocIntegrityMismatchReason =
+        text(uploadRow?.privateDocIntegrityMismatchReason) || "admin-quarantined-integrity";
+      patch.privateDocIntegrityReviewHistoryEvent = {
+        action: "quarantined",
+        byUserId: adminId,
+        reason,
+        previousStatus: `${currentStatus}:${currentReviewStatus}`,
+        nextStatus: "mismatch:quarantined"
+      };
+    } else {
+      patch.privateDocIntegrityStatus = "unknown";
+      patch.privateDocIntegrityReviewStatus = "none";
+      patch.privateDocIntegrityMismatchAt = null;
+      patch.privateDocIntegrityMismatchReason = "";
+      patch.privateDocContentHash = "";
+      patch.privateDocContentBytes = 0;
+      patch.privateDocContentType = "";
+      patch.privateDocUpstreamEtag = "";
+      patch.privateDocUpstreamLastModified = "";
+      patch.privateDocAttestedAt = null;
+      patch.privateDocIntegrityReviewHistoryEvent = {
+        action: "reset",
+        byUserId: adminId,
+        reason,
+        previousStatus: `${currentStatus}:${currentReviewStatus}`,
+        nextStatus: "unknown:none"
+      };
+    }
+
+    await markPrivateDocIntegrity(uploadId, patch);
+    const updated = await findUploadById(uploadId);
+    return res.json({
+      success: true,
+      decision: {
+        uploadId,
+        action,
+        reason,
+        reviewedBy: adminId,
+        reviewedAt: nowIso
+      },
+      upload: buildPrivateDocIntegrityQueueItem(updated || uploadRow)
+    });
   } catch (error) {
     return next(error);
   }

@@ -1,5 +1,7 @@
 import { Router } from "express";
 import {
+  decideCorePrivateDocIntegrity,
+  listCorePrivateDocIntegrityQueue,
   listCorePrivateDocSecurityEvents,
   listMyCoreUploads,
   releaseCorePrivateDocSecurityShield,
@@ -51,6 +53,18 @@ router.post(
   coreAuthRequired,
   coreRoleRequired("admin"),
   releaseCorePrivateDocSecurityShield
+);
+router.get(
+  "/private-docs/integrity/review",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  listCorePrivateDocIntegrityQueue
+);
+router.post(
+  "/private-docs/integrity/decision",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  decideCorePrivateDocIntegrity
 );
 router.get("/mine", coreAuthRequired, listMyCoreUploads);
 

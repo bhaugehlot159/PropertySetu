@@ -101,6 +101,7 @@ export const coreSystemsBlueprint = [
       "MongoDB-persisted private-doc shield blocks and security telemetry for restart-safe enforcement",
       "Secure private-doc proxy streaming with signed short-lived stream tokens and replay guards",
       "Private-doc content integrity attestation (content hash + upstream ETag/Last-Modified) with mismatch lock enforcement",
+      "Admin integrity review workflow for mismatched private docs (pending queue + approve/quarantine/reset decisions)",
       "Auto description generator"
     ],
     endpoints: [
@@ -110,7 +111,9 @@ export const coreSystemsBlueprint = [
       "/api/v3/uploads/private-docs/access",
       "/api/v3/uploads/private-docs/stream",
       "/api/v3/uploads/private-docs/security/events",
-      "/api/v3/uploads/private-docs/security/release"
+      "/api/v3/uploads/private-docs/security/release",
+      "/api/v3/uploads/private-docs/integrity/review",
+      "/api/v3/uploads/private-docs/integrity/decision"
     ],
     dependencies: ["fileStorage"]
   },

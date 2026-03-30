@@ -102,6 +102,61 @@ const coreUploadSchema = new mongoose.Schema(
       default: "",
       trim: true
     },
+    privateDocIntegrityReviewStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "quarantined"],
+      default: "none"
+    },
+    privateDocIntegrityReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    privateDocIntegrityReviewedAt: {
+      type: Date,
+      default: null
+    },
+    privateDocIntegrityReviewReason: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocIntegrityReviewHistory: {
+      type: [
+        {
+          action: {
+            type: String,
+            enum: ["auto-mismatch", "auto-verified", "approved", "quarantined", "reset"],
+            required: true
+          },
+          byUserId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "CoreUser",
+            default: null
+          },
+          reason: {
+            type: String,
+            default: "",
+            trim: true
+          },
+          previousStatus: {
+            type: String,
+            default: "",
+            trim: true
+          },
+          nextStatus: {
+            type: String,
+            default: "",
+            trim: true
+          },
+          at: {
+            type: Date,
+            default: Date.now
+          }
+        }
+      ],
+      default: []
+    },
     storageProvider: {
       type: String,
       default: "memory",
@@ -119,6 +174,7 @@ const coreUploadSchema = new mongoose.Schema(
 
 coreUploadSchema.index({ userId: 1, createdAt: -1 });
 coreUploadSchema.index({ propertyId: 1, createdAt: -1 });
+coreUploadSchema.index({ isPrivate: 1, privateDocIntegrityStatus: 1, privateDocIntegrityReviewStatus: 1, updatedAt: -1 });
 
 const CoreUpload =
   mongoose.models.CoreUpload ||
