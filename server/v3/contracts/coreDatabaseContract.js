@@ -3,7 +3,7 @@ import {
   CORE_PROPERTY_TYPE_VALUES
 } from "../config/corePropertyTaxonomy.js";
 
-export const CORE_DATABASE_STRUCTURE_VERSION = "2026-03-28";
+export const CORE_DATABASE_STRUCTURE_VERSION = "2026-03-30";
 
 export const coreMongoCollections = {
   users: {
@@ -98,6 +98,7 @@ export const coreSystemsBlueprint = [
       "Upload-owner/property-owner authorization re-check with token claim binding validation",
       "Context-bound private-doc access tokens (network prefix + user-agent fingerprint)",
       "Adaptive private-doc security shield: repeated suspicious access patterns auto-blocked with admin release control",
+      "MongoDB-persisted private-doc shield blocks and security telemetry for restart-safe enforcement",
       "Auto description generator"
     ],
     endpoints: [

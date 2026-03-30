@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import CoreProperty from "../models/CoreProperty.js";
+import CorePrivateDocSecurityEvent from "../models/CorePrivateDocSecurityEvent.js";
+import CorePrivateDocShieldBlock from "../models/CorePrivateDocShieldBlock.js";
 import CoreUpload from "../models/CoreUpload.js";
 import {
   buildMaskedPrivateDocUrl,
@@ -124,10 +126,24 @@ const PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS = Math.max(
   100,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS || 3000)
 );
+const PRIVATE_DOC_SECURITY_PERSIST_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_SECURITY_PERSIST_ENABLED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_SECURITY_PERSIST_EVENT_MAX = Math.max(
+  200,
+  Number(process.env.CORE_PRIVATE_DOC_SECURITY_PERSIST_EVENT_MAX || 12000)
+);
+const PRIVATE_DOC_SECURITY_HYDRATE_COOLDOWN_MS = Math.max(
+  30_000,
+  Math.min(
+    15 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_SECURITY_HYDRATE_COOLDOWN_SEC || 90) * 1000
+  )
+);
 const privateDocConsumedTokenMap = new Map();
 const privateDocAccessShieldProfiles = new Map();
 const privateDocAccessShieldBlocks = new Map();
 const privateDocAccessShieldPenalty = new Map();
+let privateDocShieldHydratedAtTs = 0;
 
 function normalizeCategory(value) {
   return text(value, "misc").toLowerCase();
@@ -219,6 +235,45 @@ function buildPrivateDocShieldActorKey({
   return digest ? `ip:${digest}` : "";
 }
 
+function toObjectIdOrNull(value) {
+  const id = text(value);
+  if (!id) return null;
+  return mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null;
+}
+
+function canPersistPrivateDocSecurity() {
+  return Boolean(proRuntime.dbConnected && PRIVATE_DOC_SECURITY_PERSIST_ENABLED);
+}
+
+function hashPrivateDocShieldIp(ip = "") {
+  const safeIp = text(ip);
+  if (!safeIp) return "";
+  return crypto.createHash("sha256").update(`private-doc-ip:${safeIp}`).digest("hex");
+}
+
+function normalizePersistedShieldBlock(row = {}) {
+  const blockUntil = asIso(row.blockUntil);
+  const blockUntilTs = blockUntil ? new Date(blockUntil).getTime() : 0;
+  const blockStartedAt = asIso(row.blockStartedAt);
+  const blockStartedAtTs = blockStartedAt ? new Date(blockStartedAt).getTime() : Date.now();
+  return {
+    actorKey: text(row.actorKey),
+    userId: toId(row.userId),
+    role: text(row.role, "buyer"),
+    ip: "",
+    ipHash: text(row.ipHash),
+    source: text(row.source),
+    reason: text(row.reason),
+    triggers: Array.isArray(row.triggers) ? row.triggers.map((item) => text(item)).filter((item) => Boolean(item)) : [],
+    blockLevel: Math.max(1, Math.round(numberValue(row.blockLevel, 1))),
+    blockStartedAtTs,
+    blockUntilTs,
+    riskScore: Math.max(0, numberValue(row.riskScore, 0)),
+    replayEvents: Math.max(0, Math.round(numberValue(row.replayEvents, 0))),
+    distinctHashes: Math.max(0, Math.round(numberValue(row.distinctHashes, 0)))
+  };
+}
+
 function isPrivateDocFailureReason(reason = "") {
   const normalized = text(reason).toLowerCase();
   if (!normalized) return false;
@@ -296,6 +351,7 @@ function listPrivateDocShieldActiveBlocks(nowTs = Date.now()) {
       userId: text(row?.userId),
       role: text(row?.role),
       ip: text(row?.ip),
+      ipHash: text(row?.ipHash),
       source: text(row?.source)
     });
   }
@@ -360,28 +416,196 @@ function prunePrivateDocAccessShieldState(nowTs = Date.now()) {
   syncPrivateDocShieldBlocksSnapshot(now);
 }
 
+async function hydratePrivateDocShieldBlocksFromDb(nowTs = Date.now()) {
+  if (!canPersistPrivateDocSecurity()) return;
+  const now = Math.max(0, Math.round(numberValue(nowTs, Date.now())));
+  if (privateDocShieldHydratedAtTs && privateDocShieldHydratedAtTs + PRIVATE_DOC_SECURITY_HYDRATE_COOLDOWN_MS > now) {
+    return;
+  }
+
+  try {
+    const rows = await CorePrivateDocShieldBlock.find({
+      blockUntil: { $gt: new Date(now) }
+    })
+      .sort({ blockUntil: -1 })
+      .limit(Math.max(200, PRIVATE_DOC_ACCESS_SHIELD_PROFILE_MAX))
+      .lean();
+
+    rows.forEach((item) => {
+      const normalized = normalizePersistedShieldBlock(item);
+      if (!normalized.actorKey || !normalized.blockUntilTs || normalized.blockUntilTs <= now) return;
+      privateDocAccessShieldBlocks.set(normalized.actorKey, normalized);
+    });
+    privateDocShieldHydratedAtTs = now;
+    syncPrivateDocShieldBlocksSnapshot(now);
+  } catch {
+    // Fallback remains in-memory only if persistence lookup fails.
+  }
+}
+
+function buildPrivateDocSecurityPersistenceMetadata(event = {}) {
+  return {
+    replayGuardEnabled: Boolean(event.replayGuardEnabled),
+    replayBlocked: Boolean(event.replayBlocked),
+    authorizationDenied: Boolean(event.authorizationDenied),
+    contextBindingEnforced: Boolean(event.contextBindingEnforced),
+    contextBindingFailure: Boolean(event.contextBindingFailure),
+    expiresAt: text(event.expiresAt),
+    shieldTriggers: Array.isArray(event.shieldTriggers) ? event.shieldTriggers.slice(0, 8) : [],
+    shieldReason: text(event.shieldReason),
+    shieldBlocked: Boolean(event.shieldBlocked),
+    shieldActive: Boolean(event.shieldActive),
+    shieldBlockLevel: Math.max(0, Math.round(numberValue(event.shieldBlockLevel, 0))),
+    shieldRemainingSec: Math.max(0, Math.round(numberValue(event.shieldRemainingSec, 0)))
+  };
+}
+
+async function persistPrivateDocSecurityEvent(event = {}, eventType = "access") {
+  if (!canPersistPrivateDocSecurity()) return;
+  const occurredAt = asIso(event.at) || new Date().toISOString();
+  const actorKey = text(event.shieldActorKey) || buildPrivateDocShieldActorKey({
+    userId: text(event.userId),
+    ip: text(event.ip)
+  });
+  const row = {
+    eventType: text(eventType) === "shield" ? "shield" : "access",
+    eventId: text(event.id),
+    actorKey,
+    userId: toObjectIdOrNull(event.userId),
+    role: text(event.role, "buyer").toLowerCase(),
+    ipHash: hashPrivateDocShieldIp(event.ip),
+    source: text(event.source),
+    reason: text(event.reason),
+    tokenFingerprint: text(event.tokenFingerprint),
+    privateDocHash: text(event.hash),
+    uploadId: text(event.uploadId),
+    propertyId: toObjectIdOrNull(event.propertyId),
+    shieldEnabled: Boolean(event.shieldEnabled),
+    shieldActive: Boolean(event.shieldActive),
+    shieldBlocked: Boolean(event.shieldBlocked),
+    shieldReason: text(event.shieldReason),
+    shieldBlockLevel: Math.max(0, Math.round(numberValue(event.shieldBlockLevel, 0))),
+    shieldRemainingSec: Math.max(0, Math.round(numberValue(event.shieldRemainingSec, 0))),
+    triggers: Array.isArray(event.shieldTriggers)
+      ? event.shieldTriggers.slice(0, 8).map((item) => text(item)).filter((item) => Boolean(item))
+      : [],
+    metadata: buildPrivateDocSecurityPersistenceMetadata(event),
+    occurredAt: new Date(occurredAt)
+  };
+  try {
+    await CorePrivateDocSecurityEvent.create(row);
+    if (Math.random() < 0.05) {
+      const total = await CorePrivateDocSecurityEvent.estimatedDocumentCount();
+      if (total > PRIVATE_DOC_SECURITY_PERSIST_EVENT_MAX) {
+        const overflow = total - PRIVATE_DOC_SECURITY_PERSIST_EVENT_MAX;
+        const staleIds = await CorePrivateDocSecurityEvent.find({})
+          .sort({ occurredAt: -1, createdAt: -1 })
+          .skip(PRIVATE_DOC_SECURITY_PERSIST_EVENT_MAX)
+          .limit(Math.max(1, Math.min(overflow, 3000)))
+          .select({ _id: 1 })
+          .lean();
+        if (staleIds.length) {
+          await CorePrivateDocSecurityEvent.deleteMany({
+            _id: { $in: staleIds.map((item) => item?._id).filter((item) => Boolean(item)) }
+          });
+        }
+      }
+    }
+  } catch {
+    // Keep runtime path resilient; persistence failures should not break access flow.
+  }
+}
+
+async function upsertPrivateDocShieldBlockPersistence(row = {}) {
+  if (!canPersistPrivateDocSecurity()) return;
+  const actorKey = text(row.actorKey);
+  if (!actorKey) return;
+  const blockUntilTs = Math.max(0, Math.round(numberValue(row.blockUntilTs, 0)));
+  if (!blockUntilTs) return;
+
+  try {
+    await CorePrivateDocShieldBlock.findOneAndUpdate(
+      { actorKey },
+      {
+        $set: {
+          actorKey,
+          userId: toObjectIdOrNull(row.userId),
+          role: text(row.role, "buyer"),
+          ipHash: text(row.ipHash) || hashPrivateDocShieldIp(row.ip),
+          source: text(row.source),
+          reason: text(row.reason),
+          triggers: Array.isArray(row.triggers)
+            ? row.triggers.slice(0, 8).map((item) => text(item)).filter((item) => Boolean(item))
+            : [],
+          blockLevel: Math.max(1, Math.round(numberValue(row.blockLevel, 1))),
+          blockStartedAt: new Date(Math.max(0, Math.round(numberValue(row.blockStartedAtTs, Date.now())))),
+          blockUntil: new Date(blockUntilTs),
+          riskScore: Math.max(0, numberValue(row.riskScore, 0)),
+          replayEvents: Math.max(0, Math.round(numberValue(row.replayEvents, 0))),
+          distinctHashes: Math.max(0, Math.round(numberValue(row.distinctHashes, 0))),
+          metadata: {
+            persistedBy: "core-upload-controller",
+            persistedAt: new Date().toISOString()
+          }
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  } catch {
+    // Preserve main flow if persistence upsert fails.
+  }
+}
+
+async function deletePrivateDocShieldBlockPersistence(actorKey = "") {
+  if (!canPersistPrivateDocSecurity()) return;
+  const key = text(actorKey);
+  if (!key) return;
+  try {
+    await CorePrivateDocShieldBlock.deleteOne({ actorKey: key });
+  } catch {
+    // Preserve main flow if persistence delete fails.
+  }
+}
+
 function recordPrivateDocShieldEvent(event = {}) {
   const rows = Array.isArray(proMemoryStore.corePrivateDocShieldEvents)
     ? proMemoryStore.corePrivateDocShieldEvents
     : [];
-  rows.unshift({
+  const normalized = {
     id: `doc-shield-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     at: new Date().toISOString(),
     ...event
-  });
+  };
+  rows.unshift(normalized);
   if (rows.length > PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS) {
     rows.length = PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS;
   }
   proMemoryStore.corePrivateDocShieldEvents = rows;
+  const isAutoBlockEvent = text(normalized.type).toLowerCase() === "auto-block";
+  persistPrivateDocSecurityEvent(
+    {
+      ...normalized,
+      shieldEnabled: true,
+      shieldActive: isAutoBlockEvent,
+      shieldBlocked: isAutoBlockEvent,
+      shieldReason: text(normalized.reason),
+      shieldBlockLevel: Math.max(0, Math.round(numberValue(normalized.blockLevel, 0))),
+      shieldTriggers: Array.isArray(normalized.triggers) ? normalized.triggers.slice(0, 8) : [],
+      shieldActorKey: text(normalized.actorKey)
+    },
+    "shield"
+  ).catch(() => {});
+  return normalized;
 }
 
-function evaluatePrivateDocAccessShieldStatus({
+async function evaluatePrivateDocAccessShieldStatus({
   userId = "",
   role = "",
   ip = "",
   nowTs = Date.now()
 } = {}) {
   const now = Math.max(0, Math.round(numberValue(nowTs, Date.now())));
+  await hydratePrivateDocShieldBlocksFromDb(now);
   prunePrivateDocAccessShieldState(now);
   const actorKey = buildPrivateDocShieldActorKey({ userId, ip });
   const actorRole = text(role, "buyer").toLowerCase();
@@ -398,6 +622,34 @@ function evaluatePrivateDocAccessShieldStatus({
 
   const block = privateDocAccessShieldBlocks.get(actorKey);
   if (!block) {
+    if (canPersistPrivateDocSecurity()) {
+      try {
+        const persisted = await CorePrivateDocShieldBlock.findOne({
+          actorKey,
+          blockUntil: { $gt: new Date(now) }
+        }).lean();
+        if (persisted) {
+          const normalized = normalizePersistedShieldBlock(persisted);
+          if (normalized.actorKey) {
+            privateDocAccessShieldBlocks.set(normalized.actorKey, normalized);
+            syncPrivateDocShieldBlocksSnapshot(now);
+            return {
+              actorKey,
+              active: true,
+              bypassed: false,
+              enabled: true,
+              reason: text(normalized.reason),
+              blockLevel: Math.max(1, Math.round(numberValue(normalized.blockLevel, 1))),
+              blockUntilTs: Math.max(0, Math.round(numberValue(normalized.blockUntilTs, 0))),
+              blockUntil: asIso(normalized.blockUntilTs),
+              remainingSec: Math.max(1, Math.ceil((Math.max(0, Math.round(numberValue(normalized.blockUntilTs, 0))) - now) / 1000))
+            };
+          }
+        }
+      } catch {
+        // Continue with runtime-only flow on lookup error.
+      }
+    }
     return {
       actorKey,
       active: false,
@@ -545,6 +797,7 @@ function registerPrivateDocAccessShieldFailure(event = {}) {
       userId: profileRow.userId,
       role: profileRow.role,
       ip: profileRow.ip,
+      ipHash: hashPrivateDocShieldIp(profileRow.ip),
       source: text(nextEvent.source),
       reason: blockReason,
       triggers: [...triggers],
@@ -555,6 +808,22 @@ function registerPrivateDocAccessShieldFailure(event = {}) {
       replayEvents,
       distinctHashes
     });
+    upsertPrivateDocShieldBlockPersistence({
+      actorKey,
+      userId: profileRow.userId,
+      role: profileRow.role,
+      ip: profileRow.ip,
+      ipHash: hashPrivateDocShieldIp(profileRow.ip),
+      source: text(nextEvent.source),
+      reason: blockReason,
+      triggers,
+      blockLevel: nextBlockLevel,
+      blockStartedAtTs: nowTs,
+      blockUntilTs,
+      riskScore,
+      replayEvents,
+      distinctHashes
+    }).catch(() => {});
     privateDocAccessShieldPenalty.set(actorKey, {
       blockLevel: nextBlockLevel,
       blockedAtTs: nowTs,
@@ -622,13 +891,27 @@ function registerPrivateDocAccessShieldFailure(event = {}) {
   };
 }
 
-function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reason = "") {
+async function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reason = "") {
   const key = text(actorKey);
   if (!key) return null;
   const block = privateDocAccessShieldBlocks.get(key);
-  if (!block) return null;
+  if (!block) {
+    if (canPersistPrivateDocSecurity()) {
+      const persisted = await CorePrivateDocShieldBlock.findOne({ actorKey: key }).lean();
+      if (persisted) {
+        privateDocAccessShieldBlocks.set(key, normalizePersistedShieldBlock(persisted));
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+  const resolvedBlock = privateDocAccessShieldBlocks.get(key);
+  if (!resolvedBlock) return null;
   privateDocAccessShieldBlocks.delete(key);
   privateDocAccessShieldPenalty.delete(key);
+  await deletePrivateDocShieldBlockPersistence(key);
   const releasedAt = new Date().toISOString();
   syncPrivateDocShieldBlocksSnapshot(Date.now());
   recordPrivateDocShieldEvent({
@@ -637,8 +920,8 @@ function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reas
     reason: text(reason, "admin-manual-release"),
     releasedBy: text(releasedBy),
     releasedAt,
-    previousReason: text(block.reason),
-    previousBlockLevel: Math.max(1, Math.round(numberValue(block.blockLevel, 1)))
+    previousReason: text(resolvedBlock.reason),
+    previousBlockLevel: Math.max(1, Math.round(numberValue(resolvedBlock.blockLevel, 1)))
   });
   return {
     actorKey: key,
@@ -648,11 +931,14 @@ function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reas
   };
 }
 
-function releaseAllPrivateDocAccessShieldActors(releasedBy = "", reason = "") {
+async function releaseAllPrivateDocAccessShieldActors(releasedBy = "", reason = "") {
+  await hydratePrivateDocShieldBlocksFromDb(Date.now());
   const keys = [...privateDocAccessShieldBlocks.keys()];
-  const released = keys
-    .map((key) => releasePrivateDocAccessShieldActor(key, releasedBy, reason))
-    .filter((item) => Boolean(item));
+  const released = [];
+  for (const key of keys) {
+    const row = await releasePrivateDocAccessShieldActor(key, releasedBy, reason);
+    if (row) released.push(row);
+  }
   return released;
 }
 
@@ -681,6 +967,7 @@ function recordPrivateDocAccessEvent(event = {}) {
     rows.length = PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS;
   }
   proMemoryStore.corePrivateDocAccessEvents = rows;
+  persistPrivateDocSecurityEvent(normalized, "access").catch(() => {});
   return normalized;
 }
 
@@ -1081,7 +1368,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const actorIsAdmin = actorRole === "admin";
     const contextBindingEnforced = PRIVATE_DOC_CONTEXT_BINDING_REQUIRED &&
       !(PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS && currentRole === "admin");
-    const shieldStatus = evaluatePrivateDocAccessShieldStatus({
+    const shieldStatus = await evaluatePrivateDocAccessShieldStatus({
       userId: actorId,
       role: actorRole,
       ip: requestIp
@@ -1560,81 +1847,125 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
   }
 }
 
-export function listCorePrivateDocSecurityEvents(req, res) {
-  const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
-  const nowTs = Date.now();
-  prunePrivateDocAccessShieldState(nowTs);
-  const shieldEvents = Array.isArray(proMemoryStore.corePrivateDocShieldEvents)
-    ? proMemoryStore.corePrivateDocShieldEvents
-    : [];
-  const accessEvents = Array.isArray(proMemoryStore.corePrivateDocAccessEvents)
-    ? proMemoryStore.corePrivateDocAccessEvents
-    : [];
-  const activeBlocks = listPrivateDocShieldActiveBlocks(nowTs);
+export async function listCorePrivateDocSecurityEvents(req, res, next) {
+  try {
+    const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
+    const nowTs = Date.now();
+    await hydratePrivateDocShieldBlocksFromDb(nowTs);
+    prunePrivateDocAccessShieldState(nowTs);
+    const usePersistence = canPersistPrivateDocSecurity();
 
-  return res.json({
-    success: true,
-    shield: {
-      enabled: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ENABLED),
-      adminBypass: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS),
-      thresholds: {
-        windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS / 60_000)),
-        riskThreshold: PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD,
-        replayThreshold: PRIVATE_DOC_ACCESS_SHIELD_REPLAY_THRESHOLD,
-        distinctHashThreshold: PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD,
-        blockMinMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS / 60_000)),
-        blockMaxMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MAX_MS / 60_000)),
-        penaltyWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MS / 60_000))
-      },
-      activeBlockCount: activeBlocks.length,
-      activeBlocks,
-      totalEvents: shieldEvents.length,
-      events: shieldEvents.slice(0, limit)
-    },
-    accessTelemetry: {
-      total: accessEvents.length,
-      items: accessEvents.slice(0, Math.min(limit, 200))
-    }
-  });
-}
+    const shieldEvents = usePersistence
+      ? await CorePrivateDocSecurityEvent.find({ eventType: "shield" })
+        .sort({ occurredAt: -1, createdAt: -1 })
+        .limit(limit)
+        .lean()
+      : (Array.isArray(proMemoryStore.corePrivateDocShieldEvents)
+        ? proMemoryStore.corePrivateDocShieldEvents
+        : []);
+    const accessEvents = usePersistence
+      ? await CorePrivateDocSecurityEvent.find({ eventType: "access" })
+        .sort({ occurredAt: -1, createdAt: -1 })
+        .limit(Math.min(limit, 200))
+        .lean()
+      : (Array.isArray(proMemoryStore.corePrivateDocAccessEvents)
+        ? proMemoryStore.corePrivateDocAccessEvents
+        : []);
+    const activeBlocks = usePersistence
+      ? (await CorePrivateDocShieldBlock.find({
+        blockUntil: { $gt: new Date(nowTs) }
+      })
+        .sort({ blockUntil: -1 })
+        .lean())
+        .map((item) => normalizePersistedShieldBlock(item))
+        .map((item) => ({
+          actorKey: text(item.actorKey),
+          reason: text(item.reason),
+          blockLevel: Math.max(1, Math.round(numberValue(item.blockLevel, 1))),
+          blockStartedAt: asIso(item.blockStartedAtTs),
+          blockUntil: asIso(item.blockUntilTs),
+          remainingSec: Math.max(1, Math.ceil((Math.max(0, Math.round(numberValue(item.blockUntilTs, 0))) - nowTs) / 1000)),
+          triggers: Array.isArray(item.triggers) ? item.triggers.slice(0, 6) : [],
+          userId: text(item.userId),
+          role: text(item.role),
+          ipHash: text(item.ipHash),
+          source: text(item.source)
+        }))
+      : listPrivateDocShieldActiveBlocks(nowTs);
 
-export function releaseCorePrivateDocSecurityShield(req, res) {
-  const adminId = text(req.coreUser?.id);
-  const reason = text(req.body?.reason, "admin-manual-release");
-  const releaseAll =
-    String(req.body?.all || req.query?.all || "false").trim().toLowerCase() === "true";
-
-  if (releaseAll) {
-    const released = releaseAllPrivateDocAccessShieldActors(adminId, reason);
     return res.json({
       success: true,
-      releasedAll: true,
-      releasedCount: released.length,
+      source: usePersistence ? "mongodb" : "memory",
+      shield: {
+        enabled: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ENABLED),
+        persistenceEnabled: Boolean(PRIVATE_DOC_SECURITY_PERSIST_ENABLED),
+        adminBypass: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS),
+        thresholds: {
+          windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS / 60_000)),
+          riskThreshold: PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD,
+          replayThreshold: PRIVATE_DOC_ACCESS_SHIELD_REPLAY_THRESHOLD,
+          distinctHashThreshold: PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD,
+          blockMinMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS / 60_000)),
+          blockMaxMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MAX_MS / 60_000)),
+          penaltyWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MS / 60_000))
+        },
+        activeBlockCount: activeBlocks.length,
+        activeBlocks,
+        totalEvents: shieldEvents.length,
+        events: shieldEvents.slice(0, limit)
+      },
+      accessTelemetry: {
+        total: accessEvents.length,
+        items: accessEvents.slice(0, Math.min(limit, 200))
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function releaseCorePrivateDocSecurityShield(req, res, next) {
+  try {
+    const adminId = text(req.coreUser?.id);
+    const reason = text(req.body?.reason, "admin-manual-release");
+    const releaseAll =
+      String(req.body?.all || req.query?.all || "false").trim().toLowerCase() === "true";
+    await hydratePrivateDocShieldBlocksFromDb(Date.now());
+
+    if (releaseAll) {
+      const released = await releaseAllPrivateDocAccessShieldActors(adminId, reason);
+      return res.json({
+        success: true,
+        releasedAll: true,
+        releasedCount: released.length,
+        released,
+        activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())
+      });
+    }
+
+    const actorKey = text(req.body?.actorKey || req.query?.actorKey || req.params?.actorKey);
+    if (!actorKey) {
+      return res.status(400).json({
+        success: false,
+        message: "actorKey or all=true is required."
+      });
+    }
+
+    const released = await releasePrivateDocAccessShieldActor(actorKey, adminId, reason);
+    if (!released) {
+      return res.status(404).json({
+        success: false,
+        message: "Shield block not found for actorKey."
+      });
+    }
+
+    return res.json({
+      success: true,
+      releasedAll: false,
       released,
       activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())
     });
+  } catch (error) {
+    return next(error);
   }
-
-  const actorKey = text(req.body?.actorKey || req.query?.actorKey || req.params?.actorKey);
-  if (!actorKey) {
-    return res.status(400).json({
-      success: false,
-      message: "actorKey or all=true is required."
-    });
-  }
-
-  const released = releasePrivateDocAccessShieldActor(actorKey, adminId, reason);
-  if (!released) {
-    return res.status(404).json({
-      success: false,
-      message: "Shield block not found for actorKey."
-    });
-  }
-
-  return res.json({
-    success: true,
-    releasedAll: false,
-    released,
-    activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())
-  });
 }
