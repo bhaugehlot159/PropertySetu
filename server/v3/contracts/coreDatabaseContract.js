@@ -101,7 +101,7 @@ export const coreSystemsBlueprint = [
       "MongoDB-persisted private-doc shield blocks and security telemetry for restart-safe enforcement",
       "Secure private-doc proxy streaming with signed short-lived stream tokens and replay guards",
       "Private-doc content integrity attestation (content hash + upstream ETag/Last-Modified) with mismatch lock enforcement",
-      "Admin integrity review workflow for mismatched private docs (pending queue + approve/quarantine/reset decisions)",
+      "Admin integrity review workflow for mismatched private docs (pending queue + approve/quarantine/reset decisions) with optional dual-admin approval confirmation",
       "Auto description generator"
     ],
     endpoints: [

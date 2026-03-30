@@ -183,6 +183,15 @@ const PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN = Math.max(
   8,
   Number(process.env.CORE_PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN || 12)
 );
+const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED =
+  String(process.env.CORE_PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MINUTES || 240) * 60 * 1000
+  )
+);
 const PRIVATE_DOC_PROXY_ALLOWED_HOST_PATTERNS = (() => {
   const defaults = ["secure-cdn.propertysetu.local", "cdn.propertysetu.local"];
   const raw = text(process.env.CORE_PRIVATE_DOC_PROXY_ALLOWED_HOSTS);
@@ -337,6 +346,37 @@ function normalizePrivateDocIntegrityDecisionAction(value = "") {
   if (raw === "quarantine" || raw === "quarantined") return "quarantined";
   if (raw === "reset" || raw === "recheck" || raw === "retry") return "reset";
   return "";
+}
+
+function toMs(value) {
+  if (!value) return 0;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+  return date.getTime();
+}
+
+function getPrivateDocIntegrityApprovalRequestState(uploadRow = {}, nowTs = Date.now()) {
+  const requestedBy = toId(uploadRow?.privateDocIntegrityApprovalRequestedBy);
+  const requestedAtMs = toMs(uploadRow?.privateDocIntegrityApprovalRequestedAt);
+  const reason = text(uploadRow?.privateDocIntegrityApprovalRequestReason);
+  if (!requestedBy || !requestedAtMs) {
+    return {
+      active: false,
+      expired: false,
+      requestedBy: "",
+      requestedAt: null,
+      reason: ""
+    };
+  }
+  const expiresAtMs = requestedAtMs + PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS;
+  const expired = expiresAtMs <= nowTs;
+  return {
+    active: !expired,
+    expired,
+    requestedBy,
+    requestedAt: asIso(requestedAtMs),
+    reason
+  };
 }
 
 function normalizeEtagValue(value = "") {
@@ -1482,6 +1522,16 @@ function normalizeUpload(doc, viewer = null) {
             reviewedBy: toId(row.privateDocIntegrityReviewedBy),
             reviewedAt: asIso(row.privateDocIntegrityReviewedAt),
             reviewReason: text(row.privateDocIntegrityReviewReason),
+            approvalRequest: {
+              requestedBy: toId(row.privateDocIntegrityApprovalRequestedBy),
+              requestedAt: asIso(row.privateDocIntegrityApprovalRequestedAt),
+              reason: text(row.privateDocIntegrityApprovalRequestReason),
+              active: Boolean(
+                toId(row.privateDocIntegrityApprovalRequestedBy) &&
+                toMs(row.privateDocIntegrityApprovalRequestedAt) &&
+                toMs(row.privateDocIntegrityApprovalRequestedAt) + PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS > Date.now()
+              )
+            },
             reviewHistory: Array.isArray(row.privateDocIntegrityReviewHistory)
               ? row.privateDocIntegrityReviewHistory.slice(-20).map((item) => ({
                   action: text(item?.action),
@@ -1556,6 +1606,9 @@ function buildUploadRows(req, files = []) {
       privateDocIntegrityReviewedBy: null,
       privateDocIntegrityReviewedAt: null,
       privateDocIntegrityReviewReason: "",
+      privateDocIntegrityApprovalRequestedBy: null,
+      privateDocIntegrityApprovalRequestedAt: null,
+      privateDocIntegrityApprovalRequestReason: "",
       privateDocIntegrityReviewHistory: [],
       storageProvider: text(proRuntime.storageProvider || "memory", "memory")
     };
@@ -1762,6 +1815,8 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
   const allowedHistoryActions = new Set([
     "auto-mismatch",
     "auto-verified",
+    "approval-requested",
+    "approval-confirmed",
     "approved",
     "quarantined",
     "reset"
@@ -1792,6 +1847,15 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
       ? new Date(patch.privateDocIntegrityReviewedAt)
       : null,
     privateDocIntegrityReviewReason: text(patch.privateDocIntegrityReviewReason).slice(0, 600),
+    privateDocIntegrityApprovalRequestedBy: toObjectIdOrNull(
+      patch.privateDocIntegrityApprovalRequestedBy
+    ),
+    privateDocIntegrityApprovalRequestedAt: patch.privateDocIntegrityApprovalRequestedAt
+      ? new Date(patch.privateDocIntegrityApprovalRequestedAt)
+      : null,
+    privateDocIntegrityApprovalRequestReason: text(
+      patch.privateDocIntegrityApprovalRequestReason
+    ).slice(0, 600),
     privateDocIntegrityMismatchAt: patch.privateDocIntegrityMismatchAt
       ? new Date(patch.privateDocIntegrityMismatchAt)
       : null,
@@ -1836,6 +1900,10 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
     privateDocIntegrityReviewedBy: toId(next.privateDocIntegrityReviewedBy),
     privateDocIntegrityReviewedAt: next.privateDocIntegrityReviewedAt
       ? next.privateDocIntegrityReviewedAt.toISOString()
+      : null,
+    privateDocIntegrityApprovalRequestedBy: toId(next.privateDocIntegrityApprovalRequestedBy),
+    privateDocIntegrityApprovalRequestedAt: next.privateDocIntegrityApprovalRequestedAt
+      ? next.privateDocIntegrityApprovalRequestedAt.toISOString()
       : null,
     privateDocIntegrityMismatchAt: next.privateDocIntegrityMismatchAt
       ? next.privateDocIntegrityMismatchAt.toISOString()
@@ -2832,6 +2900,9 @@ export async function streamCorePrivateDoc(req, res, next) {
           privateDocIntegrityReviewedBy: null,
           privateDocIntegrityReviewedAt: null,
           privateDocIntegrityReviewReason: "",
+          privateDocIntegrityApprovalRequestedBy: null,
+          privateDocIntegrityApprovalRequestedAt: null,
+          privateDocIntegrityApprovalRequestReason: "",
           privateDocIntegrityMismatchAt: nowIso,
           privateDocIntegrityMismatchReason: mismatchReason,
           privateDocIntegrityReviewHistoryEvent: {
@@ -2873,6 +2944,9 @@ export async function streamCorePrivateDoc(req, res, next) {
           privateDocIntegrityReviewedBy: null,
           privateDocIntegrityReviewedAt: null,
           privateDocIntegrityReviewReason: "",
+          privateDocIntegrityApprovalRequestedBy: null,
+          privateDocIntegrityApprovalRequestedAt: null,
+          privateDocIntegrityApprovalRequestReason: "",
           privateDocIntegrityMismatchAt: null,
           privateDocIntegrityMismatchReason: "",
           privateDocIntegrityReviewHistoryEvent: {
@@ -2935,6 +3009,12 @@ function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
       reviewedBy: text(integrity.reviewedBy),
       reviewedAt: asIso(integrity.reviewedAt),
       reviewReason: text(integrity.reviewReason),
+      approvalRequest: {
+        requestedBy: text(integrity?.approvalRequest?.requestedBy || ""),
+        requestedAt: asIso(integrity?.approvalRequest?.requestedAt),
+        reason: text(integrity?.approvalRequest?.reason || ""),
+        active: Boolean(integrity?.approvalRequest?.active)
+      },
       reviewHistory: Array.isArray(integrity.reviewHistory)
         ? integrity.reviewHistory.slice(-20)
         : []
@@ -3036,11 +3116,93 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
     const currentReviewStatus = normalizePrivateDocIntegrityReviewStatus(
       uploadRow?.privateDocIntegrityReviewStatus
     );
-    const nowIso = new Date().toISOString();
+    const nowTs = Date.now();
+    const nowIso = new Date(nowTs).toISOString();
+    const approvalState = getPrivateDocIntegrityApprovalRequestState(uploadRow, nowTs);
+
+    if (action === "approved" && PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED) {
+      if (!approvalState.active) {
+        const requestPatch = {
+          privateDocIntegrityStatus: currentStatus === "unknown" ? "mismatch" : currentStatus,
+          privateDocIntegrityReviewStatus: "pending",
+          privateDocIntegrityReviewedBy: null,
+          privateDocIntegrityReviewedAt: null,
+          privateDocIntegrityReviewReason: "",
+          privateDocIntegrityApprovalRequestedBy: adminId,
+          privateDocIntegrityApprovalRequestedAt: nowIso,
+          privateDocIntegrityApprovalRequestReason: reason,
+          privateDocIntegrityReviewHistoryEvent: {
+            action: "approval-requested",
+            byUserId: adminId,
+            reason,
+            previousStatus: `${currentStatus}:${currentReviewStatus}`,
+            nextStatus: "mismatch:pending-dual-approval"
+          }
+        };
+        await markPrivateDocIntegrity(uploadId, requestPatch);
+        const requested = await findUploadById(uploadId);
+        return res.status(202).json({
+          success: true,
+          requiresSecondAdmin: true,
+          decision: {
+            uploadId,
+            action: "approval-requested",
+            reason,
+            requestedBy: adminId,
+            requestedAt: nowIso
+          },
+          upload: buildPrivateDocIntegrityQueueItem(requested || uploadRow)
+        });
+      }
+
+      if (approvalState.requestedBy === adminId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm this approval request."
+        });
+      }
+
+      const approvePatch = {
+        privateDocIntegrityStatus: currentStatus === "unknown" ? "verified" : currentStatus,
+        privateDocIntegrityReviewStatus: "approved",
+        privateDocIntegrityReviewedBy: adminId,
+        privateDocIntegrityReviewedAt: nowIso,
+        privateDocIntegrityReviewReason: reason,
+        privateDocIntegrityApprovalRequestedBy: null,
+        privateDocIntegrityApprovalRequestedAt: null,
+        privateDocIntegrityApprovalRequestReason: "",
+        privateDocIntegrityReviewHistoryEvent: {
+          action: "approval-confirmed",
+          byUserId: adminId,
+          reason: `${reason} | requestedBy:${approvalState.requestedBy}`,
+          previousStatus: `${currentStatus}:${currentReviewStatus}`,
+          nextStatus: "mismatch:approved"
+        }
+      };
+      await markPrivateDocIntegrity(uploadId, approvePatch);
+      const approved = await findUploadById(uploadId);
+      return res.json({
+        success: true,
+        requiresSecondAdmin: false,
+        decision: {
+          uploadId,
+          action: "approved",
+          reason,
+          requestedBy: approvalState.requestedBy,
+          confirmedBy: adminId,
+          reviewedAt: nowIso
+        },
+        upload: buildPrivateDocIntegrityQueueItem(approved || uploadRow)
+      });
+    }
+
     const patch = {
       privateDocIntegrityReviewedBy: adminId,
       privateDocIntegrityReviewedAt: nowIso,
-      privateDocIntegrityReviewReason: reason
+      privateDocIntegrityReviewReason: reason,
+      privateDocIntegrityApprovalRequestedBy: null,
+      privateDocIntegrityApprovalRequestedAt: null,
+      privateDocIntegrityApprovalRequestReason: ""
     };
 
     if (action === "approved") {

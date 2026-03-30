@@ -121,12 +121,34 @@ const coreUploadSchema = new mongoose.Schema(
       default: "",
       trim: true
     },
+    privateDocIntegrityApprovalRequestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    privateDocIntegrityApprovalRequestedAt: {
+      type: Date,
+      default: null
+    },
+    privateDocIntegrityApprovalRequestReason: {
+      type: String,
+      default: "",
+      trim: true
+    },
     privateDocIntegrityReviewHistory: {
       type: [
         {
           action: {
             type: String,
-            enum: ["auto-mismatch", "auto-verified", "approved", "quarantined", "reset"],
+            enum: [
+              "auto-mismatch",
+              "auto-verified",
+              "approval-requested",
+              "approval-confirmed",
+              "approved",
+              "quarantined",
+              "reset"
+            ],
             required: true
           },
           byUserId: {
@@ -175,6 +197,7 @@ const coreUploadSchema = new mongoose.Schema(
 coreUploadSchema.index({ userId: 1, createdAt: -1 });
 coreUploadSchema.index({ propertyId: 1, createdAt: -1 });
 coreUploadSchema.index({ isPrivate: 1, privateDocIntegrityStatus: 1, privateDocIntegrityReviewStatus: 1, updatedAt: -1 });
+coreUploadSchema.index({ privateDocIntegrityApprovalRequestedAt: -1 });
 
 const CoreUpload =
   mongoose.models.CoreUpload ||
