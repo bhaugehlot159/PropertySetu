@@ -6,6 +6,7 @@ import {
   listCorePrivateDocSecurityEvents,
   listMyCoreUploads,
   revokeCorePrivateDocAccess,
+  setCorePrivateDocEmergencyAccessLock,
   releaseCorePrivateDocSecurityShield,
   resolveCorePrivateDocAccess,
   streamCorePrivateDoc,
@@ -37,6 +38,12 @@ router.post(
   coreAuthRequired,
   coreUploadWriteLimiter,
   revokeCorePrivateDocAccess
+);
+router.post(
+  "/private-docs/access/lock",
+  coreAuthRequired,
+  coreUploadWriteLimiter,
+  setCorePrivateDocEmergencyAccessLock
 );
 router.get(
   "/private-docs/stream",

@@ -188,6 +188,12 @@ const PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN = Math.max(
   8,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN || 10)
 );
+const PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN || 12)
+);
+const PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS =
+  String(process.env.CORE_PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED =
   String(process.env.CORE_PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS = Math.max(
@@ -377,6 +383,13 @@ function normalizePrivateDocIntegrityDecisionAction(value = "") {
 function normalizePrivateDocAccessEpoch(value, fallback = 1) {
   const parsed = Math.round(numberValue(value, fallback));
   return Math.max(1, parsed);
+}
+
+function normalizePrivateDocEmergencyLockAction(value = "") {
+  const raw = text(value).toLowerCase();
+  if (raw === "lock" || raw === "enable" || raw === "on" || raw === "activate") return "lock";
+  if (raw === "unlock" || raw === "disable" || raw === "off" || raw === "deactivate") return "unlock";
+  return "lock";
 }
 
 function toMs(value) {
@@ -1988,6 +2001,7 @@ function normalizeUpload(doc, viewer = null) {
     row.privateDocIntegrityReviewStatus
   );
   const privateDocAccessEpoch = normalizePrivateDocAccessEpoch(row.privateDocAccessEpoch, 1);
+  const privateDocEmergencyLockActive = Boolean(row.privateDocEmergencyLockActive);
   const privateDocProtected = Boolean(row.privateDocProtected || isPrivate);
   const accessEnvelope =
     isPrivate && sourceUrl
@@ -2028,6 +2042,12 @@ function normalizeUpload(doc, viewer = null) {
     privateDocAccessEpochRotatedAt: asIso(row.privateDocAccessEpochRotatedAt),
     privateDocAccessEpochRotatedBy: toId(row.privateDocAccessEpochRotatedBy),
     privateDocAccessEpochRotateReason: text(row.privateDocAccessEpochRotateReason),
+    privateDocEmergencyLockActive,
+    privateDocEmergencyLockReason: text(row.privateDocEmergencyLockReason),
+    privateDocEmergencyLockBy: toId(row.privateDocEmergencyLockBy),
+    privateDocEmergencyLockAt: asIso(row.privateDocEmergencyLockAt),
+    privateDocEmergencyUnlockBy: toId(row.privateDocEmergencyUnlockBy),
+    privateDocEmergencyUnlockAt: asIso(row.privateDocEmergencyUnlockAt),
     privateDocLastAccessAt: asIso(row.privateDocLastAccessAt),
     privateDocIntegrity:
       isPrivate
@@ -2130,6 +2150,12 @@ function buildUploadRows(req, files = []) {
       privateDocAccessEpochRotatedAt: null,
       privateDocAccessEpochRotatedBy: null,
       privateDocAccessEpochRotateReason: "",
+      privateDocEmergencyLockActive: false,
+      privateDocEmergencyLockReason: "",
+      privateDocEmergencyLockBy: null,
+      privateDocEmergencyLockAt: null,
+      privateDocEmergencyUnlockBy: null,
+      privateDocEmergencyUnlockAt: null,
       privateDocLastAccessAt: null,
       privateDocContentHash: "",
       privateDocContentBytes: 0,
@@ -2384,6 +2410,59 @@ async function rotatePrivateDocAccessEpoch({
     privateDocAccessEpochRotatedAt: normalizedRotatedAt,
     privateDocAccessEpochRotatedBy: text(rotatedBy),
     privateDocAccessEpochRotateReason: text(rotateReason).slice(0, 240)
+  };
+}
+
+async function updatePrivateDocEmergencyLockState({
+  uploadId = "",
+  lockActive = false,
+  lockReason = "",
+  lockBy = "",
+  lockAt = "",
+  unlockBy = "",
+  unlockAt = ""
+} = {}) {
+  const id = text(uploadId);
+  if (!id) return;
+  const normalizedLockAt = asIso(lockAt);
+  const normalizedUnlockAt = asIso(unlockAt);
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(id)) return;
+    await CoreUpload.findByIdAndUpdate(id, {
+      $set: {
+        privateDocEmergencyLockActive: Boolean(lockActive),
+        privateDocEmergencyLockReason: Boolean(lockActive)
+          ? text(lockReason).slice(0, 240)
+          : "",
+        privateDocEmergencyLockBy: Boolean(lockActive) ? toObjectIdOrNull(lockBy) : null,
+        privateDocEmergencyLockAt: Boolean(lockActive) && normalizedLockAt
+          ? new Date(normalizedLockAt)
+          : null,
+        privateDocEmergencyUnlockBy: !Boolean(lockActive) ? toObjectIdOrNull(unlockBy) : null,
+        privateDocEmergencyUnlockAt: !Boolean(lockActive) && normalizedUnlockAt
+          ? new Date(normalizedUnlockAt)
+          : null
+      }
+    });
+    return;
+  }
+
+  const index = proMemoryStore.coreUploads.findIndex(
+    (item) => toId(item._id || item.id) === id
+  );
+  if (index < 0) return;
+  const previous = proMemoryStore.coreUploads[index] || {};
+  proMemoryStore.coreUploads[index] = {
+    ...previous,
+    privateDocEmergencyLockActive: Boolean(lockActive),
+    privateDocEmergencyLockReason: Boolean(lockActive)
+      ? text(lockReason).slice(0, 240)
+      : "",
+    privateDocEmergencyLockBy: Boolean(lockActive) ? text(lockBy) : null,
+    privateDocEmergencyLockAt: Boolean(lockActive) ? (normalizedLockAt || new Date().toISOString()) : null,
+    privateDocEmergencyUnlockBy: !Boolean(lockActive) ? text(unlockBy) : null,
+    privateDocEmergencyUnlockAt: !Boolean(lockActive) ? (normalizedUnlockAt || new Date().toISOString()) : null
   };
 }
 
@@ -2921,6 +3000,33 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
           message: "Document integrity validation failed."
         });
       }
+      if (
+        Boolean(uploadRow?.privateDocEmergencyLockActive) &&
+        !(actorIsAdmin && PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+      ) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "private-doc-emergency-lock-active",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
+        return res.status(423).json({
+          success: false,
+          message: "Private document access is locked by emergency security control.",
+          reason: "private-doc-emergency-lock-active"
+        });
+      }
       if (tokenAccessEpoch !== uploadAccessEpoch) {
         recordPrivateDocAccessEvent({
           userId: actorId,
@@ -3323,6 +3429,184 @@ export async function revokeCorePrivateDocAccess(req, res, next) {
   }
 }
 
+export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
+  try {
+    const uploadIdInput = text(req.body?.uploadId || req.params?.uploadId || req.query?.uploadId);
+    const action = normalizePrivateDocEmergencyLockAction(
+      req.body?.action || req.query?.action || req.params?.action
+    );
+    const actorId = text(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorIsAdmin = actorRole === "admin";
+    const requestIp = getClientIp(req);
+    const requestUserAgent = text(req.headers?.["user-agent"]);
+    const reasonDefault = action === "lock"
+      ? (actorIsAdmin
+          ? "admin-emergency-locked-private-doc-access"
+          : "owner-emergency-locked-private-doc-access")
+      : (actorIsAdmin
+          ? "admin-emergency-unlocked-private-doc-access"
+          : "owner-emergency-unlocked-private-doc-access");
+    const reason = text(req.body?.reason, reasonDefault);
+    const forceRotate =
+      String(req.body?.forceRotate || req.query?.forceRotate || "false")
+        .trim()
+        .toLowerCase() === "true";
+
+    if (!uploadIdInput) {
+      return res.status(400).json({
+        success: false,
+        message: "uploadId is required."
+      });
+    }
+    if (reason.length < PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `reason must be at least ${PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN} characters.`
+      });
+    }
+
+    const uploadRow = await findUploadById(uploadIdInput);
+    if (!uploadRow) {
+      return res.status(404).json({
+        success: false,
+        message: "Upload record not found."
+      });
+    }
+    if (!Boolean(uploadRow?.isPrivate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Emergency lock is only supported for private documents."
+      });
+    }
+
+    const authorized = await canActorAccessPrivateUpload({
+      actorId,
+      actorRole,
+      uploadRow
+    });
+    if (!authorized) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to change emergency lock for this private document."
+      });
+    }
+
+    const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id) || uploadIdInput;
+    const previousLockActive = Boolean(uploadRow?.privateDocEmergencyLockActive);
+    const targetLockActive = action === "lock";
+    const shouldRotate = forceRotate || previousLockActive !== targetLockActive;
+
+    if (!shouldRotate && previousLockActive === targetLockActive) {
+      return res.status(409).json({
+        success: false,
+        message: targetLockActive
+          ? "Private document is already emergency locked."
+          : "Private document is already emergency unlocked."
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    await updatePrivateDocEmergencyLockState({
+      uploadId: resolvedUploadId,
+      lockActive: targetLockActive,
+      lockReason: reason,
+      lockBy: targetLockActive ? actorId : "",
+      lockAt: targetLockActive ? nowIso : "",
+      unlockBy: targetLockActive ? "" : actorId,
+      unlockAt: targetLockActive ? "" : nowIso
+    });
+
+    const previousEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
+    const nextEpoch = previousEpoch + 1;
+    if (shouldRotate) {
+      await rotatePrivateDocAccessEpoch({
+        uploadId: resolvedUploadId,
+        nextEpoch,
+        rotatedBy: actorId,
+        rotatedAt: nowIso,
+        rotateReason: `emergency-${action}: ${reason}`
+      });
+    }
+
+    const updatedRow = await findUploadById(resolvedUploadId);
+    const normalized = normalizeUpload(updatedRow || uploadRow, {
+      ...req.coreUser,
+      clientIp: requestIp,
+      userAgent: requestUserAgent
+    }) || {};
+    const ownerId = text(normalized.userId || toId(uploadRow?.userId));
+    const propertyId = text(normalized.propertyId || toId(uploadRow?.propertyId));
+    const docCategory = text(normalized.category || uploadRow?.category);
+    const privateDocHash = text(
+      normalized.privateDocHash || uploadRow?.privateDocHash || hashPrivateDocSourceUrl(text(uploadRow?.url))
+    );
+    const currentEpoch = normalizePrivateDocAccessEpoch(
+      normalized.privateDocAccessEpoch,
+      shouldRotate ? nextEpoch : previousEpoch
+    );
+
+    recordPrivateDocAccessEvent({
+      userId: actorId,
+      role: actorRole,
+      ownerId,
+      propertyId,
+      uploadId: resolvedUploadId,
+      docId: text(normalized.id || resolvedUploadId),
+      category: docCategory,
+      hash: privateDocHash,
+      reason: targetLockActive
+        ? "private-doc-emergency-lock-enabled"
+        : "private-doc-emergency-lock-disabled",
+      ip: requestIp,
+      userAgent: requestUserAgent.slice(0, 240),
+      source: "access-emergency-lock"
+    });
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      action,
+      uploadId: resolvedUploadId,
+      epoch: {
+        previous: previousEpoch,
+        current: currentEpoch,
+        rotated: shouldRotate
+      },
+      lock: {
+        active: Boolean(normalized.privateDocEmergencyLockActive),
+        reason: text(normalized.privateDocEmergencyLockReason),
+        lockedBy: text(normalized.privateDocEmergencyLockBy),
+        lockedAt: asIso(normalized.privateDocEmergencyLockAt),
+        unlockedBy: text(normalized.privateDocEmergencyUnlockBy),
+        unlockedAt: asIso(normalized.privateDocEmergencyUnlockAt),
+        adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+      },
+      doc: {
+        uploadId: resolvedUploadId,
+        ownerId,
+        propertyId,
+        name: text(normalized.name || uploadRow?.name),
+        category: docCategory,
+        privateDocHash,
+        secureAccess: normalized?.secureAccess
+          ? {
+              token: text(normalized.secureAccess.token),
+              accessPath: text(normalized.secureAccess.accessPath),
+              expiresAt: text(normalized.secureAccess.expiresAt),
+              expiresInSec: Math.max(0, numberValue(normalized.secureAccess.expiresInSec, 0)),
+              maskedUrl: text(normalized.secureAccess.maskedUrl),
+              hash: text(normalized.secureAccess.hash),
+              epoch: currentEpoch
+            }
+          : null
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function streamCorePrivateDoc(req, res, next) {
   try {
     if (!PRIVATE_DOC_PROXY_ENABLED) {
@@ -3566,6 +3850,33 @@ export async function streamCorePrivateDoc(req, res, next) {
         return res.status(409).json({
           success: false,
           message: "Document integrity validation failed."
+        });
+      }
+      if (
+        Boolean(uploadRow?.privateDocEmergencyLockActive) &&
+        !(actorIsAdmin && PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+      ) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "private-doc-emergency-lock-active",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-upload"
+        });
+        return res.status(423).json({
+          success: false,
+          message: "Private document streaming is locked by emergency security control.",
+          reason: "private-doc-emergency-lock-active"
         });
       }
       if (tokenAccessEpoch !== uploadAccessEpoch) {
@@ -3872,7 +4183,16 @@ function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
       epoch: normalizePrivateDocAccessEpoch(normalized.privateDocAccessEpoch, 1),
       rotatedAt: asIso(normalized.privateDocAccessEpochRotatedAt),
       rotatedBy: text(normalized.privateDocAccessEpochRotatedBy),
-      rotateReason: text(normalized.privateDocAccessEpochRotateReason)
+      rotateReason: text(normalized.privateDocAccessEpochRotateReason),
+      emergencyLock: {
+        active: Boolean(normalized.privateDocEmergencyLockActive),
+        reason: text(normalized.privateDocEmergencyLockReason),
+        lockedBy: text(normalized.privateDocEmergencyLockBy),
+        lockedAt: asIso(normalized.privateDocEmergencyLockAt),
+        unlockedBy: text(normalized.privateDocEmergencyUnlockBy),
+        unlockedAt: asIso(normalized.privateDocEmergencyUnlockAt),
+        adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+      }
     },
     integrity: {
       status: normalizePrivateDocIntegrityStatus(integrity.status),
