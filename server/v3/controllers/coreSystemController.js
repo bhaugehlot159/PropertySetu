@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { proRuntime } from "../../config/proRuntime.js";
 import { getStorageProvider } from "../../config/proStorage.js";
@@ -26,8 +27,8 @@ import {
   updateCoreRateLimiterSecurityControls
 } from "../middleware/coreSecurityMiddleware.js";
 import {
+  getCorePrivateDocCryptoControlFactoryDefaults,
   getCorePrivateDocCryptoControlState,
-  resetCorePrivateDocCryptoControlState,
   updateCorePrivateDocCryptoControlState
 } from "../utils/corePrivateDocSecurity.js";
 import CoreRuntimeConfig from "../models/CoreRuntimeConfig.js";
@@ -48,7 +49,50 @@ const PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS = Math.max(
   5_000,
   Number(process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS || 45_000)
 );
+const PRIVATE_DOC_CRYPTO_CONTROL_DUAL_ADMIN_REQUIRED =
+  String(process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_DUAL_ADMIN_REQUIRED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_WINDOW_MINUTES || 240) *
+      60 *
+      1000
+  )
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_REASON_MIN || 14)
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_CONFIG_KEY =
+  "private-doc-crypto-control-approval-request";
+const PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_HYDRATE_COOLDOWN_MS = Math.max(
+  5_000,
+  Number(process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_HYDRATE_COOLDOWN_MS || 45_000)
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_SECRET = text(
+  process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_SECRET ||
+    process.env.CORE_PRIVATE_DOC_SECRET ||
+    process.env.CORE_JWT_SECRET ||
+    process.env.JWT_SECRET ||
+    "propertysetu-core-private-doc-crypto-control-approval-secret"
+);
 let privateDocCryptoControlHydratedAtTs = 0;
+let privateDocCryptoControlApprovalHydratedAtTs = 0;
+let privateDocCryptoControlApprovalRequest = {
+  active: false,
+  requestedBy: "",
+  requestedAt: "",
+  reason: "",
+  riskSignals: [],
+  requestDigest: "",
+  currentControlHash: "",
+  currentControl: null,
+  proposedPatch: null,
+  proposedControl: null
+};
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -113,6 +157,155 @@ function sanitizePrivateDocCryptoControlPatch(value = {}) {
     out.legacyDecryptEnabled = toBoolean(safe.legacyDecryptEnabled, true);
   }
   return out;
+}
+
+function stableJsonStringify(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key])}`)
+    .join(",")}}`;
+}
+
+function buildPrivateDocCryptoControlStateSnapshot() {
+  const state = getCorePrivateDocCryptoControlState();
+  return {
+    activeKeyId: text(state.activeKeyId).toLowerCase(),
+    allowLegacyTokenFormat: Boolean(state.allowLegacyTokenFormat),
+    legacyDecryptEnabled: Boolean(state.legacyDecryptEnabled),
+    keyIds: Array.isArray(state.keyIds)
+      ? state.keyIds.map((item) => text(item).toLowerCase()).filter((item) => Boolean(item)).slice(0, 40)
+      : []
+  };
+}
+
+function buildPrivateDocCryptoControlStateHash(snapshot = {}) {
+  return crypto
+    .createHash("sha256")
+    .update(stableJsonStringify(snapshot))
+    .digest("hex");
+}
+
+function applyPrivateDocCryptoControlPatchToSnapshot(snapshot = {}, patch = {}) {
+  const base = {
+    activeKeyId: text(snapshot.activeKeyId).toLowerCase(),
+    allowLegacyTokenFormat: Boolean(snapshot.allowLegacyTokenFormat),
+    legacyDecryptEnabled: Boolean(snapshot.legacyDecryptEnabled),
+    keyIds: Array.isArray(snapshot.keyIds)
+      ? snapshot.keyIds.map((item) => text(item).toLowerCase()).filter((item) => Boolean(item)).slice(0, 40)
+      : []
+  };
+  const safePatch = sanitizePrivateDocCryptoControlPatch(patch);
+  return {
+    ...base,
+    activeKeyId:
+      typeof safePatch.activeKeyId === "undefined"
+        ? base.activeKeyId
+        : text(safePatch.activeKeyId).toLowerCase(),
+    allowLegacyTokenFormat:
+      typeof safePatch.allowLegacyTokenFormat === "undefined"
+        ? base.allowLegacyTokenFormat
+        : Boolean(safePatch.allowLegacyTokenFormat),
+    legacyDecryptEnabled:
+      typeof safePatch.legacyDecryptEnabled === "undefined"
+        ? base.legacyDecryptEnabled
+        : Boolean(safePatch.legacyDecryptEnabled)
+  };
+}
+
+function getPrivateDocCryptoControlRiskSignals(current = {}, next = {}) {
+  const safeCurrent = applyPrivateDocCryptoControlPatchToSnapshot(current, {});
+  const safeNext = applyPrivateDocCryptoControlPatchToSnapshot(next, {});
+  const signals = [];
+  if (
+    safeCurrent.activeKeyId &&
+    safeNext.activeKeyId &&
+    safeCurrent.activeKeyId !== safeNext.activeKeyId
+  ) {
+    signals.push("active-key-rotated");
+  }
+  if (
+    Boolean(safeCurrent.allowLegacyTokenFormat) &&
+    !Boolean(safeNext.allowLegacyTokenFormat)
+  ) {
+    signals.push("legacy-token-format-disabled");
+  }
+  if (
+    Boolean(safeCurrent.legacyDecryptEnabled) &&
+    !Boolean(safeNext.legacyDecryptEnabled)
+  ) {
+    signals.push("legacy-decrypt-disabled");
+  }
+  return [...new Set(signals)];
+}
+
+function buildPrivateDocCryptoControlApprovalDigest({
+  requestedBy = "",
+  requestedAt = "",
+  reason = "",
+  currentControl = {},
+  proposedPatch = {},
+  proposedControl = {},
+  riskSignals = []
+} = {}) {
+  const payload = {
+    requestedBy: text(requestedBy),
+    requestedAt: text(requestedAt),
+    reason: text(reason).replace(/\s+/g, " ").slice(0, 500),
+    currentControl: applyPrivateDocCryptoControlPatchToSnapshot(currentControl, {}),
+    proposedPatch: sanitizePrivateDocCryptoControlPatch(proposedPatch),
+    proposedControl: applyPrivateDocCryptoControlPatchToSnapshot(proposedControl, {}),
+    riskSignals: Array.isArray(riskSignals)
+      ? [...new Set(riskSignals.map((item) => text(item).toLowerCase()).filter((item) => Boolean(item)))]
+      : []
+  };
+  return crypto
+    .createHmac("sha256", PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_SECRET)
+    .update(stableJsonStringify(payload))
+    .digest("hex");
+}
+
+function normalizePrivateDocCryptoControlApprovalRequest(value = {}) {
+  const safe = toPlainObject(value) || {};
+  const requestedBy = text(safe.requestedBy);
+  const requestedAt = text(safe.requestedAt);
+  const requestedAtMs = requestedAt ? new Date(requestedAt).getTime() : 0;
+  const activeFlag = Boolean(safe.active);
+  const expired =
+    !requestedAtMs ||
+    requestedAtMs + PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_WINDOW_MS <= Date.now();
+  return {
+    active: activeFlag && Boolean(requestedBy && requestedAtMs) && !expired,
+    expired: Boolean(activeFlag && (expired || !requestedBy || !requestedAtMs)),
+    requestedBy,
+    requestedAt,
+    reason: text(safe.reason).slice(0, 500),
+    riskSignals: Array.isArray(safe.riskSignals)
+      ? [...new Set(safe.riskSignals.map((item) => text(item).toLowerCase()).filter((item) => Boolean(item)))]
+      : [],
+    requestDigest: text(safe.requestDigest),
+    currentControlHash: text(safe.currentControlHash),
+    currentControl: applyPrivateDocCryptoControlPatchToSnapshot(safe.currentControl, {}),
+    proposedPatch: sanitizePrivateDocCryptoControlPatch(safe.proposedPatch),
+    proposedControl: applyPrivateDocCryptoControlPatchToSnapshot(safe.proposedControl, {})
+  };
+}
+
+function getPrivateDocCryptoControlApprovalRequestState() {
+  return normalizePrivateDocCryptoControlApprovalRequest(
+    privateDocCryptoControlApprovalRequest
+  );
+}
+
+function applyPersistedPrivateDocCryptoControlApprovalRequest(value = {}) {
+  const normalized = normalizePrivateDocCryptoControlApprovalRequest(value);
+  privateDocCryptoControlApprovalRequest = normalized;
+  return normalized;
 }
 
 function buildPersistablePrivateDocCryptoControlState() {
@@ -200,8 +393,98 @@ async function persistPrivateDocCryptoControlState({
   }
 }
 
+async function hydratePrivateDocCryptoControlApprovalRequest({ force = false } = {}) {
+  const nowTs = Date.now();
+  if (!proRuntime.dbConnected) {
+    privateDocCryptoControlApprovalHydratedAtTs = nowTs;
+    return getPrivateDocCryptoControlApprovalRequestState();
+  }
+  if (
+    !force &&
+    privateDocCryptoControlApprovalHydratedAtTs &&
+    privateDocCryptoControlApprovalHydratedAtTs +
+      PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_HYDRATE_COOLDOWN_MS >
+      nowTs
+  ) {
+    return getPrivateDocCryptoControlApprovalRequestState();
+  }
+  try {
+    const row = await CoreRuntimeConfig.findOne({
+      key: PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_CONFIG_KEY
+    })
+      .select("value")
+      .lean();
+    const persistedValue = toPlainObject(row?.value);
+    if (persistedValue) {
+      applyPersistedPrivateDocCryptoControlApprovalRequest(persistedValue);
+    } else {
+      applyPersistedPrivateDocCryptoControlApprovalRequest({
+        active: false
+      });
+    }
+  } catch {
+    // Keep current runtime state when persistence read fails.
+  }
+  privateDocCryptoControlApprovalHydratedAtTs = nowTs;
+  return getPrivateDocCryptoControlApprovalRequestState();
+}
+
+async function persistPrivateDocCryptoControlApprovalRequest({
+  actorId = "",
+  notes = ""
+} = {}) {
+  const request = getPrivateDocCryptoControlApprovalRequestState();
+  if (!proRuntime.dbConnected) {
+    return {
+      persisted: false,
+      source: "memory",
+      request
+    };
+  }
+  try {
+    await CoreRuntimeConfig.findOneAndUpdate(
+      { key: PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_CONFIG_KEY },
+      {
+        $set: {
+          value: request,
+          updatedBy: text(actorId) || null,
+          notes: text(notes).slice(0, 220)
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    privateDocCryptoControlApprovalHydratedAtTs = Date.now();
+    return {
+      persisted: true,
+      source: "mongodb",
+      request
+    };
+  } catch {
+    return {
+      persisted: false,
+      source: "memory",
+      request
+    };
+  }
+}
+
+async function clearPrivateDocCryptoControlApprovalRequest({
+  actorId = "",
+  notes = "clear"
+} = {}) {
+  applyPersistedPrivateDocCryptoControlApprovalRequest({
+    active: false
+  });
+  return persistPrivateDocCryptoControlApprovalRequest({
+    actorId,
+    notes
+  });
+}
+
 export async function bootstrapCorePrivateDocCryptoControlState() {
-  return hydratePrivateDocCryptoControlState({ force: true });
+  await hydratePrivateDocCryptoControlState({ force: true });
+  await hydratePrivateDocCryptoControlApprovalRequest({ force: true });
+  return getCorePrivateDocCryptoControlState();
 }
 
 function checkModelCoverage(model, requiredFields = []) {
@@ -729,13 +1012,35 @@ export function getCoreSystemSecurityControl(req, res) {
 export async function getCoreSystemPrivateDocCryptoControl(req, res, next) {
   try {
     await hydratePrivateDocCryptoControlState();
+    await hydratePrivateDocCryptoControlApprovalRequest();
+    const approval = getPrivateDocCryptoControlApprovalRequestState();
+    const state = getCorePrivateDocCryptoControlState();
     return res.json({
       success: true,
       requestedBy: {
         id: String(req.coreUser?.id || ""),
         role: String(req.coreUser?.role || "")
       },
-      state: getCorePrivateDocCryptoControlState()
+      dualAdmin: {
+        required: Boolean(PRIVATE_DOC_CRYPTO_CONTROL_DUAL_ADMIN_REQUIRED),
+        approvalWindowMinutes: Math.max(
+          1,
+          Math.round(PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_WINDOW_MS / 60_000)
+        ),
+        reasonMin: PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_REASON_MIN
+      },
+      state,
+      approvalRequest: {
+        active: Boolean(approval.active),
+        expired: Boolean(approval.expired),
+        requestedBy: text(approval.requestedBy),
+        requestedAt: text(approval.requestedAt),
+        reason: text(approval.reason),
+        riskSignals: Array.isArray(approval.riskSignals)
+          ? approval.riskSignals.slice(0, 20)
+          : [],
+        currentControlHash: text(approval.currentControlHash)
+      }
     });
   } catch (error) {
     return next(error);
@@ -745,16 +1050,27 @@ export async function getCoreSystemPrivateDocCryptoControl(req, res, next) {
 export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
   try {
     await hydratePrivateDocCryptoControlState();
+    await hydratePrivateDocCryptoControlApprovalRequest();
     const body =
       req.body && typeof req.body === "object" && !Array.isArray(req.body)
         ? req.body
         : {};
+    const policyConfirm = toBoolean(
+      body.policyConfirm || req.query?.policyConfirm,
+      false
+    );
+    const requestReset = toBoolean(
+      body.requestReset || req.query?.requestReset,
+      false
+    );
+    const reason = text(body.reason);
     const patch =
       body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
         ? body.patch
         : body;
     const sanitizedPatch = sanitizePrivateDocCryptoControlPatch(patch);
-    if (!Object.keys(sanitizedPatch).length) {
+    const hasPatch = Object.keys(sanitizedPatch).length > 0;
+    if (!policyConfirm && !requestReset && !hasPatch) {
       return res.status(400).json({
         success: false,
         message: "At least one crypto-control field is required."
@@ -763,6 +1079,251 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
 
     const actorId = String(req.coreUser?.id || "");
     const actorRole = String(req.coreUser?.role || "");
+    if (typeof sanitizedPatch.activeKeyId !== "undefined") {
+      const availableKeyIds = Array.isArray(getCorePrivateDocCryptoControlState().keyIds)
+        ? getCorePrivateDocCryptoControlState().keyIds.map((item) => text(item).toLowerCase())
+        : [];
+      if (!availableKeyIds.includes(text(sanitizedPatch.activeKeyId).toLowerCase())) {
+        return res.status(400).json({
+          success: false,
+          message: "activeKeyId is not available in configured keyring.",
+          availableKeyIds
+        });
+      }
+    }
+
+    let approval = getPrivateDocCryptoControlApprovalRequestState();
+    if (approval.expired) {
+      await clearPrivateDocCryptoControlApprovalRequest({
+        actorId,
+        notes: "expired-clear"
+      });
+      approval = getPrivateDocCryptoControlApprovalRequestState();
+    }
+    const hadActiveApprovalRequest = Boolean(approval.active);
+    if (requestReset && approval.active) {
+      await clearPrivateDocCryptoControlApprovalRequest({
+        actorId,
+        notes: "manual-reset"
+      });
+      approval = getPrivateDocCryptoControlApprovalRequestState();
+    }
+    if (requestReset && !policyConfirm && !hasPatch) {
+      return res.json({
+        success: true,
+        action: "approval-request-reset",
+        requestedBy: {
+          id: actorId,
+          role: actorRole
+        },
+        cleared: hadActiveApprovalRequest,
+        approvalRequest: {
+          active: Boolean(approval.active),
+          expired: Boolean(approval.expired),
+          requestedBy: text(approval.requestedBy),
+          requestedAt: text(approval.requestedAt),
+          reason: text(approval.reason),
+          riskSignals: Array.isArray(approval.riskSignals)
+            ? approval.riskSignals.slice(0, 20)
+            : [],
+          currentControlHash: text(approval.currentControlHash)
+        }
+      });
+    }
+
+    if (policyConfirm) {
+      if (!PRIVATE_DOC_CRYPTO_CONTROL_DUAL_ADMIN_REQUIRED) {
+        return res.status(409).json({
+          success: false,
+          message: "policyConfirm is not required when dual-admin is disabled."
+        });
+      }
+      if (!approval.active) {
+        return res.status(404).json({
+          success: false,
+          message: "No active private-doc crypto approval request found."
+        });
+      }
+      if (approval.requestedBy === actorId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm this private-doc crypto update."
+        });
+      }
+
+      const currentControl = buildPrivateDocCryptoControlStateSnapshot();
+      const expectedDigest = buildPrivateDocCryptoControlApprovalDigest({
+        requestedBy: approval.requestedBy,
+        requestedAt: approval.requestedAt,
+        reason: approval.reason,
+        currentControl: approval.currentControl,
+        proposedPatch: approval.proposedPatch,
+        proposedControl: approval.proposedControl,
+        riskSignals: approval.riskSignals
+      });
+      const currentControlHash = buildPrivateDocCryptoControlStateHash(currentControl);
+
+      if (!approval.requestDigest || !approval.currentControlHash) {
+        await clearPrivateDocCryptoControlApprovalRequest({
+          actorId,
+          notes: "approval-integrity-empty-clear"
+        });
+        return res.status(409).json({
+          success: false,
+          message:
+            "Approval request integrity metadata is missing. Create a fresh request."
+        });
+      }
+      if (
+        expectedDigest !== approval.requestDigest ||
+        currentControlHash !== approval.currentControlHash ||
+        stableJsonStringify(currentControl) !== stableJsonStringify(approval.currentControl)
+      ) {
+        await clearPrivateDocCryptoControlApprovalRequest({
+          actorId,
+          notes: "approval-integrity-mismatch-clear"
+        });
+        return res.status(409).json({
+          success: false,
+          message:
+            "Crypto-control approval request integrity mismatch. Submit a new request."
+        });
+      }
+
+      const confirmed = updateCorePrivateDocCryptoControlState(
+        approval.proposedPatch,
+        {
+          actorId,
+          actorRole,
+          source: "dual-admin-confirmed"
+        }
+      );
+      if (!confirmed.updated) {
+        await clearPrivateDocCryptoControlApprovalRequest({
+          actorId,
+          notes: "approval-confirm-failed-clear"
+        });
+        return res.status(400).json({
+          success: false,
+          message: text(confirmed.error, "Unable to apply confirmed private-doc crypto update."),
+          availableKeyIds: Array.isArray(confirmed.availableKeyIds)
+            ? confirmed.availableKeyIds
+            : []
+        });
+      }
+
+      const persistence = await persistPrivateDocCryptoControlState({
+        actorId,
+        notes: "private-doc-crypto-control-update-confirmed"
+      });
+      await clearPrivateDocCryptoControlApprovalRequest({
+        actorId,
+        notes: "confirmed-clear"
+      });
+      return res.json({
+        success: true,
+        action: "updated",
+        requiresSecondAdmin: false,
+        dualAdmin: {
+          required: true,
+          confirmedBy: actorId,
+          requestedBy: text(approval.requestedBy)
+        },
+        requestedBy: {
+          id: actorId,
+          role: actorRole
+        },
+        persistence: {
+          source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
+          persisted: Boolean(persistence.persisted)
+        },
+        state: confirmed.state
+      });
+    }
+
+    if (approval.active) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "An active private-doc crypto approval request exists. Use policyConfirm=true or requestReset=true."
+      });
+    }
+
+    const currentControl = buildPrivateDocCryptoControlStateSnapshot();
+    const nextControl = applyPrivateDocCryptoControlPatchToSnapshot(
+      currentControl,
+      sanitizedPatch
+    );
+    const riskSignals = getPrivateDocCryptoControlRiskSignals(
+      currentControl,
+      nextControl
+    );
+    const highRisk = riskSignals.length > 0;
+
+    if (PRIVATE_DOC_CRYPTO_CONTROL_DUAL_ADMIN_REQUIRED && highRisk) {
+      if (reason.length < PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_REASON_MIN) {
+        return res.status(400).json({
+          success: false,
+          message: `reason must be at least ${PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_REASON_MIN} characters for high-risk crypto-control changes.`
+        });
+      }
+      const requestedAt = new Date().toISOString();
+      const requestDigest = buildPrivateDocCryptoControlApprovalDigest({
+        requestedBy: actorId,
+        requestedAt,
+        reason,
+        currentControl,
+        proposedPatch: sanitizedPatch,
+        proposedControl: nextControl,
+        riskSignals
+      });
+      const currentControlHash = buildPrivateDocCryptoControlStateHash(currentControl);
+      applyPersistedPrivateDocCryptoControlApprovalRequest({
+        active: true,
+        requestedBy: actorId,
+        requestedAt,
+        reason,
+        riskSignals,
+        requestDigest,
+        currentControlHash,
+        currentControl,
+        proposedPatch: sanitizedPatch,
+        proposedControl: nextControl
+      });
+      const approvalPersistence = await persistPrivateDocCryptoControlApprovalRequest({
+        actorId,
+        notes: "private-doc-crypto-control-update-request"
+      });
+      return res.status(202).json({
+        success: true,
+        action: "update-requested",
+        requiresSecondAdmin: true,
+        requestedBy: {
+          id: actorId,
+          role: actorRole
+        },
+        approvalRequest: {
+          requestedBy: actorId,
+          requestedAt,
+          reason,
+          riskSignals,
+          currentControlHash,
+          approvalWindowMinutes: Math.max(
+            1,
+            Math.round(PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_WINDOW_MS / 60_000)
+          )
+        },
+        persistence: {
+          source: text(
+            approvalPersistence.source,
+            proRuntime.dbConnected ? "mongodb" : "memory"
+          ),
+          persisted: Boolean(approvalPersistence.persisted)
+        },
+        statePreview: nextControl
+      });
+    }
+
     const result = updateCorePrivateDocCryptoControlState(sanitizedPatch, {
       actorId,
       actorRole
@@ -788,6 +1349,7 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
         id: actorId,
         role: actorRole
       },
+      requiresSecondAdmin: false,
       persistence: {
         source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
         persisted: Boolean(persistence.persisted)
@@ -801,30 +1363,19 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
 
 export async function resetCoreSystemPrivateDocCryptoControl(req, res, next) {
   try {
-    await hydratePrivateDocCryptoControlState();
-    const actorId = String(req.coreUser?.id || "");
-    const actorRole = String(req.coreUser?.role || "");
-    const reset = resetCorePrivateDocCryptoControlState({
-      actorId,
-      actorRole
-    });
-    const persistence = await persistPrivateDocCryptoControlState({
-      actorId,
-      notes: "private-doc-crypto-control-reset"
-    });
-    return res.json({
-      success: true,
-      action: "reset",
-      requestedBy: {
-        id: actorId,
-        role: actorRole
-      },
-      persistence: {
-        source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
-        persisted: Boolean(persistence.persisted)
-      },
-      state: reset.state
-    });
+    const body =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? req.body
+        : {};
+    req.body = {
+      ...body,
+      patch: getCorePrivateDocCryptoControlFactoryDefaults(),
+      reason: text(
+        body.reason,
+        "admin-reset-private-doc-crypto-control-to-defaults"
+      )
+    };
+    return updateCoreSystemPrivateDocCryptoControl(req, res, next);
   } catch (error) {
     return next(error);
   }

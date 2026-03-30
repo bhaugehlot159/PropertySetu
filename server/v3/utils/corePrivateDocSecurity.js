@@ -430,6 +430,14 @@ export function getCorePrivateDocCryptoControlState() {
   };
 }
 
+export function getCorePrivateDocCryptoControlFactoryDefaults() {
+  return {
+    activeKeyId: text(defaultPrivateDocCryptoControl.activeKeyId).toLowerCase(),
+    allowLegacyTokenFormat: Boolean(defaultPrivateDocCryptoControl.allowLegacyTokenFormat),
+    legacyDecryptEnabled: Boolean(defaultPrivateDocCryptoControl.legacyDecryptEnabled)
+  };
+}
+
 export function updateCorePrivateDocCryptoControlState(
   patch = {},
   { actorId = "", actorRole = "", source = "runtime-update" } = {}
