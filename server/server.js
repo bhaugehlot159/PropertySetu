@@ -1193,6 +1193,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     securityRateLimiterV3: "/api/v3/system/rate-limiter-control",
     securityRateLimiterResetV3: "/api/v3/system/rate-limiter-control/reset",
     privateDocCryptoControlV3: "/api/v3/system/private-doc-crypto-control",
+    privateDocCryptoControlAuditV3: "/api/v3/system/private-doc-crypto-control/audit",
     privateDocCryptoControlResetV3: "/api/v3/system/private-doc-crypto-control/reset",
   },
 }));

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { fileURLToPath } from "url";
 import { proRuntime } from "../../config/proRuntime.js";
 import { getStorageProvider } from "../../config/proStorage.js";
@@ -31,6 +32,8 @@ import {
   getCorePrivateDocCryptoControlState,
   updateCorePrivateDocCryptoControlState
 } from "../utils/corePrivateDocSecurity.js";
+import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import CorePrivateDocCryptoControlAudit from "../models/CorePrivateDocCryptoControlAudit.js";
 import CoreRuntimeConfig from "../models/CoreRuntimeConfig.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
@@ -79,6 +82,31 @@ const PRIVATE_DOC_CRYPTO_CONTROL_APPROVAL_SECRET = text(
     process.env.JWT_SECRET ||
     "propertysetu-core-private-doc-crypto-control-approval-secret"
 );
+const PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_SECRET = text(
+  process.env.CORE_PRIVATE_DOC_CRYPTO_AUDIT_SECRET ||
+    process.env.CORE_PRIVATE_DOC_SECRET ||
+    process.env.CORE_JWT_SECRET ||
+    process.env.JWT_SECRET ||
+    "propertysetu-core-private-doc-crypto-audit-secret"
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_SALT = text(
+  process.env.CORE_PRIVATE_DOC_CRYPTO_AUDIT_SALT ||
+    "propertysetu-core-private-doc-crypto-audit-salt"
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_KEY_VERSION = text(
+  process.env.CORE_PRIVATE_DOC_CRYPTO_AUDIT_KEY_VERSION,
+  "v1"
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.CORE_PRIVATE_DOC_CRYPTO_AUDIT_MAX_ITEMS || 6_000)
+);
+const PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_ACTIONS = new Set([
+  "approval-requested",
+  "approval-confirmed",
+  "approval-reset",
+  "updated"
+]);
 let privateDocCryptoControlHydratedAtTs = 0;
 let privateDocCryptoControlApprovalHydratedAtTs = 0;
 let privateDocCryptoControlApprovalRequest = {
@@ -128,6 +156,21 @@ function toBoolean(value, fallback = false) {
   if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
   if (normalized === "false" || normalized === "0" || normalized === "no") return false;
   return fallback;
+}
+
+function numberValue(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toId(value = "") {
+  return text(value);
+}
+
+function toObjectIdOrNull(value = "") {
+  const raw = text(value);
+  if (!raw) return null;
+  return mongoose.Types.ObjectId.isValid(raw) ? raw : null;
 }
 
 function toPlainObject(value) {
@@ -306,6 +349,387 @@ function applyPersistedPrivateDocCryptoControlApprovalRequest(value = {}) {
   const normalized = normalizePrivateDocCryptoControlApprovalRequest(value);
   privateDocCryptoControlApprovalRequest = normalized;
   return normalized;
+}
+
+function sanitizePrivateDocCryptoAuditMetadata(value, depth = 0) {
+  if (depth > 3) return "[depth-truncated]";
+  if (value === null || typeof value === "undefined") return null;
+  if (typeof value === "string") return value.slice(0, 320);
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 20)
+      .map((item) => sanitizePrivateDocCryptoAuditMetadata(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const output = {};
+    for (const key of Object.keys(value).slice(0, 30)) {
+      output[text(key).slice(0, 60)] = sanitizePrivateDocCryptoAuditMetadata(
+        value[key],
+        depth + 1
+      );
+    }
+    return output;
+  }
+  return String(value).slice(0, 120);
+}
+
+function hashPrivateDocCryptoAuditReason(reason = "") {
+  const normalized = text(reason).replace(/\s+/g, " ").toLowerCase().slice(0, 500);
+  if (!normalized) return "";
+  return crypto
+    .createHash("sha256")
+    .update(`${PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_SALT}|${normalized}`)
+    .digest("hex");
+}
+
+function buildPrivateDocCryptoAuditPayloadHash(canonicalPayload = {}) {
+  return crypto
+    .createHash("sha256")
+    .update(stableJsonStringify(canonicalPayload))
+    .digest("hex");
+}
+
+function buildPrivateDocCryptoAuditSignature({
+  payloadHash = "",
+  chainIndex = 1,
+  occurredAt = "",
+  signatureKeyVersion = PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_KEY_VERSION
+} = {}) {
+  return crypto
+    .createHmac("sha256", PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_SECRET)
+    .update(
+      `${text(payloadHash)}|${Math.max(
+        1,
+        Math.round(numberValue(chainIndex, 1))
+      )}|${text(occurredAt)}|${text(signatureKeyVersion)}`
+    )
+    .digest("hex");
+}
+
+function buildPrivateDocCryptoAuditDecisionHash({
+  previousDecisionHash = "",
+  payloadHash = "",
+  signature = "",
+  chainIndex = 1,
+  occurredAt = ""
+} = {}) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      `${PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_SALT}|${text(previousDecisionHash)}|${text(
+        payloadHash
+      )}|${text(signature)}|${Math.max(
+        1,
+        Math.round(numberValue(chainIndex, 1))
+      )}|${text(occurredAt)}`
+    )
+    .digest("hex");
+}
+
+function normalizePrivateDocCryptoControlAuditRow(row = {}) {
+  const safe = toPlainObject(row) || {};
+  const actorAdminId = toId(safe.actorAdminId);
+  const requestedBy = toId(safe.requestedBy);
+  const confirmedBy = toId(safe.confirmedBy);
+  const occurredAt = text(safe.occurredAt);
+  const chainIndex = Math.max(1, Math.round(numberValue(safe.chainIndex, 1)));
+  return {
+    auditId: text(safe.auditId),
+    action: text(safe.action).toLowerCase(),
+    actorAdminId,
+    requestedBy,
+    confirmedBy,
+    reasonHash: text(safe.reasonHash),
+    reasonPreview: text(safe.reasonPreview),
+    previousDecisionHash: text(safe.previousDecisionHash),
+    payloadHash: text(safe.payloadHash),
+    signature: text(safe.signature),
+    decisionHash: text(safe.decisionHash),
+    signatureKeyVersion: text(safe.signatureKeyVersion, PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_KEY_VERSION),
+    canonicalPayload: toPlainObject(safe.canonicalPayload) || {},
+    metadata: sanitizePrivateDocCryptoAuditMetadata(
+      toPlainObject(safe.metadata) || {}
+    ),
+    chainIndex,
+    occurredAt,
+    createdAt: text(safe.createdAt),
+    updatedAt: text(safe.updatedAt),
+    chain: {
+      chainIndex,
+      previousDecisionHash: text(safe.previousDecisionHash),
+      decisionHash: text(safe.decisionHash)
+    }
+  };
+}
+
+function sortPrivateDocCryptoControlAuditsDesc(rows = []) {
+  return [...rows].sort((a, b) => {
+    const chainDelta =
+      Math.max(0, numberValue(b?.chainIndex, 0)) -
+      Math.max(0, numberValue(a?.chainIndex, 0));
+    if (chainDelta) return chainDelta;
+    return new Date(text(b?.occurredAt) || 0).getTime() - new Date(text(a?.occurredAt) || 0).getTime();
+  });
+}
+
+function getPrivateDocCryptoControlAuditMemoryStore() {
+  if (!Array.isArray(proMemoryStore.corePrivateDocCryptoControlAudits)) {
+    proMemoryStore.corePrivateDocCryptoControlAudits = [];
+  }
+  return proMemoryStore.corePrivateDocCryptoControlAudits;
+}
+
+async function fetchLatestPrivateDocCryptoControlAuditRow() {
+  if (proRuntime.dbConnected) {
+    try {
+      const row = await CorePrivateDocCryptoControlAudit.findOne({})
+        .sort({ chainIndex: -1, occurredAt: -1, createdAt: -1 })
+        .lean();
+      if (row) return normalizePrivateDocCryptoControlAuditRow(row);
+    } catch {
+      // Fallback to memory state on query failure.
+    }
+  }
+  const memory = getPrivateDocCryptoControlAuditMemoryStore();
+  const latest = sortPrivateDocCryptoControlAuditsDesc(memory)[0];
+  return latest ? normalizePrivateDocCryptoControlAuditRow(latest) : null;
+}
+
+async function appendPrivateDocCryptoControlAuditRow(record = {}) {
+  const normalized = normalizePrivateDocCryptoControlAuditRow(record);
+  if (proRuntime.dbConnected) {
+    try {
+      const created = await CorePrivateDocCryptoControlAudit.create({
+        auditId: text(normalized.auditId),
+        action: text(normalized.action),
+        actorAdminId: toObjectIdOrNull(normalized.actorAdminId),
+        requestedBy: toObjectIdOrNull(normalized.requestedBy),
+        confirmedBy: toObjectIdOrNull(normalized.confirmedBy),
+        reasonHash: text(normalized.reasonHash),
+        reasonPreview: text(normalized.reasonPreview),
+        previousDecisionHash: text(normalized.previousDecisionHash),
+        payloadHash: text(normalized.payloadHash),
+        signature: text(normalized.signature),
+        decisionHash: text(normalized.decisionHash),
+        signatureKeyVersion: text(normalized.signatureKeyVersion),
+        canonicalPayload: toPlainObject(normalized.canonicalPayload) || {},
+        metadata: sanitizePrivateDocCryptoAuditMetadata(
+          toPlainObject(normalized.metadata) || {}
+        ),
+        chainIndex: Math.max(1, Math.round(numberValue(normalized.chainIndex, 1))),
+        occurredAt: text(normalized.occurredAt)
+      });
+      return normalizePrivateDocCryptoControlAuditRow(created?.toObject?.() || created);
+    } catch {
+      // Fallback to memory when DB write fails.
+    }
+  }
+  const memory = getPrivateDocCryptoControlAuditMemoryStore();
+  memory.unshift(normalized);
+  if (memory.length > PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_MAX_ITEMS) {
+    memory.length = PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_MAX_ITEMS;
+  }
+  return normalized;
+}
+
+async function listPrivateDocCryptoControlAudits(limit = 120) {
+  const safeLimit = Math.max(1, Math.min(500, Math.round(numberValue(limit, 120))));
+  if (proRuntime.dbConnected) {
+    try {
+      const rows = await CorePrivateDocCryptoControlAudit.find({})
+        .sort({ chainIndex: -1, occurredAt: -1, createdAt: -1 })
+        .limit(safeLimit)
+        .lean();
+      return (Array.isArray(rows) ? rows : []).map((row) =>
+        normalizePrivateDocCryptoControlAuditRow(row)
+      );
+    } catch {
+      // Fallback to memory state when DB read fails.
+    }
+  }
+  const memory = getPrivateDocCryptoControlAuditMemoryStore();
+  return sortPrivateDocCryptoControlAuditsDesc(memory)
+    .slice(0, safeLimit)
+    .map((row) => normalizePrivateDocCryptoControlAuditRow(row));
+}
+
+function verifyPrivateDocCryptoControlAuditChain(rows = []) {
+  const normalized = (Array.isArray(rows) ? rows : [])
+    .map((row) => normalizePrivateDocCryptoControlAuditRow(row))
+    .sort((a, b) => {
+      const delta =
+        Math.max(0, numberValue(a.chainIndex, 0)) -
+        Math.max(0, numberValue(b.chainIndex, 0));
+      if (delta) return delta;
+      return (
+        new Date(text(a.occurredAt) || 0).getTime() -
+        new Date(text(b.occurredAt) || 0).getTime()
+      );
+    });
+
+  const issues = [];
+  let previous = null;
+  for (const row of normalized) {
+    if (!PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_ACTIONS.has(text(row.action).toLowerCase())) {
+      issues.push({
+        code: "invalid-action",
+        chainIndex: row.chainIndex,
+        action: row.action
+      });
+    }
+
+    const expectedPayloadHash = buildPrivateDocCryptoAuditPayloadHash(
+      toPlainObject(row.canonicalPayload) || {}
+    );
+    if (expectedPayloadHash !== text(row.payloadHash)) {
+      issues.push({
+        code: "payload-hash-mismatch",
+        chainIndex: row.chainIndex
+      });
+    }
+
+    const expectedSignature = buildPrivateDocCryptoAuditSignature({
+      payloadHash: expectedPayloadHash,
+      chainIndex: row.chainIndex,
+      occurredAt: row.occurredAt,
+      signatureKeyVersion: row.signatureKeyVersion
+    });
+    if (expectedSignature !== text(row.signature)) {
+      issues.push({
+        code: "signature-mismatch",
+        chainIndex: row.chainIndex
+      });
+    }
+
+    const expectedDecisionHash = buildPrivateDocCryptoAuditDecisionHash({
+      previousDecisionHash: text(row.previousDecisionHash),
+      payloadHash: expectedPayloadHash,
+      signature: expectedSignature,
+      chainIndex: row.chainIndex,
+      occurredAt: row.occurredAt
+    });
+    if (expectedDecisionHash !== text(row.decisionHash)) {
+      issues.push({
+        code: "decision-hash-mismatch",
+        chainIndex: row.chainIndex
+      });
+    }
+
+    if (previous) {
+      if (row.previousDecisionHash !== previous.decisionHash) {
+        issues.push({
+          code: "chain-link-mismatch",
+          chainIndex: row.chainIndex,
+          expectedPreviousDecisionHash: previous.decisionHash,
+          observedPreviousDecisionHash: row.previousDecisionHash
+        });
+      }
+      if (row.chainIndex !== previous.chainIndex + 1) {
+        issues.push({
+          code: "chain-index-gap",
+          chainIndex: row.chainIndex,
+          previousChainIndex: previous.chainIndex
+        });
+      }
+    } else if (text(row.previousDecisionHash)) {
+      issues.push({
+        code: "unexpected-chain-head-previous-hash",
+        chainIndex: row.chainIndex
+      });
+    }
+
+    previous = row;
+  }
+
+  const oldest = normalized[0] || null;
+  const newest = normalized[normalized.length - 1] || null;
+  return {
+    valid: issues.length === 0,
+    total: normalized.length,
+    chain: {
+      headDecisionHash: text(newest?.decisionHash),
+      tailDecisionHash: text(oldest?.decisionHash),
+      minChainIndex: oldest ? Math.max(1, Math.round(numberValue(oldest.chainIndex, 1))) : 0,
+      maxChainIndex: newest ? Math.max(1, Math.round(numberValue(newest.chainIndex, 1))) : 0,
+      continuityExpected:
+        Boolean(oldest) &&
+        Math.max(1, Math.round(numberValue(oldest?.chainIndex, 1))) > 1
+    },
+    issues: issues.slice(0, 80)
+  };
+}
+
+async function recordPrivateDocCryptoControlAudit({
+  action = "updated",
+  actorAdminId = "",
+  requestedBy = "",
+  confirmedBy = "",
+  reason = "",
+  metadata = {}
+} = {}) {
+  const safeAction = text(action).toLowerCase();
+  if (!PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_ACTIONS.has(safeAction)) {
+    return null;
+  }
+  const previous = await fetchLatestPrivateDocCryptoControlAuditRow();
+  const previousDecisionHash = text(previous?.decisionHash);
+  const chainIndex = Math.max(
+    1,
+    Math.round(numberValue(previous?.chainIndex, 0)) + 1
+  );
+  const occurredAt = new Date().toISOString();
+  const reasonPreview = text(reason).replace(/\s+/g, " ").slice(0, 140);
+  const reasonHash = hashPrivateDocCryptoAuditReason(reason);
+  const canonicalPayload = {
+    action: safeAction,
+    actorAdminId: toId(actorAdminId),
+    requestedBy: toId(requestedBy),
+    confirmedBy: toId(confirmedBy),
+    reasonHash,
+    reasonPreview,
+    previousDecisionHash,
+    chainIndex,
+    occurredAt,
+    metadata: sanitizePrivateDocCryptoAuditMetadata(metadata)
+  };
+  const payloadHash = buildPrivateDocCryptoAuditPayloadHash(canonicalPayload);
+  const signature = buildPrivateDocCryptoAuditSignature({
+    payloadHash,
+    chainIndex,
+    occurredAt
+  });
+  const decisionHash = buildPrivateDocCryptoAuditDecisionHash({
+    previousDecisionHash,
+    payloadHash,
+    signature,
+    chainIndex,
+    occurredAt
+  });
+  const auditId = `pdcc-audit-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+  return appendPrivateDocCryptoControlAuditRow({
+    auditId,
+    action: safeAction,
+    actorAdminId: toId(actorAdminId),
+    requestedBy: toId(requestedBy),
+    confirmedBy: toId(confirmedBy),
+    reasonHash,
+    reasonPreview,
+    previousDecisionHash,
+    payloadHash,
+    signature,
+    decisionHash,
+    signatureKeyVersion: PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_KEY_VERSION,
+    canonicalPayload,
+    metadata: sanitizePrivateDocCryptoAuditMetadata(metadata),
+    chainIndex,
+    occurredAt
+  });
 }
 
 function buildPersistablePrivateDocCryptoControlState() {
@@ -1047,6 +1471,27 @@ export async function getCoreSystemPrivateDocCryptoControl(req, res, next) {
   }
 }
 
+export async function listCoreSystemPrivateDocCryptoControlAudit(req, res, next) {
+  try {
+    const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 120)));
+    const rows = await listPrivateDocCryptoControlAudits(limit);
+    const verification = verifyPrivateDocCryptoControlAuditChain(rows);
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      requestedBy: {
+        id: String(req.coreUser?.id || ""),
+        role: String(req.coreUser?.role || "")
+      },
+      total: rows.length,
+      verification,
+      items: rows
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
   try {
     await hydratePrivateDocCryptoControlState();
@@ -1100,6 +1545,7 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
       });
       approval = getPrivateDocCryptoControlApprovalRequestState();
     }
+    const approvalBeforeManualReset = approval;
     const hadActiveApprovalRequest = Boolean(approval.active);
     if (requestReset && approval.active) {
       await clearPrivateDocCryptoControlApprovalRequest({
@@ -1109,6 +1555,23 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
       approval = getPrivateDocCryptoControlApprovalRequestState();
     }
     if (requestReset && !policyConfirm && !hasPatch) {
+      if (hadActiveApprovalRequest) {
+        await recordPrivateDocCryptoControlAudit({
+          action: "approval-reset",
+          actorAdminId: actorId,
+          requestedBy: text(approvalBeforeManualReset?.requestedBy),
+          reason: reason || text(approvalBeforeManualReset?.reason) || "manual-approval-reset",
+          metadata: {
+            requestReset: true,
+            previousRiskSignals: Array.isArray(approvalBeforeManualReset?.riskSignals)
+              ? approvalBeforeManualReset.riskSignals
+              : [],
+            previousCurrentControlHash: text(
+              approvalBeforeManualReset?.currentControlHash
+            )
+          }
+        });
+      }
       return res.json({
         success: true,
         action: "approval-request-reset",
@@ -1220,6 +1683,23 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
         actorId,
         notes: "confirmed-clear"
       });
+      await recordPrivateDocCryptoControlAudit({
+        action: "approval-confirmed",
+        actorAdminId: actorId,
+        requestedBy: text(approval.requestedBy),
+        confirmedBy: actorId,
+        reason: text(approval.reason),
+        metadata: {
+          riskSignals: Array.isArray(approval.riskSignals) ? approval.riskSignals : [],
+          currentControlHash: text(approval.currentControlHash),
+          requestDigest: text(approval.requestDigest),
+          persisted: Boolean(persistence.persisted),
+          persistenceSource: text(
+            persistence.source,
+            proRuntime.dbConnected ? "mongodb" : "memory"
+          )
+        }
+      });
       return res.json({
         success: true,
         action: "updated",
@@ -1294,6 +1774,23 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
         actorId,
         notes: "private-doc-crypto-control-update-request"
       });
+      await recordPrivateDocCryptoControlAudit({
+        action: "approval-requested",
+        actorAdminId: actorId,
+        requestedBy: actorId,
+        reason,
+        metadata: {
+          riskSignals,
+          currentControlHash,
+          requestDigest,
+          persisted: Boolean(approvalPersistence.persisted),
+          persistenceSource: text(
+            approvalPersistence.source,
+            proRuntime.dbConnected ? "mongodb" : "memory"
+          ),
+          statePreview: nextControl
+        }
+      });
       return res.status(202).json({
         success: true,
         action: "update-requested",
@@ -1341,6 +1838,22 @@ export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
     const persistence = await persistPrivateDocCryptoControlState({
       actorId,
       notes: "private-doc-crypto-control-update"
+    });
+    await recordPrivateDocCryptoControlAudit({
+      action: "updated",
+      actorAdminId: actorId,
+      requestedBy: actorId,
+      reason: reason || "crypto-control-update",
+      metadata: {
+        riskSignals,
+        persisted: Boolean(persistence.persisted),
+        persistenceSource: text(
+          persistence.source,
+          proRuntime.dbConnected ? "mongodb" : "memory"
+        ),
+        previousState: currentControl,
+        nextState: result.state
+      }
     });
     return res.json({
       success: true,

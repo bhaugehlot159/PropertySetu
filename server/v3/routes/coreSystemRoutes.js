@@ -7,6 +7,7 @@ import {
   getCoreSystemDatabaseStructure,
   getCoreSystemBlueprint,
   getCoreSystemExecutionPlan,
+  listCoreSystemPrivateDocCryptoControlAudit,
   getCoreSystemPrivateDocCryptoControl,
   getCoreSystemRateLimiterControl,
   getCoreSystemSecurityControlProfiles,
@@ -50,6 +51,7 @@ router.get("/rate-limiter-control", coreAuthRequired, coreRoleRequired("admin"),
 router.patch("/rate-limiter-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, updateCoreSystemRateLimiterControl);
 router.post("/rate-limiter-control/reset", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, resetCoreSystemRateLimiterControl);
 router.get("/private-doc-crypto-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemPrivateDocCryptoControl);
+router.get("/private-doc-crypto-control/audit", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, listCoreSystemPrivateDocCryptoControlAudit);
 router.patch("/private-doc-crypto-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, updateCoreSystemPrivateDocCryptoControl);
 router.post("/private-doc-crypto-control/reset", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, resetCoreSystemPrivateDocCryptoControl);
 

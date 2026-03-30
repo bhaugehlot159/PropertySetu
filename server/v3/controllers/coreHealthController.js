@@ -13,6 +13,7 @@ import CoreSealedBid from "../models/CoreSealedBid.js";
 import CorePrivateDocSecurityEvent from "../models/CorePrivateDocSecurityEvent.js";
 import CorePrivateDocShieldBlock from "../models/CorePrivateDocShieldBlock.js";
 import CorePrivateDocIntegrityDecisionAudit from "../models/CorePrivateDocIntegrityDecisionAudit.js";
+import CorePrivateDocCryptoControlAudit from "../models/CorePrivateDocCryptoControlAudit.js";
 import CorePropertyModerationAudit from "../models/CorePropertyModerationAudit.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
@@ -20,7 +21,7 @@ import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, propertiesPendingModeration, propertiesQuarantined, propertyModerationAudits, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
+      const [users, properties, propertiesPendingModeration, propertiesQuarantined, propertyModerationAudits, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocCryptoControlAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreProperty.countDocuments({ "aiReview.moderationStatus": "pending-review" }),
@@ -45,6 +46,7 @@ export async function getCoreHealth(_req, res, next) {
           releaseRequestedBy: { $ne: null }
         }),
         CorePrivateDocIntegrityDecisionAudit.countDocuments({}),
+        CorePrivateDocCryptoControlAudit.countDocuments({}),
         CoreUpload.countDocuments({
           isPrivate: true,
           privateDocEmergencyLockActive: true
@@ -78,6 +80,7 @@ export async function getCoreHealth(_req, res, next) {
           privateDocShieldBlocks,
           privateDocShieldReleaseRequests,
           privateDocIntegrityDecisionAudits,
+          privateDocCryptoControlAudits,
           privateDocEmergencyLocks,
           privateDocEmergencyUnlockRequests
         },
@@ -114,6 +117,7 @@ export async function getCoreHealth(_req, res, next) {
           (item) => Boolean(item?.releaseRequest?.active || item?.releaseRequest?.requestedBy)
         ).length,
         privateDocIntegrityDecisionAudits: proMemoryStore.corePrivateDocIntegrityDecisionAudits.length,
+        privateDocCryptoControlAudits: proMemoryStore.corePrivateDocCryptoControlAudits.length,
         privateDocEmergencyLocks: proMemoryStore.coreUploads.filter(
           (item) => Boolean(item?.isPrivate) && Boolean(item?.privateDocEmergencyLockActive)
         ).length,
