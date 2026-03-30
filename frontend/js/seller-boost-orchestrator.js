@@ -2,6 +2,7 @@
   if (document.getElementById('sellerBoostOrchestratorCard')) return;
 
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const isSellerPage = Boolean(document.getElementById('addPropertyForm') && document.getElementById('propertyList'));
   if (!isSellerPage) return;
 
@@ -335,7 +336,13 @@
         if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
           return { ok: false, message: text(error?.message, 'Live boost failed.') };
         }
+        if (!allowDemoFallback) {
+          return { ok: false, message: text(error?.message, 'Live boost failed.') };
+        }
       }
+    }
+    if (!allowDemoFallback) {
+      return { ok: false, message: 'Live boost requires seller login and active backend.' };
     }
     const localOk = applyLocalBoost(propertyId, cycleDays);
     if (!localOk) return { ok: false, message: 'Listing not found for local boost.' };
@@ -704,8 +711,10 @@
     if (typeof live.syncLocalListingsFromApi === 'function') {
       try {
         await live.syncLocalListingsFromApi();
-      } catch {
-        // keep local cache
+      } catch (error) {
+        if (!allowDemoFallback) {
+          setStatus(text(error?.message, 'Live listing sync failed.'), false);
+        }
       }
     }
     plans = await loadPlans();

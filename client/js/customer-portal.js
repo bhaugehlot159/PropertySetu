@@ -1,5 +1,6 @@
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const portalStateKey = 'propertySetu:customerPortal';
   const sealedBidKey = 'propertySetu:sealedBids';
   const marketStateKey = 'propertysetu-marketplace-state';
@@ -159,12 +160,17 @@
     }
 
     const livePlaced = await placeBidLive(propertyId, amount);
+    if (!livePlaced && !allowDemoFallback) {
+      window.alert('Live sealed bid submit failed. Please login and retry.');
+      return;
+    }
 
     const bids = readJson(sealedBidKey, []);
+    const sessionName = String(live.getAnySession ? live.getAnySession()?.name : '').trim();
     bids.push({
       propertyId,
       amount,
-      bidder: (live.getAnySession ? live.getAnySession()?.name : '') || 'customer-demo',
+      bidder: sessionName || 'customer',
       publicVisible: false,
       modifiedByAdmin: null,
       createdAt: new Date().toISOString(),

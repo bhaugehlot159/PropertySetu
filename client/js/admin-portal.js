@@ -1,5 +1,6 @@
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const bidKey = 'propertySetu:sealedBids';
 
   const verificationQueue = document.getElementById('verificationQueue');
@@ -50,6 +51,7 @@
   let bidRows = [];
 
   const ensureSeedBids = () => {
+    if (!allowDemoFallback) return;
     const bids = readJson(bidKey, []);
     if (bids.length) return;
     saveJson(bidKey, [{
@@ -84,6 +86,12 @@
   const loadLiveData = async () => {
     const token = getAdminToken();
     if (!token || !live.request) {
+      if (!allowDemoFallback) {
+        verification = [];
+        reports = [{ id: 'LIVE-REQ', label: 'Admin login + live backend required.' }];
+        bidRows = [];
+        return;
+      }
       fallbackData();
       return;
     }
@@ -112,7 +120,13 @@
         publicVisible: false,
         idx,
       }));
-    } catch {
+    } catch (error) {
+      if (!allowDemoFallback) {
+        verification = [];
+        reports = [{ id: 'LIVE-ERR', label: `Live admin fetch failed: ${String(error?.message || 'Unknown error')}` }];
+        bidRows = [];
+        return;
+      }
       fallbackData();
     }
   };
@@ -168,6 +182,10 @@
     if (!propertyId) return;
     const ok = await approveLive(propertyId);
     if (!ok) {
+      if (!allowDemoFallback) {
+        window.alert('Live verification approval failed.');
+        return;
+      }
       const localListings = readJson('propertySetu:listings', []);
       const updated = localListings.map((item) => (item.id === propertyId ? { ...item, status: 'Approved' } : item));
       saveJson('propertySetu:listings', updated);
@@ -241,6 +259,10 @@
         }
       }
 
+      if (!allowDemoFallback) {
+        window.alert('Live reveal action failed.');
+        return;
+      }
       bidRows[idx].publicVisible = true;
       const amount = Number(bidRows[idx].amount || 0).toLocaleString('en-IN');
       window.alert(`Bid reveal (local fallback): ₹${amount}`);
@@ -278,6 +300,10 @@
         } catch {
           // fallback below
         }
+      }
+      if (!allowDemoFallback) {
+        window.alert(`Live ${action} action failed.`);
+        return;
       }
       const localBids = readJson(bidKey, []);
       localBids

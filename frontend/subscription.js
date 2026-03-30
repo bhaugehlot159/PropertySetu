@@ -2,6 +2,7 @@
   const live = window.PropertySetuLive || {};
   const featuredDiv = document.getElementById('featuredPlans');
   if (!featuredDiv) return;
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -93,14 +94,7 @@
     }
 
     if (!token || !live.request) {
-      saveLocalSubscription({
-        ...plan,
-        status: 'active',
-        propertyId: propertyId || null,
-        createdAt: new Date().toISOString(),
-        source: 'local-fallback',
-      });
-      window.alert(`Plan "${plan.name}" local mode me activated (live login required).`);
+      window.alert('Live subscription activate karne ke liye login + backend connection required hai.');
       return;
     }
 
@@ -119,14 +113,18 @@
       });
       window.alert(`Plan "${plan.name}" live activated successfully.`);
     } catch (error) {
-      saveLocalSubscription({
-        ...plan,
-        status: 'pending',
-        propertyId: propertyId || null,
-        createdAt: new Date().toISOString(),
-        source: 'local-fallback-error',
-      });
-      window.alert(`Live activation failed: ${error.message}. Local backup me request save ho gayi.`);
+      if (allowDemoFallback) {
+        saveLocalSubscription({
+          ...plan,
+          status: 'pending',
+          propertyId: propertyId || null,
+          createdAt: new Date().toISOString(),
+          source: 'local-fallback-error',
+        });
+        window.alert(`Live activation failed: ${error.message}. Local backup me request save ho gayi.`);
+        return;
+      }
+      window.alert(`Live activation failed: ${error.message}`);
     }
   };
 
@@ -159,7 +157,10 @@
       const response = await live.request('/subscriptions/plans');
       const items = Array.isArray(response?.items) && response.items.length ? response.items : FALLBACK_PLANS;
       return items;
-    } catch {
+    } catch (error) {
+      if (!allowDemoFallback) {
+        window.alert(`Live plan fetch failed: ${error.message}`);
+      }
       return FALLBACK_PLANS;
     }
   };

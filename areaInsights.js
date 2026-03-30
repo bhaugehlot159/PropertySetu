@@ -1,5 +1,6 @@
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const areaSelect = document.getElementById('areaSelect');
   const areaDetails = document.getElementById('areaDetails');
   const areaPath = document.getElementById('areaPath');
@@ -148,15 +149,27 @@
 
     setPath(val);
     if (!live.request) {
-      renderFallback(val);
+      if (allowDemoFallback) {
+        renderFallback(val);
+      } else {
+        resetQuickStats();
+        areaDetails.innerHTML = '<p>Live locality insights service unavailable. Please retry after backend starts.</p>';
+        setSource('Data source: Live API unavailable.');
+      }
       return;
     }
 
     try {
       const response = await live.request(`/insights/locality?name=${encodeURIComponent(val)}`);
       renderLive(response, val);
-    } catch {
-      renderFallback(val);
+    } catch (error) {
+      if (allowDemoFallback) {
+        renderFallback(val);
+      } else {
+        resetQuickStats();
+        areaDetails.innerHTML = `<p>Live locality insights fetch failed: ${String(error?.message || 'Unknown error')}</p>`;
+        setSource('Data source: Live API error.');
+      }
     }
   });
 })();

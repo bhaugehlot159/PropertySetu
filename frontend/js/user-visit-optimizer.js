@@ -2,6 +2,7 @@
   if (document.getElementById('userVisitOptimizerCard')) return;
 
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const visitForm = document.getElementById('visitForm');
   const propertySelect = document.getElementById('propertySelect');
   const visitDateInput = document.getElementById('visitDate');
@@ -255,8 +256,10 @@
     if (typeof live.syncLocalListingsFromApi === 'function') {
       try {
         await live.syncLocalListingsFromApi();
-      } catch {
-        // local fallback
+      } catch (error) {
+        if (!allowDemoFallback) {
+          setStatus(text(error?.message, 'Live listing sync failed.'), false);
+        }
       }
     }
     const rows = readJson(LISTINGS_KEY, []);

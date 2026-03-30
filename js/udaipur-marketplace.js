@@ -1,5 +1,6 @@
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const marketplaceRoot = document.getElementById('marketGrid');
   if (!marketplaceRoot) return;
 
@@ -368,7 +369,10 @@
   const buildListings = () => {
     const localListings = readJson(LISTINGS_KEY, []).map(normalizeLocalEntry).filter(Boolean);
     const legacyListings = readJson(LEGACY_PROPERTIES_KEY, []).map(normalizeLegacyEntry).filter(Boolean);
-    return [...localListings, ...legacyListings, ...seededListings]
+    const mergedSource = allowDemoFallback
+      ? [...localListings, ...legacyListings, ...seededListings]
+      : [...localListings, ...legacyListings];
+    return mergedSource
       .reduce((acc, item) => {
         if (acc.some((known) => known.id === item.id || (
           known.title === item.title
@@ -490,7 +494,11 @@
       .slice(0, 12)
       .map(([name]) => name);
     const fallback = ['Hiran Magri Sector 4', 'Pratap Nagar', 'Bhuwana', 'Sukher', 'Fatehpura', 'Bedla Road'];
-    const display = topLocalities.length ? topLocalities : fallback;
+    const display = topLocalities.length ? topLocalities : (allowDemoFallback ? fallback : []);
+    if (!display.length) {
+      localityChips.innerHTML = '<span class="tiny-note">No live localities available yet.</span>';
+      return;
+    }
     localityChips.innerHTML = display
       .map((locality) => `<button type="button" class="chip-btn" data-locality="${locality}">${locality}</button>`)
       .join('');
@@ -871,7 +879,10 @@
   };
 
   const fetchAiInsights = async (locality) => {
-    if (!live.request) return getFallbackInsights(locality);
+    if (!live.request) {
+      if (allowDemoFallback) return getFallbackInsights(locality);
+      throw new Error('Live AI insights API unavailable.');
+    }
     try {
       const response = await live.request(`/insights/locality?name=${encodeURIComponent(locality || 'Udaipur')}`);
       if (response?.ok) {
@@ -880,8 +891,8 @@
           trend: Array.isArray(response.trend) ? response.trend : [],
         };
       }
-    } catch {
-      // fallback below
+    } catch (error) {
+      if (!allowDemoFallback) throw error;
     }
     return getFallbackInsights(locality);
   };
@@ -913,13 +924,16 @@
   };
 
   const fetchAiRecommendations = async ({ locality, category, referenceListing }) => {
-    if (!live.request) return getFallbackRecommendations({ locality, category, referenceListing });
+    if (!live.request) {
+      if (allowDemoFallback) return getFallbackRecommendations({ locality, category, referenceListing });
+      throw new Error('Live AI recommendations API unavailable.');
+    }
     try {
       const response = await live.request(`/recommendations?locality=${encodeURIComponent(locality || '')}&category=${encodeURIComponent(category || 'all')}&price=${encodeURIComponent(numberFrom(referenceListing?.price, 0))}&excludeId=${encodeURIComponent(referenceListing?.id || '')}&limit=5`);
       const items = Array.isArray(response?.items) ? response.items : [];
       if (items.length) return items;
-    } catch {
-      // fallback below
+    } catch (error) {
+      if (!allowDemoFallback) throw error;
     }
     return getFallbackRecommendations({ locality, category, referenceListing });
   };
@@ -970,8 +984,12 @@
   const scheduleAiPanels = (filters, filteredListings, force = false) => {
     clearTimeout(aiRefreshTimer);
     aiRefreshTimer = setTimeout(() => {
-      updateAiPanels(filters, filteredListings, force).catch(() => {
-        if (aiPricingSummary) aiPricingSummary.textContent = 'AI module fallback mode me hai (local model running).';
+      updateAiPanels(filters, filteredListings, force).catch((error) => {
+        if (aiPricingSummary) {
+          aiPricingSummary.textContent = allowDemoFallback
+            ? 'AI module fallback mode me hai (local model running).'
+            : `AI module unavailable: ${String(error?.message || 'Live API error')}`;
+        }
       });
     }, force ? 0 : 220);
   };
@@ -1024,7 +1042,12 @@
 
   const bookLiveVisit = async (listingId, preferredAt) => {
     const token = live.getAnyToken ? live.getAnyToken() : '';
-    if (!token || !live.request) return false;
+    if (!token || !live.request) {
+      if (!allowDemoFallback) {
+        window.alert('Visit request ke liye login + live backend required hai.');
+      }
+      return false;
+    }
     try {
       await live.request(`/properties/${encodeURIComponent(listingId)}/visit`, {
         method: 'POST',
@@ -1045,7 +1068,12 @@
 
   const bookLiveVideoVisit = async (listingId, preferredAt) => {
     const token = live.getAnyToken ? live.getAnyToken() : '';
-    if (!token || !live.request) return false;
+    if (!token || !live.request) {
+      if (!allowDemoFallback) {
+        window.alert('Live video visit ke liye login + live backend required hai.');
+      }
+      return false;
+    }
     try {
       await live.request(`/properties/${encodeURIComponent(listingId)}/visit`, {
         method: 'POST',
@@ -1073,8 +1101,12 @@
       renderStats();
       renderLocalityChips();
       runPipeline();
-    } catch {
-      // fallback continues from local data
+    } catch (error) {
+      if (!allowDemoFallback) {
+        if (resultsMeta) {
+          resultsMeta.textContent = `Live listing sync failed: ${String(error?.message || 'Unknown error')}`;
+        }
+      }
     }
   };
 
@@ -1259,6 +1291,10 @@
           })
           .catch((error) => window.alert(`Report failed: ${error.message}`));
       } else {
+        if (!allowDemoFallback) {
+          window.alert('Report submit ke liye login + live backend required hai.');
+          return;
+        }
         const reports = readJson('propertySetu:localReports', []);
         reports.unshift({ propertyId: listingId, reason, createdAt: new Date().toISOString() });
         writeJson('propertySetu:localReports', reports);
@@ -1302,6 +1338,10 @@
       trackSellerEngagement(listingId, 'inquiry', 'video-visit');
       const preferredAt = item.liveVideoVisitSlot || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       const liveDone = await bookLiveVideoVisit(listingId, preferredAt);
+      if (!liveDone && !allowDemoFallback) {
+        window.alert('Live video visit request submit nahi ho saka. Retry karein.');
+        return;
+      }
       const videoVisits = readJson(VIDEO_VISIT_KEY, []);
       videoVisits.unshift({
         listingId,
@@ -1318,7 +1358,7 @@
         'Video Visit Booked',
         'success',
       );
-      window.alert('Live video visit request submitted.');
+      window.alert(liveDone ? 'Live video visit request submitted.' : 'Video visit request queued locally.');
       return;
     }
 
@@ -1328,10 +1368,14 @@
       const preferredAt = getPreferredVisitIso(listing?.title);
       if (!preferredAt) return;
       trackSellerEngagement(listingId, 'inquiry', 'visit');
+      const liveDone = await bookLiveVisit(listingId, preferredAt);
+      if (!liveDone && !allowDemoFallback) {
+        window.alert('Live visit request submit nahi ho saka. Retry karein.');
+        return;
+      }
       state.visits.unshift({ listingId, preferredAt, at: new Date().toISOString() });
       state.visits = state.visits.slice(0, 30);
       writeJson(MARKET_STATE_KEY, state);
-      const liveDone = await bookLiveVisit(listingId, preferredAt);
       if (liveDone) {
         window.alert('Visit request live submit ho gayi.');
         pushNotification(

@@ -72,6 +72,7 @@ Contact on WhatsApp
 <script>
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const params = new URLSearchParams(window.location.search);
   const hashId = String(window.location.hash || '').replace('#', '').trim();
   const queryId = String(params.get('id') || '').trim();
@@ -204,7 +205,17 @@ Contact on WhatsApp
         items: liveItems,
         source: 'Live',
       });
-    } catch {
+    } catch (error) {
+      if (!allowDemoFallback) {
+        renderReviewSection({
+          total: 0,
+          average: 0,
+          matrix: { propertyAccuracy: 0, ownerBehavior: 0, agentService: 0 },
+          items: [],
+          source: `Live Review Error: ${String(error?.message || 'Unknown error')}`,
+        });
+        return;
+      }
       const localItems = readJson(reviewKey(propertyId), []);
       const computed = calcMatrix(localItems);
       renderReviewSection({
@@ -245,6 +256,10 @@ Contact on WhatsApp
     };
     const token = live.getAnyToken ? live.getAnyToken() : '';
     if (!token || !live.request) {
+      if (!allowDemoFallback) {
+        setReviewStatus('Live review submit ke liye login + backend required hai.', true);
+        return;
+      }
       saveLocalReview(id, localRecord);
       setReviewStatus('Login/live unavailable. Buyer review local mode me save ho gaya.');
       showReviews(id);
@@ -266,6 +281,10 @@ Contact on WhatsApp
       setReviewStatus('Buyer review submitted successfully (live).');
       showReviews(id);
     } catch (error) {
+      if (!allowDemoFallback) {
+        setReviewStatus(`Live review failed: ${error.message || 'Unknown error'}`, true);
+        return;
+      }
       saveLocalReview(id, localRecord);
       setReviewStatus(`Live review failed. Local review saved: ${error.message || 'Unknown error'}`, true);
       showReviews(id);
@@ -336,6 +355,10 @@ Contact on WhatsApp
     };
 
     if (!token || !live.request) {
+      if (!allowDemoFallback) {
+        if (callMaskStatus) callMaskStatus.textContent = 'Call mask ke liye login + live backend required hai.';
+        return;
+      }
       const localRecord = saveLocalMask();
       if (callMaskStatus) callMaskStatus.textContent = `Login/live unavailable. Local call mask generated: ${localRecord.maskedNumber}.`;
       return;
@@ -355,6 +378,10 @@ Contact on WhatsApp
         callMaskStatus.textContent = `Masked call ready: ${req.maskedNumber || 'generated'} (valid till ${req.expiresAt ? new Date(req.expiresAt).toLocaleString() : 'N/A'}).`;
       }
     } catch (error) {
+      if (!allowDemoFallback) {
+        if (callMaskStatus) callMaskStatus.textContent = `Live call masking failed: ${error.message}`;
+        return;
+      }
       const localRecord = saveLocalMask();
       if (callMaskStatus) callMaskStatus.textContent = `Live call masking failed. Local fallback: ${localRecord.maskedNumber}. Reason: ${error.message}`;
     }
@@ -376,6 +403,10 @@ Contact on WhatsApp
       reportListingStatus.textContent = message;
     };
     if (!token || !live.request) {
+      if (!allowDemoFallback) {
+        setReportStatus('Report submit ke liye login + live backend required hai.', true);
+        return;
+      }
       const reports = readJson(REPORT_KEY, []);
       reports.unshift({ propertyId: id, reason, createdAt: new Date().toISOString(), source: 'local-fallback' });
       writeJson(REPORT_KEY, reports.slice(0, 200));
@@ -390,6 +421,10 @@ Contact on WhatsApp
       });
       setReportStatus('Report submitted successfully. Admin moderation queue updated.');
     } catch (error) {
+      if (!allowDemoFallback) {
+        setReportStatus(`Live report failed: ${error.message || 'Unknown error'}`, true);
+        return;
+      }
       const reports = readJson(REPORT_KEY, []);
       reports.unshift({ propertyId: id, reason, createdAt: new Date().toISOString(), source: 'local-fallback', error: error.message || '' });
       writeJson(REPORT_KEY, reports.slice(0, 200));

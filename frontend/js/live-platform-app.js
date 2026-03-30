@@ -146,11 +146,16 @@
   };
 
   const loadSupplementary = async () => {
+    const probePropertyId = (() => {
+      const localListings = (live.readJson ? live.readJson('propertySetu:listings', []) : []);
+      const first = Array.isArray(localListings) ? localListings.find((item) => item?.id) : null;
+      return String(first?.id || '').trim();
+    })();
     const [plansResult, bootstrapResult, aiResult, reviewResult, ownerVerificationResult] = await Promise.all([
       live.request("/subscriptions/plans").catch(() => null),
       live.request("/bootstrap").catch(() => null),
       live.request("/ai/market-trend?locality=Udaipur").catch(() => null),
-      live.request("/reviews/prop-seed-1").catch(() => null),
+      (probePropertyId ? live.request(`/reviews/${encodeURIComponent(probePropertyId)}`).catch(() => null) : Promise.resolve(null)),
       probeAuthEndpoint("/owner-verification/me"),
     ]);
     state.plans = Array.isArray(plansResult?.plans) ? plansResult.plans : [];

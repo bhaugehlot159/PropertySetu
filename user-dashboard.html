@@ -66,6 +66,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
 <script>
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const wishlistDiv = document.getElementById('wishlist');
   const visitForm = document.getElementById('visitForm');
   const visitList = document.getElementById('visitList');
@@ -178,9 +179,16 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
         writeJson(CALL_MASK_KEY, items);
         renderCallMasks(items);
         return;
-      } catch {
-        // fallback
+      } catch (error) {
+        if (!allowDemoFallback) {
+          callMaskList.innerHTML = `<p>Live call mask fetch failed: ${String(error?.message || 'Unknown error')}</p>`;
+          return;
+        }
       }
+    }
+    if (!allowDemoFallback) {
+      callMaskList.innerHTML = '<p>Call mask dekhne ke liye login + live backend required hai.</p>';
+      return;
     }
     renderCallMasks(readJson(CALL_MASK_KEY, []));
   };
@@ -208,9 +216,16 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
         writeJson(`${CHAT_KEY}:${propertyId}`, liveItems);
         renderChat(liveItems);
         return;
-      } catch {
-        // fallback below
+      } catch (error) {
+        if (!allowDemoFallback) {
+          renderChat([{ sender: 'System', message: `Live chat fetch failed: ${String(error?.message || 'Unknown error')}` }]);
+          return;
+        }
       }
+    }
+    if (!allowDemoFallback) {
+      renderChat([{ sender: 'System', message: 'Chat ke liye login + live backend required hai.' }]);
+      return;
     }
     renderChat(readJson(`${CHAT_KEY}:${propertyId}`, []));
   };
@@ -233,6 +248,10 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     }
 
     const token = live.getAnyToken ? live.getAnyToken() : '';
+    if ((!token || !live.request) && !allowDemoFallback) {
+      window.alert('Message bhejne ke liye login + live backend required hai.');
+      return;
+    }
     let sentLive = false;
     if (token && live.request) {
       try {
@@ -243,7 +262,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
         });
         sentLive = true;
       } catch (error) {
-        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+        if (!allowDemoFallback || !live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
           window.alert(error.message || 'Message send failed.');
           return;
         }
@@ -261,6 +280,10 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
   const bookVisit = async (propertyId, dateValue) => {
     const listing = listings.find((item) => item.id === propertyId);
     const token = live.getAnyToken ? live.getAnyToken() : '';
+    if ((!token || !live.request) && !allowDemoFallback) {
+      window.alert('Visit booking ke liye login + live backend required hai.');
+      return false;
+    }
     if (token && live.request) {
       try {
         await live.request(`/properties/${encodeURIComponent(propertyId)}/visit`, {
@@ -272,7 +295,7 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
           },
         });
       } catch (error) {
-        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
+        if (!allowDemoFallback || !live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
           window.alert(error.message || 'Visit booking failed.');
           return false;
         }
@@ -294,8 +317,10 @@ input[type=text], input[type=datetime-local] { padding:5px; width:70%; margin-ri
     if (live.syncLocalListingsFromApi) {
       try {
         await live.syncLocalListingsFromApi();
-      } catch {
-        // keep local data
+      } catch (error) {
+        if (!allowDemoFallback) {
+          wishlistDiv.innerHTML = `<p>Live listing sync failed: ${String(error?.message || 'Unknown error')}</p>`;
+        }
       }
     }
     listings = readJson('propertySetu:listings', [])

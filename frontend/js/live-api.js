@@ -21,6 +21,20 @@
     'care-full': { name: 'Property Care Full Maintenance', amount: 10000, cycleDays: 30, type: 'care' },
     'agent-pro': { name: 'Trusted Agent Membership', amount: 1999, cycleDays: 30, type: 'agent' },
   };
+  const DEMO_FALLBACK_KEY = 'propertySetu:enableDemoFallback';
+  const readStorageFlag = (key) => {
+    try {
+      const raw = String(localStorage.getItem(key) || '').trim().toLowerCase();
+      return ['1', 'true', 'yes', 'on'].includes(raw);
+    } catch {
+      return false;
+    }
+  };
+  const allowDemoFallback = (
+    String(window.__PROPERTYSETU_ENABLE_DEMO_FALLBACK__ || '').trim().toLowerCase() === 'true'
+    || readStorageFlag(DEMO_FALLBACK_KEY)
+  );
+  const strictRealMode = !allowDemoFallback;
 
   const readJson = (key, fallback) => {
     try {
@@ -88,6 +102,7 @@
   });
 
   const shouldFallbackToLocal = (error) => {
+    if (!allowDemoFallback) return false;
     const msg = String(error?.message || '').toLowerCase();
     return (
       msg.includes('failed to fetch')
@@ -1310,6 +1325,8 @@
     getAnyToken,
     request,
     shouldFallbackToLocal,
+    allowDemoFallback,
+    strictRealMode,
     normalizeApiListing,
     mergeById,
     syncLocalListingsFromApi,

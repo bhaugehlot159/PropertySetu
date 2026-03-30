@@ -2,6 +2,7 @@
   const live = window.PropertySetuLive || {};
   const auctionDiv = document.getElementById("auctionList");
   if (!auctionDiv) return;
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -41,6 +42,7 @@
       }));
 
     if (fromLocal.length) return fromLocal;
+    if (!allowDemoFallback) return [];
     return [
       { id: "demo-1", title: "Luxury Villa Hiran Magri", location: "Hiran Magri", price: 32000000 },
       { id: "demo-2", title: "Farmhouse Ambamata", location: "Ambamata", price: 14500000 },
@@ -57,8 +59,13 @@
         location: item.location || "Udaipur",
         price: Number(item.price || 0),
       }));
-      return items.length ? items : buildLocalAuctions();
-    } catch {
+      if (items.length) return items;
+      return allowDemoFallback ? buildLocalAuctions() : [];
+    } catch (error) {
+      if (!allowDemoFallback) {
+        window.alert(`Live auction listings fetch failed: ${error.message}`);
+        return [];
+      }
       return buildLocalAuctions();
     }
   };
@@ -164,6 +171,10 @@
     }
 
     if (!persistedOnServer) {
+      if (!allowDemoFallback) {
+        window.alert("Live sealed bid submit failed. Please retry.");
+        return;
+      }
       const localBids = getLocalBids();
       localBids.push({
         propertyId,
@@ -250,6 +261,10 @@
   };
 
   const renderAuctions = () => {
+    if (!listings.length) {
+      auctionDiv.innerHTML = "<p>No live auction-ready properties available right now.</p>";
+      return;
+    }
     const bidderSession = getBidderSession();
     const isBidAllowed = Boolean(bidderSession?.token);
     auctionDiv.innerHTML = listings.map((item) => `

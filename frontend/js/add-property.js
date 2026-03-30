@@ -1,5 +1,6 @@
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const form = document.getElementById('addPropertyForm');
   const photosInput = document.getElementById('photos');
   const videoInput = document.getElementById('video');
@@ -878,6 +879,7 @@
     }
 
     let description = '';
+    let liveError = null;
     if (live.request) {
       try {
         const response = await live.request('/ai/description-generate', {
@@ -900,11 +902,18 @@
           },
         });
         description = text(response?.description);
-      } catch {
-        // fallback below
+      } catch (error) {
+        liveError = error;
       }
+    } else if (!allowDemoFallback) {
+      showStatus('AI description ke liye live backend required hai.', false);
+      return;
     }
     if (!description) {
+      if (!allowDemoFallback) {
+        showStatus(`AI description live generate failed: ${String(liveError?.message || 'Unknown error')}`, false);
+        return;
+      }
       description = [
       `${values.title} in ${values.location}, Udaipur.`,
       `${values.category || 'Property'} available for ${values.type || 'Buy'} at ₹${Number(values.price || 0).toLocaleString('en-IN')}.`,
@@ -922,7 +931,7 @@
 
     const descriptionField = document.getElementById('description');
     if (descriptionField) descriptionField.value = description;
-    showStatus(`AI description generated and added in description field${live.request ? ' (live-enabled).' : '.'}`, true);
+    showStatus(`AI description generated and added in description field${live.request ? ' (live-enabled).' : ' (fallback mode).'}`, true);
   };
 
   const getSmartPricing = async () => {
@@ -938,6 +947,10 @@
     };
 
     if (!live.request) {
+      if (!allowDemoFallback) {
+        showStatus('Smart pricing ke liye live AI backend required hai.', false);
+        return;
+      }
       const offlineStats = getLocalSmartPricingStats(locality);
       setSuggestion(
         offlineStats,
@@ -972,6 +985,10 @@
         true
       );
     } catch (error) {
+      if (!allowDemoFallback) {
+        showStatus(`Smart pricing live fetch failed: ${error.message}`, false);
+        return;
+      }
       const offlineStats = getLocalSmartPricingStats(locality);
       setSuggestion(
         offlineStats,
@@ -1515,10 +1532,11 @@
       }
     } catch (error) {
       const normalized = normalizeLocalListing(payload);
-      upsertLocalListing(normalized);
-      saveMediaFingerprints(normalized.id || payload.id);
-      const canFallback = live.shouldFallbackToLocal ? live.shouldFallbackToLocal(error) : true;
+      const canFallbackByError = live.shouldFallbackToLocal ? live.shouldFallbackToLocal(error) : true;
+      const canFallback = allowDemoFallback && canFallbackByError;
       if (canFallback) {
+        upsertLocalListing(normalized);
+        saveMediaFingerprints(normalized.id || payload.id);
         showStatus(`Live submit unavailable. Local backup me save kar diya: ${error.message}`, false);
         pushNotification(
           `Listing "${payload.title}" local backup queue me save hui. Live sync pending.`,
@@ -1562,8 +1580,10 @@
   loadOwnerVerificationStatus();
 
   if (live.syncLocalListingsFromApi) {
-    live.syncLocalListingsFromApi().catch(() => {
-      // keep working with local data when API is unreachable
+    live.syncLocalListingsFromApi().catch((error) => {
+      if (!allowDemoFallback) {
+        showStatus(`Live listing sync failed: ${String(error?.message || 'Unknown error')}`, false);
+      }
     });
   }
 })();

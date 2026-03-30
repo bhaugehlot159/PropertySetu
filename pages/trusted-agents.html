@@ -66,6 +66,7 @@
   <script>
     (() => {
       const live = window.PropertySetuLive || {};
+      const allowDemoFallback = Boolean(live.allowDemoFallback);
       const agentGrid = document.getElementById('agentGrid');
       const agentStatus = document.getElementById('agentStatus');
       if (!agentGrid) return;
@@ -130,9 +131,17 @@
             const items = Array.isArray(response?.items) ? response.items : [];
             reviewMap[agentId] = items;
             return items;
-          } catch {
-            // fallback below
+          } catch (error) {
+            if (!allowDemoFallback) {
+              reviewMap[agentId] = [];
+              setStatus(`Live agent reviews fetch failed: ${String(error?.message || 'Unknown error')}`);
+              return [];
+            }
           }
+        }
+        if (!allowDemoFallback) {
+          reviewMap[agentId] = [];
+          return [];
         }
         const localItems = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((item) => item.agentId === agentId);
         reviewMap[agentId] = localItems;
@@ -171,6 +180,11 @@
       const load = async () => {
         let items = fallback;
         if (!live.request) {
+          if (!allowDemoFallback) {
+            render([]);
+            setStatus('Trusted agents load karne ke liye live backend required hai.');
+            return;
+          }
           items.forEach((item) => { reviewMap[item.id] = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((review) => review.agentId === item.id); });
           render(items);
           setStatus('Live API unavailable. Trusted agents loaded in local mode.');
@@ -182,7 +196,12 @@
           await Promise.all((items || []).map((item) => loadAgentReviews(item.id)));
           render(items);
           setStatus('Trusted agents loaded from live server.');
-        } catch {
+        } catch (error) {
+          if (!allowDemoFallback) {
+            render([]);
+            setStatus(`Trusted agents live fetch failed: ${String(error?.message || 'Unknown error')}`);
+            return;
+          }
           items.forEach((item) => { reviewMap[item.id] = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((review) => review.agentId === item.id); });
           render(items);
           setStatus('Live fetch failed. Trusted agents loaded in local fallback mode.');
@@ -214,10 +233,18 @@
               const req = response?.request || {};
               setStatus(`Call mask active: ${req.maskedNumber || 'generated'} (expires: ${new Date(req.expiresAt).toLocaleString()}).`);
             } catch (error) {
+              if (!allowDemoFallback) {
+                setStatus(`Live call mask failed: ${error.message}`);
+                return;
+              }
               const localMask = createLocalCallMask(maskAgentId);
               setStatus(`Live call mask failed. Local mask issued: ${localMask.maskedNumber}. Reason: ${error.message}`);
             }
           } else {
+            if (!allowDemoFallback) {
+              setStatus('Call mask request ke liye login + live backend required hai.');
+              return;
+            }
             const localMask = createLocalCallMask(maskAgentId);
             setStatus(`Login/live unavailable. Local call mask issued: ${localMask.maskedNumber}.`);
           }
@@ -245,11 +272,19 @@
             setStatus('Agent rating submitted successfully.');
             await load();
           } catch (error) {
+            if (!allowDemoFallback) {
+              setStatus(`Live rating failed: ${error.message}`);
+              return;
+            }
             submitLocalAgentReview(rateAgentId, rating, comment);
             setStatus(`Live rating failed. Local rating saved: ${error.message}`);
             await load();
           }
         } else {
+          if (!allowDemoFallback) {
+            setStatus('Agent rating submit ke liye login + live backend required hai.');
+            return;
+          }
           submitLocalAgentReview(rateAgentId, rating, comment);
           setStatus('Login/live unavailable. Agent rating saved in local mode.');
           await load();
