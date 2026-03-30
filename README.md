@@ -64,8 +64,8 @@ Open:
 - Sealed bid winner reveal check: `GET http://localhost:5200/api/v3/sealed-bids/winner/:propertyId`
 
 Development fallback note:
-- If Cloudinary/S3 or Razorpay live keys are not configured, v3 runs in `development-with-fallback` mode.
-- Payment order/verify APIs stay runnable for local testing.
+- Storage and payment work in strict mode by default.
+- For local simulation only, explicitly set `CORE_ENABLE_PAYMENT_DEV_FALLBACK=true`.
 - Production deployment still requires real storage + Razorpay credentials (`npm run pro:preflight`).
 
 Preflight before deployment:
@@ -74,23 +74,29 @@ cd backend
 npm run pro:preflight
 ```
 
-## Secure Auth Demo (Customer/Admin)
-Demo OTP for both roles: `123456`
+## Secure Auth (Customer/Admin)
+Hardcoded demo OTP is removed. OTP must come from configured delivery provider.
 
 Login now supports **email OR mobile number** for both customer and admin roles. Signup includes basic fake-account detection (disposable email, repeated digits mobile, weak obvious passwords).
 
 Register/Login flow is automatic from UI modal. You can also test via API:
 
 ```bash
+curl -X POST http://localhost:5000/api/auth/request-otp \
+  -H "content-type: application/json" \
+  -d '{"mobile":"9876543210","role":"customer"}'
+```
+
+```bash
 curl -X POST http://localhost:5000/api/auth/register \
   -H "content-type: application/json" \
-  -d '{"name":"Demo Customer","email":"customer@propertysetu.in","mobile":"9876543210","password":"customer123","role":"customer","otp":"123456"}'
+  -d '{"name":"Live Customer","email":"customer@propertysetu.in","mobile":"9876543210","password":"Customer@123","role":"customer","otp":"<otp-from-sms-or-email>"}'
 ```
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/login \
   -H "content-type: application/json" \
-  -d '{"mobile":"9876543210","password":"customer123","role":"customer","otp":"123456"}'
+  -d '{"mobile":"9876543210","password":"Customer@123","role":"customer","otp":"<otp-from-sms-or-email>"}'
 ```
 
 ## Sealed Bid Demo API
@@ -113,6 +119,10 @@ Create `.env` inside `server/` if needed:
 ```env
 PORT=5000
 JWT_SECRET=your-secure-jwt-secret
+OTP_DELIVERY_PROVIDER=webhook
+OTP_WEBHOOK_URL=https://your-otp-gateway.example.com/send
+OTP_WEBHOOK_AUTH_TOKEN=replace-with-token
+OTP_DELIVERY_REQUIRE_REAL=true
 ```
 
 ## Legal Pages

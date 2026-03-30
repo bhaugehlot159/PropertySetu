@@ -8,6 +8,11 @@ import {
   signCoreToken
 } from "../utils/coreAuth.js";
 import { normalizeCoreUser, toId } from "../utils/coreMappers.js";
+import {
+  deliverOtpCode,
+  resolveStaticOtp,
+  shouldExposeOtpHint as shouldExposeOtpHintFromPolicy
+} from "../../utils/otpDeliveryProvider.js";
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -150,16 +155,13 @@ function hashOtp(otpCode) {
 }
 
 function generateOtpCode() {
-  const configured = text(process.env.CORE_STATIC_OTP);
+  const configured = resolveStaticOtp({ scope: "core" });
   if (configured) return configured;
   return String(Math.floor(100_000 + Math.random() * 900_000));
 }
 
 function shouldExposeOtpHint() {
-  return (
-    text(process.env.CORE_EXPOSE_OTP).toLowerCase() === "true" ||
-    text(process.env.NODE_ENV).toLowerCase() !== "production"
-  );
+  return shouldExposeOtpHintFromPolicy({ scope: "core" });
 }
 
 function pruneExpiredOtps() {
@@ -388,13 +390,35 @@ export async function requestCoreOtp(req, res, next) {
     }
 
     const otpCode = generateOtpCode();
+    let delivery;
+    try {
+      delivery = await deliverOtpCode({
+        identity,
+        otpCode,
+        ttlSec: Math.floor(OTP_TTL_MS / 1000),
+        purpose: "core-auth-login",
+        metadata: {
+          userId: toId(user?._id || user?.id),
+          role: text(normalizeCoreUser(user)?.role),
+          channel: looksLikeEmail ? "email" : "sms"
+        }
+      });
+    } catch {
+      touchOtpCooldown(authKey);
+      return res.status(503).json({
+        success: false,
+        message: "OTP service temporarily unavailable. Please try again shortly."
+      });
+    }
+
     storeOtpForUser(user, otpCode);
     touchOtpCooldown(authKey);
 
     const response = {
       success: true,
-      message: "OTP generated successfully.",
-      expiresInSec: Math.floor(OTP_TTL_MS / 1000)
+      message: "OTP sent successfully.",
+      expiresInSec: Math.floor(OTP_TTL_MS / 1000),
+      deliveryProvider: text(delivery?.provider)
     };
     if (shouldExposeOtpHint()) {
       response.otpHint = otpCode;

@@ -1,9 +1,7 @@
 (() => {
   const API_BASE = `${window.location.origin}/api`;
   const live = window.PropertySetuLive || null;
-  const OTP_CODE = '123456';
   const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-  let expectedOtpCode = OTP_CODE;
 
   const customerAuthButton = document.getElementById('customerAuthButton');
   const adminAuthButton = document.getElementById('adminAuthButton');
@@ -249,16 +247,9 @@
         email,
         mobile,
       });
-      expectedOtpCode = String(response?.otpHint || OTP_CODE).trim() || OTP_CODE;
-      if (authOtpInput) authOtpInput.value = expectedOtpCode;
-      setAuthError(response?.message || `OTP sent (demo OTP: ${OTP_CODE})`);
+      if (authOtpInput) authOtpInput.value = '';
+      setAuthError(response?.message || 'OTP sent successfully. Registered email/mobile check karein.');
     } catch (error) {
-      if (shouldFallbackToLocal(error)) {
-        expectedOtpCode = OTP_CODE;
-        if (authOtpInput) authOtpInput.value = expectedOtpCode;
-        setAuthError(`Live OTP unavailable. Demo OTP ${OTP_CODE} use karein.`);
-        return;
-      }
       setAuthError(error.message || 'OTP request failed.');
     }
   };
@@ -326,13 +317,12 @@
     authMode = role;
     if (!authModal) return;
     if (authModalTitle) authModalTitle.textContent = role === 'admin' ? 'Admin Login' : 'Customer Login';
-    if (authModalHint) authModalHint.textContent = `Udaipur portal access. OTP: ${OTP_CODE}`;
+    if (authModalHint) authModalHint.textContent = 'Udaipur portal access. OTP aapke registered email/mobile par bheja jayega.';
     if (authNameInput) authNameInput.value = '';
     if (authEmailInput) authEmailInput.value = '';
     if (authMobileInput) authMobileInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
-    expectedOtpCode = OTP_CODE;
-    if (authOtpInput) authOtpInput.value = expectedOtpCode;
+    if (authOtpInput) authOtpInput.value = '';
     if (authErrorMessage) authErrorMessage.textContent = '';
     setAuthAction('login');
     authModal.classList.add('show');
@@ -358,41 +348,29 @@
     if (authAction === 'signup' && !name) return setAuthError('Signup ke liye full name required hai.');
     if (authAction === 'signup' && password.length < 6) return setAuthError('Password minimum 6 characters hona chahiye.');
     if (authAction === 'login' && password && password.length < 6) return setAuthError('Password blank rakhein ya minimum 6 characters rakhein.');
-    if (otp !== expectedOtpCode) return setAuthError(`OTP ${expectedOtpCode} enter kijiye.`);
+    if (!otp) return setAuthError('OTP enter kijiye.');
 
     const payload = { name, email, mobile, password, otp, role: authMode };
     const endpoint = authAction === 'signup' ? '/auth/register' : '/auth/login';
 
-    let response = null;
-    let provider = 'server';
-
     try {
-      response = await apiRequest(endpoint, payload);
+      const response = await apiRequest(endpoint, payload);
+      if (!response?.token || !response?.user) {
+        throw new Error('Authentication response invalid. Please try again.');
+      }
+      setState(authMode, {
+        ...shapeUser(response.user || {}, authMode),
+        token: response.token || '',
+        provider: 'server',
+        loggedInAt: new Date().toISOString(),
+      });
     } catch (error) {
-      if (!shouldFallbackToLocal(error)) {
-        setAuthError(error.message);
-        return;
-      }
-      try {
-        response = authAction === 'signup'
-          ? localRegister(authMode, payload)
-          : localLogin(authMode, payload);
-        provider = 'local';
-      } catch (localError) {
-        setAuthError(localError.message);
-        return;
-      }
+      setAuthError(error.message || 'Authentication failed.');
+      return;
     }
 
-    setState(authMode, {
-      ...shapeUser(response.user || {}, authMode),
-      token: response.token || `local-${authMode}-${Date.now()}`,
-      provider,
-      loggedInAt: new Date().toISOString(),
-    });
-
     pushNotification(
-      `${authMode === 'admin' ? 'Admin' : 'Customer'} ${shapeUser(response.user || {}, authMode).name} logged in successfully.`,
+      `${authMode === 'admin' ? 'Admin' : 'Customer'} ${shapeUser(getState(authMode) || {}, authMode).name} logged in successfully.`,
       [authMode, 'admin'],
       'Login Successful',
       'success',

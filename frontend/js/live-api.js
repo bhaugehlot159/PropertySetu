@@ -472,28 +472,21 @@
       if (rawPath.startsWith('/auth/')) {
         if (rawPath === '/auth/request-otp' && method === 'POST') {
           const payload = options.data || {};
-          try {
-            const response = await requestJson(CORE_API_BASE, '/auth/request-otp', {
-              method: 'POST',
-              token: options.token,
-              timeoutMs: options.timeoutMs,
-              data: {
-                emailOrPhone: text(payload.emailOrPhone || payload.email || payload.mobile || payload.phone),
-              },
-            });
-            return {
-              ok: true,
-              success: true,
-              message: text(response?.message, 'OTP sent successfully.'),
-              otpHint: text(response?.otpHint, ''),
-              expiresInSec: numberFrom(response?.expiresInSec, 300),
-            };
-          } catch (error) {
-            if (Number(error?.status) === 404) {
-              return { ok: true, otpHint: '123456', message: 'Demo OTP sent successfully.' };
-            }
-            throw error;
-          }
+          const response = await requestJson(CORE_API_BASE, '/auth/request-otp', {
+            method: 'POST',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+            data: {
+              emailOrPhone: text(payload.emailOrPhone || payload.email || payload.mobile || payload.phone),
+            },
+          });
+          return {
+            ok: true,
+            success: true,
+            message: text(response?.message, 'OTP sent successfully.'),
+            otpHint: text(response?.otpHint, ''),
+            expiresInSec: numberFrom(response?.expiresInSec, 300),
+          };
         }
 
         if (rawPath === '/auth/register' && method === 'POST') {
@@ -506,21 +499,12 @@
             role: toCoreRole(payload.role),
             adminSecret: text(payload.adminSecret),
           };
-          // If admin secret is not provided, let legacy/local fallback keep old UX intact.
-          if (body.role === 'admin' && !body.adminSecret) return null;
-
-          let response;
-          try {
-            response = await requestJson(CORE_API_BASE, '/auth/register', {
-              method: 'POST',
-              data: body,
-              token: options.token,
-              timeoutMs: options.timeoutMs,
-            });
-          } catch (error) {
-            if (Number(error?.status) === 403) return null;
-            throw error;
-          }
+          const response = await requestJson(CORE_API_BASE, '/auth/register', {
+            method: 'POST',
+            data: body,
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          });
           return {
             ok: true,
             success: true,
@@ -535,34 +519,28 @@
           const password = text(payload.password);
           const otp = text(payload.otp);
           if (!identity) return null;
-
           let response;
-          try {
-            if (password) {
-              response = await requestJson(CORE_API_BASE, '/auth/login', {
-                method: 'POST',
-                data: {
-                  emailOrPhone: identity,
-                  password,
-                },
-                token: options.token,
-                timeoutMs: options.timeoutMs,
-              });
-            } else {
-              if (!otp) return null;
-              response = await requestJson(CORE_API_BASE, '/auth/login-otp', {
-                method: 'POST',
-                data: {
-                  emailOrPhone: identity,
-                  otp,
-                },
-                token: options.token,
-                timeoutMs: options.timeoutMs,
-              });
-            }
-          } catch (error) {
-            if (Number(error?.status) === 401) return null;
-            throw error;
+          if (password) {
+            response = await requestJson(CORE_API_BASE, '/auth/login', {
+              method: 'POST',
+              data: {
+                emailOrPhone: identity,
+                password,
+              },
+              token: options.token,
+              timeoutMs: options.timeoutMs,
+            });
+          } else {
+            if (!otp) return null;
+            response = await requestJson(CORE_API_BASE, '/auth/login-otp', {
+              method: 'POST',
+              data: {
+                emailOrPhone: identity,
+                otp,
+              },
+              token: options.token,
+              timeoutMs: options.timeoutMs,
+            });
           }
           return {
             ok: true,

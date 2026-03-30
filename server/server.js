@@ -36,6 +36,11 @@ import {
   proTokenFirewall,
   proSecurityHeaders
 } from "./middleware/proSecurityMiddleware.js";
+import {
+  deliverOtpCode,
+  resolveStaticOtp,
+  shouldExposeOtpHint
+} from "./utils/otpDeliveryProvider.js";
 
 dotenv.config();
 
@@ -58,10 +63,7 @@ const JWT_AUDIENCES = [
   String(process.env.CORE_JWT_AUDIENCE || "propertysetu-core-clients").trim(),
 ].filter(Boolean);
 const JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || "24h").trim();
-const OTP = "123456";
-const EXPOSE_OTP_HINT =
-  String(process.env.EXPOSE_OTP_HINT || "").trim().toLowerCase() === "true" ||
-  NODE_ENV !== "production";
+const EXPOSE_OTP_HINT = shouldExposeOtpHint({ scope: "legacy" });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webRoot = path.join(__dirname, "..");
@@ -750,11 +752,88 @@ const userById = (id) => db.users.find((u) => u.id === id) || null;
 const pushNoti = (userId, title, message, type = "general") => db.notifications.unshift({ id: nextId("notification"), userId, title, message, type, isRead: false, createdAt: now() });
 const authFailureBuckets = new Map();
 const authOtpCooldownBuckets = new Map();
+const authOtpChallengeBuckets = new Map();
 const authLockThreshold = Math.max(3, Math.round(num(process.env.AUTH_LOCK_THRESHOLD, 6)));
 const authLockWindowMs = Math.max(60_000, Math.round(num(process.env.AUTH_LOCK_WINDOW_MS, 15 * 60 * 1000)));
 const authLockDurationMs = Math.max(60_000, Math.round(num(process.env.AUTH_LOCK_DURATION_MS, 30 * 60 * 1000)));
 const authOtpCooldownMs = Math.max(10_000, Math.round(num(process.env.AUTH_OTP_COOLDOWN_MS, 45_000)));
+const authOtpTtlMs = Math.max(60_000, Math.round(num(process.env.AUTH_OTP_TTL_MS, 5 * 60 * 1000)));
+const authOtpMaxAttempts = Math.max(1, Math.round(num(process.env.AUTH_OTP_MAX_ATTEMPTS, 5)));
 const enforceStrongPasswords = txt(process.env.AUTH_STRONG_PASSWORD_POLICY || "true").toLowerCase() !== "false";
+const generateAuthOtpCode = () => {
+  const staticOtp = resolveStaticOtp({ scope: "legacy" });
+  if (staticOtp) return staticOtp;
+  return String(Math.floor(100_000 + Math.random() * 900_000));
+};
+const hashAuthOtpCode = (value) => crypto.createHash("sha256").update(String(value || "")).digest("hex");
+const otpChallengeHashMatches = (incomingOtp, storedHash) => {
+  const incoming = hashAuthOtpCode(incomingOtp);
+  const expected = String(storedHash || "");
+  if (!incoming || !expected || incoming.length !== expected.length) return false;
+  const incomingBuffer = Buffer.from(incoming, "utf8");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  if (incomingBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(incomingBuffer, expectedBuffer);
+};
+const maskOtpDestination = (identity) => {
+  const raw = txt(identity);
+  if (!raw) return "";
+  if (raw.includes("@")) {
+    const [name = "", domain = ""] = raw.split("@");
+    const maskedName = name.length <= 2 ? `${name.slice(0, 1)}*` : `${name.slice(0, 2)}***`;
+    return `${maskedName}@${domain}`;
+  }
+  if (raw.length <= 4) return "*".repeat(Math.max(2, raw.length));
+  return `${raw.slice(0, 2)}******${raw.slice(-2)}`;
+};
+const pruneAuthOtpChallenges = () => {
+  const nowTs = Date.now();
+  for (const [key, challenge] of authOtpChallengeBuckets.entries()) {
+    if (!challenge || Number(challenge.expiresAt || 0) <= nowTs) {
+      authOtpChallengeBuckets.delete(key);
+    }
+  }
+};
+const storeAuthOtpChallenge = (authKey, otpCode, metadata = {}) => {
+  authOtpChallengeBuckets.set(authKey, {
+    otpHash: hashAuthOtpCode(otpCode),
+    attempts: 0,
+    expiresAt: Date.now() + authOtpTtlMs,
+    createdAt: now(),
+    ...metadata,
+  });
+};
+const clearAuthOtpChallenge = (authKey) => {
+  authOtpChallengeBuckets.delete(authKey);
+};
+const verifyAuthOtpChallenge = (authKey, otpInput) => {
+  pruneAuthOtpChallenges();
+  const challenge = authOtpChallengeBuckets.get(authKey);
+  if (!challenge) return { ok: false, code: "missing" };
+
+  if (Date.now() >= Number(challenge.expiresAt || 0)) {
+    authOtpChallengeBuckets.delete(authKey);
+    return { ok: false, code: "expired" };
+  }
+
+  if (Number(challenge.attempts || 0) >= authOtpMaxAttempts) {
+    authOtpChallengeBuckets.delete(authKey);
+    return { ok: false, code: "max-attempts" };
+  }
+
+  const valid = otpChallengeHashMatches(otpInput, challenge.otpHash);
+  if (valid) return { ok: true, code: "valid", challenge };
+
+  challenge.attempts = Number(challenge.attempts || 0) + 1;
+  authOtpChallengeBuckets.set(authKey, challenge);
+
+  if (Number(challenge.attempts || 0) >= authOtpMaxAttempts) {
+    authOtpChallengeBuckets.delete(authKey);
+    return { ok: false, code: "max-attempts" };
+  }
+
+  return { ok: false, code: "invalid" };
+};
 const authIdentityKey = ({ role: roleValue = "customer", email: emailValue = "", mobile: mobileValue = "" } = {}) => {
   const roleKey = role(roleValue);
   const emailKey = email(emailValue);
@@ -1614,6 +1693,7 @@ app.post("/api/auth/register", async (req, res) => {
   const m = phone(req.body?.mobile);
   const p = String(req.body?.password || "");
   const o = String(req.body?.otp || "");
+  const authKey = authIdentityKey({ role: r, email: e, mobile: m });
   if (!n) return res.status(400).json({ ok: false, message: "Full name required." });
   if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
   if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ ok: false, message: "Valid email required." });
@@ -1627,12 +1707,35 @@ app.post("/api/auth/register", async (req, res) => {
   if (!enforceStrongPasswords && p.length < 6) {
     return res.status(400).json({ ok: false, message: "Password minimum 6 characters required." });
   }
-  if (o !== OTP) {
+  if (!o) {
     return res.status(400).json({
       ok: false,
-      message: EXPOSE_OTP_HINT ? `Invalid OTP. Use ${OTP}.` : "Invalid OTP.",
+      message: "OTP is required.",
     });
   }
+  const otpResult = verifyAuthOtpChallenge(authKey, o);
+  if (!otpResult.ok) {
+    const nextLockState = recordAuthFailure(authKey);
+    if (nextLockState.locked) {
+      return res.status(429).json({
+        ok: false,
+        message: "Too many failed login attempts. Please try again later.",
+        retryAfterSec: nextLockState.retryAfterSec,
+      });
+    }
+    if (otpResult.code === "max-attempts") {
+      return res.status(429).json({
+        ok: false,
+        message: "Too many invalid OTP attempts. Request a new OTP.",
+      });
+    }
+    return res.status(401).json({
+      ok: false,
+      message: "Invalid or expired OTP.",
+    });
+  }
+  clearAuthOtpChallenge(authKey);
+  clearAuthFailure(authKey);
   const exists = db.users.find((u) => u.role === r && ((e && u.email === e) || (m && u.mobile === m)));
   if (exists) return res.status(409).json({ ok: false, message: "Account already exists. Please login." });
   const u = {
@@ -1663,6 +1766,13 @@ app.post("/api/auth/request-otp", async (req, res) => {
   const e = email(req.body?.email);
   const m = phone(req.body?.mobile);
   if (!e && !m) return res.status(400).json({ ok: false, message: "Email or mobile required." });
+  if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+    return res.status(400).json({ ok: false, message: "Valid email required." });
+  }
+  if (m && !/^\d{10}$/.test(m)) {
+    return res.status(400).json({ ok: false, message: "Mobile must be 10 digits." });
+  }
+
   const authKey = authIdentityKey({ role: r, email: e, mobile: m });
   const lockState = getAuthLockState(authKey);
   if (lockState.locked) {
@@ -1681,22 +1791,57 @@ app.post("/api/auth/request-otp", async (req, res) => {
     });
   }
 
-  const cred = m || e;
-  const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
-  if (!u) {
+  const identity = m || e;
+  if (!identity) {
     touchOtpCooldown(authKey);
-    return res.status(200).json({
-      ok: true,
-      message: "If account exists, OTP sent successfully.",
+    return res.status(400).json({
+      ok: false,
+      message: "Email or mobile required.",
     });
   }
+
+  const u = /^\d{10}$/.test(identity)
+    ? db.users.find((x) => x.role === r && x.mobile === identity)
+    : db.users.find((x) => x.role === r && x.email === identity);
+
+  const otpCode = generateAuthOtpCode();
+  const challengeId = nextId("otp");
+  let delivery;
+  try {
+    delivery = await deliverOtpCode({
+      identity,
+      otpCode,
+      ttlSec: Math.floor(authOtpTtlMs / 1000),
+      purpose: "legacy-auth-otp",
+      metadata: {
+        role: r,
+        userId: txt(u?.id || ""),
+        challengeId,
+      },
+    });
+  } catch {
+    touchOtpCooldown(authKey);
+    return res.status(503).json({
+      ok: false,
+      message: "OTP service temporarily unavailable. Please try again shortly.",
+    });
+  }
+
+  storeAuthOtpChallenge(authKey, otpCode, {
+    challengeId,
+    role: r,
+    identity,
+    userId: txt(u?.id || ""),
+  });
+
   const record = {
-    id: nextId("otp"),
+    id: challengeId,
     kind: "auth-otp-request",
-    userId: u.id,
+    userId: u?.id || "",
     role: r,
     channel: m ? "mobile" : "email",
-    destination: m ? `${m.slice(0, 2)}******${m.slice(-2)}` : `${e.slice(0, 2)}***`,
+    destination: maskOtpDestination(identity),
+    deliveryProvider: txt(delivery?.provider),
     status: "sent",
     createdAt: now(),
   };
@@ -1705,10 +1850,12 @@ app.post("/api/auth/request-otp", async (req, res) => {
   touchOtpCooldown(authKey);
   const otpResponse = {
     ok: true,
-    message: EXPOSE_OTP_HINT ? `OTP sent successfully (demo OTP: ${OTP}).` : "OTP sent successfully.",
+    message: "OTP sent successfully.",
     challengeId: record.id,
+    expiresInSec: Math.floor(authOtpTtlMs / 1000),
+    deliveryProvider: txt(delivery?.provider),
   };
-  if (EXPOSE_OTP_HINT) otpResponse.otpHint = OTP;
+  if (EXPOSE_OTP_HINT) otpResponse.otpHint = otpCode;
   res.json(otpResponse);
 });
 
@@ -1729,7 +1876,12 @@ app.post("/api/auth/login", async (req, res) => {
     });
   }
 
-  if (o !== OTP) {
+  if (!o) {
+    return res.status(400).json({ ok: false, message: "OTP is required." });
+  }
+
+  const otpResult = verifyAuthOtpChallenge(authKey, o);
+  if (!otpResult.ok) {
     const nextLockState = recordAuthFailure(authKey);
     if (nextLockState.locked) {
       return res.status(429).json({
@@ -1738,8 +1890,16 @@ app.post("/api/auth/login", async (req, res) => {
         retryAfterSec: nextLockState.retryAfterSec,
       });
     }
-    return res.status(401).json({ ok: false, message: "Invalid credentials." });
+    if (otpResult.code === "max-attempts") {
+      return res.status(429).json({
+        ok: false,
+        message: "Too many invalid OTP attempts. Request a new OTP.",
+      });
+    }
+    return res.status(401).json({ ok: false, message: "Invalid or expired OTP." });
   }
+
+  clearAuthOtpChallenge(authKey);
   const cred = m || e;
   const u = /^\d{10}$/.test(cred) ? db.users.find((x) => x.role === r && x.mobile === cred) : db.users.find((x) => x.role === r && x.email === cred);
   if (!u) {

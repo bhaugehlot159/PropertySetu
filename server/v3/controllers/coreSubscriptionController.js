@@ -47,7 +47,9 @@ const STRICT_PAYMENT_PROOF =
     process.env.CORE_STRICT_PAYMENT_PROOF,
     text(process.env.NODE_ENV).toLowerCase() === "production" ? "true" : "false"
   ).toLowerCase() === "true";
-const PAYMENT_DEVELOPMENT_FALLBACK = text(process.env.NODE_ENV, "development").toLowerCase() !== "production";
+const PAYMENT_DEVELOPMENT_FALLBACK =
+  text(process.env.NODE_ENV, "development").toLowerCase() !== "production" &&
+  text(process.env.CORE_ENABLE_PAYMENT_DEV_FALLBACK, "false").toLowerCase() === "true";
 const verifiedPaymentProofStore = new Map();
 
 const CORE_SUBSCRIPTION_PLANS = [

@@ -229,14 +229,14 @@
     authMode = role;
     if (!authModal || !authModalTitle || !authModalHint) return;
     authModalTitle.textContent = role === 'admin' ? 'Admin Secure Access' : 'Customer Secure Access';
-    authModalHint.textContent = 'Email ya Mobile number se login/signup karein. Demo OTP: 123456';
+    authModalHint.textContent = 'Email ya Mobile number se login/signup karein. OTP request button use karein.';
     if (authErrorMessage) authErrorMessage.textContent = '';
     if (authActionSelect) authActionSelect.value = 'login';
     if (authNameInput) authNameInput.value = '';
     if (authEmailInput) authEmailInput.value = '';
     if (authMobileInput) authMobileInput.value = '';
     if (authPasswordInput) authPasswordInput.value = '';
-    if (authOtpInput) authOtpInput.value = '123456';
+    if (authOtpInput) authOtpInput.value = '';
     setAuthAction('login');
     authModal.classList.add('show');
     authModal.setAttribute('aria-hidden', 'false');

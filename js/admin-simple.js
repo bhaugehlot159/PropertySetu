@@ -218,7 +218,7 @@
     const body = {
       role: "admin",
       password: txt(el.passwordInput.value),
-      otp: txt(el.otpInput.value) || "123456",
+      otp: txt(el.otpInput.value),
       ...identity,
     };
     const data = await api("/auth/login", { method: "POST", body });
