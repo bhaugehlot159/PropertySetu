@@ -189,6 +189,8 @@ export function buildPrivateDocAccessEnvelope({
   viewerRole = "",
   requestIp = "",
   requestUserAgent = "",
+  purpose = "access",
+  accessPath = ACCESS_PATH,
   ttlSec = DEFAULT_TOKEN_TTL_SEC
 } = {}) {
   const safeSourceUrl = text(sourceUrl);
@@ -217,6 +219,7 @@ export function buildPrivateDocAccessEnvelope({
     docId: text(docId, sourceHash.slice(0, 18)),
     category: text(category),
     name: text(name).slice(0, 120),
+    purpose: text(purpose, "access").toLowerCase().slice(0, 32),
     hash: sourceHash,
     ctx: computePrivateDocAccessContextHash({
       requestIp,
@@ -232,7 +235,7 @@ export function buildPrivateDocAccessEnvelope({
     token,
     hash: sourceHash,
     maskedUrl: buildMaskedPrivateDocUrl(safeSourceUrl),
-    accessPath: ACCESS_PATH,
+    accessPath: text(accessPath, ACCESS_PATH),
     expiresAt: toIsoFromEpochSec(expSec),
     expiresInSec: boundedTtlSec
   };
@@ -245,7 +248,8 @@ export function verifyPrivateDocAccessToken(
     viewerRole = "",
     requestIp = "",
     requestUserAgent = "",
-    enforceContextBinding = true
+    enforceContextBinding = true,
+    allowedPurposes = ["access"]
   } = {}
 ) {
   const raw = text(token);
@@ -300,6 +304,14 @@ export function verifyPrivateDocAccessToken(
   if (safeViewerId && safeViewerId !== tokenSubject && safeViewerRole !== "admin") {
     return { ok: false, reason: "token-subject-mismatch" };
   }
+  const tokenPurpose = text(payload.purpose, "access").toLowerCase();
+  const allowed = Array.isArray(allowedPurposes)
+    ? allowedPurposes.map((item) => text(item).toLowerCase()).filter((item) => Boolean(item))
+    : [];
+  const allowedSet = new Set(allowed.length ? allowed : ["access"]);
+  if (!allowedSet.has(tokenPurpose)) {
+    return { ok: false, reason: "token-purpose-mismatch" };
+  }
 
   const sourceUrl = decryptSourceUrl(payload.enc);
   if (!sourceUrl) {
@@ -326,6 +338,7 @@ export function verifyPrivateDocAccessToken(
     payload: {
       ...payload,
       tokenId,
+      purpose: tokenPurpose,
       hash: computedHash,
       sourceUrl,
       contextBound,

@@ -99,6 +99,7 @@ export const coreSystemsBlueprint = [
       "Context-bound private-doc access tokens (network prefix + user-agent fingerprint)",
       "Adaptive private-doc security shield: repeated suspicious access patterns auto-blocked with admin release control",
       "MongoDB-persisted private-doc shield blocks and security telemetry for restart-safe enforcement",
+      "Secure private-doc proxy streaming with signed short-lived stream tokens and replay guards",
       "Auto description generator"
     ],
     endpoints: [
@@ -106,6 +107,7 @@ export const coreSystemsBlueprint = [
       "/api/v3/properties/auto-description",
       "/api/v3/uploads/property-media",
       "/api/v3/uploads/private-docs/access",
+      "/api/v3/uploads/private-docs/stream",
       "/api/v3/uploads/private-docs/security/events",
       "/api/v3/uploads/private-docs/security/release"
     ],

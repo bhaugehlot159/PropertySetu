@@ -4,6 +4,7 @@ import {
   listMyCoreUploads,
   releaseCorePrivateDocSecurityShield,
   resolveCorePrivateDocAccess,
+  streamCorePrivateDoc,
   uploadCorePropertyMedia
 } from "../controllers/coreUploadController.js";
 import { coreAuthRequired, coreRoleRequired } from "../middleware/coreAuthMiddleware.js";
@@ -26,6 +27,18 @@ router.post(
   coreAuthRequired,
   coreUploadPrivateDocAccessLimiter,
   resolveCorePrivateDocAccess
+);
+router.get(
+  "/private-docs/stream",
+  coreAuthRequired,
+  coreUploadPrivateDocAccessLimiter,
+  streamCorePrivateDoc
+);
+router.post(
+  "/private-docs/stream",
+  coreAuthRequired,
+  coreUploadPrivateDocAccessLimiter,
+  streamCorePrivateDoc
 );
 router.get(
   "/private-docs/security/events",

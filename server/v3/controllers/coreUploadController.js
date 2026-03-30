@@ -1,5 +1,8 @@
 import crypto from "crypto";
+import net from "net";
 import mongoose from "mongoose";
+import { Readable, Transform } from "stream";
+import { pipeline } from "stream/promises";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import CoreProperty from "../models/CoreProperty.js";
@@ -139,7 +142,47 @@ const PRIVATE_DOC_SECURITY_HYDRATE_COOLDOWN_MS = Math.max(
     Number(process.env.CORE_PRIVATE_DOC_SECURITY_HYDRATE_COOLDOWN_SEC || 90) * 1000
   )
 );
+const PRIVATE_DOC_STREAM_PATH = "/api/v3/uploads/private-docs/stream";
+const PRIVATE_DOC_STREAM_TOKEN_TTL_SEC = Math.max(
+  20,
+  Math.min(30 * 60, Number(process.env.CORE_PRIVATE_DOC_STREAM_TOKEN_TTL_SEC || 90))
+);
+const PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const PRIVATE_DOC_STREAM_TOKEN_REPLAY_CACHE_MAX = Math.max(
+  100,
+  Number(process.env.CORE_PRIVATE_DOC_STREAM_TOKEN_REPLAY_CACHE_MAX || 12000)
+);
+const PRIVATE_DOC_PROXY_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_PROXY_ENABLED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_PROXY_TIMEOUT_MS = Math.max(
+  3_000,
+  Math.min(120_000, Number(process.env.CORE_PRIVATE_DOC_PROXY_TIMEOUT_MS || 25_000))
+);
+const PRIVATE_DOC_PROXY_MAX_BYTES = Math.max(
+  1 * 1024 * 1024,
+  Math.min(200 * 1024 * 1024, Number(process.env.CORE_PRIVATE_DOC_PROXY_MAX_BYTES || 25 * 1024 * 1024))
+);
+const PRIVATE_DOC_PROXY_ALLOW_INSECURE_HTTP =
+  String(process.env.CORE_PRIVATE_DOC_PROXY_ALLOW_INSECURE_HTTP || "false").trim().toLowerCase() === "true";
+const PRIVATE_DOC_PROXY_BLOCK_PRIVATE_IPS =
+  String(process.env.CORE_PRIVATE_DOC_PROXY_BLOCK_PRIVATE_IPS || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED =
+  String(process.env.CORE_PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED || "false").trim().toLowerCase() === "true";
+const PRIVATE_DOC_PROXY_ALLOWED_HOST_PATTERNS = (() => {
+  const defaults = ["secure-cdn.propertysetu.local", "cdn.propertysetu.local"];
+  const raw = text(process.env.CORE_PRIVATE_DOC_PROXY_ALLOWED_HOSTS);
+  if (!raw) return defaults;
+  const parsed = raw
+    .split(/[,\s;]+/)
+    .map((item) => text(item).toLowerCase())
+    .filter((item) => Boolean(item));
+  return parsed.length ? parsed : defaults;
+})();
 const privateDocConsumedTokenMap = new Map();
+const privateDocConsumedStreamTokenMap = new Map();
 const privateDocAccessShieldProfiles = new Map();
 const privateDocAccessShieldBlocks = new Map();
 const privateDocAccessShieldPenalty = new Map();
@@ -212,6 +255,56 @@ function getClientIp(req) {
     return text(forwarded).split(",")[0].trim();
   }
   return text(req?.ip || req?.socket?.remoteAddress || "0.0.0.0");
+}
+
+function sanitizeDownloadFileName(name = "", fallback = "private-document.bin") {
+  const base = text(name, fallback)
+    .replace(/[/\\]/g, "-")
+    .replace(/[^\w.\-() ]+/g, "")
+    .trim();
+  return text(base, fallback).slice(0, 120);
+}
+
+function isHostPatternMatch(hostname = "", pattern = "") {
+  const host = text(hostname).toLowerCase();
+  const rule = text(pattern).toLowerCase();
+  if (!host || !rule) return false;
+  if (rule.startsWith("*.")) {
+    const suffix = rule.slice(2);
+    return host === suffix || host.endsWith(`.${suffix}`);
+  }
+  return host === rule;
+}
+
+function isPrivateOrLoopbackIp(hostname = "") {
+  const host = text(hostname).toLowerCase();
+  const version = net.isIP(host);
+  if (version === 4) {
+    const octets = host.split(".").map((item) => Number(item));
+    if (octets.length !== 4 || octets.some((item) => !Number.isFinite(item))) return false;
+    if (octets[0] === 10) return true;
+    if (octets[0] === 127) return true;
+    if (octets[0] === 0) return true;
+    if (octets[0] === 169 && octets[1] === 254) return true;
+    if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;
+    if (octets[0] === 192 && octets[1] === 168) return true;
+    return false;
+  }
+  if (version === 6) {
+    if (host === "::1") return true;
+    if (host.startsWith("fc") || host.startsWith("fd")) return true;
+    if (host.startsWith("fe80")) return true;
+  }
+  return false;
+}
+
+function isPrivateDocProxyHostAllowed(hostname = "") {
+  const host = text(hostname).toLowerCase();
+  if (!host) return false;
+  if (PRIVATE_DOC_PROXY_ALLOWED_HOST_PATTERNS.some((rule) => isHostPatternMatch(host, rule))) {
+    return true;
+  }
+  return false;
 }
 
 function hashPrivateDocShieldIdentity(value = "") {
@@ -1030,6 +1123,182 @@ function consumePrivateDocAccessToken({
   };
 }
 
+function pruneConsumedPrivateDocStreamTokens(nowSec = Math.floor(Date.now() / 1000)) {
+  const safeNowSec = Math.max(0, Math.round(numberValue(nowSec, 0)));
+  for (const [key, row] of privateDocConsumedStreamTokenMap.entries()) {
+    const expiresAtSec = Math.max(0, Math.round(numberValue(row?.expiresAtSec, 0)));
+    if (!expiresAtSec || expiresAtSec <= safeNowSec) {
+      privateDocConsumedStreamTokenMap.delete(key);
+    }
+  }
+  while (privateDocConsumedStreamTokenMap.size > PRIVATE_DOC_STREAM_TOKEN_REPLAY_CACHE_MAX) {
+    const oldestKey = privateDocConsumedStreamTokenMap.keys().next().value;
+    if (!oldestKey) break;
+    privateDocConsumedStreamTokenMap.delete(oldestKey);
+  }
+}
+
+function consumePrivateDocStreamToken({
+  tokenId = "",
+  tokenFingerprint = "",
+  expiresAtSec = 0,
+  nowSec = Math.floor(Date.now() / 1000)
+} = {}) {
+  const safeTokenId = text(tokenId);
+  const safeTokenFingerprint = text(tokenFingerprint);
+  const safeExpiresAtSec = Math.max(0, Math.round(numberValue(expiresAtSec, 0)));
+  const safeNowSec = Math.max(0, Math.round(numberValue(nowSec, 0)));
+  if (!safeTokenId || !safeTokenFingerprint || !safeExpiresAtSec) {
+    return {
+      ok: false,
+      reason: "stream-token-replay-params-invalid",
+      replay: true
+    };
+  }
+
+  pruneConsumedPrivateDocStreamTokens(safeNowSec);
+  const key = `${safeTokenId}:${safeTokenFingerprint}`;
+  const existing = privateDocConsumedStreamTokenMap.get(key);
+  const existingExpiresAtSec = Math.max(0, Math.round(numberValue(existing?.expiresAtSec, 0)));
+  if (existing && existingExpiresAtSec > safeNowSec) {
+    return {
+      ok: false,
+      reason: "stream-token-replay-detected",
+      replay: true
+    };
+  }
+
+  privateDocConsumedStreamTokenMap.set(key, {
+    tokenId: safeTokenId,
+    tokenFingerprint: safeTokenFingerprint,
+    consumedAtSec: safeNowSec,
+    expiresAtSec: safeExpiresAtSec
+  });
+  pruneConsumedPrivateDocStreamTokens(safeNowSec);
+  return {
+    ok: true,
+    reason: "stream-token-consumed",
+    replay: false
+  };
+}
+
+async function proxyPrivateDocToResponse({
+  sourceUrl = "",
+  docName = "",
+  hash = "",
+  res
+} = {}) {
+  const safeSourceUrl = text(sourceUrl);
+  if (!safeSourceUrl) {
+    return { ok: false, reason: "proxy-source-missing" };
+  }
+
+  let parsedUrl = null;
+  try {
+    parsedUrl = new URL(safeSourceUrl);
+  } catch {
+    return { ok: false, reason: "proxy-source-invalid-url" };
+  }
+
+  const protocol = text(parsedUrl.protocol).toLowerCase();
+  if (protocol !== "https:" && !(PRIVATE_DOC_PROXY_ALLOW_INSECURE_HTTP && protocol === "http:")) {
+    return { ok: false, reason: "proxy-source-protocol-not-allowed" };
+  }
+  const host = text(parsedUrl.hostname).toLowerCase();
+  if (!isPrivateDocProxyHostAllowed(host)) {
+    return { ok: false, reason: "proxy-source-host-not-allowlisted" };
+  }
+  if (PRIVATE_DOC_PROXY_BLOCK_PRIVATE_IPS && isPrivateOrLoopbackIp(host)) {
+    return { ok: false, reason: "proxy-source-private-ip-blocked" };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PRIVATE_DOC_PROXY_TIMEOUT_MS);
+
+  let upstream = null;
+  try {
+    upstream = await fetch(parsedUrl.toString(), {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "PropertySetu-PrivateDocProxy/1.0",
+        accept: "*/*"
+      }
+    });
+  } catch {
+    clearTimeout(timeout);
+    return { ok: false, reason: "proxy-upstream-fetch-failed" };
+  }
+  clearTimeout(timeout);
+
+  if (!upstream.ok) {
+    return {
+      ok: false,
+      reason: `proxy-upstream-status-${Math.max(0, Math.round(numberValue(upstream.status, 0)))}`
+    };
+  }
+
+  const upstreamLength = Math.max(0, Math.round(numberValue(upstream.headers.get("content-length"), 0)));
+  if (upstreamLength > PRIVATE_DOC_PROXY_MAX_BYTES) {
+    return { ok: false, reason: "proxy-upstream-content-length-too-large" };
+  }
+  if (!upstream.body) {
+    return { ok: false, reason: "proxy-upstream-empty-body" };
+  }
+
+  const contentType = text(upstream.headers.get("content-type"), "application/octet-stream").slice(0, 160);
+  const fileName = sanitizeDownloadFileName(docName, "private-document.bin");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Type", contentType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+  if (hash) {
+    res.setHeader("X-PropertySetu-Private-Doc-Hash", text(hash).slice(0, 128));
+  }
+  if (upstreamLength > 0) {
+    res.setHeader("Content-Length", String(upstreamLength));
+  }
+
+  let streamedBytes = 0;
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk || ""));
+      streamedBytes += Math.max(0, size);
+      if (streamedBytes > PRIVATE_DOC_PROXY_MAX_BYTES) {
+        callback(new Error("proxy-upstream-stream-too-large"));
+        return;
+      }
+      callback(null, chunk);
+    }
+  });
+
+  try {
+    const sourceStream =
+      typeof Readable.fromWeb === "function"
+        ? Readable.fromWeb(upstream.body)
+        : Readable.from(Buffer.from(await upstream.arrayBuffer()));
+    await pipeline(sourceStream, limiter, res);
+    return {
+      ok: true,
+      reason: "proxy-streamed",
+      streamedBytes,
+      contentType
+    };
+  } catch (error) {
+    if (!res.headersSent) {
+      return { ok: false, reason: text(error?.message, "proxy-stream-failed") };
+    }
+    try {
+      res.destroy(error);
+    } catch {
+      // no-op
+    }
+    return { ok: false, reason: text(error?.message, "proxy-stream-failed"), headersSent: true };
+  }
+}
+
 async function findPropertyOwnerId(propertyId) {
   const normalizedPropertyId = normalizePropertyId(propertyId);
   if (!normalizedPropertyId) return "";
@@ -1355,6 +1624,38 @@ async function markPrivateDocAccess(uploadId = "", nowIso = "") {
     privateDocAccessCount: Math.max(0, numberValue(previous.privateDocAccessCount, 0)) + 1,
     privateDocLastAccessAt: nowIso || new Date().toISOString()
   };
+}
+
+function buildPrivateDocStreamEnvelope({
+  sourceUrl = "",
+  ownerId = "",
+  propertyId = "",
+  uploadId = "",
+  docId = "",
+  category = "",
+  name = "",
+  viewerId = "",
+  viewerRole = "",
+  requestIp = "",
+  requestUserAgent = ""
+} = {}) {
+  if (!PRIVATE_DOC_PROXY_ENABLED) return null;
+  return buildPrivateDocAccessEnvelope({
+    sourceUrl,
+    ownerId,
+    propertyId,
+    uploadId,
+    docId,
+    category,
+    name,
+    viewerId,
+    viewerRole,
+    requestIp,
+    requestUserAgent,
+    purpose: "stream",
+    accessPath: PRIVATE_DOC_STREAM_PATH,
+    ttlSec: PRIVATE_DOC_STREAM_TOKEN_TTL_SEC
+  });
 }
 
 export async function resolveCorePrivateDocAccess(req, res, next) {
@@ -1687,6 +1988,19 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       }
 
       await markPrivateDocAccess(uploadId, nowIso);
+      const streamEnvelope = buildPrivateDocStreamEnvelope({
+        sourceUrl,
+        ownerId,
+        propertyId,
+        uploadId: normalizedUpload.id || uploadId,
+        docId: text(payload.docId),
+        category: docCategory,
+        name: docName,
+        viewerId: actorId,
+        viewerRole: actorRole,
+        requestIp,
+        requestUserAgent
+      });
       recordPrivateDocAccessEvent({
         userId: text(req.coreUser?.id),
         role: text(req.coreUser?.role, "buyer").toLowerCase(),
@@ -1719,7 +2033,17 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
           category: docCategory,
           privateDocHash: text(payload.hash),
           accessExpiresAt: text(payload.expiresAt),
-          url: sourceUrl
+          url: PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED ? sourceUrl : buildMaskedPrivateDocUrl(sourceUrl),
+          secureStream: streamEnvelope
+            ? {
+                token: text(streamEnvelope.token),
+                accessPath: text(streamEnvelope.accessPath, PRIVATE_DOC_STREAM_PATH),
+                expiresAt: text(streamEnvelope.expiresAt),
+                expiresInSec: Math.max(0, numberValue(streamEnvelope.expiresInSec, 0)),
+                maskedUrl: text(streamEnvelope.maskedUrl),
+                hash: text(streamEnvelope.hash)
+              }
+            : null
         }
       });
     }
@@ -1825,6 +2149,19 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       expiresAt: text(payload.expiresAt),
       source: "inline-private-doc"
     });
+    const inlineStreamEnvelope = buildPrivateDocStreamEnvelope({
+      sourceUrl,
+      ownerId,
+      propertyId,
+      uploadId: "",
+      docId: text(payload.docId),
+      category: docCategory,
+      name: docName,
+      viewerId: actorId,
+      viewerRole: actorRole,
+      requestIp,
+      requestUserAgent
+    });
 
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     return res.json({
@@ -1839,9 +2176,376 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         category: docCategory,
         privateDocHash: text(payload.hash),
         accessExpiresAt: text(payload.expiresAt),
-        url: sourceUrl
+        url: PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED ? sourceUrl : buildMaskedPrivateDocUrl(sourceUrl),
+        secureStream: inlineStreamEnvelope
+          ? {
+              token: text(inlineStreamEnvelope.token),
+              accessPath: text(inlineStreamEnvelope.accessPath, PRIVATE_DOC_STREAM_PATH),
+              expiresAt: text(inlineStreamEnvelope.expiresAt),
+              expiresInSec: Math.max(0, numberValue(inlineStreamEnvelope.expiresInSec, 0)),
+              maskedUrl: text(inlineStreamEnvelope.maskedUrl),
+              hash: text(inlineStreamEnvelope.hash)
+            }
+          : null
       }
     });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function streamCorePrivateDoc(req, res, next) {
+  try {
+    if (!PRIVATE_DOC_PROXY_ENABLED) {
+      return res.status(503).json({
+        success: false,
+        message: "Private document secure streaming is disabled."
+      });
+    }
+
+    const token = text(req.body?.token || req.query?.token);
+    const requestIp = getClientIp(req);
+    const requestUserAgent = text(req.headers?.["user-agent"]);
+    const actorId = text(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorIsAdmin = actorRole === "admin";
+    const contextBindingEnforced = PRIVATE_DOC_CONTEXT_BINDING_REQUIRED &&
+      !(PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS && actorIsAdmin);
+    const shieldStatus = await evaluatePrivateDocAccessShieldStatus({
+      userId: actorId,
+      role: actorRole,
+      ip: requestIp
+    });
+    if (shieldStatus.active) {
+      res.setHeader("Retry-After", String(Math.max(1, Math.round(numberValue(shieldStatus.remainingSec, 1)))));
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        reason: "private-doc-shield-blocked",
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "stream-shield-block",
+        shieldBlocked: true,
+        shieldReason: text(shieldStatus.reason),
+        shieldRemainingSec: Math.max(1, Math.round(numberValue(shieldStatus.remainingSec, 1)))
+      });
+      return res.status(429).json({
+        success: false,
+        message: "Private document streaming is temporarily blocked by security shield.",
+        reason: text(shieldStatus.reason, "private-doc-shield-blocked"),
+        retryAfterSec: Math.max(1, Math.round(numberValue(shieldStatus.remainingSec, 1)))
+      });
+    }
+
+    if (!token) {
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        reason: "missing-token",
+        replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "stream-token-missing"
+      });
+      return res.status(400).json({
+        success: false,
+        message: "token is required."
+      });
+    }
+
+    const verification = verifyPrivateDocAccessToken(token, {
+      viewerId: actorId,
+      viewerRole: actorRole,
+      requestIp,
+      requestUserAgent,
+      enforceContextBinding: contextBindingEnforced,
+      allowedPurposes: ["stream"]
+    });
+    if (!verification.ok) {
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        tokenFingerprint: fingerprintPrivateDocAccessToken(token),
+        replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+        replayBlocked: false,
+        contextBindingEnforced: Boolean(contextBindingEnforced),
+        contextBindingFailure: text(verification.reason) === "token-context-mismatch",
+        authorizationDenied: false,
+        reason: text(verification.reason),
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "stream-token-verify"
+      });
+      return res.status(403).json({
+        success: false,
+        message: "Private document stream token is invalid or expired.",
+        reason: text(verification.reason)
+      });
+    }
+
+    const payload = verification.payload || {};
+    const uploadId = text(payload.uploadId);
+    const nowIso = new Date().toISOString();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tokenId = text(payload.tokenId || payload.jti);
+    const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
+    const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
+    let sourceUrl = text(payload.sourceUrl);
+    let ownerId = text(payload.ownerId);
+    let propertyId = text(payload.propertyId);
+    let docName = text(payload.name, "private-document.bin");
+    let docCategory = text(payload.category);
+
+    if (uploadId) {
+      const uploadRow = await findUploadById(uploadId);
+      if (!uploadRow) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          uploadId,
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "upload-not-found",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-upload"
+        });
+        return res.status(404).json({
+          success: false,
+          message: "Upload record not found."
+        });
+      }
+      if (!Boolean(uploadRow?.isPrivate)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          uploadId,
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "upload-not-private",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-upload"
+        });
+        return res.status(400).json({
+          success: false,
+          message: "Requested upload is not marked as private."
+        });
+      }
+
+      const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id);
+      ownerId = text(toId(uploadRow?.userId), ownerId);
+      propertyId = text(toId(uploadRow?.propertyId), propertyId);
+      docName = text(uploadRow?.name, docName);
+      docCategory = text(uploadRow?.category, docCategory);
+      sourceUrl = text(uploadRow?.url, sourceUrl);
+
+      if (!sameId(uploadId, resolvedUploadId)) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token upload binding mismatch."
+        });
+      }
+      if (text(payload.ownerId) && !sameId(payload.ownerId, ownerId)) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token owner binding mismatch."
+        });
+      }
+      if (text(payload.propertyId) && !sameId(payload.propertyId, propertyId)) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token property binding mismatch."
+        });
+      }
+      if (text(payload.category) && text(payload.category).toLowerCase() !== text(docCategory).toLowerCase()) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token category binding mismatch."
+        });
+      }
+
+      const authorized = await canActorAccessPrivateUpload({
+        actorId,
+        actorRole,
+        uploadRow
+      });
+      if (!authorized) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          replayBlocked: false,
+          authorizationDenied: true,
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          expiresAt: text(payload.expiresAt),
+          source: "stream-upload"
+        });
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to stream this private document."
+        });
+      }
+
+      const uploadHash = text(uploadRow?.privateDocHash, hashPrivateDocSourceUrl(sourceUrl));
+      if (uploadHash && uploadHash !== text(payload.hash)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "document-integrity-validation-failed",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-upload"
+        });
+        return res.status(409).json({
+          success: false,
+          message: "Document integrity validation failed."
+        });
+      }
+    } else {
+      if (!sourceUrl) {
+        return res.status(404).json({
+          success: false,
+          message: "Private document source is unavailable."
+        });
+      }
+      if (!actorIsAdmin && (!actorId || !sameId(actorId, ownerId))) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: "",
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          replayBlocked: false,
+          authorizationDenied: true,
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          expiresAt: text(payload.expiresAt),
+          source: "stream-inline-private-doc"
+        });
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to stream this private document."
+        });
+      }
+    }
+
+    if (PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED) {
+      const tokenConsume = consumePrivateDocStreamToken({
+        tokenId,
+        tokenFingerprint,
+        expiresAtSec: tokenExpiresAtSec,
+        nowSec
+      });
+      if (!tokenConsume.ok) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: true,
+          replayBlocked: true,
+          reason: text(tokenConsume.reason),
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          expiresAt: text(payload.expiresAt),
+          source: "stream"
+        });
+        return res.status(409).json({
+          success: false,
+          message: "Private document stream token already used. Please request a fresh token.",
+          reason: text(tokenConsume.reason)
+        });
+      }
+    }
+
+    const proxyResult = await proxyPrivateDocToResponse({
+      sourceUrl,
+      docName,
+      hash: text(payload.hash),
+      res
+    });
+    if (!proxyResult.ok) {
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        ownerId,
+        propertyId,
+        uploadId,
+        docId: text(payload.docId),
+        category: docCategory,
+        hash: text(payload.hash),
+        tokenId,
+        tokenFingerprint,
+        replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+        replayBlocked: false,
+        reason: text(proxyResult.reason),
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "stream-proxy"
+      });
+      if (!proxyResult.headersSent) {
+        return res.status(502).json({
+          success: false,
+          message: "Unable to stream private document securely.",
+          reason: text(proxyResult.reason)
+        });
+      }
+      return undefined;
+    }
+
+    await markPrivateDocAccess(uploadId, nowIso);
+    recordPrivateDocAccessEvent({
+      userId: actorId,
+      role: actorRole,
+      ownerId,
+      propertyId,
+      uploadId,
+      docId: text(payload.docId),
+      category: docCategory,
+      hash: text(payload.hash),
+      tokenId,
+      tokenFingerprint,
+      replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+      replayBlocked: false,
+      ip: requestIp,
+      userAgent: requestUserAgent.slice(0, 240),
+      expiresAt: text(payload.expiresAt),
+      source: "stream-proxy-success"
+    });
+    return undefined;
   } catch (error) {
     return next(error);
   }
