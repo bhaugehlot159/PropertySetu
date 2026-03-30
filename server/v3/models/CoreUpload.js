@@ -101,6 +101,20 @@ const coreUploadSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    privateDocEmergencyUnlockRequestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    privateDocEmergencyUnlockRequestedAt: {
+      type: Date,
+      default: null
+    },
+    privateDocEmergencyUnlockRequestReason: {
+      type: String,
+      default: "",
+      trim: true
+    },
     privateDocLastAccessAt: {
       type: Date,
       default: null
@@ -286,6 +300,7 @@ coreUploadSchema.index({ privateDocIntegrityApprovalRequestedAt: -1 });
 coreUploadSchema.index({ privateDocIntegrityDecisionChainHead: 1 });
 coreUploadSchema.index({ isPrivate: 1, privateDocAccessEpoch: -1, updatedAt: -1 });
 coreUploadSchema.index({ isPrivate: 1, privateDocEmergencyLockActive: 1, updatedAt: -1 });
+coreUploadSchema.index({ isPrivate: 1, privateDocEmergencyUnlockRequestedAt: -1, updatedAt: -1 });
 
 const CoreUpload =
   mongoose.models.CoreUpload ||

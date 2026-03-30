@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   decideCorePrivateDocIntegrity,
+  listCorePrivateDocEmergencyLockQueue,
   listCorePrivateDocIntegrityDecisionAudits,
   listCorePrivateDocIntegrityQueue,
   listCorePrivateDocSecurityEvents,
@@ -44,6 +45,12 @@ router.post(
   coreAuthRequired,
   coreUploadWriteLimiter,
   setCorePrivateDocEmergencyAccessLock
+);
+router.get(
+  "/private-docs/access/locks",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  listCorePrivateDocEmergencyLockQueue
 );
 router.get(
   "/private-docs/stream",

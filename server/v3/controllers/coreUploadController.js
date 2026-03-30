@@ -88,6 +88,19 @@ const PRIVATE_DOC_ACCESS_SHIELD_ENABLED =
   String(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_ENABLED || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS =
   String(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED =
+  String(process.env.CORE_PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MINUTES || 180) * 60 * 1000
+  )
+);
+const PRIVATE_DOC_SHIELD_RELEASE_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_PRIVATE_DOC_SHIELD_RELEASE_REASON_MIN || 12)
+);
 const PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS = Math.max(
   60_000,
   Math.min(
@@ -215,6 +228,15 @@ const PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN = Math.max(
 );
 const PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS =
   String(process.env.CORE_PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED =
+  String(process.env.CORE_PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MINUTES || 240) * 60 * 1000
+  )
+);
 const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED =
   String(process.env.CORE_PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS = Math.max(
@@ -611,6 +633,54 @@ function getPrivateDocIntegrityApprovalRequestState(uploadRow = {}, nowTs = Date
     };
   }
   const expiresAtMs = requestedAtMs + PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS;
+  const expired = expiresAtMs <= nowTs;
+  return {
+    active: !expired,
+    expired,
+    requestedBy,
+    requestedAt: asIso(requestedAtMs),
+    reason
+  };
+}
+
+function getPrivateDocEmergencyUnlockRequestState(uploadRow = {}, nowTs = Date.now()) {
+  const requestedBy = toId(uploadRow?.privateDocEmergencyUnlockRequestedBy);
+  const requestedAtMs = toMs(uploadRow?.privateDocEmergencyUnlockRequestedAt);
+  const reason = text(uploadRow?.privateDocEmergencyUnlockRequestReason);
+  if (!requestedBy || !requestedAtMs) {
+    return {
+      active: false,
+      expired: false,
+      requestedBy: "",
+      requestedAt: null,
+      reason: ""
+    };
+  }
+  const expiresAtMs = requestedAtMs + PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS;
+  const expired = expiresAtMs <= nowTs;
+  return {
+    active: !expired,
+    expired,
+    requestedBy,
+    requestedAt: asIso(requestedAtMs),
+    reason
+  };
+}
+
+function getPrivateDocShieldReleaseRequestState(blockRow = {}, nowTs = Date.now()) {
+  const requestedBy = toId(blockRow?.releaseRequestedBy);
+  const requestedAtMs = toMs(blockRow?.releaseRequestedAt);
+  const reason = text(blockRow?.releaseRequestReason);
+  if (!requestedBy || !requestedAtMs) {
+    return {
+      active: false,
+      expired: false,
+      requestedBy: "",
+      requestedAt: null,
+      reason: ""
+    };
+  }
+  const expiresAtMs = requestedAtMs + PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MS;
   const expired = expiresAtMs <= nowTs;
   return {
     active: !expired,
@@ -1163,6 +1233,7 @@ function normalizePersistedShieldBlock(row = {}) {
   const blockUntilTs = blockUntil ? new Date(blockUntil).getTime() : 0;
   const blockStartedAt = asIso(row.blockStartedAt);
   const blockStartedAtTs = blockStartedAt ? new Date(blockStartedAt).getTime() : Date.now();
+  const releaseRequestedAt = asIso(row.releaseRequestedAt);
   return {
     actorKey: text(row.actorKey),
     userId: toId(row.userId),
@@ -1177,7 +1248,10 @@ function normalizePersistedShieldBlock(row = {}) {
     blockUntilTs,
     riskScore: Math.max(0, numberValue(row.riskScore, 0)),
     replayEvents: Math.max(0, Math.round(numberValue(row.replayEvents, 0))),
-    distinctHashes: Math.max(0, Math.round(numberValue(row.distinctHashes, 0)))
+    distinctHashes: Math.max(0, Math.round(numberValue(row.distinctHashes, 0))),
+    releaseRequestedBy: toId(row.releaseRequestedBy),
+    releaseRequestedAt,
+    releaseRequestReason: text(row.releaseRequestReason)
   };
 }
 
@@ -1247,6 +1321,7 @@ function listPrivateDocShieldActiveBlocks(nowTs = Date.now()) {
   for (const [actorKey, row] of privateDocAccessShieldBlocks.entries()) {
     const blockUntilTs = Math.max(0, Math.round(numberValue(row?.blockUntilTs, 0)));
     if (!blockUntilTs || blockUntilTs <= now) continue;
+    const releaseRequestState = getPrivateDocShieldReleaseRequestState(row, now);
     rows.push({
       actorKey,
       reason: text(row?.reason),
@@ -1259,7 +1334,16 @@ function listPrivateDocShieldActiveBlocks(nowTs = Date.now()) {
       role: text(row?.role),
       ip: text(row?.ip),
       ipHash: text(row?.ipHash),
-      source: text(row?.source)
+      source: text(row?.source),
+      releaseRequest: {
+        required: Boolean(PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED),
+        windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MS / 60_000)),
+        requestedBy: text(releaseRequestState.requestedBy),
+        requestedAt: asIso(releaseRequestState.requestedAt),
+        reason: text(releaseRequestState.reason),
+        active: Boolean(releaseRequestState.active),
+        expired: Boolean(releaseRequestState.expired)
+      }
     });
   }
   return rows.sort((a, b) => new Date(b.blockStartedAt || 0) - new Date(a.blockStartedAt || 0));
@@ -1363,7 +1447,12 @@ function buildPrivateDocSecurityPersistenceMetadata(event = {}) {
     shieldBlocked: Boolean(event.shieldBlocked),
     shieldActive: Boolean(event.shieldActive),
     shieldBlockLevel: Math.max(0, Math.round(numberValue(event.shieldBlockLevel, 0))),
-    shieldRemainingSec: Math.max(0, Math.round(numberValue(event.shieldRemainingSec, 0)))
+    shieldRemainingSec: Math.max(0, Math.round(numberValue(event.shieldRemainingSec, 0))),
+    dualControlRequired: Boolean(event.dualControlRequired),
+    dualControlConfirmed: Boolean(event.dualControlConfirmed),
+    releaseRequestedBy: text(event.releaseRequestedBy),
+    releaseRequestedAt: asIso(event.releaseRequestedAt),
+    releaseConfirmedBy: text(event.releaseConfirmedBy)
   };
 }
 
@@ -1450,6 +1539,9 @@ async function upsertPrivateDocShieldBlockPersistence(row = {}) {
           riskScore: Math.max(0, numberValue(row.riskScore, 0)),
           replayEvents: Math.max(0, Math.round(numberValue(row.replayEvents, 0))),
           distinctHashes: Math.max(0, Math.round(numberValue(row.distinctHashes, 0))),
+          releaseRequestedBy: toObjectIdOrNull(row.releaseRequestedBy),
+          releaseRequestedAt: row.releaseRequestedAt ? new Date(row.releaseRequestedAt) : null,
+          releaseRequestReason: text(row.releaseRequestReason).slice(0, 240),
           metadata: {
             persistedBy: "core-upload-controller",
             persistedAt: new Date().toISOString()
@@ -1713,7 +1805,10 @@ function registerPrivateDocAccessShieldFailure(event = {}) {
       blockUntilTs,
       riskScore,
       replayEvents,
-      distinctHashes
+      distinctHashes,
+      releaseRequestedBy: "",
+      releaseRequestedAt: null,
+      releaseRequestReason: ""
     });
     upsertPrivateDocShieldBlockPersistence({
       actorKey,
@@ -1729,7 +1824,10 @@ function registerPrivateDocAccessShieldFailure(event = {}) {
       blockUntilTs,
       riskScore,
       replayEvents,
-      distinctHashes
+      distinctHashes,
+      releaseRequestedBy: "",
+      releaseRequestedAt: null,
+      releaseRequestReason: ""
     }).catch(() => {});
     privateDocAccessShieldPenalty.set(actorKey, {
       blockLevel: nextBlockLevel,
@@ -1798,7 +1896,7 @@ function registerPrivateDocAccessShieldFailure(event = {}) {
   };
 }
 
-async function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reason = "") {
+async function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reason = "", options = {}) {
   const key = text(actorKey);
   if (!key) return null;
   const block = privateDocAccessShieldBlocks.get(key);
@@ -1816,6 +1914,9 @@ async function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = ""
   }
   const resolvedBlock = privateDocAccessShieldBlocks.get(key);
   if (!resolvedBlock) return null;
+  const releaseRequestState = getPrivateDocShieldReleaseRequestState(resolvedBlock, Date.now());
+  const releaseRequestedBy = text(options?.releaseRequestedBy, releaseRequestState.requestedBy);
+  const releaseRequestedAt = asIso(options?.releaseRequestedAt || releaseRequestState.requestedAt);
   privateDocAccessShieldBlocks.delete(key);
   privateDocAccessShieldPenalty.delete(key);
   await deletePrivateDocShieldBlockPersistence(key);
@@ -1828,13 +1929,20 @@ async function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = ""
     releasedBy: text(releasedBy),
     releasedAt,
     previousReason: text(resolvedBlock.reason),
-    previousBlockLevel: Math.max(1, Math.round(numberValue(resolvedBlock.blockLevel, 1)))
+    previousBlockLevel: Math.max(1, Math.round(numberValue(resolvedBlock.blockLevel, 1))),
+    dualControlRequired: Boolean(PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED),
+    dualControlConfirmed: Boolean(PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED && releaseRequestedBy),
+    releaseRequestedBy,
+    releaseRequestedAt,
+    releaseConfirmedBy: text(releasedBy)
   });
   return {
     actorKey: key,
     reason: text(reason, "admin-manual-release"),
     releasedBy: text(releasedBy),
-    releasedAt
+    releasedAt,
+    releaseRequestedBy,
+    releaseRequestedAt
   };
 }
 
@@ -1847,6 +1955,65 @@ async function releaseAllPrivateDocAccessShieldActors(releasedBy = "", reason = 
     if (row) released.push(row);
   }
   return released;
+}
+
+async function markPrivateDocShieldReleaseRequest({
+  actorKey = "",
+  requestedBy = "",
+  requestedAt = "",
+  requestReason = ""
+} = {}) {
+  const key = text(actorKey);
+  const requester = text(requestedBy);
+  if (!key) return null;
+
+  const resolvedRequestedAt = requester
+    ? (asIso(requestedAt) || new Date().toISOString())
+    : null;
+  const resolvedReason = requester ? text(requestReason).slice(0, 240) : "";
+
+  let block = privateDocAccessShieldBlocks.get(key);
+  if (!block && canPersistPrivateDocSecurity()) {
+    try {
+      const persisted = await CorePrivateDocShieldBlock.findOne({ actorKey: key }).lean();
+      if (persisted) {
+        const normalized = normalizePersistedShieldBlock(persisted);
+        privateDocAccessShieldBlocks.set(key, normalized);
+        block = normalized;
+      }
+    } catch {
+      // If persistence lookup fails, keep in-memory behavior.
+    }
+  }
+  if (!block) return null;
+
+  const nextBlock = {
+    ...block,
+    releaseRequestedBy: requester,
+    releaseRequestedAt: resolvedRequestedAt,
+    releaseRequestReason: resolvedReason
+  };
+  privateDocAccessShieldBlocks.set(key, nextBlock);
+
+  if (canPersistPrivateDocSecurity()) {
+    try {
+      await CorePrivateDocShieldBlock.findOneAndUpdate(
+        { actorKey: key },
+        {
+          $set: {
+            releaseRequestedBy: toObjectIdOrNull(requester),
+            releaseRequestedAt: resolvedRequestedAt ? new Date(resolvedRequestedAt) : null,
+            releaseRequestReason: resolvedReason
+          }
+        }
+      );
+    } catch {
+      // Keep runtime release flow resilient if persistence update fails.
+    }
+  }
+
+  syncPrivateDocShieldBlocksSnapshot(Date.now());
+  return nextBlock;
 }
 
 function recordPrivateDocAccessEvent(event = {}) {
@@ -2247,6 +2414,9 @@ function normalizeUpload(doc, viewer = null) {
     privateDocEmergencyLockAt: asIso(row.privateDocEmergencyLockAt),
     privateDocEmergencyUnlockBy: toId(row.privateDocEmergencyUnlockBy),
     privateDocEmergencyUnlockAt: asIso(row.privateDocEmergencyUnlockAt),
+    privateDocEmergencyUnlockRequestedBy: toId(row.privateDocEmergencyUnlockRequestedBy),
+    privateDocEmergencyUnlockRequestedAt: asIso(row.privateDocEmergencyUnlockRequestedAt),
+    privateDocEmergencyUnlockRequestReason: text(row.privateDocEmergencyUnlockRequestReason),
     privateDocLastAccessAt: asIso(row.privateDocLastAccessAt),
     privateDocIntegrity:
       isPrivate
@@ -2355,6 +2525,9 @@ function buildUploadRows(req, files = []) {
       privateDocEmergencyLockAt: null,
       privateDocEmergencyUnlockBy: null,
       privateDocEmergencyUnlockAt: null,
+      privateDocEmergencyUnlockRequestedBy: null,
+      privateDocEmergencyUnlockRequestedAt: null,
+      privateDocEmergencyUnlockRequestReason: "",
       privateDocLastAccessAt: null,
       privateDocContentHash: "",
       privateDocContentBytes: 0,
@@ -2619,7 +2792,8 @@ async function updatePrivateDocEmergencyLockState({
   lockBy = "",
   lockAt = "",
   unlockBy = "",
-  unlockAt = ""
+  unlockAt = "",
+  clearUnlockRequest = true
 } = {}) {
   const id = text(uploadId);
   if (!id) return;
@@ -2628,21 +2802,27 @@ async function updatePrivateDocEmergencyLockState({
 
   if (proRuntime.dbConnected) {
     if (!mongoose.Types.ObjectId.isValid(id)) return;
+    const updateSet = {
+      privateDocEmergencyLockActive: Boolean(lockActive),
+      privateDocEmergencyLockReason: Boolean(lockActive)
+        ? text(lockReason).slice(0, 240)
+        : "",
+      privateDocEmergencyLockBy: Boolean(lockActive) ? toObjectIdOrNull(lockBy) : null,
+      privateDocEmergencyLockAt: Boolean(lockActive) && normalizedLockAt
+        ? new Date(normalizedLockAt)
+        : null,
+      privateDocEmergencyUnlockBy: !Boolean(lockActive) ? toObjectIdOrNull(unlockBy) : null,
+      privateDocEmergencyUnlockAt: !Boolean(lockActive) && normalizedUnlockAt
+        ? new Date(normalizedUnlockAt)
+        : null
+    };
+    if (clearUnlockRequest) {
+      updateSet.privateDocEmergencyUnlockRequestedBy = null;
+      updateSet.privateDocEmergencyUnlockRequestedAt = null;
+      updateSet.privateDocEmergencyUnlockRequestReason = "";
+    }
     await CoreUpload.findByIdAndUpdate(id, {
-      $set: {
-        privateDocEmergencyLockActive: Boolean(lockActive),
-        privateDocEmergencyLockReason: Boolean(lockActive)
-          ? text(lockReason).slice(0, 240)
-          : "",
-        privateDocEmergencyLockBy: Boolean(lockActive) ? toObjectIdOrNull(lockBy) : null,
-        privateDocEmergencyLockAt: Boolean(lockActive) && normalizedLockAt
-          ? new Date(normalizedLockAt)
-          : null,
-        privateDocEmergencyUnlockBy: !Boolean(lockActive) ? toObjectIdOrNull(unlockBy) : null,
-        privateDocEmergencyUnlockAt: !Boolean(lockActive) && normalizedUnlockAt
-          ? new Date(normalizedUnlockAt)
-          : null
-      }
+      $set: updateSet
     });
     return;
   }
@@ -2661,7 +2841,45 @@ async function updatePrivateDocEmergencyLockState({
     privateDocEmergencyLockBy: Boolean(lockActive) ? text(lockBy) : null,
     privateDocEmergencyLockAt: Boolean(lockActive) ? (normalizedLockAt || new Date().toISOString()) : null,
     privateDocEmergencyUnlockBy: !Boolean(lockActive) ? text(unlockBy) : null,
-    privateDocEmergencyUnlockAt: !Boolean(lockActive) ? (normalizedUnlockAt || new Date().toISOString()) : null
+    privateDocEmergencyUnlockAt: !Boolean(lockActive) ? (normalizedUnlockAt || new Date().toISOString()) : null,
+    privateDocEmergencyUnlockRequestedBy: clearUnlockRequest ? null : previous.privateDocEmergencyUnlockRequestedBy,
+    privateDocEmergencyUnlockRequestedAt: clearUnlockRequest ? null : previous.privateDocEmergencyUnlockRequestedAt,
+    privateDocEmergencyUnlockRequestReason: clearUnlockRequest ? "" : previous.privateDocEmergencyUnlockRequestReason
+  };
+}
+
+async function markPrivateDocEmergencyUnlockRequest({
+  uploadId = "",
+  requestedBy = "",
+  requestedAt = "",
+  requestReason = ""
+} = {}) {
+  const id = text(uploadId);
+  if (!id) return;
+  const normalizedRequestedAt = asIso(requestedAt);
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(id)) return;
+    await CoreUpload.findByIdAndUpdate(id, {
+      $set: {
+        privateDocEmergencyUnlockRequestedBy: toObjectIdOrNull(requestedBy),
+        privateDocEmergencyUnlockRequestedAt: normalizedRequestedAt ? new Date(normalizedRequestedAt) : null,
+        privateDocEmergencyUnlockRequestReason: text(requestReason).slice(0, 240)
+      }
+    });
+    return;
+  }
+
+  const index = proMemoryStore.coreUploads.findIndex(
+    (item) => toId(item._id || item.id) === id
+  );
+  if (index < 0) return;
+  const previous = proMemoryStore.coreUploads[index] || {};
+  proMemoryStore.coreUploads[index] = {
+    ...previous,
+    privateDocEmergencyUnlockRequestedBy: text(requestedBy),
+    privateDocEmergencyUnlockRequestedAt: normalizedRequestedAt,
+    privateDocEmergencyUnlockRequestReason: text(requestReason).slice(0, 240)
   };
 }
 
@@ -3647,6 +3865,10 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
           ? "admin-emergency-unlocked-private-doc-access"
           : "owner-emergency-unlocked-private-doc-access");
     const reason = text(req.body?.reason, reasonDefault);
+    const unlockApprove =
+      String(req.body?.unlockApprove || req.query?.unlockApprove || "false")
+        .trim()
+        .toLowerCase() === "true";
     const forceRotate =
       String(req.body?.forceRotate || req.query?.forceRotate || "false")
         .trim()
@@ -3690,6 +3912,12 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
         message: "You are not authorized to change emergency lock for this private document."
       });
     }
+    if (action === "unlock" && !actorIsAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can unlock emergency locked private documents."
+      });
+    }
 
     const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id) || uploadIdInput;
     const previousLockActive = Boolean(uploadRow?.privateDocEmergencyLockActive);
@@ -3705,7 +3933,91 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
       });
     }
 
+    const nowTs = Date.now();
+    const unlockRequestState = getPrivateDocEmergencyUnlockRequestState(uploadRow, nowTs);
     const nowIso = new Date().toISOString();
+    const previousEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
+
+    if (
+      action === "unlock" &&
+      previousLockActive &&
+      PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED
+    ) {
+      if (!unlockRequestState.active) {
+        await markPrivateDocEmergencyUnlockRequest({
+          uploadId: resolvedUploadId,
+          requestedBy: actorId,
+          requestedAt: nowIso,
+          requestReason: reason
+        });
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId: toId(uploadRow?.userId),
+          propertyId: toId(uploadRow?.propertyId),
+          uploadId: resolvedUploadId,
+          docId: resolvedUploadId,
+          category: text(uploadRow?.category),
+          hash: text(uploadRow?.privateDocHash, hashPrivateDocSourceUrl(text(uploadRow?.url))),
+          reason: "private-doc-emergency-unlock-requested",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "access-emergency-lock"
+        });
+        const requestedRow = await findUploadById(resolvedUploadId);
+        const normalizedRequested = normalizeUpload(requestedRow || uploadRow, {
+          ...req.coreUser,
+          clientIp: requestIp,
+          userAgent: requestUserAgent
+        }) || {};
+        return res.status(202).json({
+          success: true,
+          requiresSecondAdmin: true,
+          action: "unlock-requested",
+          uploadId: resolvedUploadId,
+          unlockRequest: {
+            requestedBy: actorId,
+            requestedAt: nowIso,
+            reason,
+            windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS / 60_000))
+          },
+          epoch: {
+            previous: previousEpoch,
+            current: normalizePrivateDocAccessEpoch(normalizedRequested.privateDocAccessEpoch, previousEpoch),
+            rotated: false
+          },
+          lock: {
+            active: Boolean(normalizedRequested.privateDocEmergencyLockActive),
+            reason: text(normalizedRequested.privateDocEmergencyLockReason),
+            lockedBy: text(normalizedRequested.privateDocEmergencyLockBy),
+            lockedAt: asIso(normalizedRequested.privateDocEmergencyLockAt),
+            unlockedBy: text(normalizedRequested.privateDocEmergencyUnlockBy),
+            unlockedAt: asIso(normalizedRequested.privateDocEmergencyUnlockAt),
+            adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS),
+            unlockRequest: {
+              required: true,
+              requestedBy: actorId,
+              requestedAt: nowIso,
+              reason,
+              active: true
+            }
+          }
+        });
+      }
+      if (unlockRequestState.requestedBy === actorId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm emergency unlock request."
+        });
+      }
+      if (!unlockApprove) {
+        return res.status(409).json({
+          success: false,
+          message: "unlockApprove=true is required for second admin confirmation."
+        });
+      }
+    }
+
     await updatePrivateDocEmergencyLockState({
       uploadId: resolvedUploadId,
       lockActive: targetLockActive,
@@ -3713,10 +4025,18 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
       lockBy: targetLockActive ? actorId : "",
       lockAt: targetLockActive ? nowIso : "",
       unlockBy: targetLockActive ? "" : actorId,
-      unlockAt: targetLockActive ? "" : nowIso
+      unlockAt: targetLockActive ? "" : nowIso,
+      clearUnlockRequest: targetLockActive || action === "unlock"
     });
+    if (targetLockActive) {
+      await markPrivateDocEmergencyUnlockRequest({
+        uploadId: resolvedUploadId,
+        requestedBy: "",
+        requestedAt: "",
+        requestReason: ""
+      });
+    }
 
-    const previousEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
     const nextEpoch = previousEpoch + 1;
     if (shouldRotate) {
       await rotatePrivateDocAccessEpoch({
@@ -3765,6 +4085,7 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
     return res.json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
+      requiresSecondAdmin: false,
       action,
       uploadId: resolvedUploadId,
       epoch: {
@@ -3779,7 +4100,18 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
         lockedAt: asIso(normalized.privateDocEmergencyLockAt),
         unlockedBy: text(normalized.privateDocEmergencyUnlockBy),
         unlockedAt: asIso(normalized.privateDocEmergencyUnlockAt),
-        adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+        adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS),
+        unlockRequest: {
+          required: Boolean(PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED),
+          requestedBy: text(normalized.privateDocEmergencyUnlockRequestedBy),
+          requestedAt: asIso(normalized.privateDocEmergencyUnlockRequestedAt),
+          reason: text(normalized.privateDocEmergencyUnlockRequestReason),
+          active: Boolean(
+            text(normalized.privateDocEmergencyUnlockRequestedBy) &&
+            toMs(normalized.privateDocEmergencyUnlockRequestedAt) &&
+            toMs(normalized.privateDocEmergencyUnlockRequestedAt) + PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS > Date.now()
+          )
+        }
       },
       doc: {
         uploadId: resolvedUploadId,
@@ -3800,6 +4132,89 @@ export async function setCorePrivateDocEmergencyAccessLock(req, res, next) {
             }
           : null
       }
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCorePrivateDocEmergencyLockQueue(req, res, next) {
+  try {
+    const limit = Math.min(300, Math.max(1, Number(req.query?.limit || 100)));
+    const status = text(req.query?.status, "active").toLowerCase();
+    const includeAll = status === "all";
+    let rows = [];
+
+    if (proRuntime.dbConnected) {
+      const query = {
+        isPrivate: true
+      };
+      if (includeAll) {
+        query.$or = [
+          { privateDocEmergencyLockActive: true },
+          { privateDocEmergencyUnlockRequestedBy: { $ne: null } }
+        ];
+      } else {
+        query.privateDocEmergencyLockActive = true;
+      }
+      rows = await CoreUpload.find(query).sort({ updatedAt: -1 }).limit(limit).lean();
+    } else {
+      rows = (Array.isArray(proMemoryStore.coreUploads) ? proMemoryStore.coreUploads : [])
+        .filter((item) => {
+          if (!Boolean(item?.isPrivate)) return false;
+          if (includeAll) {
+            return Boolean(item?.privateDocEmergencyLockActive) ||
+              Boolean(toId(item?.privateDocEmergencyUnlockRequestedBy));
+          }
+          return Boolean(item?.privateDocEmergencyLockActive);
+        })
+        .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
+        .slice(0, limit);
+    }
+
+    const nowTs = Date.now();
+    const items = rows.map((row) => {
+      const item = buildPrivateDocIntegrityQueueItem(row);
+      const unlockState = getPrivateDocEmergencyUnlockRequestState(row, nowTs);
+      return {
+        ...item,
+        accessControl: {
+          ...(item.accessControl || {}),
+          emergencyLock: {
+            ...(item?.accessControl?.emergencyLock || {}),
+            unlockRequest: {
+              ...(item?.accessControl?.emergencyLock?.unlockRequest || {}),
+              active: Boolean(unlockState.active),
+              expired: Boolean(unlockState.expired),
+              requestedBy: text(unlockState.requestedBy),
+              requestedAt: asIso(unlockState.requestedAt),
+              reason: text(unlockState.reason)
+            }
+          }
+        }
+      };
+    });
+
+    const activeLockCount = items.filter((item) => Boolean(item?.accessControl?.emergencyLock?.active)).length;
+    const activeUnlockRequests = items.filter(
+      (item) => Boolean(item?.accessControl?.emergencyLock?.unlockRequest?.active)
+    ).length;
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      total: items.length,
+      filters: {
+        status: includeAll ? "all" : "active",
+        limit
+      },
+      summary: {
+        activeLockCount,
+        activeUnlockRequests,
+        dualAdminRequired: Boolean(PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED),
+        unlockWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS / 60_000))
+      },
+      items
     });
   } catch (error) {
     return next(error);
@@ -4390,7 +4805,19 @@ function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
         lockedAt: asIso(normalized.privateDocEmergencyLockAt),
         unlockedBy: text(normalized.privateDocEmergencyUnlockBy),
         unlockedAt: asIso(normalized.privateDocEmergencyUnlockAt),
-        adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+        adminBypassEnabled: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS),
+        unlockRequest: {
+          required: Boolean(PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED),
+          windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS / 60_000)),
+          requestedBy: text(normalized.privateDocEmergencyUnlockRequestedBy),
+          requestedAt: asIso(normalized.privateDocEmergencyUnlockRequestedAt),
+          reason: text(normalized.privateDocEmergencyUnlockRequestReason),
+          active: Boolean(
+            text(normalized.privateDocEmergencyUnlockRequestedBy) &&
+            toMs(normalized.privateDocEmergencyUnlockRequestedAt) &&
+            toMs(normalized.privateDocEmergencyUnlockRequestedAt) + PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS > Date.now()
+          )
+        }
       }
     },
     integrity: {
@@ -4849,20 +5276,35 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
         .sort({ blockUntil: -1 })
         .lean())
         .map((item) => normalizePersistedShieldBlock(item))
-        .map((item) => ({
-          actorKey: text(item.actorKey),
-          reason: text(item.reason),
-          blockLevel: Math.max(1, Math.round(numberValue(item.blockLevel, 1))),
-          blockStartedAt: asIso(item.blockStartedAtTs),
-          blockUntil: asIso(item.blockUntilTs),
-          remainingSec: Math.max(1, Math.ceil((Math.max(0, Math.round(numberValue(item.blockUntilTs, 0))) - nowTs) / 1000)),
-          triggers: Array.isArray(item.triggers) ? item.triggers.slice(0, 6) : [],
-          userId: text(item.userId),
-          role: text(item.role),
-          ipHash: text(item.ipHash),
-          source: text(item.source)
-        }))
+        .map((item) => {
+          const releaseRequestState = getPrivateDocShieldReleaseRequestState(item, nowTs);
+          return {
+            actorKey: text(item.actorKey),
+            reason: text(item.reason),
+            blockLevel: Math.max(1, Math.round(numberValue(item.blockLevel, 1))),
+            blockStartedAt: asIso(item.blockStartedAtTs),
+            blockUntil: asIso(item.blockUntilTs),
+            remainingSec: Math.max(1, Math.ceil((Math.max(0, Math.round(numberValue(item.blockUntilTs, 0))) - nowTs) / 1000)),
+            triggers: Array.isArray(item.triggers) ? item.triggers.slice(0, 6) : [],
+            userId: text(item.userId),
+            role: text(item.role),
+            ipHash: text(item.ipHash),
+            source: text(item.source),
+            releaseRequest: {
+              required: Boolean(PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED),
+              windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MS / 60_000)),
+              requestedBy: text(releaseRequestState.requestedBy),
+              requestedAt: asIso(releaseRequestState.requestedAt),
+              reason: text(releaseRequestState.reason),
+              active: Boolean(releaseRequestState.active),
+              expired: Boolean(releaseRequestState.expired)
+            }
+          };
+        })
       : listPrivateDocShieldActiveBlocks(nowTs);
+    const pendingShieldReleaseRequests = activeBlocks.filter(
+      (item) => Boolean(item?.releaseRequest?.active)
+    ).length;
     const emergencyLockedPrivateDocs = proRuntime.dbConnected
       ? await CoreUpload.countDocuments({
         isPrivate: true,
@@ -4873,6 +5315,22 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
           (item) => Boolean(item?.isPrivate) && Boolean(item?.privateDocEmergencyLockActive)
         ).length
         : 0);
+    const pendingEmergencyUnlockRequests = proRuntime.dbConnected
+      ? await CoreUpload.countDocuments({
+        isPrivate: true,
+        privateDocEmergencyUnlockRequestedBy: { $ne: null },
+        privateDocEmergencyUnlockRequestedAt: {
+          $gt: new Date(nowTs - PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS)
+        }
+      })
+      : (Array.isArray(proMemoryStore.coreUploads)
+        ? proMemoryStore.coreUploads.filter(
+          (item) =>
+            Boolean(item?.isPrivate) &&
+            Boolean(toId(item?.privateDocEmergencyUnlockRequestedBy)) &&
+            toMs(item?.privateDocEmergencyUnlockRequestedAt) + PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS > nowTs
+        ).length
+        : 0);
 
     return res.json({
       success: true,
@@ -4881,6 +5339,8 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
         enabled: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ENABLED),
         persistenceEnabled: Boolean(PRIVATE_DOC_SECURITY_PERSIST_ENABLED),
         adminBypass: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS),
+        dualAdminReleaseRequired: Boolean(PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED),
+        releaseRequestWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MS / 60_000)),
         thresholds: {
           windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS / 60_000)),
           riskThreshold: PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD,
@@ -4891,6 +5351,7 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
           penaltyWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MS / 60_000))
         },
         activeBlockCount: activeBlocks.length,
+        pendingReleaseRequests: pendingShieldReleaseRequests,
         activeBlocks,
         totalEvents: shieldEvents.length,
         events: shieldEvents.slice(0, limit)
@@ -4908,7 +5369,10 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
         },
         trackedUploads: privateDocAutoEmergencyLockProfiles.size,
         emergencyLockedPrivateDocs,
-        adminBypass: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
+        pendingEmergencyUnlockRequests,
+        adminBypass: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS),
+        dualAdminUnlockRequired: Boolean(PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED),
+        unlockRequestWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS / 60_000))
       }
     });
   } catch (error) {
@@ -4920,14 +5384,34 @@ export async function releaseCorePrivateDocSecurityShield(req, res, next) {
   try {
     const adminId = text(req.coreUser?.id);
     const reason = text(req.body?.reason, "admin-manual-release");
+    const releaseApprove =
+      String(req.body?.releaseApprove || req.query?.releaseApprove || "false")
+        .trim()
+        .toLowerCase() === "true";
     const releaseAll =
       String(req.body?.all || req.query?.all || "false").trim().toLowerCase() === "true";
-    await hydratePrivateDocShieldBlocksFromDb(Date.now());
+    const nowTs = Date.now();
+    const nowIso = new Date(nowTs).toISOString();
+    await hydratePrivateDocShieldBlocksFromDb(nowTs);
+
+    if (reason.length < PRIVATE_DOC_SHIELD_RELEASE_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `Reason must be at least ${PRIVATE_DOC_SHIELD_RELEASE_REASON_MIN} characters for shield release action.`
+      });
+    }
 
     if (releaseAll) {
+      if (PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED) {
+        return res.status(409).json({
+          success: false,
+          message: "all=true is disabled while dual-admin shield release control is enabled."
+        });
+      }
       const released = await releaseAllPrivateDocAccessShieldActors(adminId, reason);
       return res.json({
         success: true,
+        requiresSecondAdmin: false,
         releasedAll: true,
         releasedCount: released.length,
         released,
@@ -4943,7 +5427,76 @@ export async function releaseCorePrivateDocSecurityShield(req, res, next) {
       });
     }
 
-    const released = await releasePrivateDocAccessShieldActor(actorKey, adminId, reason);
+    let activeBlock = privateDocAccessShieldBlocks.get(actorKey) || null;
+    if (!activeBlock && canPersistPrivateDocSecurity()) {
+      const persisted = await CorePrivateDocShieldBlock.findOne({
+        actorKey,
+        blockUntil: { $gt: new Date(nowTs) }
+      }).lean();
+      if (persisted) {
+        activeBlock = normalizePersistedShieldBlock(persisted);
+        privateDocAccessShieldBlocks.set(actorKey, activeBlock);
+      }
+    }
+    if (!activeBlock) {
+      return res.status(404).json({
+        success: false,
+        message: "Shield block not found for actorKey."
+      });
+    }
+
+    const releaseRequestState = getPrivateDocShieldReleaseRequestState(activeBlock, nowTs);
+    if (PRIVATE_DOC_SHIELD_RELEASE_DUAL_ADMIN_REQUIRED) {
+      if (!releaseRequestState.active) {
+        await markPrivateDocShieldReleaseRequest({
+          actorKey,
+          requestedBy: adminId,
+          requestedAt: nowIso,
+          requestReason: reason
+        });
+        recordPrivateDocShieldEvent({
+          type: "manual-release-requested",
+          actorKey,
+          reason,
+          requestedBy: adminId,
+          requestedAt: nowIso,
+          previousReason: text(activeBlock?.reason),
+          previousBlockLevel: Math.max(1, Math.round(numberValue(activeBlock?.blockLevel, 1))),
+          dualControlRequired: true
+        });
+        return res.status(202).json({
+          success: true,
+          action: "release-requested",
+          requiresSecondAdmin: true,
+          releasedAll: false,
+          actorKey,
+          releaseRequest: {
+            requestedBy: adminId,
+            requestedAt: nowIso,
+            reason,
+            windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_SHIELD_RELEASE_REQUEST_WINDOW_MS / 60_000))
+          },
+          activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())
+        });
+      }
+      if (releaseRequestState.requestedBy === adminId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm shield release request."
+        });
+      }
+      if (!releaseApprove) {
+        return res.status(409).json({
+          success: false,
+          message: "releaseApprove=true is required for second admin confirmation."
+        });
+      }
+    }
+
+    const released = await releasePrivateDocAccessShieldActor(actorKey, adminId, reason, {
+      releaseRequestedBy: releaseRequestState.requestedBy,
+      releaseRequestedAt: releaseRequestState.requestedAt
+    });
     if (!released) {
       return res.status(404).json({
         success: false,
@@ -4953,6 +5506,7 @@ export async function releaseCorePrivateDocSecurityShield(req, res, next) {
 
     return res.json({
       success: true,
+      requiresSecondAdmin: false,
       releasedAll: false,
       released,
       activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())

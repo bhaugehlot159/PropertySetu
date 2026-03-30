@@ -64,6 +64,20 @@ const corePrivateDocShieldBlockSchema = new mongoose.Schema(
       default: 0,
       min: 0
     },
+    releaseRequestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    releaseRequestedAt: {
+      type: Date,
+      default: null
+    },
+    releaseRequestReason: {
+      type: String,
+      default: "",
+      trim: true
+    },
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: null
@@ -77,6 +91,7 @@ const corePrivateDocShieldBlockSchema = new mongoose.Schema(
 corePrivateDocShieldBlockSchema.index({ actorKey: 1 }, { unique: true });
 corePrivateDocShieldBlockSchema.index({ blockUntil: -1 });
 corePrivateDocShieldBlockSchema.index({ userId: 1, blockUntil: -1 });
+corePrivateDocShieldBlockSchema.index({ releaseRequestedAt: -1, blockUntil: -1 });
 
 const CorePrivateDocShieldBlock =
   mongoose.models.CorePrivateDocShieldBlock ||

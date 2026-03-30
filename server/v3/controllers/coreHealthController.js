@@ -19,7 +19,7 @@ import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks] = await Promise.all([
+      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreReview.countDocuments({}),
@@ -36,10 +36,18 @@ export async function getCoreHealth(_req, res, next) {
         CorePrivateDocShieldBlock.countDocuments({
           blockUntil: { $gt: new Date() }
         }),
+        CorePrivateDocShieldBlock.countDocuments({
+          blockUntil: { $gt: new Date() },
+          releaseRequestedBy: { $ne: null }
+        }),
         CorePrivateDocIntegrityDecisionAudit.countDocuments({}),
         CoreUpload.countDocuments({
           isPrivate: true,
           privateDocEmergencyLockActive: true
+        }),
+        CoreUpload.countDocuments({
+          isPrivate: true,
+          privateDocEmergencyUnlockRequestedBy: { $ne: null }
         })
       ]);
 
@@ -61,8 +69,10 @@ export async function getCoreHealth(_req, res, next) {
           sealedBids,
           privateDocSecurityEvents,
           privateDocShieldBlocks,
+          privateDocShieldReleaseRequests,
           privateDocIntegrityDecisionAudits,
-          privateDocEmergencyLocks
+          privateDocEmergencyLocks,
+          privateDocEmergencyUnlockRequests
         },
         timestamp: new Date().toISOString()
       });
@@ -86,9 +96,15 @@ export async function getCoreHealth(_req, res, next) {
         sealedBids: proMemoryStore.coreSealedBids.length,
         privateDocSecurityEvents: proMemoryStore.corePrivateDocAccessEvents.length + proMemoryStore.corePrivateDocShieldEvents.length,
         privateDocShieldBlocks: proMemoryStore.corePrivateDocShieldBlocks.length,
+        privateDocShieldReleaseRequests: proMemoryStore.corePrivateDocShieldBlocks.filter(
+          (item) => Boolean(item?.releaseRequest?.active || item?.releaseRequest?.requestedBy)
+        ).length,
         privateDocIntegrityDecisionAudits: proMemoryStore.corePrivateDocIntegrityDecisionAudits.length,
         privateDocEmergencyLocks: proMemoryStore.coreUploads.filter(
           (item) => Boolean(item?.isPrivate) && Boolean(item?.privateDocEmergencyLockActive)
+        ).length,
+        privateDocEmergencyUnlockRequests: proMemoryStore.coreUploads.filter(
+          (item) => Boolean(item?.isPrivate) && Boolean(item?.privateDocEmergencyUnlockRequestedBy)
         ).length
       },
       timestamp: new Date().toISOString()
