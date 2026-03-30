@@ -184,6 +184,10 @@ const PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN = Math.max(
   8,
   Number(process.env.CORE_PRIVATE_DOC_INTEGRITY_REVIEW_REASON_MIN || 12)
 );
+const PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN || 10)
+);
 const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED =
   String(process.env.CORE_PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS = Math.max(
@@ -368,6 +372,11 @@ function normalizePrivateDocIntegrityDecisionAction(value = "") {
   if (raw === "quarantine" || raw === "quarantined") return "quarantined";
   if (raw === "reset" || raw === "recheck" || raw === "retry") return "reset";
   return "";
+}
+
+function normalizePrivateDocAccessEpoch(value, fallback = 1) {
+  const parsed = Math.round(numberValue(value, fallback));
+  return Math.max(1, parsed);
 }
 
 function toMs(value) {
@@ -1978,6 +1987,7 @@ function normalizeUpload(doc, viewer = null) {
   const privateDocIntegrityReviewStatus = normalizePrivateDocIntegrityReviewStatus(
     row.privateDocIntegrityReviewStatus
   );
+  const privateDocAccessEpoch = normalizePrivateDocAccessEpoch(row.privateDocAccessEpoch, 1);
   const privateDocProtected = Boolean(row.privateDocProtected || isPrivate);
   const accessEnvelope =
     isPrivate && sourceUrl
@@ -1989,6 +1999,7 @@ function normalizeUpload(doc, viewer = null) {
           docId: uploadId,
           category: text(row.category),
           name: text(row.name, "upload.bin"),
+          accessEpoch: privateDocAccessEpoch,
           viewerId: text(viewer?.id),
           viewerRole: text(viewer?.role, "buyer").toLowerCase(),
           requestIp: text(viewer?.clientIp),
@@ -2013,6 +2024,10 @@ function normalizeUpload(doc, viewer = null) {
     privateDocProtected,
     privateDocHash,
     privateDocAccessCount: Math.max(0, numberValue(row.privateDocAccessCount, 0)),
+    privateDocAccessEpoch,
+    privateDocAccessEpochRotatedAt: asIso(row.privateDocAccessEpochRotatedAt),
+    privateDocAccessEpochRotatedBy: toId(row.privateDocAccessEpochRotatedBy),
+    privateDocAccessEpochRotateReason: text(row.privateDocAccessEpochRotateReason),
     privateDocLastAccessAt: asIso(row.privateDocLastAccessAt),
     privateDocIntegrity:
       isPrivate
@@ -2070,7 +2085,8 @@ function normalizeUpload(doc, viewer = null) {
             expiresInSec: Math.max(0, numberValue(accessEnvelope.expiresInSec, 0)),
             accessPath: text(accessEnvelope.accessPath),
             maskedUrl: text(accessEnvelope.maskedUrl),
-            hash: text(accessEnvelope.hash)
+            hash: text(accessEnvelope.hash),
+            epoch: privateDocAccessEpoch
           }
         : null,
     storageProvider: text(row.storageProvider, "memory"),
@@ -2110,6 +2126,10 @@ function buildUploadRows(req, files = []) {
       privateDocProtected: Boolean(isPrivate),
       privateDocHash: isPrivate ? hashPrivateDocSourceUrl(resolvedUrl) : "",
       privateDocAccessCount: 0,
+      privateDocAccessEpoch: 1,
+      privateDocAccessEpochRotatedAt: null,
+      privateDocAccessEpochRotatedBy: null,
+      privateDocAccessEpochRotateReason: "",
       privateDocLastAccessAt: null,
       privateDocContentHash: "",
       privateDocContentBytes: 0,
@@ -2328,6 +2348,45 @@ async function markPrivateDocAccess(uploadId = "", nowIso = "") {
   };
 }
 
+async function rotatePrivateDocAccessEpoch({
+  uploadId = "",
+  nextEpoch = 1,
+  rotatedBy = "",
+  rotatedAt = "",
+  rotateReason = ""
+} = {}) {
+  const id = text(uploadId);
+  if (!id) return;
+  const normalizedEpoch = normalizePrivateDocAccessEpoch(nextEpoch, 1);
+  const normalizedRotatedAt = asIso(rotatedAt) || new Date().toISOString();
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(id)) return;
+    await CoreUpload.findByIdAndUpdate(id, {
+      $set: {
+        privateDocAccessEpoch: normalizedEpoch,
+        privateDocAccessEpochRotatedAt: new Date(normalizedRotatedAt),
+        privateDocAccessEpochRotatedBy: toObjectIdOrNull(rotatedBy),
+        privateDocAccessEpochRotateReason: text(rotateReason).slice(0, 240)
+      }
+    });
+    return;
+  }
+
+  const index = proMemoryStore.coreUploads.findIndex(
+    (item) => toId(item._id || item.id) === id
+  );
+  if (index < 0) return;
+  const previous = proMemoryStore.coreUploads[index] || {};
+  proMemoryStore.coreUploads[index] = {
+    ...previous,
+    privateDocAccessEpoch: normalizedEpoch,
+    privateDocAccessEpochRotatedAt: normalizedRotatedAt,
+    privateDocAccessEpochRotatedBy: text(rotatedBy),
+    privateDocAccessEpochRotateReason: text(rotateReason).slice(0, 240)
+  };
+}
+
 async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
   const id = text(uploadId);
   if (!id || !patch || typeof patch !== "object" || Array.isArray(patch)) return;
@@ -2539,6 +2598,7 @@ function buildPrivateDocStreamEnvelope({
   docId = "",
   category = "",
   name = "",
+  accessEpoch = 1,
   viewerId = "",
   viewerRole = "",
   requestIp = "",
@@ -2553,6 +2613,7 @@ function buildPrivateDocStreamEnvelope({
     docId,
     category,
     name,
+    accessEpoch: normalizePrivateDocAccessEpoch(accessEpoch, 1),
     viewerId,
     viewerRole,
     requestIp,
@@ -2651,11 +2712,13 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const tokenId = text(payload.tokenId || payload.jti);
     const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
     const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
+    const tokenAccessEpoch = normalizePrivateDocAccessEpoch(payload.epoch, 1);
     let sourceUrl = text(payload.sourceUrl);
     let ownerId = text(payload.ownerId);
     let propertyId = text(payload.propertyId);
     let docName = text(payload.name);
     let docCategory = text(payload.category);
+    let uploadAccessEpoch = tokenAccessEpoch;
 
     if (uploadId) {
       const uploadRow = await findUploadById(uploadId);
@@ -2707,6 +2770,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       docName = text(uploadRow?.name, docName);
       docCategory = text(uploadRow?.category, docCategory);
       sourceUrl = text(uploadRow?.url, sourceUrl);
+      uploadAccessEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
       const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id);
       if (!sameId(uploadId, resolvedUploadId)) {
         recordPrivateDocAccessEvent({
@@ -2857,6 +2921,30 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
           message: "Document integrity validation failed."
         });
       }
+      if (tokenAccessEpoch !== uploadAccessEpoch) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "private-doc-access-epoch-revoked",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
+        return res.status(409).json({
+          success: false,
+          message: "Private document access token has been revoked. Request a fresh token.",
+          reason: "private-doc-access-epoch-revoked"
+        });
+      }
       if (PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED) {
         const tokenConsume = consumePrivateDocAccessToken({
           tokenId,
@@ -2901,6 +2989,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         docId: text(payload.docId),
         category: docCategory,
         name: docName,
+        accessEpoch: uploadAccessEpoch,
         viewerId: actorId,
         viewerRole: actorRole,
         requestIp,
@@ -2937,6 +3026,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
           name: docName,
           category: docCategory,
           privateDocHash: text(payload.hash),
+          accessEpoch: uploadAccessEpoch,
           accessExpiresAt: text(payload.expiresAt),
           url: PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED ? sourceUrl : buildMaskedPrivateDocUrl(sourceUrl),
           secureStream: streamEnvelope
@@ -2946,7 +3036,8 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
                 expiresAt: text(streamEnvelope.expiresAt),
                 expiresInSec: Math.max(0, numberValue(streamEnvelope.expiresInSec, 0)),
                 maskedUrl: text(streamEnvelope.maskedUrl),
-                hash: text(streamEnvelope.hash)
+                hash: text(streamEnvelope.hash),
+                epoch: uploadAccessEpoch
               }
             : null
         }
@@ -3062,6 +3153,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       docId: text(payload.docId),
       category: docCategory,
       name: docName,
+      accessEpoch: tokenAccessEpoch,
       viewerId: actorId,
       viewerRole: actorRole,
       requestIp,
@@ -3080,6 +3172,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         name: docName,
         category: docCategory,
         privateDocHash: text(payload.hash),
+        accessEpoch: tokenAccessEpoch,
         accessExpiresAt: text(payload.expiresAt),
         url: PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED ? sourceUrl : buildMaskedPrivateDocUrl(sourceUrl),
         secureStream: inlineStreamEnvelope
@@ -3089,7 +3182,138 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
               expiresAt: text(inlineStreamEnvelope.expiresAt),
               expiresInSec: Math.max(0, numberValue(inlineStreamEnvelope.expiresInSec, 0)),
               maskedUrl: text(inlineStreamEnvelope.maskedUrl),
-              hash: text(inlineStreamEnvelope.hash)
+              hash: text(inlineStreamEnvelope.hash),
+              epoch: tokenAccessEpoch
+            }
+          : null
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function revokeCorePrivateDocAccess(req, res, next) {
+  try {
+    const uploadIdInput = text(req.body?.uploadId || req.params?.uploadId || req.query?.uploadId);
+    const actorId = text(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorIsAdmin = actorRole === "admin";
+    const requestIp = getClientIp(req);
+    const requestUserAgent = text(req.headers?.["user-agent"]);
+    const reasonDefault = actorIsAdmin
+      ? "admin-revoked-private-doc-access"
+      : "owner-revoked-private-doc-access";
+    const reason = text(req.body?.reason, reasonDefault);
+
+    if (!uploadIdInput) {
+      return res.status(400).json({
+        success: false,
+        message: "uploadId is required."
+      });
+    }
+    if (reason.length < PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `reason must be at least ${PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN} characters.`
+      });
+    }
+
+    const uploadRow = await findUploadById(uploadIdInput);
+    if (!uploadRow) {
+      return res.status(404).json({
+        success: false,
+        message: "Upload record not found."
+      });
+    }
+    if (!Boolean(uploadRow?.isPrivate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Token revocation is only supported for private documents."
+      });
+    }
+
+    const authorized = await canActorAccessPrivateUpload({
+      actorId,
+      actorRole,
+      uploadRow
+    });
+    if (!authorized) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to revoke this private document access."
+      });
+    }
+
+    const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id) || uploadIdInput;
+    const previousEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
+    const currentEpoch = previousEpoch + 1;
+    const nowIso = new Date().toISOString();
+    await rotatePrivateDocAccessEpoch({
+      uploadId: resolvedUploadId,
+      nextEpoch: currentEpoch,
+      rotatedBy: actorId,
+      rotatedAt: nowIso,
+      rotateReason: reason
+    });
+
+    const updatedRow = await findUploadById(resolvedUploadId);
+    const normalized = normalizeUpload(updatedRow || uploadRow, {
+      ...req.coreUser,
+      clientIp: requestIp,
+      userAgent: requestUserAgent
+    }) || {};
+    const ownerId = text(normalized.userId || toId(uploadRow?.userId));
+    const propertyId = text(normalized.propertyId || toId(uploadRow?.propertyId));
+    const docCategory = text(normalized.category || uploadRow?.category);
+    const privateDocHash = text(
+      normalized.privateDocHash || uploadRow?.privateDocHash || hashPrivateDocSourceUrl(text(uploadRow?.url))
+    );
+
+    recordPrivateDocAccessEvent({
+      userId: actorId,
+      role: actorRole,
+      ownerId,
+      propertyId,
+      uploadId: resolvedUploadId,
+      docId: text(normalized.id || resolvedUploadId),
+      category: docCategory,
+      hash: privateDocHash,
+      reason: "private-doc-access-epoch-rotated",
+      ip: requestIp,
+      userAgent: requestUserAgent.slice(0, 240),
+      source: "access-epoch-rotate"
+    });
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      rotation: {
+        uploadId: resolvedUploadId,
+        previousEpoch,
+        currentEpoch: normalizePrivateDocAccessEpoch(normalized.privateDocAccessEpoch, currentEpoch),
+        rotatedAt: asIso(normalized.privateDocAccessEpochRotatedAt) || nowIso,
+        rotatedBy: text(normalized.privateDocAccessEpochRotatedBy, actorId),
+        reason
+      },
+      doc: {
+        uploadId: resolvedUploadId,
+        ownerId,
+        propertyId,
+        name: text(normalized.name || uploadRow?.name),
+        category: docCategory,
+        privateDocHash,
+        accessEpoch: normalizePrivateDocAccessEpoch(normalized.privateDocAccessEpoch, currentEpoch),
+        accessExpiresAt: text(normalized?.secureAccess?.expiresAt),
+        secureAccess: normalized?.secureAccess
+          ? {
+              token: text(normalized.secureAccess.token),
+              accessPath: text(normalized.secureAccess.accessPath),
+              expiresAt: text(normalized.secureAccess.expiresAt),
+              expiresInSec: Math.max(0, numberValue(normalized.secureAccess.expiresInSec, 0)),
+              maskedUrl: text(normalized.secureAccess.maskedUrl),
+              hash: text(normalized.secureAccess.hash),
+              epoch: normalizePrivateDocAccessEpoch(normalized.privateDocAccessEpoch, currentEpoch)
             }
           : null
       }
@@ -3195,6 +3419,7 @@ export async function streamCorePrivateDoc(req, res, next) {
     const tokenId = text(payload.tokenId || payload.jti);
     const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
     const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
+    const tokenAccessEpoch = normalizePrivateDocAccessEpoch(payload.epoch, 1);
     let sourceUrl = text(payload.sourceUrl);
     let ownerId = text(payload.ownerId);
     let propertyId = text(payload.propertyId);
@@ -3206,9 +3431,11 @@ export async function streamCorePrivateDoc(req, res, next) {
     let expectedUpstreamLastModified = "";
     let uploadIntegrityStatus = "unknown";
     let uploadIntegrityReviewStatus = "none";
+    let uploadAccessEpoch = tokenAccessEpoch;
+    let uploadRow = null;
 
     if (uploadId) {
-      const uploadRow = await findUploadById(uploadId);
+      uploadRow = await findUploadById(uploadId);
       if (!uploadRow) {
         recordPrivateDocAccessEvent({
           userId: actorId,
@@ -3252,6 +3479,7 @@ export async function streamCorePrivateDoc(req, res, next) {
       docName = text(uploadRow?.name, docName);
       docCategory = text(uploadRow?.category, docCategory);
       sourceUrl = text(uploadRow?.url, sourceUrl);
+      uploadAccessEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
       uploadIntegrityStatus = normalizePrivateDocIntegrityStatus(uploadRow?.privateDocIntegrityStatus);
       uploadIntegrityReviewStatus = normalizePrivateDocIntegrityReviewStatus(
         uploadRow?.privateDocIntegrityReviewStatus
@@ -3338,6 +3566,30 @@ export async function streamCorePrivateDoc(req, res, next) {
         return res.status(409).json({
           success: false,
           message: "Document integrity validation failed."
+        });
+      }
+      if (tokenAccessEpoch !== uploadAccessEpoch) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "private-doc-access-epoch-revoked",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-upload"
+        });
+        return res.status(409).json({
+          success: false,
+          message: "Private document stream token has been revoked. Request a fresh token.",
+          reason: "private-doc-access-epoch-revoked"
         });
       }
       if (
@@ -3616,6 +3868,12 @@ function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
     category: text(normalized.category),
     name: text(normalized.name),
     isPrivate: Boolean(normalized.isPrivate),
+    accessControl: {
+      epoch: normalizePrivateDocAccessEpoch(normalized.privateDocAccessEpoch, 1),
+      rotatedAt: asIso(normalized.privateDocAccessEpochRotatedAt),
+      rotatedBy: text(normalized.privateDocAccessEpochRotatedBy),
+      rotateReason: text(normalized.privateDocAccessEpochRotateReason)
+    },
     integrity: {
       status: normalizePrivateDocIntegrityStatus(integrity.status),
       reviewStatus: normalizePrivateDocIntegrityReviewStatus(integrity.reviewStatus),

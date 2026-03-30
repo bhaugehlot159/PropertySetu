@@ -55,6 +55,25 @@ const coreUploadSchema = new mongoose.Schema(
       default: 0,
       min: 0
     },
+    privateDocAccessEpoch: {
+      type: Number,
+      default: 1,
+      min: 1
+    },
+    privateDocAccessEpochRotatedAt: {
+      type: Date,
+      default: null
+    },
+    privateDocAccessEpochRotatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    privateDocAccessEpochRotateReason: {
+      type: String,
+      default: "",
+      trim: true
+    },
     privateDocLastAccessAt: {
       type: Date,
       default: null
@@ -238,6 +257,7 @@ coreUploadSchema.index({ propertyId: 1, createdAt: -1 });
 coreUploadSchema.index({ isPrivate: 1, privateDocIntegrityStatus: 1, privateDocIntegrityReviewStatus: 1, updatedAt: -1 });
 coreUploadSchema.index({ privateDocIntegrityApprovalRequestedAt: -1 });
 coreUploadSchema.index({ privateDocIntegrityDecisionChainHead: 1 });
+coreUploadSchema.index({ isPrivate: 1, privateDocAccessEpoch: -1, updatedAt: -1 });
 
 const CoreUpload =
   mongoose.models.CoreUpload ||

@@ -5,6 +5,7 @@ import {
   listCorePrivateDocIntegrityQueue,
   listCorePrivateDocSecurityEvents,
   listMyCoreUploads,
+  revokeCorePrivateDocAccess,
   releaseCorePrivateDocSecurityShield,
   resolveCorePrivateDocAccess,
   streamCorePrivateDoc,
@@ -30,6 +31,12 @@ router.post(
   coreAuthRequired,
   coreUploadPrivateDocAccessLimiter,
   resolveCorePrivateDocAccess
+);
+router.post(
+  "/private-docs/access/revoke",
+  coreAuthRequired,
+  coreUploadWriteLimiter,
+  revokeCorePrivateDocAccess
 );
 router.get(
   "/private-docs/stream",

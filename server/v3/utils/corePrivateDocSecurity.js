@@ -189,6 +189,7 @@ export function buildPrivateDocAccessEnvelope({
   viewerRole = "",
   requestIp = "",
   requestUserAgent = "",
+  accessEpoch = 1,
   purpose = "access",
   accessPath = ACCESS_PATH,
   ttlSec = DEFAULT_TOKEN_TTL_SEC
@@ -217,6 +218,7 @@ export function buildPrivateDocAccessEnvelope({
     propertyId: text(propertyId),
     uploadId: text(uploadId),
     docId: text(docId, sourceHash.slice(0, 18)),
+    epoch: Math.max(1, Math.round(numberValue(accessEpoch, 1))),
     category: text(category),
     name: text(name).slice(0, 120),
     purpose: text(purpose, "access").toLowerCase().slice(0, 32),
@@ -305,6 +307,7 @@ export function verifyPrivateDocAccessToken(
     return { ok: false, reason: "token-subject-mismatch" };
   }
   const tokenPurpose = text(payload.purpose, "access").toLowerCase();
+  const tokenEpoch = Math.max(1, Math.round(numberValue(payload.epoch, 1)));
   const allowed = Array.isArray(allowedPurposes)
     ? allowedPurposes.map((item) => text(item).toLowerCase()).filter((item) => Boolean(item))
     : [];
@@ -339,6 +342,7 @@ export function verifyPrivateDocAccessToken(
       ...payload,
       tokenId,
       purpose: tokenPurpose,
+      epoch: tokenEpoch,
       hash: computedHash,
       sourceUrl,
       contextBound,
