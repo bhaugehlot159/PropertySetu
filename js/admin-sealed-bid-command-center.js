@@ -49,7 +49,7 @@
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch {
-      // Ignore quota/storage errors in fallback mode.
+      // Ignore quota/storage errors for local browser cache writes.
     }
   };
 

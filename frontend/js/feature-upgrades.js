@@ -1,6 +1,5 @@
 (() => {
   const live = window.PropertySetuLive || {};
-  const allowDemoFallback = Boolean(live.allowDemoFallback);
 
   const readJson = live.readJson || ((key, fallback) => {
     try {
@@ -49,7 +48,7 @@
   };
 
   const renderLiveProperties = (items = []) => {
-    const grid = document.getElementById('demoPropertyGrid');
+    const grid = document.getElementById('propertyGridLive');
     if (!grid) return;
 
     if (!items.length) {
@@ -71,24 +70,13 @@
       .join('');
   };
 
-  const defaultNotifications = allowDemoFallback
-    ? [
-      'Welcome to PropertySetu notifications.',
-      'AI safety monitor active.',
-      'Live listing stream will auto-refresh as new properties are added.',
-    ]
-    : [];
-
   const loadNotifications = () => {
     const feed = document.getElementById('liveNotifications');
     const status = document.getElementById('notificationStatus');
     if (!feed) return;
 
     const dynamic = readJson('propertySetu:notifications', []);
-    const merged = [
-      ...(Array.isArray(dynamic) ? dynamic.map((item) => item?.message).filter(Boolean) : []),
-      ...defaultNotifications,
-    ].slice(0, 8);
+    const merged = (Array.isArray(dynamic) ? dynamic.map((item) => item?.message).filter(Boolean) : []).slice(0, 8);
 
     if (!merged.length) {
       feed.innerHTML = '<li>No live notifications yet.</li>';

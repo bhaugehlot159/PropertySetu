@@ -57,7 +57,7 @@
     bidCount: document.getElementById('bidCount'),
     verifiedCount: document.getElementById('verifiedCount'),
     activityLog: document.getElementById('activityLog'),
-    saveDemo: document.getElementById('saveDemo'),
+    saveWishlist: document.getElementById('saveWishlist'),
     bookVisit: document.getElementById('bookVisit'),
     verifiedSearch: document.getElementById('verifiedSearch'),
     clearPortal: document.getElementById('clearPortal'),
@@ -126,7 +126,7 @@
     }
   };
 
-  elements.saveDemo?.addEventListener('click', () => {
+  elements.saveWishlist?.addEventListener('click', () => {
     state.wishlist += 1;
     addLog('Property saved to wishlist.');
     pushNotification('Customer portal: property added to wishlist.', ['customer'], 'Wishlist Added', 'info');
