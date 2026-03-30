@@ -103,6 +103,7 @@ button:hover { background:#092f6d; }
 <script>
 (() => {
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const form = document.getElementById('addPropertyForm');
   const propertyList = document.getElementById('propertyList');
   const sellerStats = document.getElementById('sellerStats');
@@ -550,8 +551,10 @@ button:hover { background:#092f6d; }
       }).filter(Boolean);
       const merged = live.mergeById ? live.mergeById(apiItems, readJson(LISTINGS_KEY, [])) : [...apiItems, ...readJson(LISTINGS_KEY, [])];
       writeJson(LISTINGS_KEY, merged);
-    } catch {
-      // fallback local data remains
+    } catch (error) {
+      if (!allowDemoFallback) {
+        pushNotification('Live Sync Failed', `Live listing sync failed: ${error.message || 'unknown error'}.`, 'warn');
+      }
     }
   };
 
@@ -614,6 +617,10 @@ button:hover { background:#092f6d; }
     };
 
     const token = live.getAnyToken ? live.getAnyToken() : '';
+    if ((!token || !live.request) && !allowDemoFallback) {
+      window.alert('Property submit ke liye login + live backend required hai.');
+      return;
+    }
     if (token && live.request) {
       try {
         const response = await live.request('/properties', {
@@ -649,6 +656,10 @@ button:hover { background:#092f6d; }
         window.alert('Property live API me submit ho gayi.');
         return;
       } catch (error) {
+        if (!allowDemoFallback) {
+          window.alert(error.message || 'Property submit failed.');
+          return;
+        }
         if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
           window.alert(error.message || 'Submit failed.');
           return;
@@ -656,6 +667,10 @@ button:hover { background:#092f6d; }
       }
     }
 
+    if (!allowDemoFallback) {
+      window.alert('Property submit failed. Local fallback disabled.');
+      return;
+    }
     upsertLocal(localPayload);
     form.reset();
     describeMediaSelection();
@@ -699,7 +714,7 @@ button:hover { background:#092f6d; }
       pushNotification('Listing Boosted', `Paid featured boost activated (${cycleDays} days) for listing ${id}.`, 'success');
       window.alert(`Listing boosted for ${cycleDays} days. Amount: ₹${amount}.`);
     } catch (error) {
-      if (live.shouldFallbackToLocal && live.shouldFallbackToLocal(error)) {
+      if (allowDemoFallback && live.shouldFallbackToLocal && live.shouldFallbackToLocal(error)) {
         const all = readJson(LISTINGS_KEY, []);
         const next = all.map((item) => {
           if (item.id !== id) return item;

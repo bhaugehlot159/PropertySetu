@@ -2,6 +2,7 @@
   if (document.getElementById('psServiceQueueCard')) return;
 
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const containers = Array.from(document.querySelectorAll('.container'));
   if (!containers.length) return;
 
@@ -247,6 +248,12 @@
   };
 
   const renderFromLocal = () => {
+    if (!allowDemoFallback) {
+      renderSummary({ docs: 0, loan: 0, booking: 0, franchise: 0, rent: 0, open: 0, completed: 0 });
+      renderFeed([], 'Live service queue unavailable. Please login and retry.');
+      setStatus('Live queue required. Local fallback disabled.', false);
+      return;
+    }
     const snapshot = readJson(QUEUE_LAST_SEEN_KEY, null);
     const feed = readJson(FEED_KEY, []);
     if (snapshot && typeof snapshot === 'object') {
@@ -343,7 +350,11 @@
     writeJson(QUEUE_LAST_SEEN_KEY, snapshot);
 
     if (warnings.length) {
-      setStatus(`Queue refreshed with warnings in: ${warnings.join(', ')}.`, false);
+      if (!allowDemoFallback) {
+        setStatus(`Live queue partial failure in: ${warnings.join(', ')}.`, false);
+      } else {
+        setStatus(`Queue refreshed with warnings in: ${warnings.join(', ')}.`, false);
+      }
       return;
     }
 

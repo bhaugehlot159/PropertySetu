@@ -2,6 +2,7 @@
   if (document.getElementById('customerEngagementSuiteCard')) return;
 
   const live = window.PropertySetuLive || {};
+  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const wishlistRoot = document.getElementById('wishlist');
   const propertySelect = document.getElementById('propertySelect');
   const chatInput = document.getElementById('chatInput');
@@ -244,8 +245,10 @@
     if (typeof live.syncLocalListingsFromApi === 'function') {
       try {
         await live.syncLocalListingsFromApi();
-      } catch {
-        // keep local listings
+      } catch (error) {
+        if (!allowDemoFallback) {
+          setStatus(text(error?.message, 'Live listing sync failed.'), false);
+        }
       }
     }
     const rows = readJson(LISTINGS_KEY, []);
@@ -445,6 +448,11 @@
     const token = getToken();
     let sentLive = false;
 
+    if ((!token || typeof live.request !== 'function') && !allowDemoFallback) {
+      setStatus('Smart follow-up ke liye login + live backend required hai.', false);
+      return;
+    }
+
     if (token && typeof live.request === 'function') {
       try {
         await live.request('/chat/send', {
@@ -454,6 +462,10 @@
         });
         sentLive = true;
       } catch (error) {
+        if (!allowDemoFallback) {
+          setStatus(error.message || 'Smart follow-up failed.', false);
+          return;
+        }
         if (!(live.shouldFallbackToLocal && live.shouldFallbackToLocal(error))) {
           setStatus(error.message || 'Smart follow-up failed.', false);
           return;
@@ -477,6 +489,10 @@
     }
     const token = getToken();
     if (!token || typeof live.request !== 'function') {
+      if (!allowDemoFallback) {
+        setStatus('Live compare ke liye login + backend required hai.', false);
+        return;
+      }
       renderLocalCompare();
       setStatus('Live login unavailable. Local compare shown.', false);
       return;
@@ -512,6 +528,10 @@
       `;
       setStatus('Live compare completed.');
     } catch (error) {
+      if (!allowDemoFallback) {
+        setStatus(`Live compare failed: ${text(error?.message, 'Unknown error')}.`, false);
+        return;
+      }
       renderLocalCompare();
       setStatus(`Live compare failed: ${text(error?.message, 'Unknown error')}. Local compare shown.`, false);
     }

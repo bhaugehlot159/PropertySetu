@@ -240,6 +240,9 @@ const ecosystemServiceCatalog = [
 ];
 
 const fallbackLocalities = ["Hiran Magri", "Pratap Nagar", "Bhuwana", "Sukher", "Fatehpura", "Ambamata", "Savina", "Bedla"];
+const ENABLE_LEGACY_SEED_DATA = String(process.env.CORE_ENABLE_LEGACY_SEED_DATA || "false")
+  .trim()
+  .toLowerCase() === "true";
 
 const seededProperties = [
   { id: "prop-seed-1", title: "Premium Lake-view Villa", city: "Udaipur", type: "Buy", category: "Villa", location: "Ambamata", price: 32000000, status: "Approved", verified: true, featured: true, featuredUntil: new Date(Date.now() + 14 * 86400000).toISOString(), ownerId: "seed-owner-1", ownerName: "PropertySetu Verified Owner", trustScore: 96, reviewCount: 0, averageRating: 0, createdAt: "2026-03-14T09:00:00.000Z", updatedAt: "2026-03-14T09:00:00.000Z" },
@@ -248,7 +251,7 @@ const seededProperties = [
 
 const defaults = () => ({
   users: [],
-  properties: seededProperties,
+  properties: ENABLE_LEGACY_SEED_DATA ? seededProperties : [],
   reviews: [],
   messages: [],
   agentReviews: [],
@@ -276,13 +279,15 @@ const defaults = () => ({
     cities: ["Udaipur", "Jaipur", "Jodhpur", "Ahmedabad", "Delhi", "Mumbai"],
     featuredPricing: normalizeFeaturedPricingConfig(),
   },
-  trustedAgents: [
-    { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
-    { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
-  ],
+  trustedAgents: ENABLE_LEGACY_SEED_DATA
+    ? [
+      { id: "agent-1", name: "Udaipur Prime Realty", area: "Hiran Magri", verified: true, rating: 4.6, reviewCount: 12, transparentCommission: "1.5%" },
+      { id: "agent-2", name: "Mewar Property Desk", area: "Pratap Nagar", verified: true, rating: 4.4, reviewCount: 9, transparentCommission: "2%" },
+    ]
+    : [],
   counters: {
     user: 1,
-    property: 100,
+    property: ENABLE_LEGACY_SEED_DATA ? 100 : 1,
     review: 1,
     message: 1,
     subscription: 1,
