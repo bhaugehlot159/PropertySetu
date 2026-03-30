@@ -1040,7 +1040,7 @@ function buildExecutionSteps(checks) {
     checks.storageConfigReady
       ? checks.storageExternalConfigured
         ? ""
-        : "Running in development fallback mode. Add real storage credentials for production."
+        : "Running in development compatibility mode. Add real storage credentials for production."
       : "Storage provider credentials are missing."
   );
   const subscriptionStep = stepStatus(
@@ -1048,7 +1048,7 @@ function buildExecutionSteps(checks) {
     checks.paymentConfigReady
       ? checks.paymentExternalConfigured
         ? ""
-        : "Running in development fallback mode. Add Razorpay keys for production."
+        : "Running in development compatibility mode. Add Razorpay keys for production."
       : "Razorpay keys are missing."
   );
 

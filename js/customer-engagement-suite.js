@@ -478,7 +478,7 @@
       chatInput.value = message;
     }
     renderChatMeta();
-    setStatus(`Smart follow-up sent (${sentLive ? 'live' : 'local queue'}).`);
+    setStatus(`Smart follow-up sent (${sentLive ? 'live' : 'backup queue'}).`);
   };
 
   const runLiveCompare = async () => {

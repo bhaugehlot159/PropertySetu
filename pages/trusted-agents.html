@@ -187,7 +187,7 @@
           }
           items.forEach((item) => { reviewMap[item.id] = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((review) => review.agentId === item.id); });
           render(items);
-          setStatus('Live API unavailable. Trusted agents loaded in local mode.');
+          setStatus('Live API unavailable. Trusted agents loaded in backup mode.');
           return;
         }
         try {
@@ -204,7 +204,7 @@
           }
           items.forEach((item) => { reviewMap[item.id] = readJson(AGENT_LOCAL_REVIEWS_KEY, []).filter((review) => review.agentId === item.id); });
           render(items);
-          setStatus('Live fetch failed. Trusted agents loaded in local fallback mode.');
+          setStatus('Live fetch failed. Trusted agents loaded in backup mode.');
         }
       };
 
@@ -286,7 +286,7 @@
             return;
           }
           submitLocalAgentReview(rateAgentId, rating, comment);
-          setStatus('Login/live unavailable. Agent rating saved in local mode.');
+          setStatus('Login/live unavailable. Agent rating saved in backup mode.');
           await load();
         }
       });

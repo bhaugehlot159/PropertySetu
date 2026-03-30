@@ -931,7 +931,7 @@
 
     const descriptionField = document.getElementById('description');
     if (descriptionField) descriptionField.value = description;
-    showStatus(`AI description generated and added in description field${live.request ? ' (live-enabled).' : ' (fallback mode).'}`, true);
+    showStatus(`AI description generated and added in description field${live.request ? ' (live-enabled).' : ' (backup mode).'}`, true);
   };
 
   const getSmartPricing = async () => {
@@ -954,8 +954,8 @@
       const offlineStats = getLocalSmartPricingStats(locality);
       setSuggestion(
         offlineStats,
-        offlineStats.source === 'local-listing-model' ? 'Local listing data (offline mode)' : 'Udaipur baseline smart model (offline mode)',
-        'Smart pricing suggestion loaded (offline mode).',
+        offlineStats.source === 'local-listing-model' ? 'Local listing data (backup mode)' : 'Udaipur baseline smart model (backup mode)',
+        'Smart pricing suggestion loaded (backup mode).',
         true
       );
       return;
@@ -1539,7 +1539,7 @@
         saveMediaFingerprints(normalized.id || payload.id);
         showStatus(`Live submit unavailable. Local backup me save kar diya: ${error.message}`, false);
         pushNotification(
-          `Listing "${payload.title}" local backup queue me save hui. Live sync pending.`,
+          `Listing "${payload.title}" backup queue me save hui. Live sync pending.`,
           ['customer', 'seller', 'admin'],
           'Listing Queued',
           'warn',

@@ -154,7 +154,7 @@ function normalizeDate(value) {
   return date;
 }
 
-function buildDemoOrderPayload({
+function buildDevelopmentFallbackOrderPayload({
   amountInRupees,
   userId,
   selectedPlan,
@@ -162,17 +162,17 @@ function buildDemoOrderPayload({
   propertyId
 }) {
   return {
-    id: `order_demo_${Date.now()}`,
+    id: `order_dev_fallback_${Date.now()}`,
     amount: Math.round(amountInRupees * 100),
     currency: "INR",
     status: "created",
-    receipt: `core_sub_demo_${Date.now()}`,
+    receipt: `core_sub_dev_fallback_${Date.now()}`,
     notes: {
       userId,
       planId: selectedPlan?.id || "",
       planName: selectedPlan?.name || planName || "",
       propertyId: propertyId || "",
-      provider: "demo"
+      provider: "development-fallback"
     }
   };
 }
@@ -409,7 +409,7 @@ export async function createCoreSubscriptionPaymentOrder(req, res, next) {
         });
       }
 
-      const demoOrder = buildDemoOrderPayload({
+      const fallbackOrder = buildDevelopmentFallbackOrderPayload({
         amountInRupees,
         userId,
         selectedPlan,
@@ -419,8 +419,8 @@ export async function createCoreSubscriptionPaymentOrder(req, res, next) {
 
       return res.status(201).json({
         success: true,
-        keyId: getRazorpayPublicKey() || "rzp_test_demo_key",
-        order: demoOrder,
+        keyId: getRazorpayPublicKey() || "rzp_test_dev_fallback_key",
+        order: fallbackOrder,
         selectedPlan: selectedPlan || null,
         paymentVerification: {
           strictMode: STRICT_PAYMENT_PROOF,
@@ -446,7 +446,7 @@ export async function createCoreSubscriptionPaymentOrder(req, res, next) {
       if (!PAYMENT_DEVELOPMENT_FALLBACK) {
         throw error;
       }
-      order = buildDemoOrderPayload({
+      order = buildDevelopmentFallbackOrderPayload({
         amountInRupees,
         userId,
         selectedPlan,
@@ -455,9 +455,9 @@ export async function createCoreSubscriptionPaymentOrder(req, res, next) {
       });
     }
 
-    return res.status(201).json({
+      return res.status(201).json({
       success: true,
-      keyId: getRazorpayPublicKey() || "rzp_test_demo_key",
+      keyId: getRazorpayPublicKey() || "rzp_test_dev_fallback_key",
       order,
       selectedPlan: selectedPlan || null,
       paymentVerification: {
@@ -501,12 +501,12 @@ export function verifyCoreSubscriptionPayment(req, res, next) {
         userId,
         orderId: razorpay_order_id,
         paymentId: razorpay_payment_id,
-        keySecret: "development-demo-secret"
+        keySecret: "development-fallback-secret"
       });
 
       return res.json({
         success: true,
-        message: "Payment verified in development fallback mode.",
+        message: "Payment verified in development compatibility mode.",
         paymentProof,
         paymentVerification: {
           strictMode: STRICT_PAYMENT_PROOF,

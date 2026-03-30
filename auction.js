@@ -42,11 +42,7 @@
       }));
 
     if (fromLocal.length) return fromLocal;
-    if (!allowDemoFallback) return [];
-    return [
-      { id: "demo-1", title: "Luxury Villa Hiran Magri", location: "Hiran Magri", price: 32000000 },
-      { id: "demo-2", title: "Farmhouse Ambamata", location: "Ambamata", price: 14500000 },
-    ];
+    return [];
   };
 
   const fetchLiveAuctions = async () => {
@@ -199,7 +195,7 @@
       return;
     }
     if (!live.request) {
-      window.alert("Live API unavailable. Admin decision cannot be executed in offline mode.");
+      window.alert("Live API unavailable. Admin decision cannot be executed without backend connectivity.");
       return;
     }
     const decisionReason = String(window.prompt("Decision reason (minimum 12 characters):", "Security review completed and admin decision approved.") || "").trim();

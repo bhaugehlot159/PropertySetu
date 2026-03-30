@@ -645,7 +645,7 @@
         planId: plan.id,
         amount,
         priority: item.priority,
-        message: result.mode === 'live' ? 'Boost activated via live payment.' : 'Boost activated in local fallback mode.',
+        message: result.mode === 'live' ? 'Boost activated via live payment.' : 'Boost activated in backup mode.',
       });
       notify(
         'Boost Activated',
@@ -791,7 +791,7 @@
             planId: plan.id,
             amount: plan.amount,
             priority: row.boostPriority,
-            message: result.mode === 'live' ? 'Manual boost via live payment.' : 'Manual boost via local fallback.',
+            message: result.mode === 'live' ? 'Manual boost via live payment.' : 'Manual boost via backup mode.',
           });
           dequeueListing(row.id);
           notify('Boost Activated', `${row.title} boosted with ${plan.name}.`, 'success');

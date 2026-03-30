@@ -282,12 +282,12 @@
         }))
       : [];
 
-    renderFeed(localRows, 'No local queue history yet.');
+    renderFeed(localRows, 'No backup queue history yet.');
     if (snapshot?.at) {
       setStatus(`Live unavailable. Showing local snapshot from ${formatDate(snapshot.at)}.`, false);
       return;
     }
-    setStatus('Login required for live queue. Showing local mode.', false);
+    setStatus('Login required for live queue. Showing backup mode.', false);
   };
 
   const sumSnapshotTotal = (snapshot) => (

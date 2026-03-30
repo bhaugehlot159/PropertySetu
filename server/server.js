@@ -245,8 +245,8 @@ const ENABLE_LEGACY_SEED_DATA = String(process.env.CORE_ENABLE_LEGACY_SEED_DATA 
   .toLowerCase() === "true";
 
 const seededProperties = [
-  { id: "prop-seed-1", title: "Premium Lake-view Villa", city: "Udaipur", type: "Buy", category: "Villa", location: "Ambamata", price: 32000000, status: "Approved", verified: true, featured: true, featuredUntil: new Date(Date.now() + 14 * 86400000).toISOString(), ownerId: "seed-owner-1", ownerName: "PropertySetu Verified Owner", trustScore: 96, reviewCount: 0, averageRating: 0, createdAt: "2026-03-14T09:00:00.000Z", updatedAt: "2026-03-14T09:00:00.000Z" },
-  { id: "prop-seed-2", title: "2BHK Family Flat in Pratap Nagar", city: "Udaipur", type: "Rent", category: "Flat", location: "Pratap Nagar", price: 19500, status: "Approved", verified: true, featured: false, featuredUntil: null, ownerId: "seed-owner-2", ownerName: "PropertySetu Owner", trustScore: 88, reviewCount: 0, averageRating: 0, createdAt: "2026-03-13T11:20:00.000Z", updatedAt: "2026-03-13T11:20:00.000Z" },
+  { id: "prop-bootstrap-1", title: "Premium Lake-view Villa", city: "Udaipur", type: "Buy", category: "Villa", location: "Ambamata", price: 32000000, status: "Approved", verified: true, featured: true, featuredUntil: new Date(Date.now() + 14 * 86400000).toISOString(), ownerId: "bootstrap-owner-1", ownerName: "PropertySetu Verified Owner", trustScore: 96, reviewCount: 0, averageRating: 0, createdAt: "2026-03-14T09:00:00.000Z", updatedAt: "2026-03-14T09:00:00.000Z" },
+  { id: "prop-bootstrap-2", title: "2BHK Family Flat in Pratap Nagar", city: "Udaipur", type: "Rent", category: "Flat", location: "Pratap Nagar", price: 19500, status: "Approved", verified: true, featured: false, featuredUntil: null, ownerId: "bootstrap-owner-2", ownerName: "PropertySetu Owner", trustScore: 88, reviewCount: 0, averageRating: 0, createdAt: "2026-03-13T11:20:00.000Z", updatedAt: "2026-03-13T11:20:00.000Z" },
 ];
 
 const defaults = () => ({

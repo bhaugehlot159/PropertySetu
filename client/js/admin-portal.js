@@ -51,17 +51,7 @@
   let bidRows = [];
 
   const ensureSeedBids = () => {
-    if (!allowDemoFallback) return;
-    const bids = readJson(bidKey, []);
-    if (bids.length) return;
-    saveJson(bidKey, [{
-      propertyId: 'demo-1',
-      amount: 4500000,
-      bidder: 'buyer-22',
-      publicVisible: false,
-      modifiedByAdmin: null,
-      createdAt: new Date().toISOString(),
-    }]);
+    // Seed bids disabled to keep admin panel fully live-data driven.
   };
 
   const fallbackData = () => {
@@ -265,10 +255,10 @@
       }
       bidRows[idx].publicVisible = true;
       const amount = Number(bidRows[idx].amount || 0).toLocaleString('en-IN');
-      window.alert(`Bid reveal (local fallback): ₹${amount}`);
+      window.alert(`Bid reveal (backup mode): ₹${amount}`);
       renderBids();
       pushNotification(
-        `Bid revealed (local fallback) for ${bidRows[idx].propertyId}.`,
+        `Bid revealed (backup mode) for ${bidRows[idx].propertyId}.`,
         ['admin', 'customer', 'seller'],
         'Bid Revealed',
         'warn',
@@ -310,12 +300,12 @@
         .filter((b) => b.propertyId === bidRows[idx].propertyId)
         .forEach((b) => { b.status = action === 'accept' ? 'Accepted' : 'Rejected'; });
       saveJson(bidKey, localBids);
-      window.alert(action === 'accept' ? 'Highest bid accepted (local fallback).' : 'All bids rejected (local fallback).');
+      window.alert(action === 'accept' ? 'Highest bid accepted (backup mode).' : 'All bids rejected (backup mode).');
       renderBids();
       pushNotification(
         action === 'accept'
-          ? `Bid accepted (local fallback) for ${bidRows[idx].propertyId}.`
-          : `All bids rejected (local fallback) for ${bidRows[idx].propertyId}.`,
+          ? `Bid accepted (backup mode) for ${bidRows[idx].propertyId}.`
+          : `All bids rejected (backup mode) for ${bidRows[idx].propertyId}.`,
         ['admin', 'customer', 'seller'],
         action === 'accept' ? 'Bid Accepted' : 'Bids Rejected',
         'warn',

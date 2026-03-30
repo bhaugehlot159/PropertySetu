@@ -261,7 +261,7 @@ Contact on WhatsApp
         return;
       }
       saveLocalReview(id, localRecord);
-      setReviewStatus('Login/live unavailable. Buyer review local mode me save ho gaya.');
+      setReviewStatus('Login/live unavailable. Buyer review backup mode me save ho gaya.');
       showReviews(id);
       return;
     }
@@ -410,7 +410,7 @@ Contact on WhatsApp
       const reports = readJson(REPORT_KEY, []);
       reports.unshift({ propertyId: id, reason, createdAt: new Date().toISOString(), source: 'local-fallback' });
       writeJson(REPORT_KEY, reports.slice(0, 200));
-      setReportStatus('Login/live unavailable. Report local queue me save ho gaya.');
+      setReportStatus('Login/live unavailable. Report backup queue me save ho gaya.');
       return;
     }
     try {

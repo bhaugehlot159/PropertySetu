@@ -177,92 +177,7 @@
     return 6371 * c;
   };
 
-  const seededListings = [
-    {
-      id: 'seed-1',
-      title: 'Premium Lake-view Villa',
-      locality: 'Ambamata',
-      category: 'Villa',
-      purpose: 'Buy',
-      price: 32000000,
-      areaSqft: 4200,
-      beds: 5,
-      furnishing: 'Furnished',
-      constructionStatus: 'Ready to Move',
-      loanAvailable: true,
-      lat: 24.5795,
-      lng: 73.6843,
-      city: 'Udaipur',
-      verified: true,
-      premium: true,
-      trustScore: 96,
-      listedAt: '2026-03-14T09:00:00.000Z',
-      image: 'https://cdn.pixabay.com/photo/2018/08/17/11/01/india-3612588_1280.jpg',
-    },
-    {
-      id: 'seed-2',
-      title: '2BHK Family Flat in Pratap Nagar',
-      locality: 'Pratap Nagar',
-      category: 'Flat',
-      purpose: 'Rent',
-      price: 19500,
-      areaSqft: 1180,
-      beds: 2,
-      furnishing: 'Semi Furnished',
-      constructionStatus: 'Ready to Move',
-      loanAvailable: true,
-      lat: 24.6192,
-      lng: 73.7484,
-      city: 'Udaipur',
-      verified: true,
-      premium: false,
-      trustScore: 88,
-      listedAt: '2026-03-13T11:20:00.000Z',
-      image: 'https://cdn.pixabay.com/photo/2018/03/19/23/07/udaipur-3241594_1280.jpg',
-    },
-    {
-      id: 'seed-3',
-      title: 'Commercial Showroom on 100 Feet Road',
-      locality: '100 Feet Road Udaipur',
-      category: 'Commercial',
-      purpose: 'Lease',
-      price: 86000,
-      areaSqft: 1850,
-      beds: 0,
-      furnishing: 'Unfurnished',
-      constructionStatus: 'Ready to Move',
-      loanAvailable: true,
-      lat: 24.6021,
-      lng: 73.7341,
-      city: 'Udaipur',
-      verified: true,
-      premium: true,
-      trustScore: 92,
-      listedAt: '2026-03-12T13:40:00.000Z',
-      image: 'https://cdn.pixabay.com/photo/2020/12/11/22/05/udaipur-5824034_1280.jpg',
-    },
-    {
-      id: 'seed-4',
-      title: 'Residential Plot Near Bedla Road',
-      locality: 'Bedla Road',
-      category: 'Plot',
-      purpose: 'Sell',
-      price: 4800000,
-      areaSqft: 2100,
-      beds: 0,
-      furnishing: '',
-      constructionStatus: 'Under Construction',
-      loanAvailable: false,
-      lat: 24.6351,
-      lng: 73.6884,
-      city: 'Udaipur',
-      verified: false,
-      premium: false,
-      trustScore: 74,
-      listedAt: '2026-03-11T07:05:00.000Z',
-      image: 'https://cdn.pixabay.com/photo/2018/03/15/21/46/city-palace-3229617_640.jpg',
-    },
-  ];
+  const seededListings = [];
 
   const normalizePurpose = live.normalizePurpose || ((value) => String(value || '').trim() || 'Buy');
   const hasSubmitted = (value) => ['submitted', 'verified', 'approved'].includes(String(value || '').trim().toLowerCase());
@@ -987,7 +902,7 @@
       updateAiPanels(filters, filteredListings, force).catch((error) => {
         if (aiPricingSummary) {
           aiPricingSummary.textContent = allowDemoFallback
-            ? 'AI module fallback mode me hai (local model running).'
+            ? 'AI module backup mode me hai.'
             : `AI module unavailable: ${String(error?.message || 'Live API error')}`;
         }
       });
@@ -1298,7 +1213,7 @@
         const reports = readJson('propertySetu:localReports', []);
         reports.unshift({ propertyId: listingId, reason, createdAt: new Date().toISOString() });
         writeJson('propertySetu:localReports', reports);
-        window.alert('Report local queue me save ho gaya. Login ke baad live submit hoga.');
+        window.alert('Report backup queue me save ho gaya. Login ke baad live submit hoga.');
         pushNotification(
           `Report queued locally for ${listing?.title || listingId}.`,
           ['admin', 'customer'],
@@ -1358,7 +1273,7 @@
         'Video Visit Booked',
         'success',
       );
-      window.alert(liveDone ? 'Live video visit request submitted.' : 'Video visit request queued locally.');
+      window.alert(liveDone ? 'Live video visit request submitted.' : 'Video visit request queued in backup mode.');
       return;
     }
 
@@ -1385,7 +1300,7 @@
           'success',
         );
       } else {
-        window.alert('Visit request local queue me save ho gayi. Login se live submit hoga.');
+        window.alert('Visit request backup queue me save ho gayi. Login se live submit hoga.');
         pushNotification(
           `Visit request queued for ${listing?.title || listingId}. Preferred time: ${new Date(preferredAt).toLocaleString()}.`,
           ['customer', 'seller', 'admin'],
