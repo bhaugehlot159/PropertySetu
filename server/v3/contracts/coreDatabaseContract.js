@@ -162,12 +162,17 @@ export const coreSystemsBlueprint = [
     capabilities: [
       "Smart pricing suggestion",
       "Similar property recommendation",
-      "Fake listing detection"
+      "Fake listing detection",
+      "Server-side auto moderation on property create/update",
+      "Auto quarantine/pending-review based on risk score + signal thresholds",
+      "Admin moderation queue and manual decision override with reason tracking"
     ],
     endpoints: [
       "/api/v3/ai/smart-pricing",
       "/api/v3/ai/similar-properties",
-      "/api/v3/ai/fake-listing-detection"
+      "/api/v3/ai/fake-listing-detection",
+      "/api/v3/properties/moderation/queue",
+      "/api/v3/properties/:propertyId/moderation/decision"
     ],
     dependencies: ["database"]
   },

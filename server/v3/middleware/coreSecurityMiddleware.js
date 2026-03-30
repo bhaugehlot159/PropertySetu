@@ -136,6 +136,22 @@ export const coreUploadWriteLimiter = createCoreRateLimiter({
   message: "Too many upload attempts. Please retry after a short pause."
 });
 
+export const corePropertyWriteLimiter = createCoreRateLimiter({
+  scope: "property-write",
+  limit: Math.max(8, Number(process.env.CORE_PROPERTY_WRITE_RATE_LIMIT || 45)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "anon")}:${toIp(req)}`,
+  message: "Too many property create/update requests. Please retry shortly."
+});
+
+export const corePropertyModerationLimiter = createCoreRateLimiter({
+  scope: "property-moderation-admin",
+  limit: Math.max(10, Number(process.env.CORE_PROPERTY_MODERATION_RATE_LIMIT || 80)),
+  windowMs: 10 * 60 * 1000,
+  keyBuilder: (req) => `${text(req.coreUser?.id, "admin")}:${toIp(req)}`,
+  message: "Too many property moderation actions. Please retry shortly."
+});
+
 export const coreUploadPrivateDocAccessLimiter = createCoreRateLimiter({
   scope: "upload-private-doc-access",
   limit: Math.max(10, Number(process.env.CORE_UPLOAD_PRIVATE_DOC_ACCESS_RATE_LIMIT || 120)),

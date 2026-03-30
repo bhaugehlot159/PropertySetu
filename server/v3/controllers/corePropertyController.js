@@ -23,6 +23,38 @@ const CONSTRUCTION_STATUS_TYPES = new Set(["ready-to-move", "under-construction"
 const MIN_REQUIRED_PHOTOS = 5;
 const MIN_VIDEO_DURATION_SEC = 30;
 const MAX_VIDEO_DURATION_SEC = 60;
+const AI_FAKE_LISTING_AUTO_MODERATION_ENABLED =
+  String(process.env.CORE_AI_FAKE_LISTING_AUTO_MODERATION_ENABLED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const AI_FAKE_LISTING_PENDING_SCORE = Math.max(
+  10,
+  Math.min(95, Number(process.env.CORE_AI_FAKE_LISTING_PENDING_SCORE || 45))
+);
+const AI_FAKE_LISTING_QUARANTINE_SCORE = Math.max(
+  AI_FAKE_LISTING_PENDING_SCORE,
+  Math.min(100, Number(process.env.CORE_AI_FAKE_LISTING_QUARANTINE_SCORE || 76))
+);
+const AI_FAKE_LISTING_QUARANTINE_ON_SIGNAL =
+  String(process.env.CORE_AI_FAKE_LISTING_QUARANTINE_ON_SIGNAL || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const AI_FAKE_LISTING_DECISION_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_AI_FAKE_LISTING_DECISION_REASON_MIN || 10)
+);
+const AI_FAKE_LISTING_SCAN_MAX_ROWS = Math.max(
+  100,
+  Math.min(5000, Number(process.env.CORE_AI_FAKE_LISTING_SCAN_MAX_ROWS || 1200))
+);
+const AI_FAKE_LISTING_RISKY_WORDS = [
+  "urgent sale",
+  "cash only",
+  "advance first",
+  "no visit",
+  "token now"
+];
+const PROPERTY_MODERATION_STATUSES = new Set(["approved", "pending-review", "quarantined"]);
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -32,6 +64,17 @@ function text(value, fallback = "") {
 function numberValue(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function asIso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }
 
 function parseBool(value) {
@@ -213,6 +256,291 @@ function normalizeMixedObject(value) {
   return normalizeObject(value);
 }
 
+function normalizeModerationStatus(value, fallback = "approved") {
+  const raw = text(value).toLowerCase();
+  if (PROPERTY_MODERATION_STATUSES.has(raw)) return raw;
+  return PROPERTY_MODERATION_STATUSES.has(text(fallback).toLowerCase())
+    ? text(fallback).toLowerCase()
+    : "approved";
+}
+
+function normalizeModerationAction(value) {
+  const raw = text(value).toLowerCase();
+  if (raw === "approve" || raw === "approved") return "approve";
+  if (raw === "quarantine" || raw === "quarantined") return "quarantine";
+  if (raw === "pending" || raw === "pending-review" || raw === "review") return "pending-review";
+  return "";
+}
+
+function isPublicModerationStatus(status = "") {
+  const normalized = normalizeModerationStatus(status, "approved");
+  return normalized === "approved";
+}
+
+function isPropertyOwner(property = {}, viewer = null) {
+  const viewerId = toId(viewer?.id);
+  const ownerId = toId(property?.ownerId);
+  return Boolean(viewerId && ownerId && viewerId === ownerId);
+}
+
+function canViewerAccessModeratedProperty(property = {}, viewer = null) {
+  const role = text(viewer?.role).toLowerCase();
+  if (role === "admin") return true;
+  if (isPropertyOwner(property, viewer)) return true;
+  return isPublicModerationStatus(property?.aiReview?.moderationStatus);
+}
+
+function buildModerationSummary(aiReview = {}) {
+  const review =
+    aiReview && typeof aiReview === "object" && !Array.isArray(aiReview)
+      ? aiReview
+      : {};
+  const moderation =
+    review.moderation && typeof review.moderation === "object" && !Array.isArray(review.moderation)
+      ? review.moderation
+      : {};
+  const status = normalizeModerationStatus(
+    moderation.status || review.moderationStatus || "approved"
+  );
+  return {
+    status,
+    fraudRiskScore: Math.max(0, Math.round(numberValue(review.fraudRiskScore, 0))),
+    fakeListingSignal: Boolean(review.fakeListingSignal),
+    duplicatePhotoDetected: Boolean(review.duplicatePhotoDetected),
+    suspiciousPricingAlert: Boolean(review.suspiciousPricingAlert),
+    scannedAt: asIso(review.scannedAt),
+    recommendation: text(review.recommendation),
+    source: text(moderation.source || "auto"),
+    reviewedAt: asIso(moderation.reviewedAt),
+    reviewedBy: toId(moderation.reviewedBy)
+  };
+}
+
+async function estimateLocalAveragePropertyPrice(payload = {}, excludePropertyId = "") {
+  const city = text(payload?.city);
+  const type = normalizeType(payload?.type);
+  const category = normalizeCategory(payload?.category);
+  const location = text(payload?.location).toLowerCase();
+  const excludeId = toId(excludePropertyId);
+
+  let rows = [];
+  if (proRuntime.dbConnected) {
+    const query = {
+      price: { $gt: 0 },
+      city,
+      type,
+      category
+    };
+    rows = await CoreProperty.find(query)
+      .select("_id city location price")
+      .sort({ createdAt: -1 })
+      .limit(AI_FAKE_LISTING_SCAN_MAX_ROWS)
+      .lean();
+  } else {
+    rows = (Array.isArray(proMemoryStore.coreProperties) ? proMemoryStore.coreProperties : [])
+      .filter(
+        (item) =>
+          text(item?.city) === city &&
+          normalizeType(item?.type) === type &&
+          normalizeCategory(item?.category) === category &&
+          numberValue(item?.price, 0) > 0
+      )
+      .slice(-AI_FAKE_LISTING_SCAN_MAX_ROWS);
+  }
+
+  if (excludeId) {
+    rows = rows.filter((item) => toId(item?._id || item?.id) !== excludeId);
+  }
+
+  const locationTokens = location
+    .split(/[\s,/-]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3);
+  const localRows = locationTokens.length
+    ? rows.filter((item) => {
+      const haystack = `${text(item?.location)} ${text(item?.city)}`.toLowerCase();
+      return locationTokens.some((token) => haystack.includes(token));
+    })
+    : rows;
+  const priceRows = localRows.length >= 5 ? localRows : rows;
+  const prices = priceRows
+    .map((item) => numberValue(item?.price, 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!prices.length) return 0;
+  return Math.round(prices.reduce((sum, value) => sum + value, 0) / prices.length);
+}
+
+function buildFakeListingScan(payload = {}, expectedAveragePrice = 0) {
+  const media = normalizeMedia(payload?.media);
+  const photosCount = Math.max(
+    normalizeImages(payload?.images).length,
+    numberValue(media?.photosCount, normalizeStringArray(media?.photoNames).length)
+  );
+  const duplicatePhotoMatches = Math.max(0, Math.round(numberValue(media?.duplicatePhotoMatches, 0)));
+  const blurryPhotosDetected = Math.max(0, Math.round(numberValue(media?.blurryPhotosDetected, 0)));
+  const title = text(payload?.title);
+  const description = text(payload?.description);
+  const combinedText = `${title} ${description}`.toLowerCase();
+  const riskyMatches = AI_FAKE_LISTING_RISKY_WORDS.filter((word) => combinedText.includes(word));
+  const price = numberValue(payload?.price, 0);
+  const suspiciousPricingAlert =
+    expectedAveragePrice > 0 && price > 0 && price < Math.round(expectedAveragePrice * 0.38);
+  const riskScore = clamp(
+    (riskyMatches.length * 20)
+      + (suspiciousPricingAlert ? 24 : 0)
+      + (photosCount > 0 && photosCount < MIN_REQUIRED_PHOTOS ? 16 : 0)
+      + (duplicatePhotoMatches > 0 ? 28 : 0)
+      + (blurryPhotosDetected >= 3 ? 12 : 0),
+    0,
+    100
+  );
+  const fakeListingSignal =
+    duplicatePhotoMatches > 0 ||
+    suspiciousPricingAlert ||
+    blurryPhotosDetected >= 3 ||
+    riskyMatches.length >= 2;
+  const reasons = [
+    ...riskyMatches.map((word) => `Contains risky phrase: "${word}"`),
+    ...(suspiciousPricingAlert ? ["Price looks abnormally low for this locality"] : []),
+    ...(photosCount > 0 && photosCount < MIN_REQUIRED_PHOTOS
+      ? [`Minimum ${MIN_REQUIRED_PHOTOS} photos recommended for trust`]
+      : []),
+    ...(duplicatePhotoMatches > 0 ? [`Duplicate photo match detected (${duplicatePhotoMatches})`] : []),
+    ...(blurryPhotosDetected >= 3 ? ["Multiple blurry photos detected"] : [])
+  ];
+  return {
+    riskScore,
+    fakeListingSignal,
+    reasons,
+    photosCount,
+    duplicatePhotoMatches,
+    blurryPhotosDetected,
+    suspiciousPricingAlert
+  };
+}
+
+function deriveAutoModerationStatus(scan = {}) {
+  if (!AI_FAKE_LISTING_AUTO_MODERATION_ENABLED) return "approved";
+  const riskScore = Math.max(0, Math.round(numberValue(scan?.riskScore, 0)));
+  const fakeListingSignal = Boolean(scan?.fakeListingSignal);
+  if (
+    riskScore >= AI_FAKE_LISTING_QUARANTINE_SCORE ||
+    (AI_FAKE_LISTING_QUARANTINE_ON_SIGNAL && fakeListingSignal)
+  ) {
+    return "quarantined";
+  }
+  if (riskScore >= AI_FAKE_LISTING_PENDING_SCORE) return "pending-review";
+  return "approved";
+}
+
+async function buildServerAiReview(
+  payload = {},
+  {
+    previousAiReview = {},
+    excludePropertyId = "",
+    actorIsAdmin = false
+  } = {}
+) {
+  const existing =
+    previousAiReview && typeof previousAiReview === "object" && !Array.isArray(previousAiReview)
+      ? previousAiReview
+      : {};
+  const expectedAverageFromRequest = Math.max(
+    0,
+    numberValue(payload?.aiReview?.expectedAveragePrice, 0)
+  );
+  const expectedAveragePrice =
+    expectedAverageFromRequest > 0
+      ? expectedAverageFromRequest
+      : await estimateLocalAveragePropertyPrice(payload, excludePropertyId);
+  const scan = buildFakeListingScan(payload, expectedAveragePrice);
+  const nowIso = new Date().toISOString();
+  let moderationStatus = deriveAutoModerationStatus(scan);
+  const previousStatus = normalizeModerationStatus(
+    existing?.moderation?.status || existing?.moderationStatus || "approved"
+  );
+  if (!actorIsAdmin) {
+    if (previousStatus === "quarantined") moderationStatus = "quarantined";
+    if (previousStatus === "pending-review" && moderationStatus === "approved") {
+      moderationStatus = "pending-review";
+    }
+  }
+  return {
+    engine: "core-fraud-v2",
+    scannedAt: nowIso,
+    expectedAveragePrice,
+    fraudRiskScore: scan.riskScore,
+    duplicatePhotoDetected: scan.duplicatePhotoMatches > 0,
+    duplicatePhotoCount: scan.duplicatePhotoMatches,
+    suspiciousPricingAlert: scan.suspiciousPricingAlert,
+    fakeListingSignal: scan.fakeListingSignal,
+    reasons: scan.reasons,
+    recommendation:
+      moderationStatus === "quarantined" || moderationStatus === "pending-review"
+        ? "Manual admin verification required"
+        : "Looks normal",
+    moderationStatus,
+    moderation: {
+      status: moderationStatus,
+      source: "auto",
+      autoEnabled: Boolean(AI_FAKE_LISTING_AUTO_MODERATION_ENABLED),
+      pendingThreshold: AI_FAKE_LISTING_PENDING_SCORE,
+      quarantineThreshold: AI_FAKE_LISTING_QUARANTINE_SCORE,
+      reviewedAt: asIso(existing?.moderation?.reviewedAt),
+      reviewedBy: toId(existing?.moderation?.reviewedBy),
+      reason: text(existing?.moderation?.reason),
+      lastAutoDecisionAt: nowIso
+    }
+  };
+}
+
+function applyModerationFlagsToPropertyPayload(payload = {}) {
+  const row = payload && typeof payload === "object" ? payload : {};
+  const moderationStatus = normalizeModerationStatus(row?.aiReview?.moderationStatus, "approved");
+  if (moderationStatus === "approved") return row;
+  return {
+    ...row,
+    verified: false,
+    verifiedByPropertySetu: false,
+    verifiedBadge: {
+      show: false,
+      label: "Verified by PropertySetu",
+      approvedAt: null,
+      approvedBy: null,
+      status: "Pending"
+    },
+    featured: false,
+    featuredUntil: null,
+    verification: {
+      ...(row.verification && typeof row.verification === "object" && !Array.isArray(row.verification)
+        ? row.verification
+        : {}),
+      status: moderationStatus === "quarantined" ? "Quarantined" : "Pending Approval",
+      adminApproved: false,
+      badgeEligible: false
+    }
+  };
+}
+
+function buildPropertyModerationQueueItem(property = {}) {
+  const normalized = normalizeCoreProperty(property);
+  if (!normalized) return null;
+  const moderation = buildModerationSummary(normalized.aiReview);
+  return {
+    id: normalized.id,
+    title: normalized.title,
+    city: normalized.city,
+    location: normalized.location,
+    type: normalized.type,
+    category: normalized.category,
+    price: normalized.price,
+    ownerId: normalized.ownerId,
+    moderation,
+    createdAt: normalized.createdAt,
+    updatedAt: normalized.updatedAt
+  };
+}
+
 function canViewerAccessPrivateDocs(property = {}, viewer = null) {
   const viewerId = toId(viewer?.id);
   const viewerRole = text(viewer?.role).toLowerCase();
@@ -389,10 +717,27 @@ function normalizePrivateDocsForSecureView(
 function projectPropertyForViewer(property, viewer = null, options = {}) {
   const normalized = normalizeCoreProperty(property);
   if (!normalized) return null;
+  const canViewModerated = canViewerAccessModeratedProperty(normalized, viewer);
+  if (!canViewModerated && !Boolean(options.includeHiddenForAdmin)) {
+    return null;
+  }
+
+  const role = text(viewer?.role).toLowerCase();
+  const isPrivileged = role === "admin" || isPropertyOwner(normalized, viewer);
+  const aiReview = isPrivileged
+    ? normalized.aiReview
+    : {
+      ...buildModerationSummary(normalized.aiReview),
+      reasons: []
+    };
+  const baseNormalized = {
+    ...normalized,
+    aiReview
+  };
 
   if (options.includePrivateDocs || canViewerAccessPrivateDocs(normalized, viewer)) {
     return {
-      ...normalized,
+      ...baseNormalized,
       privateDocs: normalizePrivateDocsForSecureView(normalized.privateDocs, {
         viewer,
         property: normalized
@@ -401,7 +746,7 @@ function projectPropertyForViewer(property, viewer = null, options = {}) {
   }
 
   return {
-    ...normalized,
+    ...baseNormalized,
     privateDocs: buildRestrictedPrivateDocs(normalized.privateDocs)
   };
 }
@@ -649,6 +994,28 @@ function isOwner(record, userId) {
   return toId(record?.ownerId) === toId(userId);
 }
 
+function shouldBypassPublicModerationFilter(viewer = null, ownerIdFilter = "") {
+  const role = text(viewer?.role).toLowerCase();
+  if (role === "admin") return true;
+  const viewerId = toId(viewer?.id);
+  const ownerId = toId(ownerIdFilter);
+  return Boolean(viewerId && ownerId && viewerId === ownerId);
+}
+
+function buildPublicModerationQuery() {
+  return {
+    $or: [
+      { "aiReview.moderationStatus": { $exists: false } },
+      { "aiReview.moderationStatus": "" },
+      { "aiReview.moderationStatus": "approved" }
+    ]
+  };
+}
+
+function passesPublicModerationFilter(item = {}) {
+  return isPublicModerationStatus(item?.aiReview?.moderationStatus);
+}
+
 function sortRows(rows, sortKey) {
   const list = [...rows];
   const key = text(sortKey, "newest").toLowerCase();
@@ -770,9 +1137,10 @@ export async function compareCoreProperties(req, res, next) {
     const mapById = new Map(
       rows.map((row) => {
         const normalized = projectPropertyForViewer(row, viewer);
+        if (!normalized) return null;
         const summary = buildPropertyCompareSummary(normalized);
         return [summary.id, summary];
-      })
+      }).filter(Boolean)
     );
     const items = propertyIds.map((id) => mapById.get(id)).filter(Boolean);
 
@@ -828,6 +1196,7 @@ export async function listCoreProperties(req, res, next) {
     );
     const loanAvailable = parseBool(req.query.loanAvailable);
     const ownerId = text(req.query.ownerId);
+    const bypassPublicModerationFilter = shouldBypassPublicModerationFilter(viewer, ownerId);
     const minPrice = numberValue(req.query.minPrice, 0);
     const maxPrice = numberValue(req.query.maxPrice, 0);
     const centerLat = parseOptionalNumber(req.query.centerLat || req.query.lat);
@@ -858,6 +1227,9 @@ export async function listCoreProperties(req, res, next) {
       if (typeof loanAvailable === "boolean") filters.loanAvailable = loanAvailable;
       if (ownerId && mongoose.Types.ObjectId.isValid(ownerId)) {
         filters.ownerId = ownerId;
+      }
+      if (!bypassPublicModerationFilter) {
+        Object.assign(filters, buildPublicModerationQuery());
       }
 
       if (minPrice > 0 || maxPrice > 0) {
@@ -903,7 +1275,9 @@ export async function listCoreProperties(req, res, next) {
             loanAvailable,
             radiusKm
           },
-          items: paginatedRows.map((item) => projectPropertyForViewer(item, viewer))
+          items: paginatedRows
+            .map((item) => projectPropertyForViewer(item, viewer))
+            .filter(Boolean)
         });
       }
 
@@ -932,7 +1306,9 @@ export async function listCoreProperties(req, res, next) {
           loanAvailable,
           radiusKm: undefined
         },
-        items: rows.map((item) => projectPropertyForViewer(item, viewer))
+        items: rows
+          .map((item) => projectPropertyForViewer(item, viewer))
+          .filter(Boolean)
       });
     }
 
@@ -964,6 +1340,9 @@ export async function listCoreProperties(req, res, next) {
       rows = rows.filter((item) => Boolean(item.loanAvailable) === loanAvailable);
     }
     if (ownerId) rows = rows.filter((item) => toId(item.ownerId) === ownerId);
+    if (!bypassPublicModerationFilter) {
+      rows = rows.filter((item) => passesPublicModerationFilter(item));
+    }
     if (minPrice > 0) rows = rows.filter((item) => numberValue(item.price) >= minPrice);
     if (maxPrice > 0) rows = rows.filter((item) => numberValue(item.price) <= maxPrice);
     if (radiusFilterActive) {
@@ -997,7 +1376,9 @@ export async function listCoreProperties(req, res, next) {
         loanAvailable,
         radiusKm: radiusFilterActive ? radiusKm : undefined
       },
-      items: paginated.map((item) => projectPropertyForViewer(item, viewer))
+      items: paginated
+        .map((item) => projectPropertyForViewer(item, viewer))
+        .filter(Boolean)
     });
   } catch (error) {
     return next(error);
@@ -1017,9 +1398,17 @@ export async function getCorePropertyById(req, res, next) {
       });
     }
 
+    const item = projectPropertyForViewer(property, viewer);
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+
     return res.json({
       success: true,
-      item: projectPropertyForViewer(property, viewer)
+      item
     });
   } catch (error) {
     return next(error);
@@ -1029,7 +1418,8 @@ export async function getCorePropertyById(req, res, next) {
 async function createCorePropertyInternal(req, res, next, options = {}) {
   try {
     const payload = normalizeCreatePayload(req.body);
-    if (!isAdmin(req)) {
+    const actorIsAdmin = isAdmin(req);
+    if (!actorIsAdmin) {
       payload.verified = false;
       payload.verifiedByPropertySetu = false;
       payload.verifiedBadge = {
@@ -1050,18 +1440,27 @@ async function createCorePropertyInternal(req, res, next, options = {}) {
       });
     }
 
+    const computedAiReview = await buildServerAiReview(payload, {
+      previousAiReview: payload.aiReview,
+      actorIsAdmin
+    });
+    const finalPayload = applyModerationFlagsToPropertyPayload({
+      ...payload,
+      aiReview: computedAiReview
+    });
+
     const ownerId = toId(req.coreUser?.id);
     let created;
 
     if (proRuntime.dbConnected) {
       created = await CoreProperty.create({
-        ...payload,
+        ...finalPayload,
         ownerId
       });
     } else {
       created = {
         _id: `prop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        ...payload,
+        ...finalPayload,
         ownerId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -1069,12 +1468,15 @@ async function createCorePropertyInternal(req, res, next, options = {}) {
       proMemoryStore.coreProperties.push(created);
     }
 
+    const item = projectPropertyForViewer(created, getViewerFromRequest(req), {
+      includePrivateDocs: true
+    });
+
     return res.status(201).json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
-      item: projectPropertyForViewer(created, getViewerFromRequest(req), {
-        includePrivateDocs: true
-      })
+      moderation: buildModerationSummary(item?.aiReview || finalPayload.aiReview),
+      item
     });
   } catch (error) {
     return next(error);
@@ -1102,7 +1504,9 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
 
     const existingNormalized = normalizeCoreProperty(existing);
     const updates = normalizeUpdatePayload(req.body, existingNormalized);
-    if (!isAdmin(req)) {
+    const actorIsAdmin = isAdmin(req);
+    delete updates.aiReview;
+    if (!actorIsAdmin) {
       delete updates.verified;
       delete updates.verifiedByPropertySetu;
       delete updates.verifiedBadge;
@@ -1122,6 +1526,36 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
         success: false,
         message: validation
       });
+    }
+
+    const mergedPayloadForReview = {
+      ...existingNormalized,
+      ...updates
+    };
+    const computedAiReview = await buildServerAiReview(mergedPayloadForReview, {
+      previousAiReview: existingNormalized?.aiReview,
+      excludePropertyId: propertyId,
+      actorIsAdmin
+    });
+    updates.aiReview = computedAiReview;
+
+    if (normalizeModerationStatus(computedAiReview?.moderationStatus, "approved") !== "approved") {
+      const moderatedPayload = applyModerationFlagsToPropertyPayload({
+        ...mergedPayloadForReview,
+        aiReview: computedAiReview
+      });
+      updates.verified = Boolean(moderatedPayload.verified);
+      updates.verifiedByPropertySetu = Boolean(moderatedPayload.verifiedByPropertySetu);
+      updates.verifiedBadge =
+        moderatedPayload.verifiedBadge && typeof moderatedPayload.verifiedBadge === "object"
+          ? moderatedPayload.verifiedBadge
+          : {};
+      updates.featured = Boolean(moderatedPayload.featured);
+      updates.featuredUntil = moderatedPayload.featuredUntil || null;
+      updates.verification =
+        moderatedPayload.verification && typeof moderatedPayload.verification === "object"
+          ? moderatedPayload.verification
+          : {};
     }
 
     let updated;
@@ -1145,11 +1579,14 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
       }
     }
 
+    const item = projectPropertyForViewer(updated, getViewerFromRequest(req), {
+      includePrivateDocs: true
+    });
+
     return res.json({
       success: true,
-      item: projectPropertyForViewer(updated, getViewerFromRequest(req), {
-        includePrivateDocs: true
-      })
+      moderation: buildModerationSummary(item?.aiReview || updates.aiReview),
+      item
     });
   } catch (error) {
     return next(error);
@@ -1184,6 +1621,202 @@ export async function updateCoreProperty(req, res, next) {
 
 export async function updateCorePropertyProfessional(req, res, next) {
   return updateCorePropertyInternal(req, res, next, { forceProfessionalRules: true });
+}
+
+export async function listCorePropertyModerationQueue(req, res, next) {
+  try {
+    const status = text(req.query?.status, "pending").toLowerCase();
+    const limit = Math.min(300, Math.max(1, Number(req.query?.limit || 120)));
+    const allowedStatuses = (() => {
+      if (status === "all") return ["approved", "pending-review", "quarantined"];
+      if (status === "approved") return ["approved"];
+      if (status === "quarantined") return ["quarantined"];
+      if (status === "flagged") return ["pending-review", "quarantined"];
+      return ["pending-review"];
+    })();
+
+    let rows = [];
+    if (proRuntime.dbConnected) {
+      rows = await CoreProperty.find({
+        "aiReview.moderationStatus": { $in: allowedStatuses }
+      })
+        .sort({ "aiReview.fraudRiskScore": -1, updatedAt: -1 })
+        .limit(limit)
+        .lean();
+    } else {
+      rows = (Array.isArray(proMemoryStore.coreProperties) ? proMemoryStore.coreProperties : [])
+        .filter((item) =>
+          allowedStatuses.includes(normalizeModerationStatus(item?.aiReview?.moderationStatus))
+        )
+        .sort(
+          (a, b) =>
+            Math.round(numberValue(b?.aiReview?.fraudRiskScore, 0)) -
+              Math.round(numberValue(a?.aiReview?.fraudRiskScore, 0)) ||
+            new Date(b?.updatedAt || b?.createdAt || 0) - new Date(a?.updatedAt || a?.createdAt || 0)
+        )
+        .slice(0, limit);
+    }
+
+    const items = rows.map((item) => buildPropertyModerationQueueItem(item)).filter(Boolean);
+    const summary = {
+      approved: items.filter((item) => item?.moderation?.status === "approved").length,
+      pendingReview: items.filter((item) => item?.moderation?.status === "pending-review").length,
+      quarantined: items.filter((item) => item?.moderation?.status === "quarantined").length
+    };
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      total: items.length,
+      filters: {
+        status,
+        normalizedStatuses: allowedStatuses,
+        limit
+      },
+      summary,
+      items
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function decideCorePropertyModeration(req, res, next) {
+  try {
+    const propertyId = text(req.params.propertyId);
+    const action = normalizeModerationAction(req.body?.action || req.query?.action);
+    const reason = text(req.body?.reason || req.query?.reason);
+    const force =
+      String(req.body?.force || req.query?.force || "false").trim().toLowerCase() === "true";
+
+    if (!propertyId) {
+      return res.status(400).json({
+        success: false,
+        message: "propertyId is required."
+      });
+    }
+    if (!action) {
+      return res.status(400).json({
+        success: false,
+        message: "action is required. Allowed: approve, quarantine, pending-review."
+      });
+    }
+    if (reason.length < AI_FAKE_LISTING_DECISION_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `Reason must be at least ${AI_FAKE_LISTING_DECISION_REASON_MIN} characters.`
+      });
+    }
+
+    const existing = await findCorePropertyById(propertyId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+
+    const normalized = normalizeCoreProperty(existing);
+    const freshAiReview = await buildServerAiReview(normalized, {
+      previousAiReview: normalized?.aiReview,
+      excludePropertyId: propertyId,
+      actorIsAdmin: true
+    });
+    const freshRiskScore = Math.max(0, numberValue(freshAiReview?.fraudRiskScore, 0));
+
+    if (
+      action === "approve" &&
+      !force &&
+      (freshRiskScore >= AI_FAKE_LISTING_QUARANTINE_SCORE || Boolean(freshAiReview?.fakeListingSignal))
+    ) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "High-risk listing cannot be approved without force=true. Review AI reasons before override."
+      });
+    }
+
+    const moderationStatus =
+      action === "approve" ? "approved" : action === "quarantine" ? "quarantined" : "pending-review";
+    const nowIso = new Date().toISOString();
+    const adminId = toId(req.coreUser?.id);
+    const nextAiReview = {
+      ...freshAiReview,
+      moderationStatus,
+      moderation: {
+        ...(freshAiReview?.moderation &&
+        typeof freshAiReview.moderation === "object" &&
+        !Array.isArray(freshAiReview.moderation)
+          ? freshAiReview.moderation
+          : {}),
+        status: moderationStatus,
+        source: "admin-decision",
+        reviewedAt: nowIso,
+        reviewedBy: adminId,
+        reason: reason.slice(0, 240),
+        action,
+        force: Boolean(force)
+      }
+    };
+
+    const updatePatch = {
+      aiReview: nextAiReview
+    };
+    if (moderationStatus !== "approved") {
+      const moderatedPayload = applyModerationFlagsToPropertyPayload({
+        ...normalized,
+        aiReview: nextAiReview
+      });
+      updatePatch.verified = Boolean(moderatedPayload.verified);
+      updatePatch.verifiedByPropertySetu = Boolean(moderatedPayload.verifiedByPropertySetu);
+      updatePatch.verifiedBadge = moderatedPayload.verifiedBadge;
+      updatePatch.featured = Boolean(moderatedPayload.featured);
+      updatePatch.featuredUntil = moderatedPayload.featuredUntil || null;
+      updatePatch.verification = moderatedPayload.verification;
+    }
+
+    let updated = null;
+    if (proRuntime.dbConnected) {
+      updated = await CoreProperty.findByIdAndUpdate(
+        propertyId,
+        { $set: updatePatch },
+        { new: true }
+      );
+    } else {
+      const index = proMemoryStore.coreProperties.findIndex(
+        (item) => toId(item._id || item.id) === propertyId
+      );
+      if (index >= 0) {
+        proMemoryStore.coreProperties[index] = {
+          ...proMemoryStore.coreProperties[index],
+          ...updatePatch,
+          updatedAt: nowIso
+        };
+        updated = proMemoryStore.coreProperties[index];
+      }
+    }
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+
+    const item = projectPropertyForViewer(updated, getViewerFromRequest(req), {
+      includePrivateDocs: true
+    });
+
+    return res.json({
+      success: true,
+      action,
+      moderationStatus,
+      moderation: buildModerationSummary(item?.aiReview || nextAiReview),
+      item
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function deleteCoreProperty(req, res, next) {
@@ -1273,6 +1906,19 @@ export async function verifyCoreProperty(req, res, next) {
       });
     }
 
+    const moderationStatus = normalizeModerationStatus(
+      existing?.aiReview?.moderationStatus,
+      "approved"
+    );
+    if (verified && moderationStatus === "quarantined") {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Quarantined property cannot be verified directly. Use moderation decision endpoint first."
+      });
+    }
+
+    const nowIso = new Date().toISOString();
     const previousVerification =
       existing?.verification && typeof existing.verification === "object"
         ? existing.verification
@@ -1282,15 +1928,38 @@ export async function verifyCoreProperty(req, res, next) {
       status: verified ? "Verified" : "Pending Approval",
       adminApproved: verified,
       badgeEligible: verified,
-      reviewedAt: new Date().toISOString(),
+      reviewedAt: nowIso,
       reviewedBy: toId(req.coreUser?.id)
     };
     const nextBadge = {
       show: verified,
       label: "Verified by PropertySetu",
-      approvedAt: verified ? new Date().toISOString() : null,
+      approvedAt: verified ? nowIso : null,
       approvedBy: toId(req.coreUser?.id),
       status: verified ? "Verified" : "Pending"
+    };
+    const previousAiReview =
+      existing?.aiReview && typeof existing.aiReview === "object" && !Array.isArray(existing.aiReview)
+        ? existing.aiReview
+        : {};
+    const nextModerationStatus = verified
+      ? "approved"
+      : normalizeModerationStatus(previousAiReview?.moderationStatus, "pending-review");
+    const nextAiReview = {
+      ...previousAiReview,
+      moderationStatus: nextModerationStatus,
+      moderation: {
+        ...(previousAiReview?.moderation &&
+        typeof previousAiReview.moderation === "object" &&
+        !Array.isArray(previousAiReview.moderation)
+          ? previousAiReview.moderation
+          : {}),
+        status: nextModerationStatus,
+        source: "admin-verification",
+        reviewedAt: nowIso,
+        reviewedBy: toId(req.coreUser?.id),
+        reason: text(req.body?.reason, verified ? "admin-verified-property" : "admin-unverified-property")
+      }
     };
 
     let updated;
@@ -1302,7 +1971,8 @@ export async function verifyCoreProperty(req, res, next) {
             verified,
             verifiedByPropertySetu: verified,
             verifiedBadge: nextBadge,
-            verification: nextVerification
+            verification: nextVerification,
+            aiReview: nextAiReview
           }
         },
         { new: true }
@@ -1318,6 +1988,7 @@ export async function verifyCoreProperty(req, res, next) {
           verifiedByPropertySetu: verified,
           verifiedBadge: nextBadge,
           verification: nextVerification,
+          aiReview: nextAiReview,
           updatedAt: new Date().toISOString()
         };
         updated = proMemoryStore.coreProperties[index];
@@ -1344,6 +2015,22 @@ export async function featureCoreProperty(req, res, next) {
     const featuredUntil = featured
       ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000)
       : null;
+    const existing = await findCorePropertyById(propertyId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+    if (
+      featured &&
+      normalizeModerationStatus(existing?.aiReview?.moderationStatus, "approved") !== "approved"
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: "Only moderation-approved properties can be featured."
+      });
+    }
 
     let updated;
     if (proRuntime.dbConnected) {

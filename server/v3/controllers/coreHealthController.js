@@ -19,9 +19,11 @@ import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
+      const [users, properties, propertiesPendingModeration, propertiesQuarantined, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
+        CoreProperty.countDocuments({ "aiReview.moderationStatus": "pending-review" }),
+        CoreProperty.countDocuments({ "aiReview.moderationStatus": "quarantined" }),
         CoreReview.countDocuments({}),
         CoreSubscription.countDocuments({}),
         CoreMessage.countDocuments({}),
@@ -57,6 +59,8 @@ export async function getCoreHealth(_req, res, next) {
         counts: {
           users,
           properties,
+          propertiesPendingModeration,
+          propertiesQuarantined,
           reviews,
           subscriptions,
           messages,
@@ -84,6 +88,12 @@ export async function getCoreHealth(_req, res, next) {
       counts: {
         users: proMemoryStore.coreUsers.length,
         properties: proMemoryStore.coreProperties.length,
+        propertiesPendingModeration: proMemoryStore.coreProperties.filter(
+          (item) => String(item?.aiReview?.moderationStatus || "").toLowerCase() === "pending-review"
+        ).length,
+        propertiesQuarantined: proMemoryStore.coreProperties.filter(
+          (item) => String(item?.aiReview?.moderationStatus || "").toLowerCase() === "quarantined"
+        ).length,
         reviews: proMemoryStore.coreReviews.length,
         subscriptions: proMemoryStore.coreSubscriptions.length,
         messages: proMemoryStore.coreMessages.length,

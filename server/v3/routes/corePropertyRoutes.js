@@ -3,11 +3,13 @@ import {
   compareCoreProperties,
   createCoreProperty,
   createCorePropertyProfessional,
+  decideCorePropertyModeration,
   deleteCoreProperty,
   featureCoreProperty,
   getCorePropertyPrivateDocs,
   getCorePropertyById,
   getCorePropertyTaxonomyOptions,
+  listCorePropertyModerationQueue,
   listCoreProperties,
   previewCorePropertyDescription,
   updateCoreProperty,
@@ -19,6 +21,10 @@ import {
   coreAuthRequired,
   coreRoleRequired
 } from "../middleware/coreAuthMiddleware.js";
+import {
+  corePropertyModerationLimiter,
+  corePropertyWriteLimiter
+} from "../middleware/coreSecurityMiddleware.js";
 
 const router = Router();
 
@@ -36,18 +42,40 @@ router.post(
   "/professional",
   coreAuthRequired,
   coreRoleRequired("seller", "admin"),
+  corePropertyWriteLimiter,
   createCorePropertyProfessional
+);
+router.get(
+  "/moderation/queue",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  corePropertyModerationLimiter,
+  listCorePropertyModerationQueue
+);
+router.post(
+  "/:propertyId/moderation/decision",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  corePropertyModerationLimiter,
+  decideCorePropertyModeration
 );
 router.post("/:propertyId/visit", coreAuthRequired, createCoreVisitBookingForProperty);
 router.get("/:propertyId", getCorePropertyById);
 router.get("/:propertyId/private-docs", coreAuthRequired, getCorePropertyPrivateDocs);
-router.post("/", coreAuthRequired, coreRoleRequired("seller", "admin"), createCoreProperty);
+router.post(
+  "/",
+  coreAuthRequired,
+  coreRoleRequired("seller", "admin"),
+  corePropertyWriteLimiter,
+  createCoreProperty
+);
 router.patch(
   "/:propertyId/professional",
   coreAuthRequired,
+  corePropertyWriteLimiter,
   updateCorePropertyProfessional
 );
-router.patch("/:propertyId", coreAuthRequired, updateCoreProperty);
+router.patch("/:propertyId", coreAuthRequired, corePropertyWriteLimiter, updateCoreProperty);
 router.delete("/:propertyId", coreAuthRequired, deleteCoreProperty);
 router.post(
   "/:propertyId/verify",

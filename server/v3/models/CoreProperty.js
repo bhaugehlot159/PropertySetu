@@ -158,6 +158,8 @@ const corePropertySchema = new mongoose.Schema(
 
 corePropertySchema.index({ city: 1, category: 1, type: 1, verified: 1 });
 corePropertySchema.index({ bhk: 1, furnishing: 1, constructionStatus: 1, loanAvailable: 1 });
+corePropertySchema.index({ "aiReview.moderationStatus": 1, createdAt: -1 });
+corePropertySchema.index({ ownerId: 1, "aiReview.moderationStatus": 1, updatedAt: -1 });
 
 const CoreProperty =
   mongoose.models.CoreProperty ||
