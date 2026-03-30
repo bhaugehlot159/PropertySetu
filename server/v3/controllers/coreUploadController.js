@@ -141,6 +141,37 @@ const PRIVATE_DOC_UPLOAD_THREAT_POLICY_HYDRATE_COOLDOWN_MS = Math.max(
   5_000,
   Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_HYDRATE_COOLDOWN_MS || 45_000)
 );
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_DUAL_ADMIN_REQUIRED =
+  String(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_DUAL_ADMIN_REQUIRED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_WINDOW_MINUTES || 240) *
+      60 *
+      1000
+  )
+);
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_REASON_MIN = Math.max(
+  8,
+  Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_REASON_MIN || 14)
+);
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_CONFIG_KEY =
+  "private-doc-upload-threat-policy-approval-request";
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_HYDRATE_COOLDOWN_MS = Math.max(
+  5_000,
+  Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_HYDRATE_COOLDOWN_MS || 45_000)
+);
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_SECRET = text(
+  process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_SECRET ||
+    process.env.CORE_PRIVATE_DOC_INTEGRITY_AUDIT_SECRET ||
+    process.env.CORE_PRIVATE_DOC_SECRET ||
+    process.env.CORE_JWT_SECRET ||
+    process.env.JWT_SECRET ||
+    "propertysetu-core-private-doc-threat-policy-approval-secret"
+);
 const PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS = Math.max(
   200,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS || 5000)
@@ -360,6 +391,17 @@ let privateDocUploadThreatPolicy = {
   revision: 1
 };
 let privateDocUploadThreatPolicyHydratedAtTs = 0;
+let privateDocUploadThreatPolicyApprovalRequest = {
+  active: false,
+  requestedBy: "",
+  requestedAt: null,
+  reason: "",
+  downgradeSignals: [],
+  requestDigest: "",
+  currentPolicyRevision: 0,
+  proposedPolicy: null
+};
+let privateDocUploadThreatPolicyApprovalHydratedAtTs = 0;
 const privateDocAutoEmergencyLockProfiles = new Map();
 const privateDocAutoEmergencyLockInFlight = new Set();
 let privateDocShieldHydratedAtTs = 0;
@@ -395,39 +437,73 @@ function normalizeThreatPolicyTokens(
   return [...new Set(normalized)].slice(0, maxItems);
 }
 
-function getPrivateDocUploadThreatPolicy() {
-  const current = privateDocUploadThreatPolicy || {};
+function normalizePrivateDocUploadThreatPolicyState(
+  value = {},
+  fallback = DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY
+) {
+  const current =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+  const fallbackPolicy =
+    fallback && typeof fallback === "object" && !Array.isArray(fallback)
+      ? fallback
+      : DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY;
   const riskyExtensions = normalizeThreatPolicyTokens(
     current.riskyExtensions,
-    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyExtensions
+    fallbackPolicy.riskyExtensions || DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyExtensions
   );
   const macroExtensions = normalizeThreatPolicyTokens(
     current.macroExtensions,
-    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.macroExtensions
+    fallbackPolicy.macroExtensions || DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.macroExtensions
   );
   const riskyNameHints = normalizeThreatPolicyTokens(
     current.riskyNameHints,
-    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyNameHints
+    fallbackPolicy.riskyNameHints || DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyNameHints
+  );
+  const fallbackPendingScore = Math.max(
+    20,
+    Math.min(
+      95,
+      Math.round(
+        numberValue(
+          fallbackPolicy.pendingScore,
+          DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.pendingScore
+        )
+      )
+    )
   );
   const pendingScore = Math.max(
     20,
-    Math.min(95, Math.round(numberValue(current.pendingScore, DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.pendingScore)))
+    Math.min(95, Math.round(numberValue(current.pendingScore, fallbackPendingScore)))
+  );
+  const fallbackQuarantineScore = Math.max(
+    fallbackPendingScore,
+    Math.min(
+      100,
+      Math.round(
+        numberValue(
+          fallbackPolicy.quarantineScore,
+          DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.quarantineScore
+        )
+      )
+    )
   );
   const quarantineScore = Math.max(
     pendingScore,
-    Math.min(
-      100,
-      Math.round(numberValue(current.quarantineScore, DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.quarantineScore))
-    )
+    Math.min(100, Math.round(numberValue(current.quarantineScore, fallbackQuarantineScore)))
   );
   return {
-    enabled: Boolean(current.enabled),
+    enabled:
+      typeof current.enabled === "boolean"
+        ? current.enabled
+        : Boolean(fallbackPolicy.enabled),
     pendingScore,
     quarantineScore,
     blockAccessUntilApproved:
       typeof current.blockAccessUntilApproved === "boolean"
         ? current.blockAccessUntilApproved
-        : DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.blockAccessUntilApproved,
+        : Boolean(fallbackPolicy.blockAccessUntilApproved),
     riskyExtensions,
     macroExtensions,
     riskyNameHints,
@@ -437,19 +513,14 @@ function getPrivateDocUploadThreatPolicy() {
   };
 }
 
-function updatePrivateDocUploadThreatPolicy(
-  patch = {},
-  { actorId = "", actorRole = "" } = {}
-) {
+function buildNextPrivateDocUploadThreatPolicy(basePolicy = {}, patch = {}) {
+  const current = normalizePrivateDocUploadThreatPolicyState(basePolicy, basePolicy);
   const safePatch =
     patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
-  const current = getPrivateDocUploadThreatPolicy();
   const next = {
     ...current,
     enabled:
-      typeof safePatch.enabled === "boolean"
-        ? safePatch.enabled
-        : current.enabled,
+      typeof safePatch.enabled === "boolean" ? safePatch.enabled : current.enabled,
     pendingScore:
       typeof safePatch.pendingScore === "undefined"
         ? current.pendingScore
@@ -488,6 +559,22 @@ function updatePrivateDocUploadThreatPolicy(
   if (!next.riskyNameHints.length) {
     next.riskyNameHints = [...DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyNameHints];
   }
+  return normalizePrivateDocUploadThreatPolicyState(next, current);
+}
+
+function getPrivateDocUploadThreatPolicy() {
+  return normalizePrivateDocUploadThreatPolicyState(
+    privateDocUploadThreatPolicy,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY
+  );
+}
+
+function updatePrivateDocUploadThreatPolicy(
+  patch = {},
+  { actorId = "", actorRole = "" } = {}
+) {
+  const current = getPrivateDocUploadThreatPolicy();
+  const next = buildNextPrivateDocUploadThreatPolicy(current, patch);
   const now = new Date().toISOString();
   privateDocUploadThreatPolicy = {
     ...next,
@@ -614,6 +701,239 @@ async function persistPrivateDocUploadThreatPolicy({
       policy
     };
   }
+}
+
+function buildPrivateDocUploadThreatPolicyApprovalDigest({
+  requestedBy = "",
+  requestedAt = "",
+  reason = "",
+  currentPolicy = {},
+  proposedPolicy = {},
+  downgradeSignals = []
+} = {}) {
+  const payload = {
+    requestedBy: text(requestedBy),
+    requestedAt: asIso(requestedAt),
+    reason: text(reason).replace(/\s+/g, " ").slice(0, 400),
+    currentPolicy: normalizePrivateDocUploadThreatPolicyState(
+      currentPolicy,
+      DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY
+    ),
+    proposedPolicy: normalizePrivateDocUploadThreatPolicyState(
+      proposedPolicy,
+      DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY
+    ),
+    downgradeSignals: Array.isArray(downgradeSignals)
+      ? [...new Set(downgradeSignals.map((item) => text(item).toLowerCase()).filter(Boolean))].sort()
+      : []
+  };
+  return crypto
+    .createHmac("sha256", text(PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_SECRET))
+    .update(stableJsonStringify(payload))
+    .digest("hex");
+}
+
+function normalizePrivateDocUploadThreatPolicyApprovalRequest(value = {}) {
+  const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const requestedBy = text(row.requestedBy);
+  const requestedAt = asIso(row.requestedAt);
+  const requestedAtMs = requestedAt ? new Date(requestedAt).getTime() : 0;
+  const activeFlag = Boolean(row.active);
+  const expired =
+    !requestedAtMs || requestedAtMs + PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_WINDOW_MS <= Date.now();
+  const currentPolicy = normalizePrivateDocUploadThreatPolicyState(
+    row.currentPolicy,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY
+  );
+  const proposedPolicy = normalizePrivateDocUploadThreatPolicyState(
+    row.proposedPolicy,
+    currentPolicy
+  );
+  return {
+    active: activeFlag && Boolean(requestedBy && requestedAtMs) && !expired,
+    expired: Boolean(activeFlag && (expired || !requestedBy || !requestedAtMs)),
+    requestedBy,
+    requestedAt,
+    reason: text(row.reason).slice(0, 400),
+    downgradeSignals: Array.isArray(row.downgradeSignals)
+      ? [...new Set(row.downgradeSignals.map((item) => text(item).toLowerCase()).filter(Boolean))].slice(
+          0,
+          40
+        )
+      : [],
+    requestDigest: text(row.requestDigest),
+    currentPolicyRevision: Math.max(0, Math.round(numberValue(row.currentPolicyRevision, 0))),
+    currentPolicy,
+    proposedPolicy
+  };
+}
+
+function getPrivateDocUploadThreatPolicyApprovalRequestState() {
+  return normalizePrivateDocUploadThreatPolicyApprovalRequest(
+    privateDocUploadThreatPolicyApprovalRequest
+  );
+}
+
+function getPrivateDocUploadThreatPolicyDowngradeSignals(currentPolicy = {}, nextPolicy = {}) {
+  const current = normalizePrivateDocUploadThreatPolicyState(
+    currentPolicy,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY
+  );
+  const next = normalizePrivateDocUploadThreatPolicyState(
+    nextPolicy,
+    current
+  );
+  const signals = [];
+  if (current.enabled && !next.enabled) signals.push("scan-disabled");
+  if (current.blockAccessUntilApproved && !next.blockAccessUntilApproved) {
+    signals.push("access-block-disabled");
+  }
+  if (next.pendingScore > current.pendingScore) signals.push("pending-threshold-raised");
+  if (next.quarantineScore > current.quarantineScore) signals.push("quarantine-threshold-raised");
+
+  const currentExtensions = new Set(current.riskyExtensions);
+  const nextExtensions = new Set(next.riskyExtensions);
+  if ([...currentExtensions].some((item) => !nextExtensions.has(item))) {
+    signals.push("risky-extensions-reduced");
+  }
+
+  const currentMacros = new Set(current.macroExtensions);
+  const nextMacros = new Set(next.macroExtensions);
+  if ([...currentMacros].some((item) => !nextMacros.has(item))) {
+    signals.push("macro-extensions-reduced");
+  }
+
+  const currentHints = new Set(current.riskyNameHints);
+  const nextHints = new Set(next.riskyNameHints);
+  if ([...currentHints].some((item) => !nextHints.has(item))) {
+    signals.push("name-hints-reduced");
+  }
+  return signals;
+}
+
+function isHighRiskPrivateDocUploadThreatPolicyChange(
+  currentPolicy = {},
+  nextPolicy = {}
+) {
+  const downgradeSignals = getPrivateDocUploadThreatPolicyDowngradeSignals(
+    currentPolicy,
+    nextPolicy
+  );
+  return {
+    highRisk: downgradeSignals.length > 0,
+    downgradeSignals
+  };
+}
+
+function applyPersistedPrivateDocUploadThreatPolicyApprovalRequest(snapshot = {}) {
+  const normalized = normalizePrivateDocUploadThreatPolicyApprovalRequest(snapshot);
+  privateDocUploadThreatPolicyApprovalRequest = normalized;
+  proMemoryStore.corePrivateDocThreatPolicyApprovalRequest = normalized;
+  return normalized;
+}
+
+async function hydratePrivateDocUploadThreatPolicyApprovalRequest({ force = false } = {}) {
+  const nowTs = Date.now();
+  const cachedMemoryRequest =
+    proMemoryStore.corePrivateDocThreatPolicyApprovalRequest &&
+    typeof proMemoryStore.corePrivateDocThreatPolicyApprovalRequest === "object" &&
+    !Array.isArray(proMemoryStore.corePrivateDocThreatPolicyApprovalRequest)
+      ? proMemoryStore.corePrivateDocThreatPolicyApprovalRequest
+      : null;
+  if (cachedMemoryRequest) {
+    applyPersistedPrivateDocUploadThreatPolicyApprovalRequest(cachedMemoryRequest);
+  }
+  if (!proRuntime.dbConnected) {
+    privateDocUploadThreatPolicyApprovalHydratedAtTs = nowTs;
+    return getPrivateDocUploadThreatPolicyApprovalRequestState();
+  }
+  if (
+    !force &&
+    privateDocUploadThreatPolicyApprovalHydratedAtTs &&
+    privateDocUploadThreatPolicyApprovalHydratedAtTs +
+      PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_HYDRATE_COOLDOWN_MS >
+      nowTs
+  ) {
+    return getPrivateDocUploadThreatPolicyApprovalRequestState();
+  }
+
+  try {
+    const row = await CoreRuntimeConfig.findOne({
+      key: PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_CONFIG_KEY
+    })
+      .select("value")
+      .lean();
+    const value =
+      row?.value && typeof row.value === "object" && !Array.isArray(row.value)
+        ? row.value
+        : null;
+    if (value) {
+      applyPersistedPrivateDocUploadThreatPolicyApprovalRequest(value);
+    } else {
+      applyPersistedPrivateDocUploadThreatPolicyApprovalRequest({
+        active: false
+      });
+    }
+  } catch {
+    // Keep runtime defaults if persistence read fails.
+  }
+  privateDocUploadThreatPolicyApprovalHydratedAtTs = nowTs;
+  return getPrivateDocUploadThreatPolicyApprovalRequestState();
+}
+
+async function persistPrivateDocUploadThreatPolicyApprovalRequest({
+  actorId = "",
+  notes = ""
+} = {}) {
+  const requestState = getPrivateDocUploadThreatPolicyApprovalRequestState();
+  if (!proRuntime.dbConnected) {
+    proMemoryStore.corePrivateDocThreatPolicyApprovalRequest = requestState;
+    return {
+      persisted: false,
+      source: "memory",
+      request: requestState
+    };
+  }
+  try {
+    await CoreRuntimeConfig.findOneAndUpdate(
+      { key: PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_CONFIG_KEY },
+      {
+        $set: {
+          value: requestState,
+          updatedBy: mongoose.Types.ObjectId.isValid(actorId) ? actorId : null,
+          notes: text(notes).slice(0, 240)
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    proMemoryStore.corePrivateDocThreatPolicyApprovalRequest = requestState;
+    privateDocUploadThreatPolicyApprovalHydratedAtTs = Date.now();
+    return {
+      persisted: true,
+      source: "mongodb",
+      request: requestState
+    };
+  } catch {
+    proMemoryStore.corePrivateDocThreatPolicyApprovalRequest = requestState;
+    return {
+      persisted: false,
+      source: "memory",
+      request: requestState
+    };
+  }
+}
+
+async function clearPrivateDocUploadThreatPolicyApprovalRequest({
+  actorId = "",
+  notes = "clear"
+} = {}) {
+  applyPersistedPrivateDocUploadThreatPolicyApprovalRequest({
+    active: false
+  });
+  return persistPrivateDocUploadThreatPolicyApprovalRequest({
+    actorId,
+    notes
+  });
 }
 
 function categoryImpliesPrivate(category) {
@@ -5866,13 +6186,34 @@ export async function listCorePrivateDocIntegrityDecisionAudits(req, res, next) 
 export async function getCorePrivateDocThreatPolicy(req, res, next) {
   try {
     await hydratePrivateDocUploadThreatPolicy();
+    await hydratePrivateDocUploadThreatPolicyApprovalRequest();
+    const approval = getPrivateDocUploadThreatPolicyApprovalRequestState();
     return res.json({
       success: true,
       requestedBy: {
         id: text(req.coreUser?.id),
         role: text(req.coreUser?.role)
       },
-      policy: getPrivateDocUploadThreatPolicy()
+      dualAdmin: {
+        required: Boolean(PRIVATE_DOC_UPLOAD_THREAT_POLICY_DUAL_ADMIN_REQUIRED),
+        approvalWindowMinutes: Math.max(
+          1,
+          Math.round(PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_WINDOW_MS / 60_000)
+        ),
+        reasonMin: PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_REASON_MIN
+      },
+      policy: getPrivateDocUploadThreatPolicy(),
+      approvalRequest: {
+        active: Boolean(approval.active),
+        expired: Boolean(approval.expired),
+        requestedBy: text(approval.requestedBy),
+        requestedAt: asIso(approval.requestedAt),
+        reason: text(approval.reason),
+        downgradeSignals: Array.isArray(approval.downgradeSignals)
+          ? approval.downgradeSignals.slice(0, 20)
+          : [],
+        currentPolicyRevision: Math.max(0, numberValue(approval.currentPolicyRevision, 0))
+      }
     });
   } catch (error) {
     return next(error);
@@ -5882,12 +6223,267 @@ export async function getCorePrivateDocThreatPolicy(req, res, next) {
 export async function updateCorePrivateDocThreatPolicy(req, res, next) {
   try {
     await hydratePrivateDocUploadThreatPolicy();
-    const patch =
+    await hydratePrivateDocUploadThreatPolicyApprovalRequest();
+    const body =
       req.body && typeof req.body === "object" && !Array.isArray(req.body)
         ? req.body
         : {};
+    const patch = {
+      enabled: body.enabled,
+      pendingScore: body.pendingScore,
+      quarantineScore: body.quarantineScore,
+      blockAccessUntilApproved: body.blockAccessUntilApproved,
+      riskyExtensions: body.riskyExtensions,
+      macroExtensions: body.macroExtensions,
+      riskyNameHints: body.riskyNameHints
+    };
     const actorId = text(req.coreUser?.id);
     const actorRole = text(req.coreUser?.role);
+    const reason = text(body.reason);
+    const policyConfirm =
+      String(body.policyConfirm || req.query?.policyConfirm || "false")
+        .trim()
+        .toLowerCase() === "true";
+    const requestReset =
+      String(body.requestReset || req.query?.requestReset || "false")
+        .trim()
+        .toLowerCase() === "true";
+    const patchKeys = Object.keys(patch).filter((key) => typeof patch[key] !== "undefined");
+    const hasPatch = patchKeys.length > 0;
+    if (!policyConfirm && !requestReset && !hasPatch) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one threat policy field is required."
+      });
+    }
+
+    let approvalState = getPrivateDocUploadThreatPolicyApprovalRequestState();
+    if (approvalState.expired) {
+      await clearPrivateDocUploadThreatPolicyApprovalRequest({
+        actorId,
+        notes: "expired-clear"
+      });
+      approvalState = getPrivateDocUploadThreatPolicyApprovalRequestState();
+    }
+    const hadActiveApprovalRequest = Boolean(approvalState.active);
+    if (requestReset && approvalState.active) {
+      await clearPrivateDocUploadThreatPolicyApprovalRequest({
+        actorId,
+        notes: "manual-reset"
+      });
+      approvalState = getPrivateDocUploadThreatPolicyApprovalRequestState();
+    }
+    if (requestReset && !policyConfirm && !hasPatch) {
+      return res.json({
+        success: true,
+        action: "approval-request-reset",
+        requestedBy: {
+          id: actorId,
+          role: actorRole
+        },
+        cleared: hadActiveApprovalRequest,
+        approvalRequest: {
+          active: Boolean(approvalState.active),
+          expired: Boolean(approvalState.expired),
+          requestedBy: text(approvalState.requestedBy),
+          requestedAt: asIso(approvalState.requestedAt),
+          reason: text(approvalState.reason),
+          downgradeSignals: Array.isArray(approvalState.downgradeSignals)
+            ? approvalState.downgradeSignals.slice(0, 20)
+            : [],
+          currentPolicyRevision: Math.max(0, numberValue(approvalState.currentPolicyRevision, 0))
+        }
+      });
+    }
+
+    if (policyConfirm) {
+      if (!PRIVATE_DOC_UPLOAD_THREAT_POLICY_DUAL_ADMIN_REQUIRED) {
+        return res.status(409).json({
+          success: false,
+          message: "policyConfirm is not required when dual-admin policy is disabled."
+        });
+      }
+      if (!approvalState.active) {
+        return res.status(404).json({
+          success: false,
+          message: "No active dual-admin threat policy approval request found."
+        });
+      }
+      if (approvalState.requestedBy === actorId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm this threat policy change."
+        });
+      }
+
+      const currentPolicy = getPrivateDocUploadThreatPolicy();
+      const expectedDigest = buildPrivateDocUploadThreatPolicyApprovalDigest({
+        requestedBy: approvalState.requestedBy,
+        requestedAt: approvalState.requestedAt,
+        reason: approvalState.reason,
+        currentPolicy: approvalState.currentPolicy,
+        proposedPolicy: approvalState.proposedPolicy,
+        downgradeSignals: approvalState.downgradeSignals
+      });
+      if (!approvalState.requestDigest || expectedDigest !== approvalState.requestDigest) {
+        await clearPrivateDocUploadThreatPolicyApprovalRequest({
+          actorId,
+          notes: "integrity-mismatch-clear"
+        });
+        return res.status(409).json({
+          success: false,
+          message:
+            "Threat policy approval request integrity mismatch detected. Create a fresh request."
+        });
+      }
+      if (
+        currentPolicy.revision !== approvalState.currentPolicyRevision ||
+        stableJsonStringify(currentPolicy) !== stableJsonStringify(approvalState.currentPolicy)
+      ) {
+        await clearPrivateDocUploadThreatPolicyApprovalRequest({
+          actorId,
+          notes: "policy-changed-clear"
+        });
+        return res.status(409).json({
+          success: false,
+          message:
+            "Threat policy changed after request creation. Submit a new dual-admin request."
+        });
+      }
+
+      const nextPolicy = updatePrivateDocUploadThreatPolicy(
+        approvalState.proposedPolicy,
+        {
+          actorId,
+          actorRole
+        }
+      );
+      const persistence = await persistPrivateDocUploadThreatPolicy({
+        actorId,
+        notes: "admin-policy-update-confirmed"
+      });
+      await clearPrivateDocUploadThreatPolicyApprovalRequest({
+        actorId,
+        notes: "confirmed-clear"
+      });
+
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: text(actorRole, "admin").toLowerCase(),
+        reason: "private-doc-upload-threat-policy-updated-dual-confirmed",
+        source: "security-policy",
+        metadata: {
+          confirmedBy: actorId,
+          requestedBy: text(approvalState.requestedBy),
+          downgradeSignals: approvalState.downgradeSignals,
+          persisted: Boolean(persistence.persisted)
+        }
+      });
+
+      return res.json({
+        success: true,
+        action: "updated",
+        requiresSecondAdmin: false,
+        dualAdmin: {
+          required: true,
+          confirmedBy: actorId,
+          requestedBy: text(approvalState.requestedBy)
+        },
+        requestedBy: {
+          id: actorId,
+          role: actorRole
+        },
+        persistence: {
+          source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
+          persisted: Boolean(persistence.persisted)
+        },
+        policy: nextPolicy
+      });
+    }
+
+    if (approvalState.active) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "An active dual-admin threat policy request exists. Use policyConfirm=true or requestReset=true."
+      });
+    }
+
+    const currentPolicy = getPrivateDocUploadThreatPolicy();
+    const previewPolicy = buildNextPrivateDocUploadThreatPolicy(currentPolicy, patch);
+    const risk = isHighRiskPrivateDocUploadThreatPolicyChange(
+      currentPolicy,
+      previewPolicy
+    );
+
+    if (
+      PRIVATE_DOC_UPLOAD_THREAT_POLICY_DUAL_ADMIN_REQUIRED &&
+      risk.highRisk
+    ) {
+      if (reason.length < PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_REASON_MIN) {
+        return res.status(400).json({
+          success: false,
+          message: `reason must be at least ${PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_REASON_MIN} characters for high-risk policy changes.`
+        });
+      }
+      const requestedAt = new Date().toISOString();
+      const requestDigest = buildPrivateDocUploadThreatPolicyApprovalDigest({
+        requestedBy: actorId,
+        requestedAt,
+        reason,
+        currentPolicy,
+        proposedPolicy: previewPolicy,
+        downgradeSignals: risk.downgradeSignals
+      });
+      applyPersistedPrivateDocUploadThreatPolicyApprovalRequest({
+        active: true,
+        requestedBy: actorId,
+        requestedAt,
+        reason,
+        downgradeSignals: risk.downgradeSignals,
+        requestDigest,
+        currentPolicyRevision: currentPolicy.revision,
+        currentPolicy,
+        proposedPolicy: previewPolicy
+      });
+      const approvalPersistence = await persistPrivateDocUploadThreatPolicyApprovalRequest({
+        actorId,
+        notes: "high-risk-update-request"
+      });
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: text(actorRole, "admin").toLowerCase(),
+        reason: "private-doc-upload-threat-policy-update-requested",
+        source: "security-policy",
+        metadata: {
+          downgradeSignals: risk.downgradeSignals,
+          requestDigest,
+          persisted: Boolean(approvalPersistence.persisted)
+        }
+      });
+      return res.status(202).json({
+        success: true,
+        action: "update-requested",
+        requiresSecondAdmin: true,
+        requestedBy: {
+          id: actorId,
+          role: actorRole
+        },
+        approvalRequest: {
+          requestedBy: actorId,
+          requestedAt,
+          reason,
+          downgradeSignals: risk.downgradeSignals,
+          currentPolicyRevision: currentPolicy.revision,
+          approvalWindowMinutes: Math.max(
+            1,
+            Math.round(PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_WINDOW_MS / 60_000)
+          )
+        },
+        policyPreview: previewPolicy
+      });
+    }
+
     const nextPolicy = updatePrivateDocUploadThreatPolicy(patch, {
       actorId,
       actorRole
@@ -5907,7 +6503,8 @@ export async function updateCorePrivateDocThreatPolicy(req, res, next) {
         quarantineScore: nextPolicy.quarantineScore,
         blockAccessUntilApproved: Boolean(nextPolicy.blockAccessUntilApproved),
         enabled: Boolean(nextPolicy.enabled),
-        persisted: Boolean(persistence.persisted)
+        persisted: Boolean(persistence.persisted),
+        downgradeSignals: risk.downgradeSignals
       }
     });
 
@@ -5918,6 +6515,7 @@ export async function updateCorePrivateDocThreatPolicy(req, res, next) {
         id: actorId,
         role: actorRole
       },
+      requiresSecondAdmin: false,
       persistence: {
         source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
         persisted: Boolean(persistence.persisted)
@@ -5931,46 +6529,19 @@ export async function updateCorePrivateDocThreatPolicy(req, res, next) {
 
 export async function resetCorePrivateDocThreatPolicy(req, res, next) {
   try {
-    await hydratePrivateDocUploadThreatPolicy({ force: true });
-    const actorId = text(req.coreUser?.id);
-    const actorRole = text(req.coreUser?.role);
-    const resetPolicy = updatePrivateDocUploadThreatPolicy(
-      DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY,
-      {
-        actorId,
-        actorRole
-      }
-    );
-    const persistence = await persistPrivateDocUploadThreatPolicy({
-      actorId,
-      notes: "admin-policy-reset"
-    });
-    recordPrivateDocAccessEvent({
-      userId: actorId,
-      role: text(actorRole, "admin").toLowerCase(),
-      reason: "private-doc-upload-threat-policy-reset",
-      source: "security-policy",
-      metadata: {
-        pendingScore: resetPolicy.pendingScore,
-        quarantineScore: resetPolicy.quarantineScore,
-        blockAccessUntilApproved: Boolean(resetPolicy.blockAccessUntilApproved),
-        enabled: Boolean(resetPolicy.enabled),
-        persisted: Boolean(persistence.persisted)
-      }
-    });
-    return res.json({
-      success: true,
-      action: "reset",
-      requestedBy: {
-        id: actorId,
-        role: actorRole
-      },
-      persistence: {
-        source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
-        persisted: Boolean(persistence.persisted)
-      },
-      policy: resetPolicy
-    });
+    const body =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? req.body
+        : {};
+    req.body = {
+      ...body,
+      ...DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY,
+      reason: text(
+        body.reason,
+        "admin-reset-private-doc-upload-threat-policy-to-defaults"
+      )
+    };
+    return updateCorePrivateDocThreatPolicy(req, res, next);
   } catch (error) {
     return next(error);
   }
@@ -5979,6 +6550,7 @@ export async function resetCorePrivateDocThreatPolicy(req, res, next) {
 export async function listCorePrivateDocSecurityEvents(req, res, next) {
   try {
     await hydratePrivateDocUploadThreatPolicy();
+    await hydratePrivateDocUploadThreatPolicyApprovalRequest();
     const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
     const nowTs = Date.now();
     await hydratePrivateDocShieldBlocksFromDb(nowTs);
@@ -6107,7 +6679,31 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
         dualAdminUnlockRequired: Boolean(PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED),
         unlockRequestWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS / 60_000))
       },
-      uploadThreatPolicy: getPrivateDocUploadThreatPolicy()
+      uploadThreatPolicy: {
+        ...getPrivateDocUploadThreatPolicy(),
+        dualAdmin: {
+          required: Boolean(PRIVATE_DOC_UPLOAD_THREAT_POLICY_DUAL_ADMIN_REQUIRED),
+          approvalWindowMinutes: Math.max(
+            1,
+            Math.round(PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_WINDOW_MS / 60_000)
+          ),
+          reasonMin: PRIVATE_DOC_UPLOAD_THREAT_POLICY_APPROVAL_REASON_MIN
+        },
+        approvalRequest: (() => {
+          const state = getPrivateDocUploadThreatPolicyApprovalRequestState();
+          return {
+            active: Boolean(state.active),
+            expired: Boolean(state.expired),
+            requestedBy: text(state.requestedBy),
+            requestedAt: asIso(state.requestedAt),
+            reason: text(state.reason),
+            downgradeSignals: Array.isArray(state.downgradeSignals)
+              ? state.downgradeSignals.slice(0, 20)
+              : [],
+            currentPolicyRevision: Math.max(0, numberValue(state.currentPolicyRevision, 0))
+          };
+        })()
+      }
     });
   } catch (error) {
     return next(error);
