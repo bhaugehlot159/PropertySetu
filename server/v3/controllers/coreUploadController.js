@@ -28,6 +28,10 @@ function toId(value) {
   return String(value);
 }
 
+function sameId(left, right) {
+  return text(left) && text(right) && text(left) === text(right);
+}
+
 function asIso(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -231,6 +235,25 @@ async function findPropertyOwnerId(propertyId) {
       (item) => toId(item._id || item.id) === normalizedPropertyId
     ) || null;
   return toId(row?.ownerId);
+}
+
+async function canActorAccessPrivateUpload({
+  actorId = "",
+  actorRole = "",
+  uploadRow = null
+} = {}) {
+  const safeActorId = text(actorId);
+  const safeActorRole = text(actorRole, "buyer").toLowerCase();
+  if (!uploadRow || !safeActorId) return false;
+  if (safeActorRole === "admin") return true;
+
+  const uploadOwnerId = toId(uploadRow?.userId);
+  if (sameId(safeActorId, uploadOwnerId)) return true;
+
+  const propertyId = toId(uploadRow?.propertyId);
+  if (!propertyId) return false;
+  const propertyOwnerId = await findPropertyOwnerId(propertyId);
+  return sameId(safeActorId, propertyOwnerId);
 }
 
 function normalizeUpload(doc, viewer = null) {
@@ -539,6 +562,9 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const tokenId = text(payload.tokenId || payload.jti);
     const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
     const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
+    const actorId = text(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorIsAdmin = actorRole === "admin";
     let sourceUrl = text(payload.sourceUrl);
     let ownerId = text(payload.ownerId);
     let propertyId = text(payload.propertyId);
@@ -567,6 +593,61 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       docName = text(uploadRow?.name, docName);
       docCategory = text(uploadRow?.category, docCategory);
       sourceUrl = text(uploadRow?.url, sourceUrl);
+      const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id);
+      if (!sameId(uploadId, resolvedUploadId)) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token upload binding mismatch."
+        });
+      }
+      if (text(payload.ownerId) && !sameId(payload.ownerId, ownerId)) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token owner binding mismatch."
+        });
+      }
+      if (text(payload.propertyId) && !sameId(payload.propertyId, propertyId)) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token property binding mismatch."
+        });
+      }
+      if (text(payload.category) && text(payload.category).toLowerCase() !== text(docCategory).toLowerCase()) {
+        return res.status(409).json({
+          success: false,
+          message: "Private document token category binding mismatch."
+        });
+      }
+      const authorized = await canActorAccessPrivateUpload({
+        actorId,
+        actorRole,
+        uploadRow
+      });
+      if (!authorized) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          replayBlocked: false,
+          authorizationDenied: true,
+          ip: getClientIp(req),
+          userAgent: text(req.headers?.["user-agent"]).slice(0, 240),
+          expiresAt: text(payload.expiresAt),
+          source: "upload"
+        });
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to access this private document."
+        });
+      }
       const uploadHash = text(
         uploadRow?.privateDocHash,
         hashPrivateDocSourceUrl(sourceUrl)
@@ -654,6 +735,31 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       return res.status(404).json({
         success: false,
         message: "Private document source is unavailable."
+      });
+    }
+    if (!actorIsAdmin && (!actorId || !sameId(actorId, ownerId))) {
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        ownerId,
+        propertyId,
+        uploadId: "",
+        docId: text(payload.docId),
+        category: docCategory,
+        hash: text(payload.hash),
+        tokenId,
+        tokenFingerprint,
+        replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+        replayBlocked: false,
+        authorizationDenied: true,
+        ip: getClientIp(req),
+        userAgent: text(req.headers?.["user-agent"]).slice(0, 240),
+        expiresAt: text(payload.expiresAt),
+        source: "inline-private-doc"
+      });
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to access this private document."
       });
     }
     if (PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED) {
