@@ -103,7 +103,6 @@ button:hover { background:#092f6d; }
 <script>
 (() => {
   const live = window.PropertySetuLive || {};
-  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const form = document.getElementById('addPropertyForm');
   const propertyList = document.getElementById('propertyList');
   const sellerStats = document.getElementById('sellerStats');
@@ -552,9 +551,7 @@ button:hover { background:#092f6d; }
       const merged = live.mergeById ? live.mergeById(apiItems, readJson(LISTINGS_KEY, [])) : [...apiItems, ...readJson(LISTINGS_KEY, [])];
       writeJson(LISTINGS_KEY, merged);
     } catch (error) {
-      if (!allowDemoFallback) {
-        pushNotification('Live Sync Failed', `Live listing sync failed: ${error.message || 'unknown error'}.`, 'warn');
-      }
+      pushNotification('Live Sync Failed', `Live listing sync failed: ${error.message || 'unknown error'}.`, 'warn');
     }
   };
 
@@ -617,65 +614,47 @@ button:hover { background:#092f6d; }
     };
 
     const token = live.getAnyToken ? live.getAnyToken() : '';
-    if ((!token || !live.request) && !allowDemoFallback) {
+    if (!token || !live.request) {
       window.alert('Property submit ke liye login + live backend required hai.');
       return;
     }
-    if (token && live.request) {
-      try {
-        const response = await live.request('/properties', {
-          method: 'POST',
-          token,
-          data: {
-            title,
-            category,
-            type: normalizePurpose(category),
-            location,
-            price,
-            description,
-            city: 'Udaipur',
-            featured,
-            featuredUntil,
-            media: {
-              photosCount,
-              videoUploaded,
-              uploads: uploadedNames.map((name, index) => ({ id: `local-photo-${Date.now()}-${index}`, name, category: 'photo' })),
-              videoName: videoFile?.name || '',
-            },
-            analytics: { views: 0, saves: 0, inquiries: 0 },
-            aiReview: { fraudRiskScore: photosCount >= 5 ? 20 : 65 },
+    try {
+      const response = await live.request('/properties', {
+        method: 'POST',
+        token,
+        data: {
+          title,
+          category,
+          type: normalizePurpose(category),
+          location,
+          price,
+          description,
+          city: 'Udaipur',
+          featured,
+          featuredUntil,
+          media: {
+            photosCount,
+            videoUploaded,
+            uploads: uploadedNames.map((name, index) => ({ id: `local-photo-${Date.now()}-${index}`, name, category: 'photo' })),
+            videoName: videoFile?.name || '',
           },
-        });
-        const normalized = live.normalizeApiListing
-          ? live.normalizeApiListing(response?.property)
-          : { ...localPayload, ...(response?.property || {}) };
-        if (normalized) upsertLocal(normalized);
-        form.reset();
-        describeMediaSelection();
-        render();
-        window.alert('Property live API me submit ho gayi.');
-        return;
-      } catch (error) {
-        if (!allowDemoFallback) {
-          window.alert(error.message || 'Property submit failed.');
-          return;
-        }
-        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
-          window.alert(error.message || 'Submit failed.');
-          return;
-        }
-      }
-    }
-
-    if (!allowDemoFallback) {
-      window.alert('Property submit failed. Local fallback disabled.');
+          analytics: { views: 0, saves: 0, inquiries: 0 },
+          aiReview: { fraudRiskScore: photosCount >= 5 ? 20 : 65 },
+        },
+      });
+      const normalized = live.normalizeApiListing
+        ? live.normalizeApiListing(response?.property)
+        : { ...localPayload, ...(response?.property || {}) };
+      if (normalized) upsertLocal(normalized);
+      form.reset();
+      describeMediaSelection();
+      render();
+      window.alert('Property live API me submit ho gayi.');
+      return;
+    } catch (error) {
+      window.alert(error.message || 'Property submit failed.');
       return;
     }
-    upsertLocal(localPayload);
-    form.reset();
-    describeMediaSelection();
-    render();
-    window.alert('Live unavailable. Property backup mode me save ho gayi.');
   });
 
   photosInput?.addEventListener('change', describeMediaSelection);
@@ -714,23 +693,6 @@ button:hover { background:#092f6d; }
       pushNotification('Listing Boosted', `Paid featured boost activated (${cycleDays} days) for listing ${id}.`, 'success');
       window.alert(`Listing boosted for ${cycleDays} days. Amount: ₹${amount}.`);
     } catch (error) {
-      if (allowDemoFallback && live.shouldFallbackToLocal && live.shouldFallbackToLocal(error)) {
-        const all = readJson(LISTINGS_KEY, []);
-        const next = all.map((item) => {
-          if (item.id !== id) return item;
-          return {
-            ...item,
-            featured: true,
-            featuredUntil: new Date(Date.now() + cycleDays * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-        });
-        writeJson(LISTINGS_KEY, next);
-        pushNotification('Boost Queued', `Live payment unavailable. Local featured boost queued (${cycleDays} days) for ${id}.`, 'warn');
-        render();
-        window.alert(`Live payment unavailable. Local featured boost applied for ${cycleDays} days.`);
-        return;
-      }
       window.alert(error.message || 'Boost failed.');
     }
   });

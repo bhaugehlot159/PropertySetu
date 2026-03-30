@@ -1,7 +1,5 @@
 (() => {
   const live = window.PropertySetuLive || {};
-  const allowDemoFallback = Boolean(live.allowDemoFallback);
-  const bidKey = 'propertySetu:sealedBids';
 
   const verificationQueue = document.getElementById('verificationQueue');
   const reportQueue = document.getElementById('reportQueue');
@@ -50,39 +48,12 @@
   let reports = [];
   let bidRows = [];
 
-  const ensureSeedBids = () => {
-    // Seed bids disabled to keep admin panel fully live-data driven.
-  };
-
-  const fallbackData = () => {
-    const localListings = readJson('propertySetu:listings', [])
-      .filter((item) => String(item?.city || 'Udaipur').toLowerCase().includes('udaipur'));
-    verification = localListings
-      .filter((item) => String(item.status || 'Pending Approval').toLowerCase() !== 'approved')
-      .slice(0, 12)
-      .map((item) => ({
-        id: item.id,
-        label: `${item.title || 'Property'} - ${item.location || 'Udaipur'}`,
-        risk: item?.aiReview?.fraudRiskScore > 60 ? 'High' : 'Low',
-      }));
-    reports = [
-      { id: 'R-28', label: 'Suspicious pricing complaint queue' },
-      { id: 'R-31', label: 'Possible duplicate media queue' },
-      { id: 'R-36', label: 'Ownership proof re-check queue' },
-    ];
-    bidRows = readJson(bidKey, []).map((item, idx) => ({ ...item, idx }));
-  };
-
   const loadLiveData = async () => {
     const token = getAdminToken();
     if (!token || !live.request) {
-      if (!allowDemoFallback) {
-        verification = [];
-        reports = [{ id: 'LIVE-REQ', label: 'Admin login + live backend required.' }];
-        bidRows = [];
-        return;
-      }
-      fallbackData();
+      verification = [];
+      reports = [{ id: 'LIVE-REQ', label: 'Admin login + live backend required.' }];
+      bidRows = [];
       return;
     }
     try {
@@ -111,13 +82,9 @@
         idx,
       }));
     } catch (error) {
-      if (!allowDemoFallback) {
-        verification = [];
-        reports = [{ id: 'LIVE-ERR', label: `Live admin fetch failed: ${String(error?.message || 'Unknown error')}` }];
-        bidRows = [];
-        return;
-      }
-      fallbackData();
+      verification = [];
+      reports = [{ id: 'LIVE-ERR', label: `Live admin fetch failed: ${String(error?.message || 'Unknown error')}` }];
+      bidRows = [];
     }
   };
 
@@ -172,13 +139,8 @@
     if (!propertyId) return;
     const ok = await approveLive(propertyId);
     if (!ok) {
-      if (!allowDemoFallback) {
-        window.alert('Live verification approval failed.');
-        return;
-      }
-      const localListings = readJson('propertySetu:listings', []);
-      const updated = localListings.map((item) => (item.id === propertyId ? { ...item, status: 'Approved' } : item));
-      saveJson('propertySetu:listings', updated);
+      window.alert('Live verification approval failed.');
+      return;
     }
     await loadLiveData();
     renderQueue();
@@ -203,117 +165,93 @@
       const input = bidQueue.querySelector(`[data-bid-input="${idx}"]`);
       const nextValue = Number(input?.value || 0);
       if (!nextValue || nextValue <= 0) return;
-      const localBids = readJson(bidKey, []);
-      if (localBids[idx]) {
-        localBids[idx].modifiedByAdmin = nextValue;
-        localBids[idx].amount = nextValue;
-        saveJson(bidKey, localBids);
+      const token = getAdminToken();
+      if (!token || !live.request) {
+        window.alert('Bid modify ke liye admin login + live backend required hai.');
+        return;
       }
-      bidRows[idx].amount = nextValue;
-      bidRows[idx].modifiedByAdmin = nextValue;
-      renderBids();
-      pushNotification(
-        `Admin modified bid for ${bidRows[idx].propertyId} to ₹${Number(nextValue).toLocaleString('en-IN')}.`,
-        ['admin', 'customer'],
-        'Bid Modified',
-        'warn',
-      );
+      try {
+        await live.request('/sealed-bids/decision', {
+          method: 'POST',
+          token,
+          data: { propertyId: bidRows[idx].propertyId, action: 'modify', modifiedAmount: nextValue },
+        });
+        await loadLiveData();
+        renderBids();
+        pushNotification(
+          `Admin modified bid for ${bidRows[idx].propertyId} to ₹${Number(nextValue).toLocaleString('en-IN')}.`,
+          ['admin', 'customer'],
+          'Bid Modified',
+          'warn',
+        );
+      } catch (error) {
+        window.alert(error.message || 'Live bid modify failed.');
+      }
       return;
     }
 
     if (action === 'reveal') {
       const token = getAdminToken();
-      if (token && live.request) {
-        try {
-          await live.request('/sealed-bids/decision', {
-            method: 'POST',
-            token,
-            data: { propertyId: bidRows[idx].propertyId, action: 'reveal' },
-          });
-          const response = await live.request('/sealed-bids/reveal', { token });
-          const winner = (response?.winners || []).find((item) => item.propertyId === bidRows[idx].propertyId);
-          if (winner) {
-            window.alert(`Winner: ${winner.winnerBid.bidderName} - ₹${Number(winner.winnerBid.amount || 0).toLocaleString('en-IN')}`);
-            bidRows[idx].publicVisible = true;
-            renderBids();
-            pushNotification(
-              `Winning bid revealed for ${bidRows[idx].propertyId}.`,
-              ['admin', 'customer', 'seller'],
-              'Bid Revealed',
-              'success',
-            );
-            return;
-          }
-        } catch {
-          // fallback below
-        }
-      }
-
-      if (!allowDemoFallback) {
-        window.alert('Live reveal action failed.');
+      if (!token || !live.request) {
+        window.alert('Bid reveal ke liye admin login + live backend required hai.');
         return;
       }
-      bidRows[idx].publicVisible = true;
-      const amount = Number(bidRows[idx].amount || 0).toLocaleString('en-IN');
-      window.alert(`Bid reveal (backup mode): ₹${amount}`);
-      renderBids();
-      pushNotification(
-        `Bid revealed (backup mode) for ${bidRows[idx].propertyId}.`,
-        ['admin', 'customer', 'seller'],
-        'Bid Revealed',
-        'warn',
-      );
+      try {
+        await live.request('/sealed-bids/decision', {
+          method: 'POST',
+          token,
+          data: { propertyId: bidRows[idx].propertyId, action: 'reveal' },
+        });
+        const winnerResponse = await live.request(`/sealed-bids/winner/${encodeURIComponent(bidRows[idx].propertyId)}`, { token });
+        const winner = winnerResponse?.winner || null;
+        await loadLiveData();
+        renderBids();
+        if (winner) {
+          window.alert(`Winner: ${winner.bidderName || 'Bidder'} - ₹${Number(winner.amount || 0).toLocaleString('en-IN')}`);
+        } else {
+          window.alert('Winning bid reveal completed.');
+        }
+        pushNotification(
+          `Winning bid revealed for ${bidRows[idx].propertyId}.`,
+          ['admin', 'customer', 'seller'],
+          'Bid Revealed',
+          'success',
+        );
+      } catch (error) {
+        window.alert(error.message || 'Live reveal action failed.');
+      }
       return;
     }
 
     if (action === 'accept' || action === 'reject') {
       const token = getAdminToken();
-      if (token && live.request) {
-        try {
-          await live.request('/sealed-bids/decision', {
-            method: 'POST',
-            token,
-            data: { propertyId: bidRows[idx].propertyId, action },
-          });
-          window.alert(action === 'accept' ? 'Highest bid accepted.' : 'All bids rejected.');
-          await loadLiveData();
-          renderBids();
-          pushNotification(
-            action === 'accept'
-              ? `Admin accepted highest bid for ${bidRows[idx].propertyId}.`
-              : `Admin rejected all bids for ${bidRows[idx].propertyId}.`,
-            ['admin', 'customer', 'seller'],
-            action === 'accept' ? 'Bid Accepted' : 'Bids Rejected',
-            action === 'accept' ? 'success' : 'warn',
-          );
-          return;
-        } catch {
-          // fallback below
-        }
-      }
-      if (!allowDemoFallback) {
-        window.alert(`Live ${action} action failed.`);
+      if (!token || !live.request) {
+        window.alert(`Live ${action} action ke liye admin login required hai.`);
         return;
       }
-      const localBids = readJson(bidKey, []);
-      localBids
-        .filter((b) => b.propertyId === bidRows[idx].propertyId)
-        .forEach((b) => { b.status = action === 'accept' ? 'Accepted' : 'Rejected'; });
-      saveJson(bidKey, localBids);
-      window.alert(action === 'accept' ? 'Highest bid accepted (backup mode).' : 'All bids rejected (backup mode).');
-      renderBids();
-      pushNotification(
-        action === 'accept'
-          ? `Bid accepted (backup mode) for ${bidRows[idx].propertyId}.`
-          : `All bids rejected (backup mode) for ${bidRows[idx].propertyId}.`,
-        ['admin', 'customer', 'seller'],
-        action === 'accept' ? 'Bid Accepted' : 'Bids Rejected',
-        'warn',
-      );
+      try {
+        await live.request('/sealed-bids/decision', {
+          method: 'POST',
+          token,
+          data: { propertyId: bidRows[idx].propertyId, action },
+        });
+        window.alert(action === 'accept' ? 'Highest bid accepted.' : 'All bids rejected.');
+        await loadLiveData();
+        renderBids();
+        pushNotification(
+          action === 'accept'
+            ? `Admin accepted highest bid for ${bidRows[idx].propertyId}.`
+            : `Admin rejected all bids for ${bidRows[idx].propertyId}.`,
+          ['admin', 'customer', 'seller'],
+          action === 'accept' ? 'Bid Accepted' : 'Bids Rejected',
+          action === 'accept' ? 'success' : 'warn',
+        );
+      } catch (error) {
+        window.alert(error.message || `Live ${action} action failed.`);
+      }
     }
   });
 
-  ensureSeedBids();
   loadLiveData().then(() => {
     renderQueue();
     renderBids();
