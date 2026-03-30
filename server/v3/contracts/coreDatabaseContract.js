@@ -97,13 +97,16 @@ export const coreSystemsBlueprint = [
       "One-time private-doc token replay protection with access audit telemetry",
       "Upload-owner/property-owner authorization re-check with token claim binding validation",
       "Context-bound private-doc access tokens (network prefix + user-agent fingerprint)",
+      "Adaptive private-doc security shield: repeated suspicious access patterns auto-blocked with admin release control",
       "Auto description generator"
     ],
     endpoints: [
       "/api/v3/properties/professional",
       "/api/v3/properties/auto-description",
       "/api/v3/uploads/property-media",
-      "/api/v3/uploads/private-docs/access"
+      "/api/v3/uploads/private-docs/access",
+      "/api/v3/uploads/private-docs/security/events",
+      "/api/v3/uploads/private-docs/security/release"
     ],
     dependencies: ["fileStorage"]
   },

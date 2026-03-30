@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import mongoose from "mongoose";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
@@ -77,7 +78,56 @@ const PRIVATE_DOC_CONTEXT_BINDING_REQUIRED =
   String(process.env.CORE_PRIVATE_DOC_CONTEXT_BINDING_REQUIRED || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS =
   String(process.env.CORE_PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS || "false").trim().toLowerCase() === "true";
+const PRIVATE_DOC_ACCESS_SHIELD_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_ENABLED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS =
+  String(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS = Math.max(
+  60_000,
+  Math.min(
+    24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MINUTES || 20) * 60 * 1000
+  )
+);
+const PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD = Math.max(
+  6,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD || 18)
+);
+const PRIVATE_DOC_ACCESS_SHIELD_REPLAY_THRESHOLD = Math.max(
+  2,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_REPLAY_THRESHOLD || 4)
+);
+const PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD = Math.max(
+  2,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD || 6)
+);
+const PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS = Math.max(
+  60_000,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MINUTES || 20) * 60 * 1000
+);
+const PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MAX_MS = Math.max(
+  PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_MAX_BLOCK_MINUTES || 360) * 60 * 1000
+);
+const PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MS = Math.max(
+  PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MINUTES || 240) * 60 * 1000
+  )
+);
+const PRIVATE_DOC_ACCESS_SHIELD_PROFILE_MAX = Math.max(
+  100,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_PROFILE_MAX || 6000)
+);
+const PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS = Math.max(
+  100,
+  Number(process.env.CORE_PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS || 3000)
+);
 const privateDocConsumedTokenMap = new Map();
+const privateDocAccessShieldProfiles = new Map();
+const privateDocAccessShieldBlocks = new Map();
+const privateDocAccessShieldPenalty = new Map();
 
 function normalizeCategory(value) {
   return text(value, "misc").toLowerCase();
@@ -148,19 +198,490 @@ function getClientIp(req) {
   return text(req?.ip || req?.socket?.remoteAddress || "0.0.0.0");
 }
 
+function hashPrivateDocShieldIdentity(value = "") {
+  const safe = text(value);
+  if (!safe) return "";
+  return crypto.createHash("sha256").update(safe).digest("hex").slice(0, 32);
+}
+
+function buildPrivateDocShieldActorKey({
+  userId = "",
+  ip = ""
+} = {}) {
+  const normalizedUserId = text(userId);
+  if (normalizedUserId) {
+    const digest = hashPrivateDocShieldIdentity(`user:${normalizedUserId}`);
+    return digest ? `user:${digest}` : "";
+  }
+  const normalizedIp = text(ip);
+  if (!normalizedIp) return "";
+  const digest = hashPrivateDocShieldIdentity(`ip:${normalizedIp}`);
+  return digest ? `ip:${digest}` : "";
+}
+
+function isPrivateDocFailureReason(reason = "") {
+  const normalized = text(reason).toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "ok" || normalized === "token-consumed") return false;
+  return true;
+}
+
+function privateDocFailureRiskWeight({
+  reason = "",
+  replayBlocked = false,
+  authorizationDenied = false,
+  contextBindingFailure = false
+} = {}) {
+  const normalized = text(reason).toLowerCase();
+  let weight = 2;
+
+  if (normalized.includes("token-replay")) {
+    weight = 6;
+  } else if (
+    normalized.includes("integrity") ||
+    normalized.includes("binding-mismatch") ||
+    normalized.includes("source-hash-mismatch") ||
+    normalized.includes("signature-mismatch")
+  ) {
+    weight = 5;
+  } else if (
+    normalized.includes("context-mismatch") ||
+    normalized.includes("subject-mismatch") ||
+    normalized.includes("authorization")
+  ) {
+    weight = 4;
+  } else if (
+    normalized.includes("expired") ||
+    normalized.includes("issued-in-future") ||
+    normalized.includes("payload-invalid")
+  ) {
+    weight = 3;
+  } else if (
+    normalized.includes("missing-token") ||
+    normalized.includes("source-unavailable") ||
+    normalized.includes("upload-not-found")
+  ) {
+    weight = 1;
+  }
+
+  if (Boolean(replayBlocked)) weight += 2;
+  if (Boolean(authorizationDenied)) weight += 1;
+  if (Boolean(contextBindingFailure)) weight += 1;
+  return Math.max(1, Math.min(16, weight));
+}
+
+function privateDocShieldBlockDurationMs(level = 1) {
+  const safeLevel = Math.max(1, Math.round(numberValue(level, 1)));
+  const scaled = Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS * Math.pow(1.8, safeLevel - 1));
+  return Math.max(
+    PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS,
+    Math.min(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MAX_MS, scaled)
+  );
+}
+
+function listPrivateDocShieldActiveBlocks(nowTs = Date.now()) {
+  const now = Math.max(0, Math.round(numberValue(nowTs, Date.now())));
+  const rows = [];
+  for (const [actorKey, row] of privateDocAccessShieldBlocks.entries()) {
+    const blockUntilTs = Math.max(0, Math.round(numberValue(row?.blockUntilTs, 0)));
+    if (!blockUntilTs || blockUntilTs <= now) continue;
+    rows.push({
+      actorKey,
+      reason: text(row?.reason),
+      blockLevel: Math.max(1, Math.round(numberValue(row?.blockLevel, 1))),
+      blockStartedAt: asIso(row?.blockStartedAtTs),
+      blockUntil: asIso(blockUntilTs),
+      remainingSec: Math.max(1, Math.ceil((blockUntilTs - now) / 1000)),
+      triggers: Array.isArray(row?.triggers) ? row.triggers.slice(0, 6) : [],
+      userId: text(row?.userId),
+      role: text(row?.role),
+      ip: text(row?.ip),
+      source: text(row?.source)
+    });
+  }
+  return rows.sort((a, b) => new Date(b.blockStartedAt || 0) - new Date(a.blockStartedAt || 0));
+}
+
+function syncPrivateDocShieldBlocksSnapshot(nowTs = Date.now()) {
+  proMemoryStore.corePrivateDocShieldBlocks = listPrivateDocShieldActiveBlocks(nowTs);
+}
+
+function prunePrivateDocAccessShieldState(nowTs = Date.now()) {
+  const now = Math.max(0, Math.round(numberValue(nowTs, Date.now())));
+  const cutoffTs = now - PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS;
+
+  for (const [actorKey, row] of privateDocAccessShieldProfiles.entries()) {
+    const events = (Array.isArray(row?.events) ? row.events : [])
+      .filter((item) => Math.max(0, Math.round(numberValue(item?.atTs, 0))) >= cutoffTs)
+      .slice(-Math.max(10, PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD * 8));
+
+    if (!events.length && !privateDocAccessShieldBlocks.has(actorKey)) {
+      privateDocAccessShieldProfiles.delete(actorKey);
+      continue;
+    }
+    privateDocAccessShieldProfiles.set(actorKey, {
+      ...row,
+      events,
+      updatedAtTs: Math.max(0, Math.round(numberValue(row?.updatedAtTs, now)))
+    });
+  }
+
+  for (const [actorKey, row] of privateDocAccessShieldBlocks.entries()) {
+    const blockUntilTs = Math.max(0, Math.round(numberValue(row?.blockUntilTs, 0)));
+    if (!blockUntilTs || blockUntilTs <= now) {
+      privateDocAccessShieldBlocks.delete(actorKey);
+    }
+  }
+
+  for (const [actorKey, row] of privateDocAccessShieldPenalty.entries()) {
+    const expiresAtTs = Math.max(0, Math.round(numberValue(row?.expiresAtTs, 0)));
+    if (!expiresAtTs || expiresAtTs <= now) {
+      privateDocAccessShieldPenalty.delete(actorKey);
+    }
+  }
+
+  if (privateDocAccessShieldProfiles.size > PRIVATE_DOC_ACCESS_SHIELD_PROFILE_MAX) {
+    const sortedByUpdated = [...privateDocAccessShieldProfiles.entries()]
+      .sort((left, right) => {
+        const leftTs = Math.max(0, Math.round(numberValue(left[1]?.updatedAtTs, 0)));
+        const rightTs = Math.max(0, Math.round(numberValue(right[1]?.updatedAtTs, 0)));
+        return leftTs - rightTs;
+      });
+    while (
+      privateDocAccessShieldProfiles.size > PRIVATE_DOC_ACCESS_SHIELD_PROFILE_MAX &&
+      sortedByUpdated.length
+    ) {
+      const next = sortedByUpdated.shift();
+      if (!next) break;
+      privateDocAccessShieldProfiles.delete(text(next[0]));
+    }
+  }
+
+  syncPrivateDocShieldBlocksSnapshot(now);
+}
+
+function recordPrivateDocShieldEvent(event = {}) {
+  const rows = Array.isArray(proMemoryStore.corePrivateDocShieldEvents)
+    ? proMemoryStore.corePrivateDocShieldEvents
+    : [];
+  rows.unshift({
+    id: `doc-shield-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    at: new Date().toISOString(),
+    ...event
+  });
+  if (rows.length > PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS) {
+    rows.length = PRIVATE_DOC_ACCESS_SHIELD_EVENT_MAX_ITEMS;
+  }
+  proMemoryStore.corePrivateDocShieldEvents = rows;
+}
+
+function evaluatePrivateDocAccessShieldStatus({
+  userId = "",
+  role = "",
+  ip = "",
+  nowTs = Date.now()
+} = {}) {
+  const now = Math.max(0, Math.round(numberValue(nowTs, Date.now())));
+  prunePrivateDocAccessShieldState(now);
+  const actorKey = buildPrivateDocShieldActorKey({ userId, ip });
+  const actorRole = text(role, "buyer").toLowerCase();
+  const bypassed = actorRole === "admin" && PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS;
+
+  if (!PRIVATE_DOC_ACCESS_SHIELD_ENABLED || !actorKey || bypassed) {
+    return {
+      actorKey,
+      active: false,
+      bypassed,
+      enabled: PRIVATE_DOC_ACCESS_SHIELD_ENABLED
+    };
+  }
+
+  const block = privateDocAccessShieldBlocks.get(actorKey);
+  if (!block) {
+    return {
+      actorKey,
+      active: false,
+      bypassed: false,
+      enabled: true
+    };
+  }
+
+  const blockUntilTs = Math.max(0, Math.round(numberValue(block?.blockUntilTs, 0)));
+  if (!blockUntilTs || blockUntilTs <= now) {
+    privateDocAccessShieldBlocks.delete(actorKey);
+    syncPrivateDocShieldBlocksSnapshot(now);
+    return {
+      actorKey,
+      active: false,
+      bypassed: false,
+      enabled: true
+    };
+  }
+
+  return {
+    actorKey,
+    active: true,
+    bypassed: false,
+    enabled: true,
+    reason: text(block?.reason),
+    blockLevel: Math.max(1, Math.round(numberValue(block?.blockLevel, 1))),
+    blockUntilTs,
+    blockUntil: asIso(blockUntilTs),
+    remainingSec: Math.max(1, Math.ceil((blockUntilTs - now) / 1000))
+  };
+}
+
+function registerPrivateDocAccessShieldFailure(event = {}) {
+  if (!PRIVATE_DOC_ACCESS_SHIELD_ENABLED) {
+    return { enabled: false, active: false, blockedNow: false };
+  }
+
+  const userId = text(event.userId);
+  const role = text(event.role, "buyer").toLowerCase();
+  const ip = text(event.ip);
+  const actorKey = buildPrivateDocShieldActorKey({ userId, ip });
+  if (!actorKey) {
+    return { enabled: true, active: false, blockedNow: false };
+  }
+  if (role === "admin" && PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS) {
+    return {
+      enabled: true,
+      active: false,
+      blockedNow: false,
+      actorKey,
+      bypassed: true
+    };
+  }
+
+  const replayBlocked = Boolean(event.replayBlocked);
+  const authorizationDenied = Boolean(event.authorizationDenied);
+  const contextBindingFailure = Boolean(event.contextBindingFailure);
+  const reason = text(event.reason);
+  if (!replayBlocked && !authorizationDenied && !contextBindingFailure && !isPrivateDocFailureReason(reason)) {
+    return { enabled: true, active: false, blockedNow: false, actorKey };
+  }
+
+  const nowTs = Date.now();
+  prunePrivateDocAccessShieldState(nowTs);
+  const profile = privateDocAccessShieldProfiles.get(actorKey) || {
+    actorKey,
+    userId,
+    role,
+    ip,
+    events: [],
+    updatedAtTs: nowTs
+  };
+  const cutoffTs = nowTs - PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS;
+  const previousEvents = (Array.isArray(profile.events) ? profile.events : [])
+    .filter((item) => Math.max(0, Math.round(numberValue(item?.atTs, 0))) >= cutoffTs);
+
+  const nextEvent = {
+    atTs: nowTs,
+    reason: reason || "private-doc-access-failure",
+    source: text(event.source),
+    hash: text(event.hash).slice(0, 128),
+    replayBlocked,
+    authorizationDenied,
+    contextBindingFailure,
+    weight: privateDocFailureRiskWeight({
+      reason,
+      replayBlocked,
+      authorizationDenied,
+      contextBindingFailure
+    })
+  };
+  const events = [...previousEvents, nextEvent].slice(-Math.max(10, PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD * 8));
+  const failures = events.filter((item) => isPrivateDocFailureReason(item.reason));
+  const riskScore = failures.reduce((sum, item) => sum + Math.max(1, numberValue(item.weight, 1)), 0);
+  const replayEvents = failures.filter((item) => Boolean(item.replayBlocked)).length;
+  const distinctHashes = new Set(
+    failures.map((item) => text(item.hash)).filter((item) => Boolean(item))
+  ).size;
+
+  const triggers = [];
+  if (riskScore >= PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD) {
+    triggers.push("risk-threshold");
+  }
+  if (replayEvents >= PRIVATE_DOC_ACCESS_SHIELD_REPLAY_THRESHOLD) {
+    triggers.push("replay-threshold");
+  }
+  if (
+    distinctHashes >= PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD &&
+    failures.length >= Math.max(2, PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD - 1)
+  ) {
+    triggers.push("distinct-doc-threshold");
+  }
+  const shouldBlock = triggers.length > 0;
+
+  const profileRow = {
+    ...profile,
+    userId: profile.userId || userId,
+    role: profile.role || role,
+    ip: profile.ip || ip,
+    events,
+    riskScore,
+    replayEvents,
+    distinctHashes,
+    updatedAtTs: nowTs
+  };
+  privateDocAccessShieldProfiles.set(actorKey, profileRow);
+
+  const currentBlock = privateDocAccessShieldBlocks.get(actorKey);
+  const currentBlockUntilTs = Math.max(0, Math.round(numberValue(currentBlock?.blockUntilTs, 0)));
+  const blockActive = currentBlockUntilTs > nowTs;
+  if (shouldBlock && !blockActive) {
+    const penalty = privateDocAccessShieldPenalty.get(actorKey);
+    const penaltyExpiresAtTs = Math.max(0, Math.round(numberValue(penalty?.expiresAtTs, 0)));
+    const nextBlockLevel =
+      penalty && penaltyExpiresAtTs > nowTs
+        ? Math.min(12, Math.max(1, Math.round(numberValue(penalty?.blockLevel, 1))) + 1)
+        : 1;
+    const durationMs = privateDocShieldBlockDurationMs(nextBlockLevel);
+    const blockUntilTs = nowTs + durationMs;
+    const blockReason = `private-doc-shield-${triggers.join("-")}`;
+
+    privateDocAccessShieldBlocks.set(actorKey, {
+      actorKey,
+      userId: profileRow.userId,
+      role: profileRow.role,
+      ip: profileRow.ip,
+      source: text(nextEvent.source),
+      reason: blockReason,
+      triggers: [...triggers],
+      blockLevel: nextBlockLevel,
+      blockStartedAtTs: nowTs,
+      blockUntilTs,
+      riskScore,
+      replayEvents,
+      distinctHashes
+    });
+    privateDocAccessShieldPenalty.set(actorKey, {
+      blockLevel: nextBlockLevel,
+      blockedAtTs: nowTs,
+      expiresAtTs: nowTs + PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MS
+    });
+    syncPrivateDocShieldBlocksSnapshot(nowTs);
+    recordPrivateDocShieldEvent({
+      type: "auto-block",
+      actorKey,
+      userId: profileRow.userId,
+      role: profileRow.role,
+      ip: profileRow.ip,
+      source: text(nextEvent.source),
+      reason: blockReason,
+      triggerReason: text(nextEvent.reason),
+      triggers,
+      riskScore,
+      replayEvents,
+      distinctHashes,
+      blockLevel: nextBlockLevel,
+      durationSec: Math.max(1, Math.ceil(durationMs / 1000)),
+      blockUntil: asIso(blockUntilTs)
+    });
+    return {
+      enabled: true,
+      actorKey,
+      active: true,
+      blockedNow: true,
+      reason: blockReason,
+      blockLevel: nextBlockLevel,
+      blockUntil: asIso(blockUntilTs),
+      remainingSec: Math.max(1, Math.ceil((blockUntilTs - nowTs) / 1000)),
+      triggers,
+      riskScore,
+      replayEvents,
+      distinctHashes
+    };
+  }
+
+  if (blockActive) {
+    return {
+      enabled: true,
+      actorKey,
+      active: true,
+      blockedNow: false,
+      reason: text(currentBlock?.reason),
+      blockLevel: Math.max(1, Math.round(numberValue(currentBlock?.blockLevel, 1))),
+      blockUntil: asIso(currentBlockUntilTs),
+      remainingSec: Math.max(1, Math.ceil((currentBlockUntilTs - nowTs) / 1000)),
+      triggers: Array.isArray(currentBlock?.triggers) ? currentBlock.triggers.slice(0, 6) : [],
+      riskScore,
+      replayEvents,
+      distinctHashes
+    };
+  }
+
+  return {
+    enabled: true,
+    actorKey,
+    active: false,
+    blockedNow: false,
+    riskScore,
+    replayEvents,
+    distinctHashes
+  };
+}
+
+function releasePrivateDocAccessShieldActor(actorKey = "", releasedBy = "", reason = "") {
+  const key = text(actorKey);
+  if (!key) return null;
+  const block = privateDocAccessShieldBlocks.get(key);
+  if (!block) return null;
+  privateDocAccessShieldBlocks.delete(key);
+  privateDocAccessShieldPenalty.delete(key);
+  const releasedAt = new Date().toISOString();
+  syncPrivateDocShieldBlocksSnapshot(Date.now());
+  recordPrivateDocShieldEvent({
+    type: "manual-release",
+    actorKey: key,
+    reason: text(reason, "admin-manual-release"),
+    releasedBy: text(releasedBy),
+    releasedAt,
+    previousReason: text(block.reason),
+    previousBlockLevel: Math.max(1, Math.round(numberValue(block.blockLevel, 1)))
+  });
+  return {
+    actorKey: key,
+    reason: text(reason, "admin-manual-release"),
+    releasedBy: text(releasedBy),
+    releasedAt
+  };
+}
+
+function releaseAllPrivateDocAccessShieldActors(releasedBy = "", reason = "") {
+  const keys = [...privateDocAccessShieldBlocks.keys()];
+  const released = keys
+    .map((key) => releasePrivateDocAccessShieldActor(key, releasedBy, reason))
+    .filter((item) => Boolean(item));
+  return released;
+}
+
 function recordPrivateDocAccessEvent(event = {}) {
   const rows = Array.isArray(proMemoryStore.corePrivateDocAccessEvents)
     ? proMemoryStore.corePrivateDocAccessEvents
     : [];
-  rows.unshift({
+  const normalized = {
     id: `doc-access-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     at: new Date().toISOString(),
     ...event
-  });
+  };
+  const shield = registerPrivateDocAccessShieldFailure(normalized);
+  if (shield && shield.enabled) {
+    normalized.shieldEnabled = true;
+    normalized.shieldActorKey = text(shield.actorKey);
+    normalized.shieldActive = Boolean(shield.active);
+    normalized.shieldBlocked = Boolean(shield.blockedNow || shield.active);
+    normalized.shieldReason = text(shield.reason);
+    normalized.shieldBlockLevel = Math.max(0, Math.round(numberValue(shield.blockLevel, 0)));
+    normalized.shieldRemainingSec = Math.max(0, Math.round(numberValue(shield.remainingSec, 0)));
+    normalized.shieldTriggers = Array.isArray(shield.triggers) ? shield.triggers.slice(0, 6) : [];
+  }
+  rows.unshift(normalized);
   if (rows.length > PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS) {
     rows.length = PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS;
   }
   proMemoryStore.corePrivateDocAccessEvents = rows;
+  return normalized;
 }
 
 function pruneConsumedPrivateDocTokens(nowSec = Math.floor(Date.now() / 1000)) {
@@ -555,9 +1076,46 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const requestIp = getClientIp(req);
     const requestUserAgent = text(req.headers?.["user-agent"]);
     const currentRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorId = text(req.coreUser?.id);
+    const actorRole = currentRole;
+    const actorIsAdmin = actorRole === "admin";
     const contextBindingEnforced = PRIVATE_DOC_CONTEXT_BINDING_REQUIRED &&
       !(PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS && currentRole === "admin");
+    const shieldStatus = evaluatePrivateDocAccessShieldStatus({
+      userId: actorId,
+      role: actorRole,
+      ip: requestIp
+    });
+    if (shieldStatus.active) {
+      res.setHeader("Retry-After", String(Math.max(1, Math.round(numberValue(shieldStatus.remainingSec, 1)))));
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        reason: "private-doc-shield-blocked",
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "shield-block",
+        shieldBlocked: true,
+        shieldReason: text(shieldStatus.reason),
+        shieldRemainingSec: Math.max(1, Math.round(numberValue(shieldStatus.remainingSec, 1)))
+      });
+      return res.status(429).json({
+        success: false,
+        message: "Private document access is temporarily blocked by security shield.",
+        reason: text(shieldStatus.reason, "private-doc-shield-blocked"),
+        retryAfterSec: Math.max(1, Math.round(numberValue(shieldStatus.remainingSec, 1)))
+      });
+    }
     if (!token) {
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        reason: "missing-token",
+        replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "token-missing"
+      });
       return res.status(400).json({
         success: false,
         message: "token is required."
@@ -600,9 +1158,6 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const tokenId = text(payload.tokenId || payload.jti);
     const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
     const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
-    const actorId = text(req.coreUser?.id);
-    const actorRole = currentRole;
-    const actorIsAdmin = actorRole === "admin";
     let sourceUrl = text(payload.sourceUrl);
     let ownerId = text(payload.ownerId);
     let propertyId = text(payload.propertyId);
@@ -612,6 +1167,18 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     if (uploadId) {
       const uploadRow = await findUploadById(uploadId);
       if (!uploadRow) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          uploadId,
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "upload-not-found",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(404).json({
           success: false,
           message: "Upload record not found."
@@ -624,6 +1191,18 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         userAgent: requestUserAgent
       }) || {};
       if (!Boolean(uploadRow?.isPrivate)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          uploadId,
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "upload-not-private",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(400).json({
           success: false,
           message: "Requested upload is not marked as private."
@@ -637,24 +1216,92 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
       sourceUrl = text(uploadRow?.url, sourceUrl);
       const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id);
       if (!sameId(uploadId, resolvedUploadId)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "token-upload-binding-mismatch",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(409).json({
           success: false,
           message: "Private document token upload binding mismatch."
         });
       }
       if (text(payload.ownerId) && !sameId(payload.ownerId, ownerId)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "token-owner-binding-mismatch",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(409).json({
           success: false,
           message: "Private document token owner binding mismatch."
         });
       }
       if (text(payload.propertyId) && !sameId(payload.propertyId, propertyId)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "token-property-binding-mismatch",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(409).json({
           success: false,
           message: "Private document token property binding mismatch."
         });
       }
       if (text(payload.category) && text(payload.category).toLowerCase() !== text(docCategory).toLowerCase()) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "token-category-binding-mismatch",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(409).json({
           success: false,
           message: "Private document token category binding mismatch."
@@ -695,6 +1342,23 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         hashPrivateDocSourceUrl(sourceUrl)
       );
       if (uploadHash && uploadHash !== text(payload.hash)) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "document-integrity-validation-failed",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload"
+        });
         return res.status(409).json({
           success: false,
           message: "Document integrity validation failed."
@@ -774,6 +1438,23 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     }
 
     if (!sourceUrl) {
+      recordPrivateDocAccessEvent({
+        userId: actorId,
+        role: actorRole,
+        ownerId,
+        propertyId,
+        uploadId: "",
+        docId: text(payload.docId),
+        category: docCategory,
+        hash: text(payload.hash),
+        tokenId,
+        tokenFingerprint,
+        replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+        reason: "source-unavailable",
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "inline-private-doc"
+      });
       return res.status(404).json({
         success: false,
         message: "Private document source is unavailable."
@@ -877,4 +1558,83 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
   } catch (error) {
     return next(error);
   }
+}
+
+export function listCorePrivateDocSecurityEvents(req, res) {
+  const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
+  const nowTs = Date.now();
+  prunePrivateDocAccessShieldState(nowTs);
+  const shieldEvents = Array.isArray(proMemoryStore.corePrivateDocShieldEvents)
+    ? proMemoryStore.corePrivateDocShieldEvents
+    : [];
+  const accessEvents = Array.isArray(proMemoryStore.corePrivateDocAccessEvents)
+    ? proMemoryStore.corePrivateDocAccessEvents
+    : [];
+  const activeBlocks = listPrivateDocShieldActiveBlocks(nowTs);
+
+  return res.json({
+    success: true,
+    shield: {
+      enabled: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ENABLED),
+      adminBypass: Boolean(PRIVATE_DOC_ACCESS_SHIELD_ADMIN_BYPASS),
+      thresholds: {
+        windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_WINDOW_MS / 60_000)),
+        riskThreshold: PRIVATE_DOC_ACCESS_SHIELD_RISK_THRESHOLD,
+        replayThreshold: PRIVATE_DOC_ACCESS_SHIELD_REPLAY_THRESHOLD,
+        distinctHashThreshold: PRIVATE_DOC_ACCESS_SHIELD_DISTINCT_HASH_THRESHOLD,
+        blockMinMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MIN_MS / 60_000)),
+        blockMaxMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_BLOCK_MAX_MS / 60_000)),
+        penaltyWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_ACCESS_SHIELD_PENALTY_WINDOW_MS / 60_000))
+      },
+      activeBlockCount: activeBlocks.length,
+      activeBlocks,
+      totalEvents: shieldEvents.length,
+      events: shieldEvents.slice(0, limit)
+    },
+    accessTelemetry: {
+      total: accessEvents.length,
+      items: accessEvents.slice(0, Math.min(limit, 200))
+    }
+  });
+}
+
+export function releaseCorePrivateDocSecurityShield(req, res) {
+  const adminId = text(req.coreUser?.id);
+  const reason = text(req.body?.reason, "admin-manual-release");
+  const releaseAll =
+    String(req.body?.all || req.query?.all || "false").trim().toLowerCase() === "true";
+
+  if (releaseAll) {
+    const released = releaseAllPrivateDocAccessShieldActors(adminId, reason);
+    return res.json({
+      success: true,
+      releasedAll: true,
+      releasedCount: released.length,
+      released,
+      activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())
+    });
+  }
+
+  const actorKey = text(req.body?.actorKey || req.query?.actorKey || req.params?.actorKey);
+  if (!actorKey) {
+    return res.status(400).json({
+      success: false,
+      message: "actorKey or all=true is required."
+    });
+  }
+
+  const released = releasePrivateDocAccessShieldActor(actorKey, adminId, reason);
+  if (!released) {
+    return res.status(404).json({
+      success: false,
+      message: "Shield block not found for actorKey."
+    });
+  }
+
+  return res.json({
+    success: true,
+    releasedAll: false,
+    released,
+    activeBlocks: listPrivateDocShieldActiveBlocks(Date.now())
+  });
 }

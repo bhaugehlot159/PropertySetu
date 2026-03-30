@@ -14,6 +14,8 @@ export const proMemoryStore = {
   coreMessages: [],
   coreUploads: [],
   corePrivateDocAccessEvents: [],
+  corePrivateDocShieldEvents: [],
+  corePrivateDocShieldBlocks: [],
   coreOwnerVerificationRequests: [],
   corePropertyCareRequests: [],
   coreWishlistItems: [],

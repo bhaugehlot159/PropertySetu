@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
+  listCorePrivateDocSecurityEvents,
   listMyCoreUploads,
+  releaseCorePrivateDocSecurityShield,
   resolveCorePrivateDocAccess,
   uploadCorePropertyMedia
 } from "../controllers/coreUploadController.js";
@@ -24,6 +26,18 @@ router.post(
   coreAuthRequired,
   coreUploadPrivateDocAccessLimiter,
   resolveCorePrivateDocAccess
+);
+router.get(
+  "/private-docs/security/events",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  listCorePrivateDocSecurityEvents
+);
+router.post(
+  "/private-docs/security/release",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  releaseCorePrivateDocSecurityShield
 );
 router.get("/mine", coreAuthRequired, listMyCoreUploads);
 
