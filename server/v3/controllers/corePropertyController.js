@@ -54,11 +54,24 @@ function normalizeDateValue(value) {
   return date;
 }
 
+function getClientIp(req) {
+  const forwarded = req?.headers?.["x-forwarded-for"];
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return text(forwarded[0]).split(",")[0].trim();
+  }
+  if (text(forwarded)) {
+    return text(forwarded).split(",")[0].trim();
+  }
+  return text(req?.ip || req?.socket?.remoteAddress || "0.0.0.0");
+}
+
 function getViewerFromRequest(req) {
   if (req?.coreUser?.id) {
     return {
       id: toId(req.coreUser.id),
-      role: text(req.coreUser.role, "buyer").toLowerCase()
+      role: text(req.coreUser.role, "buyer").toLowerCase(),
+      clientIp: getClientIp(req),
+      userAgent: text(req.headers?.["user-agent"])
     };
   }
   return null;
@@ -271,7 +284,9 @@ function buildSecurePrivateDocRecord(
       category: text(category),
       name: text(name),
       viewerId: toId(viewer.id),
-      viewerRole: text(viewer.role, "buyer").toLowerCase()
+      viewerRole: text(viewer.role, "buyer").toLowerCase(),
+      requestIp: text(viewer.clientIp),
+      requestUserAgent: text(viewer.userAgent)
     });
   const maskedUrl = envelope?.maskedUrl || buildMaskedPrivateDocUrl(resolvedSourceUrl);
 

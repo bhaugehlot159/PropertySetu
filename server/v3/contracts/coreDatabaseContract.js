@@ -96,6 +96,7 @@ export const coreSystemsBlueprint = [
       "Masked private-doc URLs with short-lived secure access token flow",
       "One-time private-doc token replay protection with access audit telemetry",
       "Upload-owner/property-owner authorization re-check with token claim binding validation",
+      "Context-bound private-doc access tokens (network prefix + user-agent fingerprint)",
       "Auto description generator"
     ],
     endpoints: [

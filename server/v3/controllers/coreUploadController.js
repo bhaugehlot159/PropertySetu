@@ -73,6 +73,10 @@ const PRIVATE_DOC_TOKEN_REPLAY_CACHE_MAX = Math.max(
   100,
   Number(process.env.CORE_PRIVATE_DOC_TOKEN_REPLAY_CACHE_MAX || 12000)
 );
+const PRIVATE_DOC_CONTEXT_BINDING_REQUIRED =
+  String(process.env.CORE_PRIVATE_DOC_CONTEXT_BINDING_REQUIRED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS =
+  String(process.env.CORE_PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS || "false").trim().toLowerCase() === "true";
 const privateDocConsumedTokenMap = new Map();
 
 function normalizeCategory(value) {
@@ -280,7 +284,9 @@ function normalizeUpload(doc, viewer = null) {
           category: text(row.category),
           name: text(row.name, "upload.bin"),
           viewerId: text(viewer?.id),
-          viewerRole: text(viewer?.role, "buyer").toLowerCase()
+          viewerRole: text(viewer?.role, "buyer").toLowerCase(),
+          requestIp: text(viewer?.clientIp),
+          requestUserAgent: text(viewer?.userAgent)
         })
       : null;
   const maskedUrl = isPrivate
@@ -363,6 +369,11 @@ export async function uploadCorePropertyMedia(req, res, next) {
     const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
     const actorUserId = text(req.coreUser?.id);
     const actorIsAdmin = actorRole === "admin";
+    const accessViewer = {
+      ...req.coreUser,
+      clientIp: getClientIp(req),
+      userAgent: text(req.headers?.["user-agent"])
+    };
 
     if (!files.length) {
       return res.status(400).json({
@@ -458,7 +469,7 @@ export async function uploadCorePropertyMedia(req, res, next) {
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       total: created.length,
-      items: created.map((item) => normalizeUpload(item, req.coreUser))
+      items: created.map((item) => normalizeUpload(item, accessViewer))
     });
   } catch (error) {
     return next(error);
@@ -469,17 +480,22 @@ export async function listMyCoreUploads(req, res, next) {
   try {
     const userId = text(req.coreUser?.id);
     const limit = Math.min(300, Math.max(1, Number(req.query.limit || 80)));
+    const accessViewer = {
+      ...req.coreUser,
+      clientIp: getClientIp(req),
+      userAgent: text(req.headers?.["user-agent"])
+    };
     let items = [];
 
     if (proRuntime.dbConnected) {
       const rows = await CoreUpload.find({ userId }).sort({ createdAt: -1 }).limit(limit).lean();
-      items = rows.map((row) => normalizeUpload(row, req.coreUser));
+      items = rows.map((row) => normalizeUpload(row, accessViewer));
     } else {
       items = proMemoryStore.coreUploads
         .filter((item) => text(item.userId) === userId)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, limit)
-        .map((row) => normalizeUpload(row, req.coreUser));
+        .map((row) => normalizeUpload(row, accessViewer));
     }
 
     return res.json({
@@ -536,6 +552,11 @@ async function markPrivateDocAccess(uploadId = "", nowIso = "") {
 export async function resolveCorePrivateDocAccess(req, res, next) {
   try {
     const token = text(req.body?.token || req.query?.token);
+    const requestIp = getClientIp(req);
+    const requestUserAgent = text(req.headers?.["user-agent"]);
+    const currentRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const contextBindingEnforced = PRIVATE_DOC_CONTEXT_BINDING_REQUIRED &&
+      !(PRIVATE_DOC_CONTEXT_BINDING_ADMIN_BYPASS && currentRole === "admin");
     if (!token) {
       return res.status(400).json({
         success: false,
@@ -545,9 +566,26 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
 
     const verification = verifyPrivateDocAccessToken(token, {
       viewerId: text(req.coreUser?.id),
-      viewerRole: text(req.coreUser?.role, "buyer").toLowerCase()
+      viewerRole: currentRole,
+      requestIp,
+      requestUserAgent,
+      enforceContextBinding: contextBindingEnforced
     });
     if (!verification.ok) {
+      recordPrivateDocAccessEvent({
+        userId: text(req.coreUser?.id),
+        role: currentRole,
+        tokenFingerprint: fingerprintPrivateDocAccessToken(token),
+        replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+        replayBlocked: false,
+        contextBindingEnforced: Boolean(contextBindingEnforced),
+        contextBindingFailure: text(verification.reason) === "token-context-mismatch",
+        authorizationDenied: false,
+        reason: text(verification.reason),
+        ip: requestIp,
+        userAgent: requestUserAgent.slice(0, 240),
+        source: "token-verify"
+      });
       return res.status(403).json({
         success: false,
         message: "Private document access token is invalid or expired.",
@@ -563,7 +601,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
     const tokenFingerprint = fingerprintPrivateDocAccessToken(token);
     const tokenExpiresAtSec = Math.max(0, Math.round(numberValue(payload.exp, 0)));
     const actorId = text(req.coreUser?.id);
-    const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
+    const actorRole = currentRole;
     const actorIsAdmin = actorRole === "admin";
     let sourceUrl = text(payload.sourceUrl);
     let ownerId = text(payload.ownerId);
@@ -580,7 +618,11 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         });
       }
 
-      const normalizedUpload = normalizeUpload(uploadRow, req.coreUser) || {};
+      const normalizedUpload = normalizeUpload(uploadRow, {
+        ...req.coreUser,
+        clientIp: requestIp,
+        userAgent: requestUserAgent
+      }) || {};
       if (!Boolean(uploadRow?.isPrivate)) {
         return res.status(400).json({
           success: false,

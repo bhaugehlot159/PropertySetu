@@ -29,6 +29,28 @@ function numberValue(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeUserAgent(value = "") {
+  return text(value).toLowerCase().slice(0, 220);
+}
+
+function normalizeIp(value = "") {
+  return text(value).toLowerCase();
+}
+
+function normalizeIpPrefix(ip = "") {
+  const safeIp = normalizeIp(ip);
+  if (!safeIp) return "";
+  if (safeIp.includes(".")) {
+    const segments = safeIp.split(".").slice(0, 3);
+    return segments.length ? `${segments.join(".")}.*` : safeIp;
+  }
+  if (safeIp.includes(":")) {
+    const segments = safeIp.split(":").slice(0, 4);
+    return segments.length ? `${segments.join(":")}::*` : safeIp;
+  }
+  return safeIp;
+}
+
 function base64UrlEncode(input) {
   const raw = Buffer.isBuffer(input) ? input : Buffer.from(String(input || ""), "utf8");
   return raw
@@ -142,6 +164,19 @@ export function fingerprintPrivateDocAccessToken(token = "") {
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
+export function computePrivateDocAccessContextHash({
+  requestIp = "",
+  requestUserAgent = ""
+} = {}) {
+  const ipPrefix = normalizeIpPrefix(requestIp);
+  const normalizedUa = normalizeUserAgent(requestUserAgent);
+  if (!ipPrefix && !normalizedUa) return "";
+  return crypto
+    .createHmac("sha256", resolvedPrivateDocSecret())
+    .update(`ctx|${ipPrefix}|${normalizedUa}`)
+    .digest("hex");
+}
+
 export function buildPrivateDocAccessEnvelope({
   sourceUrl = "",
   ownerId = "",
@@ -152,6 +187,8 @@ export function buildPrivateDocAccessEnvelope({
   name = "",
   viewerId = "",
   viewerRole = "",
+  requestIp = "",
+  requestUserAgent = "",
   ttlSec = DEFAULT_TOKEN_TTL_SEC
 } = {}) {
   const safeSourceUrl = text(sourceUrl);
@@ -181,6 +218,10 @@ export function buildPrivateDocAccessEnvelope({
     category: text(category),
     name: text(name).slice(0, 120),
     hash: sourceHash,
+    ctx: computePrivateDocAccessContextHash({
+      requestIp,
+      requestUserAgent
+    }),
     enc: encryptedSource
   };
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
@@ -199,7 +240,13 @@ export function buildPrivateDocAccessEnvelope({
 
 export function verifyPrivateDocAccessToken(
   token = "",
-  { viewerId = "", viewerRole = "" } = {}
+  {
+    viewerId = "",
+    viewerRole = "",
+    requestIp = "",
+    requestUserAgent = "",
+    enforceContextBinding = true
+  } = {}
 ) {
   const raw = text(token);
   if (!raw) {
@@ -262,6 +309,16 @@ export function verifyPrivateDocAccessToken(
   if (!computedHash || !secureEqual(computedHash, text(payload.hash))) {
     return { ok: false, reason: "token-source-hash-mismatch" };
   }
+  const expectedContextHash = text(payload.ctx);
+  const runtimeContextHash = computePrivateDocAccessContextHash({
+    requestIp,
+    requestUserAgent
+  });
+  const contextBound = Boolean(expectedContextHash);
+  const contextMatch = !contextBound || (runtimeContextHash && secureEqual(runtimeContextHash, expectedContextHash));
+  if (Boolean(enforceContextBinding) && contextBound && !contextMatch) {
+    return { ok: false, reason: "token-context-mismatch" };
+  }
 
   return {
     ok: true,
@@ -271,6 +328,8 @@ export function verifyPrivateDocAccessToken(
       tokenId,
       hash: computedHash,
       sourceUrl,
+      contextBound,
+      contextMatch,
       issuedAt: toIsoFromEpochSec(issuedAtSec),
       expiresAt: toIsoFromEpochSec(expiresAtSec),
       expiresInSec: Math.max(0, expiresAtSec - nowSec)
