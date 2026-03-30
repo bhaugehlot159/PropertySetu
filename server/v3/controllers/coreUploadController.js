@@ -171,6 +171,14 @@ const PRIVATE_DOC_PROXY_BLOCK_PRIVATE_IPS =
   String(process.env.CORE_PRIVATE_DOC_PROXY_BLOCK_PRIVATE_IPS || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED =
   String(process.env.CORE_PRIVATE_DOC_RAW_URL_EXPOSURE_ALLOWED || "false").trim().toLowerCase() === "true";
+const PRIVATE_DOC_CONTENT_ATTEST_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_CONTENT_ATTEST_ENABLED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_UPSTREAM_HEADER_ENFORCE =
+  String(process.env.CORE_PRIVATE_DOC_UPSTREAM_HEADER_ENFORCE || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH =
+  String(process.env.CORE_PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS =
+  String(process.env.CORE_PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS || "true").trim().toLowerCase() !== "false";
 const PRIVATE_DOC_PROXY_ALLOWED_HOST_PATTERNS = (() => {
   const defaults = ["secure-cdn.propertysetu.local", "cdn.propertysetu.local"];
   const raw = text(process.env.CORE_PRIVATE_DOC_PROXY_ALLOWED_HOSTS);
@@ -305,6 +313,26 @@ function isPrivateDocProxyHostAllowed(hostname = "") {
     return true;
   }
   return false;
+}
+
+function normalizePrivateDocIntegrityStatus(value = "") {
+  const raw = text(value, "unknown").toLowerCase();
+  if (raw === "verified" || raw === "mismatch") return raw;
+  return "unknown";
+}
+
+function normalizeEtagValue(value = "") {
+  const raw = text(value).toLowerCase();
+  if (!raw) return "";
+  const cleaned = raw.startsWith("w/") ? raw.slice(2) : raw;
+  return cleaned.replace(/^"+|"+$/g, "");
+}
+
+function sameEtagValue(left = "", right = "") {
+  const a = normalizeEtagValue(left);
+  const b = normalizeEtagValue(right);
+  if (!a || !b) return false;
+  return a === b;
 }
 
 function hashPrivateDocShieldIdentity(value = "") {
@@ -1186,6 +1214,10 @@ async function proxyPrivateDocToResponse({
   sourceUrl = "",
   docName = "",
   hash = "",
+  expectedContentHash = "",
+  expectedUpstreamEtag = "",
+  expectedUpstreamLastModified = "",
+  enforceHeaderIntegrity = false,
   res
 } = {}) {
   const safeSourceUrl = text(sourceUrl);
@@ -1238,6 +1270,22 @@ async function proxyPrivateDocToResponse({
       reason: `proxy-upstream-status-${Math.max(0, Math.round(numberValue(upstream.status, 0)))}`
     };
   }
+  const upstreamEtag = text(upstream.headers.get("etag")).slice(0, 180);
+  const upstreamLastModified = text(upstream.headers.get("last-modified")).slice(0, 180);
+  if (Boolean(enforceHeaderIntegrity)) {
+    const expectedEtag = text(expectedUpstreamEtag).slice(0, 180);
+    const expectedLastModified = text(expectedUpstreamLastModified).slice(0, 180);
+    if (expectedEtag && upstreamEtag && !sameEtagValue(expectedEtag, upstreamEtag)) {
+      return { ok: false, reason: "proxy-upstream-etag-mismatch" };
+    }
+    if (
+      expectedLastModified &&
+      upstreamLastModified &&
+      expectedLastModified.toLowerCase() !== upstreamLastModified.toLowerCase()
+    ) {
+      return { ok: false, reason: "proxy-upstream-last-modified-mismatch" };
+    }
+  }
 
   const upstreamLength = Math.max(0, Math.round(numberValue(upstream.headers.get("content-length"), 0)));
   if (upstreamLength > PRIVATE_DOC_PROXY_MAX_BYTES) {
@@ -1262,6 +1310,7 @@ async function proxyPrivateDocToResponse({
   }
 
   let streamedBytes = 0;
+  const contentHasher = crypto.createHash("sha256");
   const limiter = new Transform({
     transform(chunk, _encoding, callback) {
       const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk || ""));
@@ -1269,6 +1318,9 @@ async function proxyPrivateDocToResponse({
       if (streamedBytes > PRIVATE_DOC_PROXY_MAX_BYTES) {
         callback(new Error("proxy-upstream-stream-too-large"));
         return;
+      }
+      if (size > 0) {
+        contentHasher.update(chunk);
       }
       callback(null, chunk);
     }
@@ -1280,11 +1332,18 @@ async function proxyPrivateDocToResponse({
         ? Readable.fromWeb(upstream.body)
         : Readable.from(Buffer.from(await upstream.arrayBuffer()));
     await pipeline(sourceStream, limiter, res);
+    const contentHash = contentHasher.digest("hex");
+    const expectedHash = text(expectedContentHash).toLowerCase();
+    const contentIntegrityMatch = !expectedHash || expectedHash === contentHash;
     return {
       ok: true,
       reason: "proxy-streamed",
       streamedBytes,
-      contentType
+      contentType,
+      contentHash,
+      contentIntegrityMatch,
+      upstreamEtag,
+      upstreamLastModified
     };
   } catch (error) {
     if (!res.headersSent) {
@@ -1349,6 +1408,7 @@ function normalizeUpload(doc, viewer = null) {
     row.privateDocHash,
     isPrivate ? hashPrivateDocSourceUrl(sourceUrl) : ""
   );
+  const privateDocIntegrityStatus = normalizePrivateDocIntegrityStatus(row.privateDocIntegrityStatus);
   const privateDocProtected = Boolean(row.privateDocProtected || isPrivate);
   const accessEnvelope =
     isPrivate && sourceUrl
@@ -1385,6 +1445,20 @@ function normalizeUpload(doc, viewer = null) {
     privateDocHash,
     privateDocAccessCount: Math.max(0, numberValue(row.privateDocAccessCount, 0)),
     privateDocLastAccessAt: asIso(row.privateDocLastAccessAt),
+    privateDocIntegrity:
+      isPrivate
+        ? {
+            status: privateDocIntegrityStatus,
+            attestedAt: asIso(row.privateDocAttestedAt),
+            contentHash: text(row.privateDocContentHash),
+            contentBytes: Math.max(0, numberValue(row.privateDocContentBytes, 0)),
+            contentType: text(row.privateDocContentType),
+            upstreamEtag: text(row.privateDocUpstreamEtag),
+            upstreamLastModified: text(row.privateDocUpstreamLastModified),
+            mismatchAt: asIso(row.privateDocIntegrityMismatchAt),
+            mismatchReason: text(row.privateDocIntegrityMismatchReason)
+          }
+        : null,
     secureAccess:
       isPrivate && accessEnvelope
         ? {
@@ -1434,6 +1508,15 @@ function buildUploadRows(req, files = []) {
       privateDocHash: isPrivate ? hashPrivateDocSourceUrl(resolvedUrl) : "",
       privateDocAccessCount: 0,
       privateDocLastAccessAt: null,
+      privateDocContentHash: "",
+      privateDocContentBytes: 0,
+      privateDocContentType: "",
+      privateDocUpstreamEtag: "",
+      privateDocUpstreamLastModified: "",
+      privateDocAttestedAt: null,
+      privateDocIntegrityStatus: isPrivate ? "unknown" : "verified",
+      privateDocIntegrityMismatchAt: null,
+      privateDocIntegrityMismatchReason: "",
       storageProvider: text(proRuntime.storageProvider || "memory", "memory")
     };
   });
@@ -1623,6 +1706,46 @@ async function markPrivateDocAccess(uploadId = "", nowIso = "") {
     ...previous,
     privateDocAccessCount: Math.max(0, numberValue(previous.privateDocAccessCount, 0)) + 1,
     privateDocLastAccessAt: nowIso || new Date().toISOString()
+  };
+}
+
+async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
+  const id = text(uploadId);
+  if (!id || !patch || typeof patch !== "object" || Array.isArray(patch)) return;
+  const next = {
+    privateDocContentHash: text(patch.privateDocContentHash),
+    privateDocContentBytes: Math.max(0, numberValue(patch.privateDocContentBytes, 0)),
+    privateDocContentType: text(patch.privateDocContentType),
+    privateDocUpstreamEtag: text(patch.privateDocUpstreamEtag),
+    privateDocUpstreamLastModified: text(patch.privateDocUpstreamLastModified),
+    privateDocAttestedAt: patch.privateDocAttestedAt ? new Date(patch.privateDocAttestedAt) : null,
+    privateDocIntegrityStatus: normalizePrivateDocIntegrityStatus(patch.privateDocIntegrityStatus),
+    privateDocIntegrityMismatchAt: patch.privateDocIntegrityMismatchAt
+      ? new Date(patch.privateDocIntegrityMismatchAt)
+      : null,
+    privateDocIntegrityMismatchReason: text(patch.privateDocIntegrityMismatchReason)
+  };
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(id)) return;
+    await CoreUpload.findByIdAndUpdate(id, {
+      $set: next
+    });
+    return;
+  }
+
+  const index = proMemoryStore.coreUploads.findIndex(
+    (item) => toId(item._id || item.id) === id
+  );
+  if (index < 0) return;
+  const previous = proMemoryStore.coreUploads[index] || {};
+  proMemoryStore.coreUploads[index] = {
+    ...previous,
+    ...next,
+    privateDocAttestedAt: next.privateDocAttestedAt ? next.privateDocAttestedAt.toISOString() : null,
+    privateDocIntegrityMismatchAt: next.privateDocIntegrityMismatchAt
+      ? next.privateDocIntegrityMismatchAt.toISOString()
+      : null
   };
 }
 
@@ -2295,6 +2418,11 @@ export async function streamCorePrivateDoc(req, res, next) {
     let propertyId = text(payload.propertyId);
     let docName = text(payload.name, "private-document.bin");
     let docCategory = text(payload.category);
+    let resolvedUploadId = text(uploadId);
+    let expectedContentHash = "";
+    let expectedUpstreamEtag = "";
+    let expectedUpstreamLastModified = "";
+    let uploadIntegrityStatus = "unknown";
 
     if (uploadId) {
       const uploadRow = await findUploadById(uploadId);
@@ -2335,12 +2463,16 @@ export async function streamCorePrivateDoc(req, res, next) {
         });
       }
 
-      const resolvedUploadId = toId(uploadRow?._id || uploadRow?.id);
+      resolvedUploadId = toId(uploadRow?._id || uploadRow?.id);
       ownerId = text(toId(uploadRow?.userId), ownerId);
       propertyId = text(toId(uploadRow?.propertyId), propertyId);
       docName = text(uploadRow?.name, docName);
       docCategory = text(uploadRow?.category, docCategory);
       sourceUrl = text(uploadRow?.url, sourceUrl);
+      uploadIntegrityStatus = normalizePrivateDocIntegrityStatus(uploadRow?.privateDocIntegrityStatus);
+      expectedContentHash = text(uploadRow?.privateDocContentHash).toLowerCase();
+      expectedUpstreamEtag = text(uploadRow?.privateDocUpstreamEtag);
+      expectedUpstreamLastModified = text(uploadRow?.privateDocUpstreamLastModified);
 
       if (!sameId(uploadId, resolvedUploadId)) {
         return res.status(409).json({
@@ -2422,6 +2554,35 @@ export async function streamCorePrivateDoc(req, res, next) {
           message: "Document integrity validation failed."
         });
       }
+      if (
+        PRIVATE_DOC_CONTENT_ATTEST_ENABLED &&
+        PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH &&
+        uploadIntegrityStatus === "mismatch" &&
+        !(actorIsAdmin && PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS)
+      ) {
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "private-doc-integrity-mismatch-blocked",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-upload"
+        });
+        return res.status(423).json({
+          success: false,
+          message: "Private document is temporarily locked due to integrity mismatch. Admin review required.",
+          reason: "private-doc-integrity-mismatch-blocked"
+        });
+      }
     } else {
       if (!sourceUrl) {
         return res.status(404).json({
@@ -2495,6 +2656,14 @@ export async function streamCorePrivateDoc(req, res, next) {
       sourceUrl,
       docName,
       hash: text(payload.hash),
+      expectedContentHash,
+      expectedUpstreamEtag,
+      expectedUpstreamLastModified,
+      enforceHeaderIntegrity: Boolean(
+        PRIVATE_DOC_CONTENT_ATTEST_ENABLED &&
+        PRIVATE_DOC_UPSTREAM_HEADER_ENFORCE &&
+        uploadId
+      ),
       res
     });
     if (!proxyResult.ok) {
@@ -2526,7 +2695,76 @@ export async function streamCorePrivateDoc(req, res, next) {
       return undefined;
     }
 
-    await markPrivateDocAccess(uploadId, nowIso);
+    if (uploadId && PRIVATE_DOC_CONTENT_ATTEST_ENABLED) {
+      const computedContentHash = text(proxyResult.contentHash).toLowerCase();
+      const upstreamEtag = text(proxyResult.upstreamEtag);
+      const upstreamLastModified = text(proxyResult.upstreamLastModified);
+      const contentType = text(proxyResult.contentType, "application/octet-stream");
+      const contentBytes = Math.max(0, numberValue(proxyResult.streamedBytes, 0));
+      let mismatchReason = "";
+
+      if (expectedContentHash && computedContentHash && expectedContentHash !== computedContentHash) {
+        mismatchReason = "private-doc-content-hash-mismatch";
+      } else if (
+        expectedUpstreamEtag &&
+        upstreamEtag &&
+        !sameEtagValue(expectedUpstreamEtag, upstreamEtag)
+      ) {
+        mismatchReason = "private-doc-upstream-etag-mismatch";
+      } else if (
+        expectedUpstreamLastModified &&
+        upstreamLastModified &&
+        expectedUpstreamLastModified.toLowerCase() !== upstreamLastModified.toLowerCase()
+      ) {
+        mismatchReason = "private-doc-upstream-last-modified-mismatch";
+      }
+
+      if (mismatchReason) {
+        await markPrivateDocIntegrity(resolvedUploadId || uploadId, {
+          privateDocContentHash: expectedContentHash || computedContentHash,
+          privateDocContentBytes: contentBytes,
+          privateDocContentType: contentType,
+          privateDocUpstreamEtag: expectedUpstreamEtag || upstreamEtag,
+          privateDocUpstreamLastModified: expectedUpstreamLastModified || upstreamLastModified,
+          privateDocAttestedAt: nowIso,
+          privateDocIntegrityStatus: "mismatch",
+          privateDocIntegrityMismatchAt: nowIso,
+          privateDocIntegrityMismatchReason: mismatchReason
+        });
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId || uploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+          replayBlocked: false,
+          reason: mismatchReason,
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "stream-integrity"
+        });
+      } else {
+        await markPrivateDocIntegrity(resolvedUploadId || uploadId, {
+          privateDocContentHash: computedContentHash,
+          privateDocContentBytes: contentBytes,
+          privateDocContentType: contentType,
+          privateDocUpstreamEtag: upstreamEtag,
+          privateDocUpstreamLastModified: upstreamLastModified,
+          privateDocAttestedAt: nowIso,
+          privateDocIntegrityStatus: "verified",
+          privateDocIntegrityMismatchAt: null,
+          privateDocIntegrityMismatchReason: ""
+        });
+      }
+    }
+
+    await markPrivateDocAccess(resolvedUploadId || uploadId, nowIso);
     recordPrivateDocAccessEvent({
       userId: actorId,
       role: actorRole,

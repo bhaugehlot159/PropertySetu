@@ -100,6 +100,7 @@ export const coreSystemsBlueprint = [
       "Adaptive private-doc security shield: repeated suspicious access patterns auto-blocked with admin release control",
       "MongoDB-persisted private-doc shield blocks and security telemetry for restart-safe enforcement",
       "Secure private-doc proxy streaming with signed short-lived stream tokens and replay guards",
+      "Private-doc content integrity attestation (content hash + upstream ETag/Last-Modified) with mismatch lock enforcement",
       "Auto description generator"
     ],
     endpoints: [

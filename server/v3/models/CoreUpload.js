@@ -59,6 +59,49 @@ const coreUploadSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    privateDocContentHash: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocContentBytes: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    privateDocContentType: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocUpstreamEtag: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocUpstreamLastModified: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocAttestedAt: {
+      type: Date,
+      default: null
+    },
+    privateDocIntegrityStatus: {
+      type: String,
+      enum: ["unknown", "verified", "mismatch"],
+      default: "unknown"
+    },
+    privateDocIntegrityMismatchAt: {
+      type: Date,
+      default: null
+    },
+    privateDocIntegrityMismatchReason: {
+      type: String,
+      default: "",
+      trim: true
+    },
     storageProvider: {
       type: String,
       default: "memory",
