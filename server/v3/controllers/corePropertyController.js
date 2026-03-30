@@ -84,6 +84,24 @@ const AI_FAKE_LISTING_AUTO_NOTIFY_OWNER =
   String(process.env.CORE_AI_FAKE_LISTING_AUTO_NOTIFY_OWNER || "true")
     .trim()
     .toLowerCase() !== "false";
+const PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_REQUIRED =
+  String(process.env.CORE_PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_REQUIRED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_WINDOW_MINUTES || 240) * 60 * 1000
+  )
+);
+const PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_HIGH_RISK_SCORE = Math.max(
+  AI_FAKE_LISTING_QUARANTINE_SCORE,
+  Math.min(
+    100,
+    Number(process.env.CORE_PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_HIGH_RISK_SCORE || 82)
+  )
+);
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -767,6 +785,90 @@ function normalizeModerationAction(value) {
   return "";
 }
 
+function buildModerationApprovalRequestDigest({
+  propertyId = "",
+  statusBefore = "",
+  statusAfter = "",
+  riskScore = 0,
+  fakeListingSignal = false,
+  reason = "",
+  requestedBy = "",
+  requestedAt = ""
+} = {}) {
+  return sha256(
+    [
+      text(propertyId),
+      normalizeModerationStatus(statusBefore, "approved"),
+      normalizeModerationStatus(statusAfter, "approved"),
+      Math.max(0, Math.round(numberValue(riskScore, 0))),
+      Boolean(fakeListingSignal) ? "1" : "0",
+      text(reason).replace(/\s+/g, " ").slice(0, 240),
+      text(requestedBy),
+      text(requestedAt)
+    ].join("|")
+  );
+}
+
+function getModerationApprovalRequestState(aiReview = {}, nowTs = Date.now()) {
+  const review =
+    aiReview && typeof aiReview === "object" && !Array.isArray(aiReview)
+      ? aiReview
+      : {};
+  const request =
+    review.moderationApprovalRequest &&
+    typeof review.moderationApprovalRequest === "object" &&
+    !Array.isArray(review.moderationApprovalRequest)
+      ? review.moderationApprovalRequest
+      : {};
+  const requestedBy = toId(request.requestedBy);
+  const requestedAtMs = request.requestedAt ? new Date(request.requestedAt).getTime() : 0;
+  const riskScore = Math.max(0, Math.round(numberValue(request.riskScore, 0)));
+  const fakeListingSignal = Boolean(request.fakeListingSignal);
+  const reason = text(request.reason);
+  const statusBefore = normalizeModerationStatus(request.statusBefore, "approved");
+  const statusAfter = normalizeModerationStatus(request.statusAfter, "approved");
+  const digest = text(request.requestDigest);
+  if (!requestedBy || !requestedAtMs) {
+    return {
+      active: false,
+      expired: false,
+      requestedBy: "",
+      requestedAt: null,
+      riskScore: 0,
+      fakeListingSignal: false,
+      reason: "",
+      statusBefore: "approved",
+      statusAfter: "approved",
+      requestDigest: ""
+    };
+  }
+  const expiresAtMs = requestedAtMs + PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_WINDOW_MS;
+  const expired = expiresAtMs <= nowTs;
+  return {
+    active: !expired,
+    expired,
+    requestedBy,
+    requestedAt: asIso(requestedAtMs),
+    riskScore,
+    fakeListingSignal,
+    reason,
+    statusBefore,
+    statusAfter,
+    requestDigest: digest
+  };
+}
+
+function shouldRequireDualAdminForApproval({
+  action = "",
+  riskScore = 0,
+  fakeListingSignal = false
+} = {}) {
+  if (!PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_REQUIRED) return false;
+  if (normalizeModerationAction(action) !== "approve") return false;
+  const safeRisk = Math.max(0, Math.round(numberValue(riskScore, 0)));
+  return safeRisk >= PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_HIGH_RISK_SCORE || Boolean(fakeListingSignal);
+}
+
 function isPublicModerationStatus(status = "") {
   const normalized = normalizeModerationStatus(status, "approved");
   return normalized === "approved";
@@ -797,6 +899,7 @@ function buildModerationSummary(aiReview = {}) {
   const status = normalizeModerationStatus(
     moderation.status || review.moderationStatus || "approved"
   );
+  const requestState = getModerationApprovalRequestState(review, Date.now());
   return {
     status,
     fraudRiskScore: Math.max(0, Math.round(numberValue(review.fraudRiskScore, 0))),
@@ -807,7 +910,26 @@ function buildModerationSummary(aiReview = {}) {
     recommendation: text(review.recommendation),
     source: text(moderation.source || "auto"),
     reviewedAt: asIso(moderation.reviewedAt),
-    reviewedBy: toId(moderation.reviewedBy)
+    reviewedBy: toId(moderation.reviewedBy),
+    dualAdminApproval: {
+      required: Boolean(PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_REQUIRED),
+      highRiskThreshold: PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_HIGH_RISK_SCORE,
+      requestWindowMinutes: Math.max(
+        1,
+        Math.round(PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_WINDOW_MS / 60_000)
+      ),
+      request: {
+        active: Boolean(requestState.active),
+        expired: Boolean(requestState.expired),
+        requestedBy: text(requestState.requestedBy),
+        requestedAt: asIso(requestState.requestedAt),
+        reason: text(requestState.reason),
+        riskScore: Math.max(0, Math.round(numberValue(requestState.riskScore, 0))),
+        fakeListingSignal: Boolean(requestState.fakeListingSignal),
+        statusBefore: normalizeModerationStatus(requestState.statusBefore, "approved"),
+        statusAfter: normalizeModerationStatus(requestState.statusAfter, "approved")
+      }
+    }
   };
 }
 
@@ -2267,27 +2389,42 @@ export async function listCorePropertyModerationQueue(req, res, next) {
   try {
     const status = text(req.query?.status, "pending").toLowerCase();
     const limit = Math.min(300, Math.max(1, Number(req.query?.limit || 120)));
+    const nowTs = Date.now();
+    const requestCutoffDate = new Date(nowTs - PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_WINDOW_MS);
+    const includeApprovalRequestsOnly = status === "approval-request";
     const allowedStatuses = (() => {
       if (status === "all") return ["approved", "pending-review", "quarantined"];
       if (status === "approved") return ["approved"];
       if (status === "quarantined") return ["quarantined"];
       if (status === "flagged") return ["pending-review", "quarantined"];
+      if (includeApprovalRequestsOnly) return ["approved", "pending-review", "quarantined"];
       return ["pending-review"];
     })();
 
     let rows = [];
     if (proRuntime.dbConnected) {
-      rows = await CoreProperty.find({
+      const query = {
         "aiReview.moderationStatus": { $in: allowedStatuses }
-      })
+      };
+      if (includeApprovalRequestsOnly) {
+        query["aiReview.moderationApprovalRequest.requestedBy"] = { $ne: null };
+        query["aiReview.moderationApprovalRequest.requestedAt"] = { $gt: requestCutoffDate };
+      }
+      rows = await CoreProperty.find(query)
         .sort({ "aiReview.fraudRiskScore": -1, updatedAt: -1 })
         .limit(limit)
         .lean();
     } else {
       rows = (Array.isArray(proMemoryStore.coreProperties) ? proMemoryStore.coreProperties : [])
-        .filter((item) =>
-          allowedStatuses.includes(normalizeModerationStatus(item?.aiReview?.moderationStatus))
-        )
+        .filter((item) => {
+          const statusMatched = allowedStatuses.includes(
+            normalizeModerationStatus(item?.aiReview?.moderationStatus)
+          );
+          if (!statusMatched) return false;
+          if (!includeApprovalRequestsOnly) return true;
+          const requestState = getModerationApprovalRequestState(item?.aiReview, nowTs);
+          return Boolean(requestState.active);
+        })
         .sort(
           (a, b) =>
             Math.round(numberValue(b?.aiReview?.fraudRiskScore, 0)) -
@@ -2301,7 +2438,10 @@ export async function listCorePropertyModerationQueue(req, res, next) {
     const summary = {
       approved: items.filter((item) => item?.moderation?.status === "approved").length,
       pendingReview: items.filter((item) => item?.moderation?.status === "pending-review").length,
-      quarantined: items.filter((item) => item?.moderation?.status === "quarantined").length
+      quarantined: items.filter((item) => item?.moderation?.status === "quarantined").length,
+      approvalRequests: items.filter(
+        (item) => Boolean(item?.moderation?.dualAdminApproval?.request?.active)
+      ).length
     };
 
     return res.json({
@@ -2328,6 +2468,10 @@ export async function decideCorePropertyModeration(req, res, next) {
     const reason = text(req.body?.reason || req.query?.reason);
     const force =
       String(req.body?.force || req.query?.force || "false").trim().toLowerCase() === "true";
+    const approveConfirm =
+      String(req.body?.approveConfirm || req.query?.approveConfirm || "false")
+        .trim()
+        .toLowerCase() === "true";
 
     if (!propertyId) {
       return res.status(400).json({
@@ -2357,17 +2501,25 @@ export async function decideCorePropertyModeration(req, res, next) {
     }
 
     const normalized = normalizeCoreProperty(existing);
+    const previousModeration = buildModerationSummary(normalized?.aiReview);
     const freshAiReview = await buildServerAiReview(normalized, {
       previousAiReview: normalized?.aiReview,
       excludePropertyId: propertyId,
       actorIsAdmin: true
     });
     const freshRiskScore = Math.max(0, numberValue(freshAiReview?.fraudRiskScore, 0));
+    const freshFakeSignal = Boolean(freshAiReview?.fakeListingSignal);
+    const adminId = toId(req.coreUser?.id);
+    const nowIso = new Date().toISOString();
+    const existingRequestState = getModerationApprovalRequestState(
+      normalized?.aiReview,
+      Date.now()
+    );
 
     if (
       action === "approve" &&
       !force &&
-      (freshRiskScore >= AI_FAKE_LISTING_QUARANTINE_SCORE || Boolean(freshAiReview?.fakeListingSignal))
+      (freshRiskScore >= AI_FAKE_LISTING_QUARANTINE_SCORE || freshFakeSignal)
     ) {
       return res.status(409).json({
         success: false,
@@ -2376,13 +2528,161 @@ export async function decideCorePropertyModeration(req, res, next) {
       });
     }
 
-    const previousModeration = buildModerationSummary(normalized?.aiReview);
+    const previousStatus = normalizeModerationStatus(previousModeration?.status, "approved");
+    const requiresDualAdminApproval = shouldRequireDualAdminForApproval({
+      action,
+      riskScore: freshRiskScore,
+      fakeListingSignal: freshFakeSignal
+    });
     const moderationStatus =
       action === "approve" ? "approved" : action === "quarantine" ? "quarantined" : "pending-review";
-    const nowIso = new Date().toISOString();
-    const adminId = toId(req.coreUser?.id);
+
+    if (requiresDualAdminApproval) {
+      if (!existingRequestState.active) {
+        const requestDigest = buildModerationApprovalRequestDigest({
+          propertyId,
+          statusBefore: previousStatus,
+          statusAfter: moderationStatus,
+          riskScore: freshRiskScore,
+          fakeListingSignal: freshFakeSignal,
+          reason,
+          requestedBy: adminId,
+          requestedAt: nowIso
+        });
+        const requestPatchAiReview = {
+          ...freshAiReview,
+          moderationApprovalRequest: {
+            requestedBy: adminId,
+            requestedAt: nowIso,
+            reason: reason.slice(0, 240),
+            riskScore: freshRiskScore,
+            fakeListingSignal: freshFakeSignal,
+            statusBefore: previousStatus,
+            statusAfter: moderationStatus,
+            requestDigest
+          }
+        };
+        let requestedProperty = null;
+        if (proRuntime.dbConnected) {
+          requestedProperty = await CoreProperty.findByIdAndUpdate(
+            propertyId,
+            { $set: { aiReview: requestPatchAiReview } },
+            { new: true }
+          );
+        } else {
+          const requestIndex = proMemoryStore.coreProperties.findIndex(
+            (item) => toId(item._id || item.id) === propertyId
+          );
+          if (requestIndex >= 0) {
+            proMemoryStore.coreProperties[requestIndex] = {
+              ...proMemoryStore.coreProperties[requestIndex],
+              aiReview: requestPatchAiReview,
+              updatedAt: nowIso
+            };
+            requestedProperty = proMemoryStore.coreProperties[requestIndex];
+          }
+        }
+
+        if (!requestedProperty) {
+          return res.status(404).json({
+            success: false,
+            message: "Property not found."
+          });
+        }
+
+        const audit = await createPropertyModerationAudit({
+          propertyRow: requestedProperty,
+          propertyId: toId(requestedProperty?._id || requestedProperty?.id) || propertyId,
+          ownerId: toId(normalized?.ownerId),
+          actorAdminId: adminId,
+          action: adminModerationActionFromStatus(previousStatus),
+          source: "admin",
+          statusBefore: previousStatus,
+          statusAfter: previousStatus,
+          fraudRiskScore: freshRiskScore,
+          fakeListingSignal: freshFakeSignal,
+          reason: `dual-admin-request:${reason}`,
+          metadata: {
+            flow: "admin-decision-dual-request",
+            requestedAction: action,
+            requestDigest
+          }
+        });
+        await notifyAdminsPropertyModeration({
+          title: "Dual Admin Approval Requested",
+          message: `Second admin approval is required to approve high-risk property ${text(normalized?.title, "Property")}.`,
+          metadata: {
+            propertyId: toId(requestedProperty?._id || requestedProperty?.id) || propertyId,
+            requestedBy: adminId,
+            riskScore: freshRiskScore,
+            fakeListingSignal: freshFakeSignal
+          }
+        });
+
+        const requestedItem = projectPropertyForViewer(requestedProperty, getViewerFromRequest(req), {
+          includePrivateDocs: true
+        });
+        return res.status(202).json({
+          success: true,
+          action: "approve-requested",
+          requiresSecondAdmin: true,
+          moderationStatus: previousStatus,
+          approvalRequest: {
+            requestedBy: adminId,
+            requestedAt: nowIso,
+            reason: reason.slice(0, 240),
+            riskScore: freshRiskScore,
+            fakeListingSignal: freshFakeSignal,
+            requestDigest,
+            windowMinutes: Math.max(
+              1,
+              Math.round(PROPERTY_MODERATION_DUAL_ADMIN_APPROVE_WINDOW_MS / 60_000)
+            )
+          },
+          audit,
+          moderation: buildModerationSummary(requestedItem?.aiReview || requestPatchAiReview),
+          item: requestedItem
+        });
+      }
+
+      if (existingRequestState.requestedBy === adminId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm high-risk approve request."
+        });
+      }
+      if (!approveConfirm) {
+        return res.status(409).json({
+          success: false,
+          message: "approveConfirm=true is required for second-admin confirmation."
+        });
+      }
+
+      const expectedDigest = buildModerationApprovalRequestDigest({
+        propertyId,
+        statusBefore: existingRequestState.statusBefore,
+        statusAfter: existingRequestState.statusAfter,
+        riskScore: existingRequestState.riskScore,
+        fakeListingSignal: existingRequestState.fakeListingSignal,
+        reason: existingRequestState.reason,
+        requestedBy: existingRequestState.requestedBy,
+        requestedAt: existingRequestState.requestedAt
+      });
+      if (
+        !existingRequestState.requestDigest ||
+        expectedDigest !== existingRequestState.requestDigest
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Approval request integrity mismatch. Create a fresh dual-admin request before approval."
+        });
+      }
+    }
+
     const nextAiReview = {
       ...freshAiReview,
+      moderationApprovalRequest: null,
       moderationStatus,
       moderation: {
         ...(freshAiReview?.moderation &&
