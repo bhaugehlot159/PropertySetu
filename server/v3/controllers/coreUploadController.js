@@ -70,6 +70,50 @@ const ALLOWED_PRIVATE_DOC_TYPES = new Set([
   "text/plain",
   "application/octet-stream"
 ]);
+const PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE = Math.max(
+  20,
+  Math.min(95, Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE || 42))
+);
+const PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE = Math.max(
+  PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE,
+  Math.min(100, Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE || 72))
+);
+const PRIVATE_DOC_UPLOAD_THREAT_RISKY_EXTENSIONS = new Set([
+  "docm",
+  "xlsm",
+  "pptm",
+  "xlsb",
+  "zip",
+  "rar",
+  "7z"
+]);
+const PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS = new Set(["docm", "xlsm", "pptm", "xlsb"]);
+const PRIVATE_DOC_UPLOAD_THREAT_NAME_HINTS = [
+  "macro",
+  "script",
+  "payload",
+  "crack",
+  "keygen",
+  "bypass",
+  "inject"
+];
+const PRIVATE_DOC_UPLOAD_MIME_BY_EXTENSION = {
+  pdf: ["application/pdf"],
+  jpg: ["image/jpeg"],
+  jpeg: ["image/jpeg"],
+  png: ["image/png"],
+  doc: ["application/msword"],
+  docx: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  txt: ["text/plain"],
+  docm: ["application/vnd.ms-word.document.macroEnabled.12"],
+  xlsm: ["application/vnd.ms-excel.sheet.macroEnabled.12"],
+  xlsb: ["application/vnd.ms-excel.sheet.binary.macroEnabled.12"],
+  pptm: ["application/vnd.ms-powerpoint.presentation.macroEnabled.12"]
+};
 const PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS = Math.max(
   200,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS || 5000)
@@ -342,6 +386,111 @@ function isAllowedMimeForUpload(row = {}) {
     type.startsWith("video/") ||
     type === "application/octet-stream"
   );
+}
+
+function formatPrivateDocThreatMismatchReason({
+  score = 0,
+  signals = []
+} = {}) {
+  const safeScore = Math.max(0, Math.round(numberValue(score, 0)));
+  const safeSignals = Array.isArray(signals)
+    ? signals
+        .map((item) => text(item).toLowerCase())
+        .filter((item) => Boolean(item))
+        .slice(0, 10)
+    : [];
+  const encodedSignals = safeSignals.length ? safeSignals.join(",") : "none";
+  return `upload-threat-detected|score=${safeScore}|signals=${encodedSignals}`;
+}
+
+function parsePrivateDocThreatMismatchReason(reason = "") {
+  const raw = text(reason);
+  if (!raw.toLowerCase().startsWith("upload-threat-detected|")) {
+    return {
+      active: false,
+      score: 0,
+      signals: []
+    };
+  }
+  const parts = raw.split("|").slice(1);
+  const map = new Map();
+  parts.forEach((entry) => {
+    const [key, ...rest] = String(entry).split("=");
+    map.set(text(key).toLowerCase(), text(rest.join("=")));
+  });
+  const signals = text(map.get("signals"))
+    .split(",")
+    .map((item) => text(item))
+    .filter((item) => Boolean(item) && item !== "none");
+  return {
+    active: true,
+    score: Math.max(0, Math.round(numberValue(map.get("score"), 0))),
+    signals
+  };
+}
+
+function evaluatePrivateDocUploadThreat(row = {}) {
+  const privateDoc = Boolean(row?.isPrivate) || categoryImpliesPrivate(row?.category);
+  if (!privateDoc || !PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED) {
+    return { score: 0, signals: [], status: "clear" };
+  }
+
+  const fileName = text(row?.name).toLowerCase();
+  const extension = extractExtension(fileName);
+  const mimeType = text(row?.type, "application/octet-stream").toLowerCase();
+  const sourceUrl = text(row?.url).toLowerCase();
+  const sizeBytes = Math.max(0, Math.round(numberValue(row?.sizeBytes, 0)));
+  const signals = [];
+  let score = 0;
+
+  if (PRIVATE_DOC_UPLOAD_THREAT_RISKY_EXTENSIONS.has(extension)) {
+    signals.push(`risky-extension:${extension}`);
+    score += PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS.has(extension) ? 45 : 30;
+  }
+  if (PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS.has(extension)) {
+    signals.push("macro-enabled-office-file");
+  }
+  const allowedByExtension = PRIVATE_DOC_UPLOAD_MIME_BY_EXTENSION[extension];
+  if (Array.isArray(allowedByExtension) && allowedByExtension.length) {
+    const mimeMatched = allowedByExtension.includes(mimeType);
+    if (!mimeMatched) {
+      signals.push(`mime-mismatch:${extension}->${mimeType}`);
+      score += 28;
+    }
+  }
+  if (mimeType === "application/octet-stream" && extension && extension !== "bin") {
+    signals.push("unknown-octet-stream");
+    score += 16;
+  }
+  if (sourceUrl && !sourceUrl.startsWith("https://")) {
+    signals.push("non-https-source");
+    score += 15;
+  }
+  if (extension && (extension === "doc" || extension === "docx" || extension === "pdf") && sizeBytes < 1500) {
+    signals.push("abnormally-small-doc");
+    score += 12;
+  }
+
+  const nameHintsMatched = PRIVATE_DOC_UPLOAD_THREAT_NAME_HINTS.filter((hint) =>
+    fileName.includes(hint)
+  );
+  if (nameHintsMatched.length) {
+    signals.push(`risky-name:${nameHintsMatched.join("+")}`);
+    score += Math.min(24, nameHintsMatched.length * 8);
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const status =
+    score >= PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE
+      ? "quarantined"
+      : score >= PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE
+        ? "pending"
+        : "clear";
+  return {
+    score,
+    signals,
+    status
+  };
 }
 
 function getClientIp(req) {
@@ -2434,6 +2583,7 @@ function normalizeUpload(doc, viewer = null) {
             reviewedBy: toId(row.privateDocIntegrityReviewedBy),
             reviewedAt: asIso(row.privateDocIntegrityReviewedAt),
             reviewReason: text(row.privateDocIntegrityReviewReason),
+            threat: parsePrivateDocThreatMismatchReason(text(row.privateDocIntegrityMismatchReason)),
             approvalRequest: {
               requestedBy: toId(row.privateDocIntegrityApprovalRequestedBy),
               requestedAt: asIso(row.privateDocIntegrityApprovalRequestedAt),
@@ -2601,7 +2751,7 @@ export async function uploadCorePropertyMedia(req, res, next) {
       }
     }
 
-    const rows = buildUploadRows(req, files);
+    let rows = buildUploadRows(req, files);
     const nonPrivateDoc = rows.find(
       (item) => categoryImpliesPrivate(item.category) && !item.isPrivate
     );
@@ -2648,6 +2798,53 @@ export async function uploadCorePropertyMedia(req, res, next) {
       });
     }
 
+    let privateDocThreatScans = [];
+    if (PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED) {
+      rows = rows.map((row) => {
+        if (!Boolean(row?.isPrivate)) return row;
+        const scan = evaluatePrivateDocUploadThreat(row);
+        privateDocThreatScans.push({
+          name: text(row?.name),
+          status: scan.status,
+          score: Math.max(0, Math.round(numberValue(scan.score, 0))),
+          signals: Array.isArray(scan.signals) ? scan.signals : []
+        });
+        if (scan.status === "clear") return row;
+
+        const nowIso = new Date().toISOString();
+        const nextReviewStatus = scan.status === "quarantined" ? "quarantined" : "pending";
+        return {
+          ...row,
+          privateDocIntegrityStatus: "mismatch",
+          privateDocIntegrityReviewStatus: nextReviewStatus,
+          privateDocIntegrityMismatchAt: nowIso,
+          privateDocIntegrityMismatchReason: formatPrivateDocThreatMismatchReason({
+            score: scan.score,
+            signals: scan.signals
+          }),
+          privateDocIntegrityReviewReason: "auto-upload-threat-scan",
+          privateDocIntegrityReviewedBy: null,
+          privateDocIntegrityReviewedAt: null,
+          privateDocIntegrityApprovalRequestedBy: null,
+          privateDocIntegrityApprovalRequestedAt: null,
+          privateDocIntegrityApprovalRequestReason: "",
+          privateDocIntegrityReviewHistory: [
+            {
+              action: "auto-mismatch",
+              byUserId: null,
+              reason: `upload-threat-scan(score:${Math.max(
+                0,
+                Math.round(numberValue(scan.score, 0))
+              )})`,
+              previousStatus: "unknown:none",
+              nextStatus: `mismatch:${nextReviewStatus}`,
+              at: nowIso
+            }
+          ]
+        };
+      });
+    }
+
     let created = [];
     if (proRuntime.dbConnected) {
       created = await CoreUpload.insertMany(rows);
@@ -2666,6 +2863,13 @@ export async function uploadCorePropertyMedia(req, res, next) {
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       total: created.length,
+      threatScan: {
+        enabled: Boolean(PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED),
+        pendingScore: PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE,
+        quarantineScore: PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE,
+        flaggedCount: privateDocThreatScans.filter((item) => item.status !== "clear").length,
+        quarantinedCount: privateDocThreatScans.filter((item) => item.status === "quarantined").length
+      },
       items: created.map((item) => normalizeUpload(item, accessViewer))
     });
   } catch (error) {
@@ -3466,6 +3670,51 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
           success: false,
           message: "Private document access token has been revoked. Request a fresh token.",
           reason: "private-doc-access-epoch-revoked"
+        });
+      }
+      const uploadIntegrityStatus = normalizePrivateDocIntegrityStatus(
+        uploadRow?.privateDocIntegrityStatus
+      );
+      const uploadIntegrityReviewStatus = normalizePrivateDocIntegrityReviewStatus(
+        uploadRow?.privateDocIntegrityReviewStatus
+      );
+      if (
+        PRIVATE_DOC_CONTENT_ATTEST_ENABLED &&
+        PRIVATE_DOC_INTEGRITY_BLOCK_ON_MISMATCH &&
+        uploadIntegrityStatus === "mismatch" &&
+        uploadIntegrityReviewStatus !== "approved" &&
+        !(actorIsAdmin && PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS)
+      ) {
+        const threatMeta = parsePrivateDocThreatMismatchReason(
+          text(uploadRow?.privateDocIntegrityMismatchReason)
+        );
+        recordPrivateDocAccessEvent({
+          userId: actorId,
+          role: actorRole,
+          ownerId,
+          propertyId,
+          uploadId: resolvedUploadId,
+          docId: text(payload.docId),
+          category: docCategory,
+          hash: text(payload.hash),
+          tokenId,
+          tokenFingerprint,
+          replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+          reason: "private-doc-integrity-mismatch-blocked",
+          ip: requestIp,
+          userAgent: requestUserAgent.slice(0, 240),
+          source: "upload",
+          threatDetected: Boolean(threatMeta.active),
+          threatScore: Math.max(0, Math.round(numberValue(threatMeta.score, 0)))
+        });
+        return res.status(423).json({
+          success: false,
+          message: threatMeta.active
+            ? "Private document is blocked by upload threat scan. Admin approval required."
+            : "Private document is temporarily locked due to integrity mismatch. Admin review required.",
+          reason: threatMeta.active
+            ? "private-doc-upload-threat-review-pending"
+            : "private-doc-integrity-mismatch-blocked"
         });
       }
       if (PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED) {
@@ -4524,6 +4773,9 @@ export async function streamCorePrivateDoc(req, res, next) {
         uploadIntegrityReviewStatus !== "approved" &&
         !(actorIsAdmin && PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS)
       ) {
+        const threatMeta = parsePrivateDocThreatMismatchReason(
+          text(uploadRow?.privateDocIntegrityMismatchReason)
+        );
         recordPrivateDocAccessEvent({
           userId: actorId,
           role: actorRole,
@@ -4539,12 +4791,18 @@ export async function streamCorePrivateDoc(req, res, next) {
           reason: "private-doc-integrity-mismatch-blocked",
           ip: requestIp,
           userAgent: requestUserAgent.slice(0, 240),
-          source: "stream-upload"
+          source: "stream-upload",
+          threatDetected: Boolean(threatMeta.active),
+          threatScore: Math.max(0, Math.round(numberValue(threatMeta.score, 0)))
         });
         return res.status(423).json({
           success: false,
-          message: "Private document is temporarily locked due to integrity mismatch. Admin review required.",
-          reason: "private-doc-integrity-mismatch-blocked"
+          message: threatMeta.active
+            ? "Private document is blocked by upload threat scan. Admin approval required."
+            : "Private document is temporarily locked due to integrity mismatch. Admin review required.",
+          reason: threatMeta.active
+            ? "private-doc-upload-threat-review-pending"
+            : "private-doc-integrity-mismatch-blocked"
         });
       }
     } else {
@@ -4834,6 +5092,7 @@ function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
       reviewedBy: text(integrity.reviewedBy),
       reviewedAt: asIso(integrity.reviewedAt),
       reviewReason: text(integrity.reviewReason),
+      threat: parsePrivateDocThreatMismatchReason(text(integrity.mismatchReason)),
       approvalRequest: {
         requestedBy: text(integrity?.approvalRequest?.requestedBy || ""),
         requestedAt: asIso(integrity?.approvalRequest?.requestedAt),
@@ -4863,7 +5122,9 @@ export async function listCorePrivateDocIntegrityQueue(req, res, next) {
   try {
     const limit = Math.min(300, Math.max(1, Number(req.query?.limit || 100)));
     const requestedStatus = text(req.query?.status).toLowerCase();
+    const requestedSource = text(req.query?.source).toLowerCase();
     const statusFilter = normalizePrivateDocIntegrityReviewStatus(requestedStatus);
+    const sourceFilter = requestedSource === "upload-threat" ? "upload-threat" : "all";
     const includeAll = requestedStatus === "all";
     let rows = [];
 
@@ -4872,6 +5133,9 @@ export async function listCorePrivateDocIntegrityQueue(req, res, next) {
         isPrivate: true,
         privateDocIntegrityStatus: "mismatch"
       };
+      if (sourceFilter === "upload-threat") {
+        query.privateDocIntegrityMismatchReason = /^upload-threat-detected\|/i;
+      }
       if (!includeAll && requestedStatus) {
         query.privateDocIntegrityReviewStatus = statusFilter;
       } else if (!includeAll && !requestedStatus) {
@@ -4883,6 +5147,12 @@ export async function listCorePrivateDocIntegrityQueue(req, res, next) {
         .filter((item) => {
           if (!Boolean(item?.isPrivate)) return false;
           if (normalizePrivateDocIntegrityStatus(item?.privateDocIntegrityStatus) !== "mismatch") return false;
+          if (
+            sourceFilter === "upload-threat" &&
+            !parsePrivateDocThreatMismatchReason(text(item?.privateDocIntegrityMismatchReason)).active
+          ) {
+            return false;
+          }
           const reviewStatus = normalizePrivateDocIntegrityReviewStatus(item?.privateDocIntegrityReviewStatus);
           if (includeAll) return true;
           if (requestedStatus) return reviewStatus === statusFilter;
@@ -4899,6 +5169,7 @@ export async function listCorePrivateDocIntegrityQueue(req, res, next) {
       total: items.length,
       filters: {
         status: includeAll ? "all" : (requestedStatus ? statusFilter : "pending"),
+        source: sourceFilter,
         limit
       },
       items
