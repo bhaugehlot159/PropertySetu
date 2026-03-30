@@ -179,6 +179,45 @@ const coreUploadSchema = new mongoose.Schema(
       ],
       default: []
     },
+    privateDocIntegrityDecisionChainHead: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocIntegrityLastDecisionHash: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocIntegrityLastDecisionId: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    privateDocIntegrityLastDecisionAction: {
+      type: String,
+      enum: ["", "approval-requested", "approval-confirmed", "approved", "quarantined", "reset"],
+      default: ""
+    },
+    privateDocIntegrityLastDecisionBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    privateDocIntegrityLastDecisionAt: {
+      type: Date,
+      default: null
+    },
+    privateDocIntegrityDecisionChainLength: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    privateDocIntegrityDecisionSignatureVersion: {
+      type: String,
+      default: "",
+      trim: true
+    },
     storageProvider: {
       type: String,
       default: "memory",
@@ -198,6 +237,7 @@ coreUploadSchema.index({ userId: 1, createdAt: -1 });
 coreUploadSchema.index({ propertyId: 1, createdAt: -1 });
 coreUploadSchema.index({ isPrivate: 1, privateDocIntegrityStatus: 1, privateDocIntegrityReviewStatus: 1, updatedAt: -1 });
 coreUploadSchema.index({ privateDocIntegrityApprovalRequestedAt: -1 });
+coreUploadSchema.index({ privateDocIntegrityDecisionChainHead: 1 });
 
 const CoreUpload =
   mongoose.models.CoreUpload ||

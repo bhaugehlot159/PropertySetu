@@ -12,13 +12,14 @@ import CoreNotification from "../models/CoreNotification.js";
 import CoreSealedBid from "../models/CoreSealedBid.js";
 import CorePrivateDocSecurityEvent from "../models/CorePrivateDocSecurityEvent.js";
 import CorePrivateDocShieldBlock from "../models/CorePrivateDocShieldBlock.js";
+import CorePrivateDocIntegrityDecisionAudit from "../models/CorePrivateDocIntegrityDecisionAudit.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks] = await Promise.all([
+      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocIntegrityDecisionAudits] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreReview.countDocuments({}),
@@ -34,7 +35,8 @@ export async function getCoreHealth(_req, res, next) {
         CorePrivateDocSecurityEvent.countDocuments({}),
         CorePrivateDocShieldBlock.countDocuments({
           blockUntil: { $gt: new Date() }
-        })
+        }),
+        CorePrivateDocIntegrityDecisionAudit.countDocuments({})
       ]);
 
       return res.json({
@@ -54,7 +56,8 @@ export async function getCoreHealth(_req, res, next) {
           notifications,
           sealedBids,
           privateDocSecurityEvents,
-          privateDocShieldBlocks
+          privateDocShieldBlocks,
+          privateDocIntegrityDecisionAudits
         },
         timestamp: new Date().toISOString()
       });
@@ -77,7 +80,8 @@ export async function getCoreHealth(_req, res, next) {
         notifications: proMemoryStore.coreNotifications.length,
         sealedBids: proMemoryStore.coreSealedBids.length,
         privateDocSecurityEvents: proMemoryStore.corePrivateDocAccessEvents.length + proMemoryStore.corePrivateDocShieldEvents.length,
-        privateDocShieldBlocks: proMemoryStore.corePrivateDocShieldBlocks.length
+        privateDocShieldBlocks: proMemoryStore.corePrivateDocShieldBlocks.length,
+        privateDocIntegrityDecisionAudits: proMemoryStore.corePrivateDocIntegrityDecisionAudits.length
       },
       timestamp: new Date().toISOString()
     });

@@ -6,6 +6,7 @@ import { pipeline } from "stream/promises";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import CoreProperty from "../models/CoreProperty.js";
+import CorePrivateDocIntegrityDecisionAudit from "../models/CorePrivateDocIntegrityDecisionAudit.js";
 import CorePrivateDocSecurityEvent from "../models/CorePrivateDocSecurityEvent.js";
 import CorePrivateDocShieldBlock from "../models/CorePrivateDocShieldBlock.js";
 import CoreUpload from "../models/CoreUpload.js";
@@ -192,6 +193,27 @@ const PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MS = Math.max(
     Number(process.env.CORE_PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_WINDOW_MINUTES || 240) * 60 * 1000
   )
 );
+const PRIVATE_DOC_INTEGRITY_AUDIT_SECRET = text(
+  process.env.CORE_PRIVATE_DOC_INTEGRITY_AUDIT_SECRET ||
+  process.env.CORE_PRIVATE_DOC_SECRET ||
+  process.env.CORE_JWT_SECRET ||
+  process.env.JWT_SECRET ||
+  "propertysetu-core-private-doc-integrity-audit-secret"
+);
+const PRIVATE_DOC_INTEGRITY_AUDIT_SALT = text(
+  process.env.CORE_PRIVATE_DOC_INTEGRITY_AUDIT_SALT || "propertysetu-core-private-doc-integrity-audit-salt"
+);
+const PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION = text(
+  process.env.CORE_PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION,
+  "v1"
+).slice(0, 24);
+const PRIVATE_DOC_INTEGRITY_AUDIT_SECONDARY_SECRET = text(
+  process.env.CORE_PRIVATE_DOC_INTEGRITY_AUDIT_SECONDARY_SECRET
+);
+const PRIVATE_DOC_INTEGRITY_AUDIT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.CORE_PRIVATE_DOC_INTEGRITY_AUDIT_MAX_ITEMS || 12000)
+);
 const PRIVATE_DOC_PROXY_ALLOWED_HOST_PATTERNS = (() => {
   const defaults = ["secure-cdn.propertysetu.local", "cdn.propertysetu.local"];
   const raw = text(process.env.CORE_PRIVATE_DOC_PROXY_ALLOWED_HOSTS);
@@ -376,6 +398,492 @@ function getPrivateDocIntegrityApprovalRequestState(uploadRow = {}, nowTs = Date
     requestedBy,
     requestedAt: asIso(requestedAtMs),
     reason
+  };
+}
+
+function normalizePrivateDocIntegrityAuditAction(value = "") {
+  const raw = text(value).toLowerCase();
+  if (raw === "approval-requested") return "approval-requested";
+  if (raw === "approval-confirmed") return "approval-confirmed";
+  if (raw === "approved") return "approved";
+  if (raw === "quarantined") return "quarantined";
+  if (raw === "reset") return "reset";
+  return "";
+}
+
+function normalizePrivateDocIntegrityAuditPhase(value = "") {
+  const raw = text(value).toLowerCase();
+  if (raw === "request") return "request";
+  if (raw === "confirm") return "confirm";
+  return "single";
+}
+
+function hashPrivateDocIntegrityAuditValue(value = "", scope = "generic") {
+  const safe = text(value);
+  if (!safe) return "";
+  return crypto
+    .createHash("sha256")
+    .update(`${PRIVATE_DOC_INTEGRITY_AUDIT_SALT}|${text(scope, "generic")}|${safe}`)
+    .digest("hex");
+}
+
+function normalizePrivateDocIntegrityDecisionActionForPatch(value = "") {
+  const normalized = normalizePrivateDocIntegrityAuditAction(value);
+  if (normalized) return normalized;
+  return "";
+}
+
+function sortObjectDeep(value) {
+  if (Array.isArray(value)) return value.map((item) => sortObjectDeep(item));
+  if (!value || typeof value !== "object") return value;
+
+  return Object.keys(value)
+    .sort()
+    .reduce((acc, key) => {
+      acc[key] = sortObjectDeep(value[key]);
+      return acc;
+    }, {});
+}
+
+function stableJsonStringify(value) {
+  return JSON.stringify(sortObjectDeep(value));
+}
+
+function hashPrivateDocIntegrityAuditPayload(payload = {}) {
+  return crypto
+    .createHash("sha256")
+    .update(stableJsonStringify(payload))
+    .digest("hex");
+}
+
+function signPrivateDocIntegrityAuditPayload(
+  payloadHash = "",
+  keyVersion = PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION,
+  secret = PRIVATE_DOC_INTEGRITY_AUDIT_SECRET
+) {
+  const safePayloadHash = text(payloadHash);
+  if (!safePayloadHash) return "";
+  const safeSecret = text(secret);
+  if (!safeSecret) return "";
+  const safeKeyVersion = text(keyVersion, "v1");
+  return crypto
+    .createHmac("sha256", safeSecret)
+    .update(`${safeKeyVersion}|${safePayloadHash}`)
+    .digest("hex");
+}
+
+function buildPrivateDocIntegrityDecisionHash({
+  previousDecisionHash = "",
+  payloadHash = "",
+  signature = "",
+  decisionId = "",
+  action = ""
+} = {}) {
+  const seed = [
+    text(previousDecisionHash),
+    text(payloadHash),
+    text(signature),
+    text(decisionId),
+    text(action)
+  ].join("|");
+  return crypto.createHash("sha256").update(seed).digest("hex");
+}
+
+function buildPrivateDocIntegrityDecisionAuditPayload({
+  decisionId = "",
+  uploadId = "",
+  propertyId = "",
+  ownerId = "",
+  action = "",
+  phase = "single",
+  actorAdminId = "",
+  requestedBy = "",
+  confirmedBy = "",
+  reasonHash = "",
+  requestIpHash = "",
+  requestUserAgentHash = "",
+  statusBefore = "unknown",
+  reviewStatusBefore = "none",
+  statusAfter = "unknown",
+  reviewStatusAfter = "none",
+  occurredAt = null,
+  previousDecisionHash = "",
+  chainIndex = 1
+} = {}) {
+  return {
+    v: 1,
+    keyVersion: text(PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION, "v1"),
+    decisionId: text(decisionId),
+    uploadId: text(uploadId),
+    propertyId: text(propertyId),
+    ownerId: text(ownerId),
+    action: normalizePrivateDocIntegrityAuditAction(action),
+    phase: normalizePrivateDocIntegrityAuditPhase(phase),
+    actorAdminId: text(actorAdminId),
+    requestedBy: text(requestedBy),
+    confirmedBy: text(confirmedBy),
+    reasonHash: text(reasonHash),
+    requestIpHash: text(requestIpHash),
+    requestUserAgentHash: text(requestUserAgentHash),
+    statusBefore: normalizePrivateDocIntegrityStatus(statusBefore),
+    reviewStatusBefore: normalizePrivateDocIntegrityReviewStatus(reviewStatusBefore),
+    statusAfter: normalizePrivateDocIntegrityStatus(statusAfter),
+    reviewStatusAfter: normalizePrivateDocIntegrityReviewStatus(reviewStatusAfter),
+    occurredAt: asIso(occurredAt),
+    previousDecisionHash: text(previousDecisionHash),
+    chainIndex: Math.max(1, Math.round(numberValue(chainIndex, 1)))
+  };
+}
+
+function normalizePrivateDocIntegrityDecisionAuditRow(row = {}) {
+  return {
+    decisionId: text(row?.decisionId),
+    uploadId: text(row?.uploadId),
+    propertyId: toId(row?.propertyId),
+    ownerId: toId(row?.ownerId),
+    action: normalizePrivateDocIntegrityAuditAction(row?.action),
+    dualControlPhase: normalizePrivateDocIntegrityAuditPhase(row?.dualControlPhase),
+    adminId: toId(row?.adminId),
+    requestedBy: toId(row?.requestedBy),
+    confirmedBy: toId(row?.confirmedBy),
+    reviewReasonHash: text(row?.reviewReasonHash),
+    reviewReasonPreview: text(row?.reviewReasonPreview),
+    requestIpHash: text(row?.requestIpHash),
+    requestUserAgentHash: text(row?.requestUserAgentHash),
+    previousDecisionHash: text(row?.previousDecisionHash),
+    payloadHash: text(row?.payloadHash),
+    signature: text(row?.signature),
+    decisionHash: text(row?.decisionHash),
+    signatureKeyVersion: text(row?.signatureKeyVersion, "v1"),
+    canonicalPayload:
+      row?.canonicalPayload && typeof row.canonicalPayload === "object"
+        ? row.canonicalPayload
+        : null,
+    chainIndex: Math.max(1, Math.round(numberValue(row?.chainIndex, 1))),
+    occurredAt: asIso(row?.occurredAt),
+    createdAt: asIso(row?.createdAt),
+    updatedAt: asIso(row?.updatedAt)
+  };
+}
+
+function buildPrivateDocIntegrityDecisionAuditItem(
+  row = {},
+  { includeCryptographic = false, includePayload = false } = {}
+) {
+  const normalized = normalizePrivateDocIntegrityDecisionAuditRow(row);
+  const item = {
+    decisionId: normalized.decisionId,
+    uploadId: normalized.uploadId,
+    propertyId: normalized.propertyId,
+    ownerId: normalized.ownerId,
+    action: normalized.action,
+    dualControlPhase: normalized.dualControlPhase,
+    adminId: normalized.adminId,
+    requestedBy: normalized.requestedBy,
+    confirmedBy: normalized.confirmedBy,
+    reviewReasonHash: normalized.reviewReasonHash,
+    reviewReasonPreview: normalized.reviewReasonPreview,
+    requestIpHash: normalized.requestIpHash,
+    requestUserAgentHash: normalized.requestUserAgentHash,
+    chain: {
+      chainIndex: normalized.chainIndex,
+      previousDecisionHash: normalized.previousDecisionHash,
+      decisionHash: normalized.decisionHash
+    },
+    signatureKeyVersion: normalized.signatureKeyVersion,
+    occurredAt: normalized.occurredAt,
+    createdAt: normalized.createdAt
+  };
+  if (includeCryptographic) {
+    item.cryptographic = {
+      payloadHash: normalized.payloadHash,
+      signature: normalized.signature
+    };
+  }
+  if (includePayload) {
+    item.canonicalPayload = normalized.canonicalPayload;
+  }
+  return item;
+}
+
+async function listPrivateDocIntegrityDecisionAudits(uploadId = "", limit = 120) {
+  const safeUploadId = text(uploadId);
+  if (!safeUploadId) return [];
+  const safeLimit = Math.min(500, Math.max(1, Math.round(numberValue(limit, 120))));
+
+  if (proRuntime.dbConnected) {
+    return CorePrivateDocIntegrityDecisionAudit.find({ uploadId: safeUploadId })
+      .sort({ chainIndex: -1, occurredAt: -1, createdAt: -1 })
+      .limit(safeLimit)
+      .lean();
+  }
+
+  return (Array.isArray(proMemoryStore.corePrivateDocIntegrityDecisionAudits)
+    ? proMemoryStore.corePrivateDocIntegrityDecisionAudits
+    : []
+  )
+    .filter((item) => text(item?.uploadId) === safeUploadId)
+    .sort((a, b) => {
+      const chainDelta = Math.max(0, numberValue(b?.chainIndex, 0)) - Math.max(0, numberValue(a?.chainIndex, 0));
+      if (chainDelta) return chainDelta;
+      return new Date(b?.occurredAt || b?.createdAt || 0) - new Date(a?.occurredAt || a?.createdAt || 0);
+    })
+    .slice(0, safeLimit);
+}
+
+function verifyPrivateDocIntegrityDecisionAuditChain(rows = []) {
+  const normalizedRows = (Array.isArray(rows) ? rows : [])
+    .map((item) => normalizePrivateDocIntegrityDecisionAuditRow(item))
+    .filter((item) => Boolean(item.decisionId && item.action && item.decisionHash))
+    .sort((a, b) => {
+      const chainDelta = Math.max(0, numberValue(a.chainIndex, 0)) - Math.max(0, numberValue(b.chainIndex, 0));
+      if (chainDelta) return chainDelta;
+      return new Date(a.occurredAt || a.createdAt || 0) - new Date(b.occurredAt || b.createdAt || 0);
+    });
+
+  const issues = [];
+  let previousDecisionHash = normalizedRows.length ? text(normalizedRows[0].previousDecisionHash) : "";
+  let latestDecisionHash = "";
+
+  normalizedRows.forEach((row, index) => {
+    const payload = row.canonicalPayload && typeof row.canonicalPayload === "object"
+      ? row.canonicalPayload
+      : null;
+    if (!payload) {
+      issues.push({
+        code: "missing-payload",
+        chainIndex: row.chainIndex,
+        decisionId: row.decisionId
+      });
+      previousDecisionHash = text(row.decisionHash);
+      latestDecisionHash = text(row.decisionHash);
+      return;
+    }
+
+    const expectedPayloadHash = hashPrivateDocIntegrityAuditPayload(payload);
+    if (row.payloadHash !== expectedPayloadHash) {
+      issues.push({
+        code: "payload-hash-mismatch",
+        chainIndex: row.chainIndex,
+        decisionId: row.decisionId
+      });
+    }
+
+    const signatureKeyVersion = text(row.signatureKeyVersion, "v1");
+    const expectedSignature = signPrivateDocIntegrityAuditPayload(
+      expectedPayloadHash,
+      signatureKeyVersion,
+      PRIVATE_DOC_INTEGRITY_AUDIT_SECRET
+    );
+    const expectedSignatureSecondary = PRIVATE_DOC_INTEGRITY_AUDIT_SECONDARY_SECRET
+      ? signPrivateDocIntegrityAuditPayload(
+          expectedPayloadHash,
+          signatureKeyVersion,
+          PRIVATE_DOC_INTEGRITY_AUDIT_SECONDARY_SECRET
+        )
+      : "";
+    const signatureValid =
+      row.signature === expectedSignature ||
+      (Boolean(expectedSignatureSecondary) && row.signature === expectedSignatureSecondary);
+    if (!signatureValid) {
+      issues.push({
+        code: "signature-mismatch",
+        chainIndex: row.chainIndex,
+        decisionId: row.decisionId
+      });
+    }
+
+    const expectedDecisionHash = buildPrivateDocIntegrityDecisionHash({
+      previousDecisionHash,
+      payloadHash: expectedPayloadHash,
+      signature: row.signature,
+      decisionId: row.decisionId,
+      action: row.action
+    });
+    if (row.decisionHash !== expectedDecisionHash) {
+      issues.push({
+        code: "decision-hash-mismatch",
+        chainIndex: row.chainIndex,
+        decisionId: row.decisionId
+      });
+    }
+
+    if (index > 0 && row.previousDecisionHash !== previousDecisionHash) {
+      issues.push({
+        code: "chain-link-mismatch",
+        chainIndex: row.chainIndex,
+        decisionId: row.decisionId
+      });
+    }
+
+    previousDecisionHash = text(row.decisionHash);
+    latestDecisionHash = text(row.decisionHash);
+  });
+
+  const oldest = normalizedRows[0] || null;
+  const newest = normalizedRows[normalizedRows.length - 1] || null;
+  const partial =
+    Boolean(oldest && text(oldest.previousDecisionHash)) &&
+    Math.max(1, Math.round(numberValue(oldest?.chainIndex, 1))) > 1;
+
+  return {
+    valid: issues.length === 0,
+    total: normalizedRows.length,
+    issues,
+    partial,
+    chain: {
+      headDecisionHash: text(newest?.decisionHash),
+      tailDecisionHash: text(oldest?.decisionHash),
+      latestVerifiedDecisionHash: latestDecisionHash,
+      minChainIndex: oldest ? Math.max(1, Math.round(numberValue(oldest.chainIndex, 1))) : 0,
+      maxChainIndex: newest ? Math.max(1, Math.round(numberValue(newest.chainIndex, 1))) : 0
+    }
+  };
+}
+
+async function createPrivateDocIntegrityDecisionAudit({
+  uploadRow = {},
+  uploadId = "",
+  propertyId = "",
+  ownerId = "",
+  action = "",
+  phase = "single",
+  actorAdminId = "",
+  requestedBy = "",
+  confirmedBy = "",
+  reason = "",
+  requestIp = "",
+  requestUserAgent = "",
+  statusBefore = "unknown",
+  reviewStatusBefore = "none",
+  statusAfter = "unknown",
+  reviewStatusAfter = "none",
+  occurredAt = null
+} = {}) {
+  const normalizedAction = normalizePrivateDocIntegrityAuditAction(action);
+  const safeUploadId = text(uploadId || toId(uploadRow?._id || uploadRow?.id));
+  if (!safeUploadId || !normalizedAction) return null;
+
+  const normalizedOccurredAt = asIso(occurredAt || new Date()) || new Date().toISOString();
+  const decisionId = crypto.randomUUID();
+  const previousDecisionHash = text(uploadRow?.privateDocIntegrityDecisionChainHead);
+  const previousChainLength = Math.max(
+    0,
+    Math.round(numberValue(uploadRow?.privateDocIntegrityDecisionChainLength, 0))
+  );
+  const chainIndex = previousChainLength + 1;
+  const reasonHash = hashPrivateDocIntegrityAuditValue(reason, "reason");
+  const requestIpHash = hashPrivateDocIntegrityAuditValue(requestIp, "ip");
+  const requestUserAgentHash = hashPrivateDocIntegrityAuditValue(requestUserAgent, "ua");
+  const canonicalPayload = buildPrivateDocIntegrityDecisionAuditPayload({
+    decisionId,
+    uploadId: safeUploadId,
+    propertyId,
+    ownerId,
+    action: normalizedAction,
+    phase,
+    actorAdminId,
+    requestedBy,
+    confirmedBy,
+    reasonHash,
+    requestIpHash,
+    requestUserAgentHash,
+    statusBefore,
+    reviewStatusBefore,
+    statusAfter,
+    reviewStatusAfter,
+    occurredAt: normalizedOccurredAt,
+    previousDecisionHash,
+    chainIndex
+  });
+  const payloadHash = hashPrivateDocIntegrityAuditPayload(canonicalPayload);
+  const signature = signPrivateDocIntegrityAuditPayload(
+    payloadHash,
+    PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION,
+    PRIVATE_DOC_INTEGRITY_AUDIT_SECRET
+  );
+  const decisionHash = buildPrivateDocIntegrityDecisionHash({
+    previousDecisionHash,
+    payloadHash,
+    signature,
+    decisionId,
+    action: normalizedAction
+  });
+
+  const row = {
+    decisionId,
+    uploadId: safeUploadId,
+    propertyId: toObjectIdOrNull(propertyId),
+    ownerId: toObjectIdOrNull(ownerId),
+    action: normalizedAction,
+    dualControlPhase: normalizePrivateDocIntegrityAuditPhase(phase),
+    adminId: toObjectIdOrNull(actorAdminId),
+    requestedBy: toObjectIdOrNull(requestedBy),
+    confirmedBy: toObjectIdOrNull(confirmedBy),
+    reviewReasonHash: reasonHash,
+    reviewReasonPreview: text(reason).replace(/\s+/g, " ").slice(0, 140),
+    requestIpHash,
+    requestUserAgentHash,
+    previousDecisionHash,
+    payloadHash,
+    signature,
+    decisionHash,
+    signatureKeyVersion: text(PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION, "v1"),
+    canonicalPayload,
+    chainIndex,
+    occurredAt: new Date(normalizedOccurredAt)
+  };
+
+  if (proRuntime.dbConnected) {
+    await CorePrivateDocIntegrityDecisionAudit.create(row);
+    if (PRIVATE_DOC_INTEGRITY_AUDIT_MAX_ITEMS > 0) {
+      const overLimit = await CorePrivateDocIntegrityDecisionAudit.countDocuments({
+        uploadId: safeUploadId
+      }) - PRIVATE_DOC_INTEGRITY_AUDIT_MAX_ITEMS;
+      if (overLimit > 0) {
+        const stale = await CorePrivateDocIntegrityDecisionAudit.find({ uploadId: safeUploadId })
+          .sort({ chainIndex: 1, occurredAt: 1, createdAt: 1 })
+          .limit(overLimit)
+          .select({ _id: 1 })
+          .lean();
+        const staleIds = stale.map((item) => item?._id).filter((item) => Boolean(item));
+        if (staleIds.length) {
+          await CorePrivateDocIntegrityDecisionAudit.deleteMany({ _id: { $in: staleIds } });
+        }
+      }
+    }
+  } else {
+    const nextRow = {
+      ...row,
+      propertyId: text(propertyId),
+      ownerId: text(ownerId),
+      adminId: text(actorAdminId),
+      requestedBy: text(requestedBy),
+      confirmedBy: text(confirmedBy),
+      occurredAt: normalizedOccurredAt,
+      createdAt: normalizedOccurredAt,
+      updatedAt: normalizedOccurredAt
+    };
+    const previous = Array.isArray(proMemoryStore.corePrivateDocIntegrityDecisionAudits)
+      ? proMemoryStore.corePrivateDocIntegrityDecisionAudits
+      : [];
+    proMemoryStore.corePrivateDocIntegrityDecisionAudits = [...previous, nextRow].slice(
+      -PRIVATE_DOC_INTEGRITY_AUDIT_MAX_ITEMS
+    );
+  }
+
+  return {
+    decisionId,
+    decisionHash,
+    payloadHash,
+    signature,
+    signatureKeyVersion: text(PRIVATE_DOC_INTEGRITY_AUDIT_KEY_VERSION, "v1"),
+    chainIndex,
+    occurredAt: normalizedOccurredAt,
+    action: normalizedAction,
+    phase: normalizePrivateDocIntegrityAuditPhase(phase),
+    requestedBy: text(requestedBy),
+    confirmedBy: text(confirmedBy)
   };
 }
 
@@ -1541,7 +2049,17 @@ function normalizeUpload(doc, viewer = null) {
                   nextStatus: text(item?.nextStatus),
                   at: asIso(item?.at)
                 }))
-              : []
+              : [],
+            decisionAudit: {
+              chainHead: text(row.privateDocIntegrityDecisionChainHead),
+              lastDecisionHash: text(row.privateDocIntegrityLastDecisionHash),
+              lastDecisionId: text(row.privateDocIntegrityLastDecisionId),
+              lastDecisionAction: text(row.privateDocIntegrityLastDecisionAction),
+              lastDecisionBy: toId(row.privateDocIntegrityLastDecisionBy),
+              lastDecisionAt: asIso(row.privateDocIntegrityLastDecisionAt),
+              chainLength: Math.max(0, numberValue(row.privateDocIntegrityDecisionChainLength, 0)),
+              signatureKeyVersion: text(row.privateDocIntegrityDecisionSignatureVersion)
+            }
           }
         : null,
     secureAccess:
@@ -1610,6 +2128,14 @@ function buildUploadRows(req, files = []) {
       privateDocIntegrityApprovalRequestedAt: null,
       privateDocIntegrityApprovalRequestReason: "",
       privateDocIntegrityReviewHistory: [],
+      privateDocIntegrityDecisionChainHead: "",
+      privateDocIntegrityLastDecisionHash: "",
+      privateDocIntegrityLastDecisionId: "",
+      privateDocIntegrityLastDecisionAction: "",
+      privateDocIntegrityLastDecisionBy: null,
+      privateDocIntegrityLastDecisionAt: null,
+      privateDocIntegrityDecisionChainLength: 0,
+      privateDocIntegrityDecisionSignatureVersion: "",
       storageProvider: text(proRuntime.storageProvider || "memory", "memory")
     };
   });
@@ -1859,7 +2385,24 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
     privateDocIntegrityMismatchAt: patch.privateDocIntegrityMismatchAt
       ? new Date(patch.privateDocIntegrityMismatchAt)
       : null,
-    privateDocIntegrityMismatchReason: text(patch.privateDocIntegrityMismatchReason)
+    privateDocIntegrityMismatchReason: text(patch.privateDocIntegrityMismatchReason),
+    privateDocIntegrityDecisionChainHead: text(patch.privateDocIntegrityDecisionChainHead),
+    privateDocIntegrityLastDecisionHash: text(patch.privateDocIntegrityLastDecisionHash),
+    privateDocIntegrityLastDecisionId: text(patch.privateDocIntegrityLastDecisionId),
+    privateDocIntegrityLastDecisionAction: normalizePrivateDocIntegrityDecisionActionForPatch(
+      patch.privateDocIntegrityLastDecisionAction
+    ),
+    privateDocIntegrityLastDecisionBy: toObjectIdOrNull(patch.privateDocIntegrityLastDecisionBy),
+    privateDocIntegrityLastDecisionAt: patch.privateDocIntegrityLastDecisionAt
+      ? new Date(patch.privateDocIntegrityLastDecisionAt)
+      : null,
+    privateDocIntegrityDecisionChainLength: Math.max(
+      0,
+      Math.round(numberValue(patch.privateDocIntegrityDecisionChainLength, 0))
+    ),
+    privateDocIntegrityDecisionSignatureVersion: text(
+      patch.privateDocIntegrityDecisionSignatureVersion
+    ).slice(0, 24)
   };
 
   if (proRuntime.dbConnected) {
@@ -1908,7 +2451,83 @@ async function markPrivateDocIntegrity(uploadId = "", patch = {}) {
     privateDocIntegrityMismatchAt: next.privateDocIntegrityMismatchAt
       ? next.privateDocIntegrityMismatchAt.toISOString()
       : null,
+    privateDocIntegrityLastDecisionBy: toId(next.privateDocIntegrityLastDecisionBy),
+    privateDocIntegrityLastDecisionAt: next.privateDocIntegrityLastDecisionAt
+      ? next.privateDocIntegrityLastDecisionAt.toISOString()
+      : null,
     privateDocIntegrityReviewHistory: nextHistory
+  };
+}
+
+function buildPrivateDocIntegrityDecisionChainPatchFromUpload(uploadRow = {}) {
+  return {
+    privateDocIntegrityDecisionChainHead: text(uploadRow?.privateDocIntegrityDecisionChainHead),
+    privateDocIntegrityLastDecisionHash: text(uploadRow?.privateDocIntegrityLastDecisionHash),
+    privateDocIntegrityLastDecisionId: text(uploadRow?.privateDocIntegrityLastDecisionId),
+    privateDocIntegrityLastDecisionAction: text(uploadRow?.privateDocIntegrityLastDecisionAction),
+    privateDocIntegrityLastDecisionBy: toId(uploadRow?.privateDocIntegrityLastDecisionBy),
+    privateDocIntegrityLastDecisionAt: asIso(uploadRow?.privateDocIntegrityLastDecisionAt),
+    privateDocIntegrityDecisionChainLength: Math.max(
+      0,
+      Math.round(numberValue(uploadRow?.privateDocIntegrityDecisionChainLength, 0))
+    ),
+    privateDocIntegrityDecisionSignatureVersion: text(
+      uploadRow?.privateDocIntegrityDecisionSignatureVersion
+    )
+  };
+}
+
+function buildPrivateDocIntegrityDecisionChainPatchFromAudit(audit = {}, fallback = {}) {
+  return {
+    privateDocIntegrityDecisionChainHead: text(
+      audit?.decisionHash,
+      text(fallback?.privateDocIntegrityDecisionChainHead)
+    ),
+    privateDocIntegrityLastDecisionHash: text(
+      audit?.decisionHash,
+      text(fallback?.privateDocIntegrityLastDecisionHash)
+    ),
+    privateDocIntegrityLastDecisionId: text(
+      audit?.decisionId,
+      text(fallback?.privateDocIntegrityLastDecisionId)
+    ),
+    privateDocIntegrityLastDecisionAction: normalizePrivateDocIntegrityDecisionActionForPatch(
+      text(audit?.action, fallback?.privateDocIntegrityLastDecisionAction)
+    ),
+    privateDocIntegrityLastDecisionBy: text(
+      audit?.confirmedBy || audit?.requestedBy || fallback?.privateDocIntegrityLastDecisionBy
+    ),
+    privateDocIntegrityLastDecisionAt: asIso(
+      audit?.occurredAt || fallback?.privateDocIntegrityLastDecisionAt
+    ),
+    privateDocIntegrityDecisionChainLength: Math.max(
+      0,
+      Math.round(
+        numberValue(
+          audit?.chainIndex,
+          numberValue(fallback?.privateDocIntegrityDecisionChainLength, 0)
+        )
+      )
+    ),
+    privateDocIntegrityDecisionSignatureVersion: text(
+      audit?.signatureKeyVersion,
+      text(fallback?.privateDocIntegrityDecisionSignatureVersion)
+    )
+  };
+}
+
+function buildPrivateDocIntegrityDecisionAuditSummary(audit = {}) {
+  if (!audit || typeof audit !== "object") return null;
+  const decisionId = text(audit.decisionId);
+  if (!decisionId) return null;
+  return {
+    decisionId,
+    decisionHash: text(audit.decisionHash),
+    chainIndex: Math.max(1, Math.round(numberValue(audit.chainIndex, 1))),
+    action: text(audit.action),
+    phase: text(audit.phase, "single"),
+    occurredAt: asIso(audit.occurredAt),
+    signatureKeyVersion: text(audit.signatureKeyVersion)
   };
 }
 
@@ -2903,6 +3522,7 @@ export async function streamCorePrivateDoc(req, res, next) {
           privateDocIntegrityApprovalRequestedBy: null,
           privateDocIntegrityApprovalRequestedAt: null,
           privateDocIntegrityApprovalRequestReason: "",
+          ...buildPrivateDocIntegrityDecisionChainPatchFromUpload(uploadRow),
           privateDocIntegrityMismatchAt: nowIso,
           privateDocIntegrityMismatchReason: mismatchReason,
           privateDocIntegrityReviewHistoryEvent: {
@@ -2947,6 +3567,7 @@ export async function streamCorePrivateDoc(req, res, next) {
           privateDocIntegrityApprovalRequestedBy: null,
           privateDocIntegrityApprovalRequestedAt: null,
           privateDocIntegrityApprovalRequestReason: "",
+          ...buildPrivateDocIntegrityDecisionChainPatchFromUpload(uploadRow),
           privateDocIntegrityMismatchAt: null,
           privateDocIntegrityMismatchReason: "",
           privateDocIntegrityReviewHistoryEvent: {
@@ -3015,6 +3636,16 @@ function buildPrivateDocIntegrityQueueItem(uploadRow = {}) {
         reason: text(integrity?.approvalRequest?.reason || ""),
         active: Boolean(integrity?.approvalRequest?.active)
       },
+      decisionAudit: {
+        chainHead: text(integrity?.decisionAudit?.chainHead || ""),
+        lastDecisionHash: text(integrity?.decisionAudit?.lastDecisionHash || ""),
+        lastDecisionId: text(integrity?.decisionAudit?.lastDecisionId || ""),
+        lastDecisionAction: text(integrity?.decisionAudit?.lastDecisionAction || ""),
+        lastDecisionBy: text(integrity?.decisionAudit?.lastDecisionBy || ""),
+        lastDecisionAt: asIso(integrity?.decisionAudit?.lastDecisionAt),
+        chainLength: Math.max(0, numberValue(integrity?.decisionAudit?.chainLength, 0)),
+        signatureKeyVersion: text(integrity?.decisionAudit?.signatureKeyVersion || "")
+      },
       reviewHistory: Array.isArray(integrity.reviewHistory)
         ? integrity.reviewHistory.slice(-20)
         : []
@@ -3079,6 +3710,8 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
     const action = normalizePrivateDocIntegrityDecisionAction(req.body?.action);
     const reason = text(req.body?.reason);
     const adminId = text(req.coreUser?.id);
+    const requestIp = getClientIp(req);
+    const requestUserAgent = text(req.headers?.["user-agent"]);
     if (!uploadId) {
       return res.status(400).json({
         success: false,
@@ -3119,11 +3752,33 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
     const nowTs = Date.now();
     const nowIso = new Date(nowTs).toISOString();
     const approvalState = getPrivateDocIntegrityApprovalRequestState(uploadRow, nowTs);
+    const uploadOwnerId = toId(uploadRow?.userId);
+    const uploadPropertyId = toId(uploadRow?.propertyId);
 
     if (action === "approved" && PRIVATE_DOC_INTEGRITY_DUAL_APPROVAL_REQUIRED) {
       if (!approvalState.active) {
+        const requestDecisionStatus = currentStatus === "unknown" ? "mismatch" : currentStatus;
+        const decisionAudit = await createPrivateDocIntegrityDecisionAudit({
+          uploadRow,
+          uploadId,
+          propertyId: uploadPropertyId,
+          ownerId: uploadOwnerId,
+          action: "approval-requested",
+          phase: "request",
+          actorAdminId: adminId,
+          requestedBy: adminId,
+          confirmedBy: "",
+          reason,
+          requestIp,
+          requestUserAgent,
+          statusBefore: currentStatus,
+          reviewStatusBefore: currentReviewStatus,
+          statusAfter: requestDecisionStatus,
+          reviewStatusAfter: "pending",
+          occurredAt: nowIso
+        });
         const requestPatch = {
-          privateDocIntegrityStatus: currentStatus === "unknown" ? "mismatch" : currentStatus,
+          privateDocIntegrityStatus: requestDecisionStatus,
           privateDocIntegrityReviewStatus: "pending",
           privateDocIntegrityReviewedBy: null,
           privateDocIntegrityReviewedAt: null,
@@ -3131,6 +3786,7 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
           privateDocIntegrityApprovalRequestedBy: adminId,
           privateDocIntegrityApprovalRequestedAt: nowIso,
           privateDocIntegrityApprovalRequestReason: reason,
+          ...buildPrivateDocIntegrityDecisionChainPatchFromAudit(decisionAudit, uploadRow),
           privateDocIntegrityReviewHistoryEvent: {
             action: "approval-requested",
             byUserId: adminId,
@@ -3149,7 +3805,8 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
             action: "approval-requested",
             reason,
             requestedBy: adminId,
-            requestedAt: nowIso
+            requestedAt: nowIso,
+            audit: buildPrivateDocIntegrityDecisionAuditSummary(decisionAudit)
           },
           upload: buildPrivateDocIntegrityQueueItem(requested || uploadRow)
         });
@@ -3162,8 +3819,28 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
         });
       }
 
+      const confirmedDecisionStatus = currentStatus === "unknown" ? "verified" : currentStatus;
+      const decisionAudit = await createPrivateDocIntegrityDecisionAudit({
+        uploadRow,
+        uploadId,
+        propertyId: uploadPropertyId,
+        ownerId: uploadOwnerId,
+        action: "approval-confirmed",
+        phase: "confirm",
+        actorAdminId: adminId,
+        requestedBy: approvalState.requestedBy,
+        confirmedBy: adminId,
+        reason,
+        requestIp,
+        requestUserAgent,
+        statusBefore: currentStatus,
+        reviewStatusBefore: currentReviewStatus,
+        statusAfter: confirmedDecisionStatus,
+        reviewStatusAfter: "approved",
+        occurredAt: nowIso
+      });
       const approvePatch = {
-        privateDocIntegrityStatus: currentStatus === "unknown" ? "verified" : currentStatus,
+        privateDocIntegrityStatus: confirmedDecisionStatus,
         privateDocIntegrityReviewStatus: "approved",
         privateDocIntegrityReviewedBy: adminId,
         privateDocIntegrityReviewedAt: nowIso,
@@ -3171,6 +3848,7 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
         privateDocIntegrityApprovalRequestedBy: null,
         privateDocIntegrityApprovalRequestedAt: null,
         privateDocIntegrityApprovalRequestReason: "",
+        ...buildPrivateDocIntegrityDecisionChainPatchFromAudit(decisionAudit, uploadRow),
         privateDocIntegrityReviewHistoryEvent: {
           action: "approval-confirmed",
           byUserId: adminId,
@@ -3190,7 +3868,8 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
           reason,
           requestedBy: approvalState.requestedBy,
           confirmedBy: adminId,
-          reviewedAt: nowIso
+          reviewedAt: nowIso,
+          audit: buildPrivateDocIntegrityDecisionAuditSummary(decisionAudit)
         },
         upload: buildPrivateDocIntegrityQueueItem(approved || uploadRow)
       });
@@ -3249,6 +3928,37 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
       };
     }
 
+    const finalStatus = normalizePrivateDocIntegrityStatus(patch.privateDocIntegrityStatus);
+    const finalReviewStatus = normalizePrivateDocIntegrityReviewStatus(
+      patch.privateDocIntegrityReviewStatus
+    );
+    const decisionAuditAction =
+      action === "approved"
+        ? "approved"
+        : (action === "quarantined" ? "quarantined" : "reset");
+    const decisionAudit = await createPrivateDocIntegrityDecisionAudit({
+      uploadRow,
+      uploadId,
+      propertyId: uploadPropertyId,
+      ownerId: uploadOwnerId,
+      action: decisionAuditAction,
+      phase: "single",
+      actorAdminId: adminId,
+      requestedBy: "",
+      confirmedBy: adminId,
+      reason,
+      requestIp,
+      requestUserAgent,
+      statusBefore: currentStatus,
+      reviewStatusBefore: currentReviewStatus,
+      statusAfter: finalStatus,
+      reviewStatusAfter: finalReviewStatus,
+      occurredAt: nowIso
+    });
+    Object.assign(
+      patch,
+      buildPrivateDocIntegrityDecisionChainPatchFromAudit(decisionAudit, uploadRow)
+    );
     await markPrivateDocIntegrity(uploadId, patch);
     const updated = await findUploadById(uploadId);
     return res.json({
@@ -3258,9 +3968,72 @@ export async function decideCorePrivateDocIntegrity(req, res, next) {
         action,
         reason,
         reviewedBy: adminId,
-        reviewedAt: nowIso
+        reviewedAt: nowIso,
+        audit: buildPrivateDocIntegrityDecisionAuditSummary(decisionAudit)
       },
       upload: buildPrivateDocIntegrityQueueItem(updated || uploadRow)
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCorePrivateDocIntegrityDecisionAudits(req, res, next) {
+  try {
+    const uploadId = text(req.query?.uploadId || req.params?.uploadId || req.body?.uploadId);
+    const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
+    const includeCryptographic =
+      String(req.query?.includeCryptographic || "false").trim().toLowerCase() === "true";
+    const includePayload =
+      String(req.query?.includePayload || "false").trim().toLowerCase() === "true";
+    if (!uploadId) {
+      return res.status(400).json({
+        success: false,
+        message: "uploadId is required."
+      });
+    }
+
+    const rows = await listPrivateDocIntegrityDecisionAudits(uploadId, limit);
+    const verification = verifyPrivateDocIntegrityDecisionAuditChain(rows);
+    const uploadRow = await findUploadById(uploadId);
+    const uploadChainHead = text(uploadRow?.privateDocIntegrityDecisionChainHead);
+    const chainHeadMismatch = Boolean(
+      uploadChainHead &&
+      verification.chain.headDecisionHash &&
+      uploadChainHead !== verification.chain.headDecisionHash
+    );
+    const issues = chainHeadMismatch
+      ? [
+          ...verification.issues,
+          {
+            code: "upload-chain-head-mismatch",
+            expectedHead: uploadChainHead,
+            observedHead: verification.chain.headDecisionHash
+          }
+        ]
+      : verification.issues;
+
+    const verificationResult = {
+      ...verification,
+      valid: verification.valid && !chainHeadMismatch,
+      issues,
+      uploadChainHead,
+      chainHeadAligned: !chainHeadMismatch
+    };
+    const items = rows.map((row) =>
+      buildPrivateDocIntegrityDecisionAuditItem(row, {
+        includeCryptographic,
+        includePayload
+      })
+    );
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      uploadId,
+      total: items.length,
+      verification: verificationResult,
+      items
     });
   } catch (error) {
     return next(error);
