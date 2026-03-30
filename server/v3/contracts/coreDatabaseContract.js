@@ -102,6 +102,7 @@ export const coreSystemsBlueprint = [
       "Secure private-doc proxy streaming with signed short-lived stream tokens and replay guards",
       "Per-document access epoch revocation control: owner/admin can instantly invalidate previously issued private-doc tokens",
       "Emergency private-doc kill switch: owner/admin can lock-unlock access instantly with forced token invalidation",
+      "AI-style adaptive auto-emergency-lock: repeated suspicious private-doc access attempts auto-lock document and rotate token epoch",
       "Private-doc content integrity attestation (content hash + upstream ETag/Last-Modified) with mismatch lock enforcement",
       "Admin integrity review workflow for mismatched private docs (pending queue + approve/quarantine/reset decisions) with optional dual-admin approval confirmation",
       "Tamper-evident signed admin decision chain for private-doc integrity actions (immutable forensic audit trail with verification endpoint)",

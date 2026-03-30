@@ -188,6 +188,27 @@ const PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN = Math.max(
   8,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EPOCH_ROTATE_REASON_MIN || 10)
 );
+const PRIVATE_DOC_AUTO_EMERGENCY_LOCK_ENABLED =
+  String(process.env.CORE_PRIVATE_DOC_AUTO_EMERGENCY_LOCK_ENABLED || "true").trim().toLowerCase() !== "false";
+const PRIVATE_DOC_AUTO_EMERGENCY_LOCK_WINDOW_MS = Math.max(
+  60_000,
+  Math.min(
+    24 * 60 * 60 * 1000,
+    Number(process.env.CORE_PRIVATE_DOC_AUTO_EMERGENCY_LOCK_WINDOW_MINUTES || 20) * 60 * 1000
+  )
+);
+const PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD = Math.max(
+  3,
+  Number(process.env.CORE_PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD || 6)
+);
+const PRIVATE_DOC_AUTO_EMERGENCY_LOCK_DISTINCT_REASONS_MIN = Math.max(
+  1,
+  Number(process.env.CORE_PRIVATE_DOC_AUTO_EMERGENCY_LOCK_DISTINCT_REASONS_MIN || 2)
+);
+const PRIVATE_DOC_AUTO_EMERGENCY_LOCK_PROFILE_MAX = Math.max(
+  100,
+  Number(process.env.CORE_PRIVATE_DOC_AUTO_EMERGENCY_LOCK_PROFILE_MAX || 5000)
+);
 const PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN = Math.max(
   8,
   Number(process.env.CORE_PRIVATE_DOC_EMERGENCY_LOCK_REASON_MIN || 12)
@@ -239,6 +260,8 @@ const privateDocConsumedStreamTokenMap = new Map();
 const privateDocAccessShieldProfiles = new Map();
 const privateDocAccessShieldBlocks = new Map();
 const privateDocAccessShieldPenalty = new Map();
+const privateDocAutoEmergencyLockProfiles = new Map();
+const privateDocAutoEmergencyLockInFlight = new Set();
 let privateDocShieldHydratedAtTs = 0;
 
 function normalizeCategory(value) {
@@ -390,6 +413,181 @@ function normalizePrivateDocEmergencyLockAction(value = "") {
   if (raw === "lock" || raw === "enable" || raw === "on" || raw === "activate") return "lock";
   if (raw === "unlock" || raw === "disable" || raw === "off" || raw === "deactivate") return "unlock";
   return "lock";
+}
+
+function isPrivateDocAutoEmergencyLockReasonCandidate(reason = "", authorizationDenied = false) {
+  const normalized = text(reason).toLowerCase();
+  if (!normalized && !authorizationDenied) return false;
+  if (normalized === "private-doc-emergency-lock-active") return false;
+  if (normalized === "missing-token") return false;
+  if (
+    normalized.includes("replay") ||
+    normalized.includes("binding-mismatch") ||
+    normalized.includes("signature-mismatch") ||
+    normalized.includes("payload-invalid") ||
+    normalized.includes("subject-mismatch") ||
+    normalized.includes("context-mismatch") ||
+    normalized.includes("integrity-validation-failed") ||
+    normalized.includes("access-epoch-revoked") ||
+    normalized.includes("token-purpose-mismatch") ||
+    normalized.includes("token-issued-in-future") ||
+    normalized.includes("token-source-hash-mismatch")
+  ) {
+    return true;
+  }
+  return Boolean(authorizationDenied);
+}
+
+function prunePrivateDocAutoEmergencyLockProfiles(nowTs = Date.now()) {
+  const now = Math.max(0, Math.round(numberValue(nowTs, Date.now())));
+  const cutoffTs = now - PRIVATE_DOC_AUTO_EMERGENCY_LOCK_WINDOW_MS;
+
+  for (const [uploadId, row] of privateDocAutoEmergencyLockProfiles.entries()) {
+    const events = (Array.isArray(row?.events) ? row.events : [])
+      .filter((item) => Math.max(0, Math.round(numberValue(item?.atTs, 0))) >= cutoffTs)
+      .slice(-Math.max(20, PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD * 6));
+    if (!events.length) {
+      privateDocAutoEmergencyLockProfiles.delete(uploadId);
+      continue;
+    }
+    privateDocAutoEmergencyLockProfiles.set(uploadId, {
+      ...row,
+      events,
+      updatedAtTs: now
+    });
+  }
+
+  if (privateDocAutoEmergencyLockProfiles.size > PRIVATE_DOC_AUTO_EMERGENCY_LOCK_PROFILE_MAX) {
+    const sorted = [...privateDocAutoEmergencyLockProfiles.entries()]
+      .sort(
+        (a, b) =>
+          Math.max(0, Math.round(numberValue(a?.[1]?.updatedAtTs, 0))) -
+          Math.max(0, Math.round(numberValue(b?.[1]?.updatedAtTs, 0)))
+      );
+    while (privateDocAutoEmergencyLockProfiles.size > PRIVATE_DOC_AUTO_EMERGENCY_LOCK_PROFILE_MAX && sorted.length) {
+      const next = sorted.shift();
+      if (!next) break;
+      privateDocAutoEmergencyLockProfiles.delete(text(next[0]));
+    }
+  }
+}
+
+async function registerPrivateDocAutoEmergencyLockFromEvent(event = {}) {
+  if (!PRIVATE_DOC_AUTO_EMERGENCY_LOCK_ENABLED) return;
+  const uploadId = text(event.uploadId);
+  if (!uploadId) return;
+  const role = text(event.role, "buyer").toLowerCase();
+  if (role === "admin") return;
+
+  const reason = text(event.reason);
+  const authorizationDenied = Boolean(event.authorizationDenied);
+  if (!isPrivateDocAutoEmergencyLockReasonCandidate(reason, authorizationDenied)) return;
+  if (privateDocAutoEmergencyLockInFlight.has(uploadId)) return;
+
+  const nowTs = Date.now();
+  prunePrivateDocAutoEmergencyLockProfiles(nowTs);
+  const cutoffTs = nowTs - PRIVATE_DOC_AUTO_EMERGENCY_LOCK_WINDOW_MS;
+  const profile = privateDocAutoEmergencyLockProfiles.get(uploadId) || {
+    uploadId,
+    events: [],
+    updatedAtTs: nowTs,
+    totalAutoLocks: 0,
+    lastAutoLockAtTs: 0
+  };
+  const previousEvents = (Array.isArray(profile.events) ? profile.events : [])
+    .filter((item) => Math.max(0, Math.round(numberValue(item?.atTs, 0))) >= cutoffTs);
+
+  const nextEvent = {
+    atTs: nowTs,
+    reason: reason || (authorizationDenied ? "authorization-denied" : "unknown"),
+    source: text(event.source),
+    role,
+    userId: text(event.userId),
+    ipHash: hashPrivateDocShieldIp(event.ip),
+    actorKey: buildPrivateDocShieldActorKey({
+      userId: text(event.userId),
+      ip: text(event.ip)
+    })
+  };
+  const events = [...previousEvents, nextEvent].slice(-Math.max(30, PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD * 8));
+  const distinctReasons = new Set(events.map((item) => text(item.reason)).filter((item) => Boolean(item))).size;
+  const suspiciousCount = events.length;
+
+  privateDocAutoEmergencyLockProfiles.set(uploadId, {
+    ...profile,
+    events,
+    updatedAtTs: nowTs
+  });
+
+  if (
+    suspiciousCount < PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD ||
+    distinctReasons < PRIVATE_DOC_AUTO_EMERGENCY_LOCK_DISTINCT_REASONS_MIN
+  ) {
+    return;
+  }
+
+  privateDocAutoEmergencyLockInFlight.add(uploadId);
+  try {
+    const uploadRow = await findUploadById(uploadId);
+    if (!uploadRow || !Boolean(uploadRow?.isPrivate)) return;
+    if (Boolean(uploadRow?.privateDocEmergencyLockActive)) return;
+
+    const nowIso = new Date(nowTs).toISOString();
+    const previousEpoch = normalizePrivateDocAccessEpoch(uploadRow?.privateDocAccessEpoch, 1);
+    const nextEpoch = previousEpoch + 1;
+    const autoReason = `auto-emergency-lock:${suspiciousCount}-events/${distinctReasons}-reasons`;
+
+    await updatePrivateDocEmergencyLockState({
+      uploadId: toId(uploadRow?._id || uploadRow?.id) || uploadId,
+      lockActive: true,
+      lockReason: autoReason,
+      lockBy: "",
+      lockAt: nowIso,
+      unlockBy: "",
+      unlockAt: ""
+    });
+    await rotatePrivateDocAccessEpoch({
+      uploadId: toId(uploadRow?._id || uploadRow?.id) || uploadId,
+      nextEpoch,
+      rotatedBy: "",
+      rotatedAt: nowIso,
+      rotateReason: `auto-emergency-lock:${reason || "suspicious-activity"}`
+    });
+
+    privateDocAutoEmergencyLockProfiles.set(uploadId, {
+      ...profile,
+      events: [],
+      updatedAtTs: nowTs,
+      totalAutoLocks: Math.max(0, Math.round(numberValue(profile.totalAutoLocks, 0))) + 1,
+      lastAutoLockAtTs: nowTs
+    });
+
+    recordPrivateDocShieldEvent({
+      type: "auto-emergency-lock",
+      actorKey: text(nextEvent.actorKey),
+      userId: text(nextEvent.userId),
+      role,
+      source: text(event.source, "private-doc-auto-emergency-lock"),
+      reason: "private-doc-auto-emergency-lock-triggered",
+      triggerReason: text(reason || "suspicious-activity"),
+      uploadId,
+      propertyId: text(event.propertyId),
+      blockLevel: 0,
+      triggers: [
+        `events:${suspiciousCount}`,
+        `reasons:${distinctReasons}`,
+        `threshold:${PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD}`
+      ],
+      metadata: {
+        mode: "auto-emergency-lock",
+        previousEpoch,
+        nextEpoch,
+        lockReason: autoReason
+      }
+    });
+  } finally {
+    privateDocAutoEmergencyLockInFlight.delete(uploadId);
+  }
 }
 
 function toMs(value) {
@@ -1676,6 +1874,7 @@ function recordPrivateDocAccessEvent(event = {}) {
     rows.length = PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS;
   }
   proMemoryStore.corePrivateDocAccessEvents = rows;
+  registerPrivateDocAutoEmergencyLockFromEvent(normalized).catch(() => {});
   persistPrivateDocSecurityEvent(normalized, "access").catch(() => {});
   return normalized;
 }
@@ -4624,6 +4823,7 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
     const nowTs = Date.now();
     await hydratePrivateDocShieldBlocksFromDb(nowTs);
     prunePrivateDocAccessShieldState(nowTs);
+    prunePrivateDocAutoEmergencyLockProfiles(nowTs);
     const usePersistence = canPersistPrivateDocSecurity();
 
     const shieldEvents = usePersistence
@@ -4663,6 +4863,16 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
           source: text(item.source)
         }))
       : listPrivateDocShieldActiveBlocks(nowTs);
+    const emergencyLockedPrivateDocs = proRuntime.dbConnected
+      ? await CoreUpload.countDocuments({
+        isPrivate: true,
+        privateDocEmergencyLockActive: true
+      })
+      : (Array.isArray(proMemoryStore.coreUploads)
+        ? proMemoryStore.coreUploads.filter(
+          (item) => Boolean(item?.isPrivate) && Boolean(item?.privateDocEmergencyLockActive)
+        ).length
+        : 0);
 
     return res.json({
       success: true,
@@ -4688,6 +4898,17 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
       accessTelemetry: {
         total: accessEvents.length,
         items: accessEvents.slice(0, Math.min(limit, 200))
+      },
+      autoEmergencyLock: {
+        enabled: Boolean(PRIVATE_DOC_AUTO_EMERGENCY_LOCK_ENABLED),
+        thresholds: {
+          windowMinutes: Math.max(1, Math.round(PRIVATE_DOC_AUTO_EMERGENCY_LOCK_WINDOW_MS / 60_000)),
+          eventThreshold: PRIVATE_DOC_AUTO_EMERGENCY_LOCK_THRESHOLD,
+          distinctReasonsMin: PRIVATE_DOC_AUTO_EMERGENCY_LOCK_DISTINCT_REASONS_MIN
+        },
+        trackedUploads: privateDocAutoEmergencyLockProfiles.size,
+        emergencyLockedPrivateDocs,
+        adminBypass: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS)
       }
     });
   } catch (error) {

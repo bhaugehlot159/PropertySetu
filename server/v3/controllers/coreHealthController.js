@@ -19,7 +19,7 @@ import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocIntegrityDecisionAudits] = await Promise.all([
+      const [users, properties, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreReview.countDocuments({}),
@@ -36,7 +36,11 @@ export async function getCoreHealth(_req, res, next) {
         CorePrivateDocShieldBlock.countDocuments({
           blockUntil: { $gt: new Date() }
         }),
-        CorePrivateDocIntegrityDecisionAudit.countDocuments({})
+        CorePrivateDocIntegrityDecisionAudit.countDocuments({}),
+        CoreUpload.countDocuments({
+          isPrivate: true,
+          privateDocEmergencyLockActive: true
+        })
       ]);
 
       return res.json({
@@ -57,7 +61,8 @@ export async function getCoreHealth(_req, res, next) {
           sealedBids,
           privateDocSecurityEvents,
           privateDocShieldBlocks,
-          privateDocIntegrityDecisionAudits
+          privateDocIntegrityDecisionAudits,
+          privateDocEmergencyLocks
         },
         timestamp: new Date().toISOString()
       });
@@ -81,7 +86,10 @@ export async function getCoreHealth(_req, res, next) {
         sealedBids: proMemoryStore.coreSealedBids.length,
         privateDocSecurityEvents: proMemoryStore.corePrivateDocAccessEvents.length + proMemoryStore.corePrivateDocShieldEvents.length,
         privateDocShieldBlocks: proMemoryStore.corePrivateDocShieldBlocks.length,
-        privateDocIntegrityDecisionAudits: proMemoryStore.corePrivateDocIntegrityDecisionAudits.length
+        privateDocIntegrityDecisionAudits: proMemoryStore.corePrivateDocIntegrityDecisionAudits.length,
+        privateDocEmergencyLocks: proMemoryStore.coreUploads.filter(
+          (item) => Boolean(item?.isPrivate) && Boolean(item?.privateDocEmergencyLockActive)
+        ).length
       },
       timestamp: new Date().toISOString()
     });
