@@ -1103,7 +1103,7 @@ button:hover { background:#092f6d; }
 
   const fetchListings = async () => {
     const token = getAdminToken();
-    if (!token || !live.request) return getLocalListings();
+    if (!token || !live.request) return [];
     try {
       const response = await live.request('/admin/properties', { token });
       const items = Array.isArray(response?.items) ? response.items : [];
@@ -1111,7 +1111,7 @@ button:hover { background:#092f6d; }
       return items.map(normalizeApi).filter(isUdaipurListing);
     } catch (error) {
       if (backupStatus) backupStatus.textContent = `Live admin API unavailable: ${error.message}`;
-      return getLocalListings();
+      return [];
     }
   };
 
@@ -1248,27 +1248,25 @@ button:hover { background:#092f6d; }
 
   const updateStatus = async (id, status) => {
     const token = getAdminToken();
-    let apiUpdated = false;
-    if (token && live.request) {
-      try {
-        await live.request(`/properties/${encodeURIComponent(id)}/approve`, {
-          method: 'POST',
-          token,
-          data: { status },
-        });
-        apiUpdated = true;
-      } catch (error) {
-        if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
-          window.alert(error.message || 'Status update failed.');
-          return;
-        }
-      }
+    if (!token || !live.request) {
+      window.alert('Status update ke liye admin login + live backend required hai.');
+      return;
+    }
+    try {
+      await live.request(`/properties/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        token,
+        data: { status },
+      });
+    } catch (error) {
+      window.alert(error.message || 'Status update failed.');
+      return;
     }
 
-    const listings = getLocalListings();
+    const listings = readJson(LISTINGS_KEY, []).map(normalizeApi).filter(isUdaipurListing);
     const updated = listings.map((item) => (item.id === id ? { ...item, status, verified: status === 'Approved' } : item));
     writeJson(LISTINGS_KEY, updated);
-    if (apiUpdated && backupStatus) backupStatus.textContent = `Listing ${id} updated live + local.`;
+    if (backupStatus) backupStatus.textContent = `Listing ${id} updated live.`;
     pushNotification(
       `Admin changed listing ${id} status to ${status}.`,
       ['admin', 'customer', 'seller'],
@@ -1343,6 +1341,12 @@ button:hover { background:#092f6d; }
   };
 
   const render = async () => {
+    const token = getAdminToken();
+    if (!token || !live.request) {
+      if (pendingDiv) pendingDiv.innerHTML = '<p>Admin login + live backend required.</p>';
+      if (approvedDiv) approvedDiv.innerHTML = '<p>Admin login + live backend required.</p>';
+      return;
+    }
     const listings = await fetchListings();
     const pending = listings.filter((item) => String(item.status || 'Pending Approval').toLowerCase() !== 'approved');
     const approved = listings.filter((item) => String(item.status || '').toLowerCase() === 'approved');
