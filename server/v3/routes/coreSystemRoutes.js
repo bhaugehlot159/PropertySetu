@@ -7,17 +7,20 @@ import {
   getCoreSystemDatabaseStructure,
   getCoreSystemBlueprint,
   getCoreSystemExecutionPlan,
+  getCoreSystemPrivateDocCryptoControl,
   getCoreSystemRateLimiterControl,
   getCoreSystemSecurityControlProfiles,
   getCoreSystemSecurityControlPersistence,
   getCoreSystemSecurityControl,
   getCoreSystemSecurityAudit,
   getCoreSystemSecurityIntelligence,
+  resetCoreSystemPrivateDocCryptoControl,
   resetCoreSystemRateLimiterControl,
   restoreCoreSystemSecurityControl,
   resetCoreSystemSecurityControl,
   quarantineCoreSystemSecurityThreatProfile,
   releaseCoreSystemSecurityThreatProfile,
+  updateCoreSystemPrivateDocCryptoControl,
   updateCoreSystemRateLimiterControl,
   updateCoreSystemSecurityControl
 } from "../controllers/coreSystemController.js";
@@ -46,5 +49,8 @@ router.post("/security-intelligence/quarantine", coreAuthRequired, coreRoleRequi
 router.get("/rate-limiter-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemRateLimiterControl);
 router.patch("/rate-limiter-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, updateCoreSystemRateLimiterControl);
 router.post("/rate-limiter-control/reset", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, resetCoreSystemRateLimiterControl);
+router.get("/private-doc-crypto-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemPrivateDocCryptoControl);
+router.patch("/private-doc-crypto-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, updateCoreSystemPrivateDocCryptoControl);
+router.post("/private-doc-crypto-control/reset", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, resetCoreSystemPrivateDocCryptoControl);
 
 export default router;

@@ -46,6 +46,7 @@ import coreServiceRoutes from "./v3/routes/coreServiceRoutes.js";
 import coreUploadRoutes from "./v3/routes/coreUploadRoutes.js";
 import coreVisitRoutes from "./v3/routes/coreVisitRoutes.js";
 import coreWishlistRoutes from "./v3/routes/coreWishlistRoutes.js";
+import { bootstrapCorePrivateDocCryptoControlState } from "./v3/controllers/coreSystemController.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -148,6 +149,21 @@ async function bootstrap() {
   } else {
     console.warn(
       `[pro] MongoDB unavailable (${dbInfo.mongoUri}). API will use memory mode for properties.`
+    );
+  }
+
+  try {
+    const cryptoControl = await bootstrapCorePrivateDocCryptoControlState();
+    console.log(
+      `[pro] Private-doc crypto control active key: ${String(
+        cryptoControl?.activeKeyId || "legacy-v1"
+      )}`
+    );
+  } catch (error) {
+    console.warn(
+      `[pro] Private-doc crypto control bootstrap skipped: ${String(
+        error?.message || "unknown-error"
+      )}`
     );
   }
 

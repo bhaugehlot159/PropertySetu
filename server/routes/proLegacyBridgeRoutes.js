@@ -463,7 +463,11 @@ router.get("/system/capabilities", (_req, res) => {
       ],
       securityControlProfilesV3: "/api/v3/system/security-control/profiles",
       securityControlPersistenceV3: "/api/v3/system/security-control/persistence",
-      securityControlRestoreV3: "/api/v3/system/security-control/restore"
+      securityControlRestoreV3: "/api/v3/system/security-control/restore",
+      securityRateLimiterV3: "/api/v3/system/rate-limiter-control",
+      securityRateLimiterResetV3: "/api/v3/system/rate-limiter-control/reset",
+      privateDocCryptoControlV3: "/api/v3/system/private-doc-crypto-control",
+      privateDocCryptoControlResetV3: "/api/v3/system/private-doc-crypto-control/reset"
     }
   });
 });

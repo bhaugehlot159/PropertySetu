@@ -25,6 +25,12 @@ import {
   resetCoreRateLimiterSecurityState,
   updateCoreRateLimiterSecurityControls
 } from "../middleware/coreSecurityMiddleware.js";
+import {
+  getCorePrivateDocCryptoControlState,
+  resetCorePrivateDocCryptoControlState,
+  updateCorePrivateDocCryptoControlState
+} from "../utils/corePrivateDocSecurity.js";
+import CoreRuntimeConfig from "../models/CoreRuntimeConfig.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreReview from "../models/CoreReview.js";
@@ -37,6 +43,12 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../../..");
+const PRIVATE_DOC_CRYPTO_CONTROL_CONFIG_KEY = "private-doc-crypto-control";
+const PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS = Math.max(
+  5_000,
+  Number(process.env.CORE_PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS || 45_000)
+);
+let privateDocCryptoControlHydratedAtTs = 0;
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -86,6 +98,110 @@ function resolveChainOverrideApproval(body = {}) {
     toPlainObject(safeBody.chainApproval) ||
     null
   );
+}
+
+function sanitizePrivateDocCryptoControlPatch(value = {}) {
+  const safe = toPlainObject(value) || {};
+  const out = {};
+  if (typeof safe.activeKeyId !== "undefined") {
+    out.activeKeyId = text(safe.activeKeyId).toLowerCase();
+  }
+  if (typeof safe.allowLegacyTokenFormat !== "undefined") {
+    out.allowLegacyTokenFormat = toBoolean(safe.allowLegacyTokenFormat, true);
+  }
+  if (typeof safe.legacyDecryptEnabled !== "undefined") {
+    out.legacyDecryptEnabled = toBoolean(safe.legacyDecryptEnabled, true);
+  }
+  return out;
+}
+
+function buildPersistablePrivateDocCryptoControlState() {
+  const state = getCorePrivateDocCryptoControlState();
+  return {
+    activeKeyId: text(state.activeKeyId).toLowerCase(),
+    allowLegacyTokenFormat: Boolean(state.allowLegacyTokenFormat),
+    legacyDecryptEnabled: Boolean(state.legacyDecryptEnabled)
+  };
+}
+
+async function hydratePrivateDocCryptoControlState({ force = false } = {}) {
+  const nowTs = Date.now();
+  if (!proRuntime.dbConnected) {
+    privateDocCryptoControlHydratedAtTs = nowTs;
+    return getCorePrivateDocCryptoControlState();
+  }
+  if (
+    !force &&
+    privateDocCryptoControlHydratedAtTs &&
+    privateDocCryptoControlHydratedAtTs + PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS > nowTs
+  ) {
+    return getCorePrivateDocCryptoControlState();
+  }
+  try {
+    const row = await CoreRuntimeConfig.findOne({
+      key: PRIVATE_DOC_CRYPTO_CONTROL_CONFIG_KEY
+    })
+      .select("value updatedBy")
+      .lean();
+    const persistedValue = toPlainObject(row?.value);
+    if (persistedValue) {
+      updateCorePrivateDocCryptoControlState(sanitizePrivateDocCryptoControlPatch(persistedValue), {
+        actorId: text(row?.updatedBy),
+        actorRole: "persisted-config",
+        source: "persisted-hydrate"
+      });
+    }
+  } catch {
+    // Keep current runtime state when persistence read fails.
+  }
+  privateDocCryptoControlHydratedAtTs = nowTs;
+  return getCorePrivateDocCryptoControlState();
+}
+
+async function persistPrivateDocCryptoControlState({
+  actorId = "",
+  notes = ""
+} = {}) {
+  const control = buildPersistablePrivateDocCryptoControlState();
+  if (!proRuntime.dbConnected) {
+    return {
+      persisted: false,
+      source: "memory",
+      control,
+      state: getCorePrivateDocCryptoControlState()
+    };
+  }
+  try {
+    await CoreRuntimeConfig.findOneAndUpdate(
+      { key: PRIVATE_DOC_CRYPTO_CONTROL_CONFIG_KEY },
+      {
+        $set: {
+          value: control,
+          updatedBy: text(actorId) || null,
+          notes: text(notes).slice(0, 220)
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    privateDocCryptoControlHydratedAtTs = Date.now();
+    return {
+      persisted: true,
+      source: "mongodb",
+      control,
+      state: getCorePrivateDocCryptoControlState()
+    };
+  } catch {
+    return {
+      persisted: false,
+      source: "memory",
+      control,
+      state: getCorePrivateDocCryptoControlState()
+    };
+  }
+}
+
+export async function bootstrapCorePrivateDocCryptoControlState() {
+  return hydratePrivateDocCryptoControlState({ force: true });
 }
 
 function checkModelCoverage(model, requiredFields = []) {
@@ -608,6 +724,110 @@ export function getCoreSystemSecurityControl(req, res) {
     },
     state: getProSecurityControlState()
   });
+}
+
+export async function getCoreSystemPrivateDocCryptoControl(req, res, next) {
+  try {
+    await hydratePrivateDocCryptoControlState();
+    return res.json({
+      success: true,
+      requestedBy: {
+        id: String(req.coreUser?.id || ""),
+        role: String(req.coreUser?.role || "")
+      },
+      state: getCorePrivateDocCryptoControlState()
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateCoreSystemPrivateDocCryptoControl(req, res, next) {
+  try {
+    await hydratePrivateDocCryptoControlState();
+    const body =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? req.body
+        : {};
+    const patch =
+      body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
+        ? body.patch
+        : body;
+    const sanitizedPatch = sanitizePrivateDocCryptoControlPatch(patch);
+    if (!Object.keys(sanitizedPatch).length) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one crypto-control field is required."
+      });
+    }
+
+    const actorId = String(req.coreUser?.id || "");
+    const actorRole = String(req.coreUser?.role || "");
+    const result = updateCorePrivateDocCryptoControlState(sanitizedPatch, {
+      actorId,
+      actorRole
+    });
+    if (!result.updated) {
+      return res.status(400).json({
+        success: false,
+        message: text(result.error, "Unable to update private-doc crypto control."),
+        availableKeyIds: Array.isArray(result.availableKeyIds)
+          ? result.availableKeyIds
+          : []
+      });
+    }
+
+    const persistence = await persistPrivateDocCryptoControlState({
+      actorId,
+      notes: "private-doc-crypto-control-update"
+    });
+    return res.json({
+      success: true,
+      action: "updated",
+      requestedBy: {
+        id: actorId,
+        role: actorRole
+      },
+      persistence: {
+        source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
+        persisted: Boolean(persistence.persisted)
+      },
+      state: result.state
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function resetCoreSystemPrivateDocCryptoControl(req, res, next) {
+  try {
+    await hydratePrivateDocCryptoControlState();
+    const actorId = String(req.coreUser?.id || "");
+    const actorRole = String(req.coreUser?.role || "");
+    const reset = resetCorePrivateDocCryptoControlState({
+      actorId,
+      actorRole
+    });
+    const persistence = await persistPrivateDocCryptoControlState({
+      actorId,
+      notes: "private-doc-crypto-control-reset"
+    });
+    return res.json({
+      success: true,
+      action: "reset",
+      requestedBy: {
+        id: actorId,
+        role: actorRole
+      },
+      persistence: {
+        source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
+        persisted: Boolean(persistence.persisted)
+      },
+      state: reset.state
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export function getCoreSystemRateLimiterControl(req, res) {

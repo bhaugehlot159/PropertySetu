@@ -1192,6 +1192,8 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     securityControlRestoreV3: "/api/v3/system/security-control/restore",
     securityRateLimiterV3: "/api/v3/system/rate-limiter-control",
     securityRateLimiterResetV3: "/api/v3/system/rate-limiter-control/reset",
+    privateDocCryptoControlV3: "/api/v3/system/private-doc-crypto-control",
+    privateDocCryptoControlResetV3: "/api/v3/system/private-doc-crypto-control/reset",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {

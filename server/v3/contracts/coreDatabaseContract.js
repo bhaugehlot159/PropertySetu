@@ -264,7 +264,8 @@ export const coreSystemsBlueprint = [
       "Operation-digest bound approvals: signed chain override cannot be replayed across different mutation payloads",
       "Reason-bound dual signatures: strict admin mode enforces reason-integrity-bound override signatures while optional legacy signatures can stay enabled for staged migration",
       "Adaptive per-scope API rate limiter with progressive temporary block escalation for repeat offenders",
-      "Admin-controlled rate-limiter control plane with scope policy overrides and emergency reset support"
+      "Admin-controlled rate-limiter control plane with scope policy overrides and emergency reset support",
+      "Private-doc access token crypto key rotation control with key-id bound signing/encryption and legacy token compatibility guard"
     ],
     endpoints: [
       "/api/v3/auth/*",
@@ -292,7 +293,9 @@ export const coreSystemsBlueprint = [
       "/api/v3/system/security-intelligence/release",
       "/api/v3/system/security-intelligence/quarantine",
       "/api/v3/system/rate-limiter-control",
-      "/api/v3/system/rate-limiter-control/reset"
+      "/api/v3/system/rate-limiter-control/reset",
+      "/api/v3/system/private-doc-crypto-control",
+      "/api/v3/system/private-doc-crypto-control/reset"
     ],
     dependencies: ["authentication", "backendServer"]
   },
