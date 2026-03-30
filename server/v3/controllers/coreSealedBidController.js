@@ -36,6 +36,23 @@ const SEALED_BID_REPEAT_WINDOW_MS = Math.max(
 const SEALED_BID_INTEGRITY_SECRET = text(
   process.env.SEALED_BID_INTEGRITY_SECRET || process.env.JWT_SECRET || "propertysetu-sealed-bid-integrity"
 );
+const SEALED_BID_DUAL_ADMIN_DECISION_REQUIRED =
+  String(process.env.SEALED_BID_DUAL_ADMIN_DECISION_REQUIRED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const SEALED_BID_DUAL_ADMIN_WINDOW_MS = Math.max(
+  15 * 60 * 1000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    Math.round(numberValue(process.env.SEALED_BID_DUAL_ADMIN_WINDOW_MINUTES, 240)) * 60 * 1000
+  )
+);
+const SEALED_BID_DUAL_ADMIN_ACTIONS = new Set(
+  text(process.env.SEALED_BID_DUAL_ADMIN_ACTIONS, "accept,reject,reveal")
+    .split(",")
+    .map((item) => normalizeDecisionAction(item))
+    .filter(Boolean)
+);
 
 function requestIp(req) {
   const forwarded = req?.headers?.["x-forwarded-for"];
@@ -92,6 +109,80 @@ function createBidIntegrityHash({
     SEALED_BID_INTEGRITY_SECRET
   ].join("|");
   return sha256(payload);
+}
+
+function createSealedBidDecisionRequestDigest({
+  propertyId = "",
+  action = "",
+  reason = "",
+  requestedBy = "",
+  requestedAt = "",
+  highestBidId = "",
+  highestBidAmount = 0,
+  totalBids = 0
+} = {}) {
+  return sha256(
+    [
+      text(propertyId),
+      normalizeDecisionAction(action),
+      normalizeDecisionReason(reason),
+      text(requestedBy),
+      text(requestedAt),
+      text(highestBidId),
+      Math.max(0, Math.round(numberValue(highestBidAmount, 0))),
+      Math.max(0, Math.round(numberValue(totalBids, 0))),
+      SEALED_BID_INTEGRITY_SECRET
+    ].join("|")
+  );
+}
+
+function shouldRequireDualAdminDecision(action = "") {
+  if (!SEALED_BID_DUAL_ADMIN_DECISION_REQUIRED) return false;
+  const normalized = normalizeDecisionAction(action);
+  if (!normalized) return false;
+  if (!SEALED_BID_DUAL_ADMIN_ACTIONS.size) return true;
+  return SEALED_BID_DUAL_ADMIN_ACTIONS.has(normalized);
+}
+
+function extractDecisionRequestState(rows = [], nowTs = Date.now()) {
+  const reference = Array.isArray(rows)
+    ? rows.find((item) => item?.adminDecisionRequest && typeof item.adminDecisionRequest === "object")
+    : null;
+  const request =
+    reference?.adminDecisionRequest &&
+    typeof reference.adminDecisionRequest === "object" &&
+    !Array.isArray(reference.adminDecisionRequest)
+      ? reference.adminDecisionRequest
+      : {};
+  const requestedBy = toId(request.requestedBy);
+  const requestedAtTs = request.requestedAt ? new Date(request.requestedAt).getTime() : 0;
+  if (!requestedBy || !requestedAtTs) {
+    return {
+      active: false,
+      expired: false,
+      action: "",
+      requestedBy: "",
+      requestedAt: null,
+      reason: "",
+      requestDigest: "",
+      highestBidId: "",
+      highestBidAmount: 0,
+      totalBids: 0
+    };
+  }
+  const expiresAtTs = requestedAtTs + SEALED_BID_DUAL_ADMIN_WINDOW_MS;
+  return {
+    active: expiresAtTs > nowTs,
+    expired: expiresAtTs <= nowTs,
+    action: normalizeDecisionAction(request.action),
+    requestedBy,
+    requestedAt: asIso(request.requestedAt),
+    reason: normalizeDecisionReason(request.reason),
+    requestDigest: text(request.requestDigest),
+    highestBidId: toId(request.highestBidId),
+    highestBidAmount: Math.max(0, Math.round(numberValue(request.highestBidAmount, 0))),
+    totalBids: Math.max(0, Math.round(numberValue(request.totalBids, 0)))
+  };
 }
 
 function buildBidSecurityMeta({
@@ -253,6 +344,24 @@ function normalizeBid(doc) {
           at: asIso(item?.at)
         }))
       : [],
+    adminDecisionRequest:
+      row.adminDecisionRequest &&
+      typeof row.adminDecisionRequest === "object" &&
+      !Array.isArray(row.adminDecisionRequest)
+        ? {
+            action: normalizeDecisionAction(row.adminDecisionRequest.action),
+            requestedBy: toId(row.adminDecisionRequest.requestedBy),
+            requestedAt: asIso(row.adminDecisionRequest.requestedAt),
+            reason: normalizeDecisionReason(row.adminDecisionRequest.reason),
+            requestDigest: text(row.adminDecisionRequest.requestDigest),
+            highestBidId: toId(row.adminDecisionRequest.highestBidId),
+            highestBidAmount: Math.max(
+              0,
+              Math.round(numberValue(row.adminDecisionRequest.highestBidAmount, 0))
+            ),
+            totalBids: Math.max(0, Math.round(numberValue(row.adminDecisionRequest.totalBids, 0)))
+          }
+        : null,
     security:
       row.security && typeof row.security === "object" && !Array.isArray(row.security)
         ? {
@@ -498,6 +607,32 @@ async function updateBidById(bidId, payload = {}, action = "") {
   };
 }
 
+async function patchBidsByPropertyId(propertyId, payload = {}) {
+  if (!propertyId) return 0;
+  const safePayload = {
+    ...payload,
+    updatedAt: new Date().toISOString()
+  };
+  if (proRuntime.dbConnected) {
+    const result = await CoreSealedBid.updateMany(
+      { propertyId },
+      { $set: safePayload }
+    );
+    return Number(result?.modifiedCount || result?.nModified || 0);
+  }
+
+  let updates = 0;
+  proMemoryStore.coreSealedBids = proMemoryStore.coreSealedBids.map((item) => {
+    if (toId(item?.propertyId) !== propertyId) return item;
+    updates += 1;
+    return {
+      ...item,
+      ...safePayload
+    };
+  });
+  return updates;
+}
+
 async function notifyAdmins({
   title,
   message,
@@ -736,20 +871,31 @@ export async function listCoreSealedBidSummary(req, res, next) {
     const limit = Math.min(5000, Math.max(1, Number(req.query.limit || 2000)));
     const rows = await listBids({ propertyId, limit });
     const grouped = buildGroupedSummary(rows)
-      .map((entry) => ({
-        propertyId: entry.propertyId,
-        propertyTitle: entry.propertyTitle,
-        totalBids: entry.totalBids,
-        status: entry.status,
-        winningBidRevealed: entry.winningBidRevealed,
-        updatedAt: entry.winnerBid?.updatedAt || entry.winnerBid?.createdAt || null
-      }))
+      .map((entry) => {
+        const requestState = extractDecisionRequestState(entry.bids, Date.now());
+        return {
+          propertyId: entry.propertyId,
+          propertyTitle: entry.propertyTitle,
+          totalBids: entry.totalBids,
+          status: entry.status,
+          winningBidRevealed: entry.winningBidRevealed,
+          decisionRequest: {
+            active: Boolean(requestState.active),
+            expired: Boolean(requestState.expired),
+            action: text(requestState.action),
+            requestedBy: text(requestState.requestedBy),
+            requestedAt: asIso(requestState.requestedAt)
+          },
+          updatedAt: entry.winnerBid?.updatedAt || entry.winnerBid?.createdAt || null
+        };
+      })
       .sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
 
     return res.json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       totalProperties: grouped.length,
+      openDecisionRequests: grouped.filter((item) => item?.decisionRequest?.active).length,
       items: grouped
     });
   } catch (error) {
@@ -763,21 +909,36 @@ export async function listAdminCoreSealedBids(req, res, next) {
     const limit = Math.min(5000, Math.max(1, Number(req.query.limit || 2000)));
     const rows = await listBids({ propertyId, limit });
     const grouped = buildGroupedSummary(rows)
-      .map((entry) => ({
-        propertyId: entry.propertyId,
-        propertyTitle: entry.propertyTitle,
-        totalBids: entry.totalBids,
-        status: entry.status,
-        winningBidRevealed: entry.winningBidRevealed,
-        winnerBid: entry.winnerBid ? sanitizeBidForAdmin(entry.winnerBid) : null,
-        bids: entry.bids.map((bid) => sanitizeBidForAdmin(bid))
-      }))
+      .map((entry) => {
+        const requestState = extractDecisionRequestState(entry.bids, Date.now());
+        return {
+          propertyId: entry.propertyId,
+          propertyTitle: entry.propertyTitle,
+          totalBids: entry.totalBids,
+          status: entry.status,
+          winningBidRevealed: entry.winningBidRevealed,
+          decisionRequest: {
+            active: Boolean(requestState.active),
+            expired: Boolean(requestState.expired),
+            action: text(requestState.action),
+            requestedBy: text(requestState.requestedBy),
+            requestedAt: asIso(requestState.requestedAt),
+            reason: text(requestState.reason),
+            highestBidId: text(requestState.highestBidId),
+            highestBidAmount: Math.max(0, Math.round(numberValue(requestState.highestBidAmount, 0))),
+            totalBids: Math.max(0, Math.round(numberValue(requestState.totalBids, 0)))
+          },
+          winnerBid: entry.winnerBid ? sanitizeBidForAdmin(entry.winnerBid) : null,
+          bids: entry.bids.map((bid) => sanitizeBidForAdmin(bid))
+        };
+      })
       .sort((a, b) => toEpoch(b.winnerBid?.updatedAt || b.winnerBid?.createdAt) - toEpoch(a.winnerBid?.updatedAt || a.winnerBid?.createdAt));
 
     return res.json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       totalProperties: grouped.length,
+      openDecisionRequests: grouped.filter((item) => item?.decisionRequest?.active).length,
       items: grouped
     });
   } catch (error) {
@@ -803,8 +964,7 @@ export async function getCoreSealedBidWinner(req, res, next) {
       });
     }
 
-    const winner = resolveHighestBid(rows);
-    if (!winner) {
+    if (!resolveHighestBid(rows)) {
       return res.status(404).json({
         success: false,
         message: "No winning bid available."
@@ -836,17 +996,20 @@ export async function applyCoreSealedBidDecision(req, res, next) {
   try {
     const propertyId = text(req.body?.propertyId);
     const action = normalizeDecisionAction(req.body?.action);
-    const decisionReason = normalizeDecisionReason(req.body?.decisionReason || req.body?.note);
+    const decisionReasonInput = normalizeDecisionReason(req.body?.decisionReason || req.body?.note);
+    const decisionConfirm =
+      String(req.body?.decisionConfirm || req.query?.decisionConfirm || "false")
+        .trim()
+        .toLowerCase() === "true";
+    const requestReset =
+      String(req.body?.requestReset || req.query?.requestReset || "false")
+        .trim()
+        .toLowerCase() === "true";
+
     if (!propertyId || !action) {
       return res.status(400).json({
         success: false,
         message: "propertyId and valid action (accept/reject/reveal) are required."
-      });
-    }
-    if (decisionReason.length < SEALED_BID_DECISION_REASON_MIN) {
-      return res.status(400).json({
-        success: false,
-        message: `decisionReason must be at least ${SEALED_BID_DECISION_REASON_MIN} characters.`
       });
     }
 
@@ -874,15 +1037,220 @@ export async function applyCoreSealedBidDecision(req, res, next) {
         message: "Admin authentication required."
       });
     }
-    const decisionAt = new Date().toISOString();
 
-    for (const bid of rows) {
-      const isWinner = bid.id === winner.id;
+    const dualAdminRequired = shouldRequireDualAdminDecision(action);
+    let effectiveDecisionReason = decisionReasonInput;
+    let decisionRequestedBy = "";
+    let confirmedRequestSnapshot = null;
+
+    if (dualAdminRequired) {
+      const initialRequestState = extractDecisionRequestState(rows, Date.now());
+      if (
+        initialRequestState.active &&
+        initialRequestState.action &&
+        initialRequestState.action !== action
+      ) {
+        if (!requestReset) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "Another admin decision request is active for this property. Set requestReset=true to replace it."
+          });
+        }
+        await patchBidsByPropertyId(propertyId, { adminDecisionRequest: null });
+      }
+
+      const decisionRowsForRequest = requestReset
+        ? await listBids({ propertyId, limit: 5000 })
+        : rows;
+      const decisionWinnerForRequest = resolveHighestBid(decisionRowsForRequest);
+      if (!decisionWinnerForRequest) {
+        return res.status(404).json({
+          success: false,
+          message: "No winning bid available."
+        });
+      }
+      const requestState = extractDecisionRequestState(decisionRowsForRequest, Date.now());
+
+      if (!requestState.active) {
+        if (decisionReasonInput.length < SEALED_BID_DECISION_REASON_MIN) {
+          return res.status(400).json({
+            success: false,
+            message: `decisionReason must be at least ${SEALED_BID_DECISION_REASON_MIN} characters.`
+          });
+        }
+
+        const requestedAt = new Date().toISOString();
+        const requestDigest = createSealedBidDecisionRequestDigest({
+          propertyId,
+          action,
+          reason: decisionReasonInput,
+          requestedBy: adminId,
+          requestedAt,
+          highestBidId: decisionWinnerForRequest.id,
+          highestBidAmount: decisionWinnerForRequest.amount,
+          totalBids: decisionRowsForRequest.length
+        });
+        const decisionRequest = {
+          action,
+          requestedBy: adminId,
+          requestedAt,
+          reason: decisionReasonInput,
+          requestDigest,
+          highestBidId: decisionWinnerForRequest.id,
+          highestBidAmount: Math.max(
+            0,
+            Math.round(numberValue(decisionWinnerForRequest.amount, 0))
+          ),
+          totalBids: decisionRowsForRequest.length
+        };
+        await patchBidsByPropertyId(propertyId, { adminDecisionRequest: decisionRequest });
+
+        const property = await findCorePropertyById(propertyId);
+        const propertyTitle = text(
+          normalizeCoreProperty(property)?.title || decisionWinnerForRequest?.propertyTitle,
+          "Property"
+        );
+        await notifyAdmins({
+          title: "Sealed Bid Dual-Admin Request",
+          message: `Admin confirmation required for ${action} decision on ${propertyTitle}.`,
+          metadata: {
+            propertyId,
+            action,
+            requestedBy: adminId,
+            requestDigest,
+            highestBidId: decisionWinnerForRequest.id,
+            highestBidAmount: Math.max(
+              0,
+              Math.round(numberValue(decisionWinnerForRequest.amount, 0))
+            )
+          }
+        });
+
+        return res.status(202).json({
+          success: true,
+          source: proRuntime.dbConnected ? "mongodb" : "memory",
+          action: `${action}-requested`,
+          requiresSecondAdmin: true,
+          request: {
+            action,
+            requestedBy: adminId,
+            requestedAt,
+            reason: decisionReasonInput,
+            requestDigest,
+            highestBidId: decisionWinnerForRequest.id,
+            highestBidAmount: Math.max(
+              0,
+              Math.round(numberValue(decisionWinnerForRequest.amount, 0))
+            ),
+            totalBids: decisionRowsForRequest.length,
+            windowMinutes: Math.max(1, Math.round(SEALED_BID_DUAL_ADMIN_WINDOW_MS / 60_000))
+          },
+          message:
+            "First admin request recorded. A second admin must confirm this decision using decisionConfirm=true."
+        });
+      }
+
+      if (requestState.requestedBy === adminId) {
+        return res.status(409).json({
+          success: false,
+          message: "A different admin must confirm this sealed bid decision."
+        });
+      }
+      if (!decisionConfirm) {
+        return res.status(409).json({
+          success: false,
+          message: "decisionConfirm=true is required for second-admin confirmation."
+        });
+      }
+      if (requestState.action !== action) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Active request action mismatch. Create a fresh request for this action before confirmation."
+        });
+      }
+
+      const expectedDigest = createSealedBidDecisionRequestDigest({
+        propertyId,
+        action: requestState.action,
+        reason: requestState.reason,
+        requestedBy: requestState.requestedBy,
+        requestedAt: requestState.requestedAt,
+        highestBidId: requestState.highestBidId,
+        highestBidAmount: requestState.highestBidAmount,
+        totalBids: requestState.totalBids
+      });
+      if (!requestState.requestDigest || expectedDigest !== requestState.requestDigest) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Decision request integrity mismatch detected. Create a new request before approval."
+        });
+      }
+
+      effectiveDecisionReason = requestState.reason || decisionReasonInput;
+      decisionRequestedBy = requestState.requestedBy;
+      confirmedRequestSnapshot = {
+        highestBidId: requestState.highestBidId,
+        highestBidAmount: requestState.highestBidAmount,
+        totalBids: requestState.totalBids
+      };
+    } else if (decisionReasonInput.length < SEALED_BID_DECISION_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `decisionReason must be at least ${SEALED_BID_DECISION_REASON_MIN} characters.`
+      });
+    }
+
+    if (effectiveDecisionReason.length < SEALED_BID_DECISION_REASON_MIN) {
+      return res.status(400).json({
+        success: false,
+        message: `decisionReason must be at least ${SEALED_BID_DECISION_REASON_MIN} characters.`
+      });
+    }
+
+    const decisionRows = await listBids({ propertyId, limit: 5000 });
+    const decisionWinner = resolveHighestBid(decisionRows);
+    if (!decisionWinner) {
+      return res.status(404).json({
+        success: false,
+        message: "No winning bid available."
+      });
+    }
+    if (dualAdminRequired && confirmedRequestSnapshot) {
+      const snapshotWinnerId = text(confirmedRequestSnapshot.highestBidId);
+      const snapshotWinnerAmount = Math.max(
+        0,
+        Math.round(numberValue(confirmedRequestSnapshot.highestBidAmount, 0))
+      );
+      const snapshotTotalBids = Math.max(
+        0,
+        Math.round(numberValue(confirmedRequestSnapshot.totalBids, 0))
+      );
+      const currentWinnerAmount = Math.max(0, Math.round(numberValue(decisionWinner.amount, 0)));
+      if (
+        snapshotWinnerId !== text(decisionWinner.id) ||
+        snapshotWinnerAmount !== currentWinnerAmount ||
+        snapshotTotalBids !== decisionRows.length
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Bid state changed after approval request. Create a fresh dual-admin request before final decision."
+        });
+      }
+    }
+
+    const decisionAt = new Date().toISOString();
+    for (const bid of decisionRows) {
+      const isWinner = bid.id === decisionWinner.id;
       const nextPayload = {
         decisionByAdminId: adminId,
         decisionByAdminName: adminName,
         decisionAt,
-        decisionReason
+        decisionReason: effectiveDecisionReason,
+        adminDecisionRequest: null
       };
 
       if (action === "accept") {
@@ -897,12 +1265,14 @@ export async function applyCoreSealedBidDecision(req, res, next) {
         nextPayload.isWinningBid = isWinner;
         if (isWinner) {
           nextPayload.winnerRevealed = true;
-          nextPayload.status = normalizeBidStatus(bid.status) === "accepted" ? "accepted" : "revealed";
+          nextPayload.status =
+            normalizeBidStatus(bid.status) === "accepted" ? "accepted" : "revealed";
         }
       }
 
       await updateBidById(bid.id, nextPayload, action);
     }
+    await patchBidsByPropertyId(propertyId, { adminDecisionRequest: null });
 
     const refreshedRows = await listBids({ propertyId, limit: 5000 });
     const refreshedWinner = resolveHighestBid(refreshedRows);
@@ -931,7 +1301,7 @@ export async function applyCoreSealedBidDecision(req, res, next) {
             metadata: {
               propertyId,
               action,
-              decisionReason
+              decisionReason: effectiveDecisionReason
             }
           })
         )
@@ -947,7 +1317,7 @@ export async function applyCoreSealedBidDecision(req, res, next) {
             metadata: {
               propertyId,
               action,
-              decisionReason
+              decisionReason: effectiveDecisionReason
             }
           })
         )
@@ -963,7 +1333,7 @@ export async function applyCoreSealedBidDecision(req, res, next) {
             metadata: {
               propertyId,
               action,
-              decisionReason
+              decisionReason: effectiveDecisionReason
             }
           })
         )
@@ -990,7 +1360,7 @@ export async function applyCoreSealedBidDecision(req, res, next) {
         metadata: {
           propertyId,
           action,
-          decisionReason
+          decisionReason: effectiveDecisionReason
         }
       });
     }
@@ -999,10 +1369,16 @@ export async function applyCoreSealedBidDecision(req, res, next) {
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       action,
-      decisionReason,
+      decisionReason: effectiveDecisionReason,
       propertyId,
       propertyTitle,
       status: currentStatus,
+      dualAdmin: {
+        required: Boolean(dualAdminRequired),
+        confirmedBySecondAdmin: Boolean(dualAdminRequired),
+        requestedBy: text(decisionRequestedBy),
+        requestWindowMinutes: Math.max(1, Math.round(SEALED_BID_DUAL_ADMIN_WINDOW_MS / 60_000))
+      },
       totalBids: refreshedRows.length,
       winnerBid: refreshedWinner ? sanitizeBidForAdmin(refreshedWinner) : null,
       items: refreshedRows.sort(compareBidsHighToLow).map((item) => sanitizeBidForAdmin(item))

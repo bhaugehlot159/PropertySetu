@@ -40,6 +40,51 @@ const coreSealedBidDecisionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const coreSealedBidAdminDecisionRequestSchema = new mongoose.Schema(
+  {
+    action: {
+      type: String,
+      enum: ["accept", "reject", "reveal"],
+      default: null
+    },
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreUser",
+      default: null
+    },
+    requestedAt: {
+      type: Date,
+      default: null
+    },
+    reason: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    requestDigest: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    highestBidId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoreSealedBid",
+      default: null
+    },
+    highestBidAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    totalBids: {
+      type: Number,
+      default: 0,
+      min: 0
+    }
+  },
+  { _id: false }
+);
+
 const coreSealedBidSchema = new mongoose.Schema(
   {
     propertyId: {
@@ -111,6 +156,10 @@ const coreSealedBidSchema = new mongoose.Schema(
       type: [coreSealedBidDecisionSchema],
       default: []
     },
+    adminDecisionRequest: {
+      type: coreSealedBidAdminDecisionRequestSchema,
+      default: null
+    },
     security: {
       bidIpHash: {
         type: String,
@@ -146,6 +195,7 @@ const coreSealedBidSchema = new mongoose.Schema(
 coreSealedBidSchema.index({ propertyId: 1, amount: -1, createdAt: 1 });
 coreSealedBidSchema.index({ bidderId: 1, createdAt: -1 });
 coreSealedBidSchema.index({ status: 1, winnerRevealed: 1, createdAt: -1 });
+coreSealedBidSchema.index({ propertyId: 1, "adminDecisionRequest.requestedAt": -1 });
 
 const CoreSealedBid =
   mongoose.models.CoreSealedBid ||
