@@ -1,5 +1,8 @@
+import crypto from "crypto";
 import mongoose from "mongoose";
 import CoreProperty from "../models/CoreProperty.js";
+import CorePropertyModerationAudit from "../models/CorePropertyModerationAudit.js";
+import CoreUser from "../models/CoreUser.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import {
@@ -15,6 +18,7 @@ import {
   normalizeCorePropertyType
 } from "../config/corePropertyTaxonomy.js";
 import { normalizeCoreProperty, toId } from "../utils/coreMappers.js";
+import { createCoreNotification } from "./coreNotificationController.js";
 
 const PROPERTY_TYPES = new Set(CORE_PROPERTY_TYPE_VALUES);
 const PROPERTY_CATEGORIES = new Set(CORE_PROPERTY_CATEGORY_VALUES);
@@ -55,6 +59,31 @@ const AI_FAKE_LISTING_RISKY_WORDS = [
   "token now"
 ];
 const PROPERTY_MODERATION_STATUSES = new Set(["approved", "pending-review", "quarantined"]);
+const PROPERTY_MODERATION_AUDIT_SECRET = text(
+  process.env.CORE_PROPERTY_MODERATION_AUDIT_SECRET ||
+  process.env.CORE_JWT_SECRET ||
+  process.env.JWT_SECRET ||
+  "propertysetu-property-moderation-audit-secret"
+);
+const PROPERTY_MODERATION_AUDIT_KEY_VERSION = text(
+  process.env.CORE_PROPERTY_MODERATION_AUDIT_KEY_VERSION,
+  "v1"
+).slice(0, 24);
+const PROPERTY_MODERATION_AUDIT_SECONDARY_SECRET = text(
+  process.env.CORE_PROPERTY_MODERATION_AUDIT_SECONDARY_SECRET
+);
+const PROPERTY_MODERATION_AUDIT_MAX_ITEMS = Math.max(
+  200,
+  Number(process.env.CORE_PROPERTY_MODERATION_AUDIT_MAX_ITEMS || 15000)
+);
+const AI_FAKE_LISTING_AUTO_NOTIFY_ADMINS =
+  String(process.env.CORE_AI_FAKE_LISTING_AUTO_NOTIFY_ADMINS || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const AI_FAKE_LISTING_AUTO_NOTIFY_OWNER =
+  String(process.env.CORE_AI_FAKE_LISTING_AUTO_NOTIFY_OWNER || "true")
+    .trim()
+    .toLowerCase() !== "false";
 
 function text(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -256,6 +285,472 @@ function normalizeMixedObject(value) {
   return normalizeObject(value);
 }
 
+function sha256(value = "") {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+function hashPropertyModerationReason(reason = "") {
+  const safeReason = text(reason).replace(/\s+/g, " ").slice(0, 300);
+  if (!safeReason) return "";
+  return sha256(`reason:${safeReason}`);
+}
+
+function buildPropertyModerationAuditPayload({
+  auditId = "",
+  propertyId = "",
+  ownerId = "",
+  actorAdminId = "",
+  action = "",
+  source = "auto",
+  statusBefore = "approved",
+  statusAfter = "approved",
+  fraudRiskScore = 0,
+  fakeListingSignal = false,
+  reasonHash = "",
+  occurredAt = "",
+  previousDecisionHash = "",
+  chainIndex = 1
+} = {}) {
+  return [
+    text(auditId),
+    text(propertyId),
+    text(ownerId),
+    text(actorAdminId),
+    text(action),
+    text(source),
+    text(statusBefore),
+    text(statusAfter),
+    Math.max(0, Math.round(numberValue(fraudRiskScore, 0))),
+    Boolean(fakeListingSignal) ? "1" : "0",
+    text(reasonHash),
+    text(occurredAt),
+    text(previousDecisionHash),
+    Math.max(1, Math.round(numberValue(chainIndex, 1)))
+  ].join("|");
+}
+
+function hashPropertyModerationAuditPayload(payload = "") {
+  return sha256(text(payload));
+}
+
+function signPropertyModerationAuditPayload(
+  payloadHash = "",
+  keyVersion = PROPERTY_MODERATION_AUDIT_KEY_VERSION,
+  secret = PROPERTY_MODERATION_AUDIT_SECRET
+) {
+  const safePayloadHash = text(payloadHash);
+  const safeSecret = text(secret);
+  if (!safePayloadHash || !safeSecret) return "";
+  return crypto
+    .createHmac("sha256", safeSecret)
+    .update(`${text(keyVersion, "v1")}|${safePayloadHash}`)
+    .digest("hex");
+}
+
+function buildPropertyModerationDecisionHash({
+  previousDecisionHash = "",
+  payloadHash = "",
+  signature = "",
+  auditId = "",
+  action = ""
+} = {}) {
+  return sha256(
+    [
+      text(previousDecisionHash),
+      text(payloadHash),
+      text(signature),
+      text(auditId),
+      text(action)
+    ].join("|")
+  );
+}
+
+function normalizePropertyModerationAuditRow(row = {}) {
+  return {
+    auditId: text(row?.auditId),
+    propertyId: toId(row?.propertyId),
+    ownerId: toId(row?.ownerId),
+    actorAdminId: toId(row?.actorAdminId),
+    action: text(row?.action),
+    source: text(row?.source),
+    statusBefore: normalizeModerationStatus(row?.statusBefore, "approved"),
+    statusAfter: normalizeModerationStatus(row?.statusAfter, "approved"),
+    fraudRiskScore: Math.max(0, Math.round(numberValue(row?.fraudRiskScore, 0))),
+    fakeListingSignal: Boolean(row?.fakeListingSignal),
+    reasonHash: text(row?.reasonHash),
+    reasonPreview: text(row?.reasonPreview),
+    previousDecisionHash: text(row?.previousDecisionHash),
+    payloadHash: text(row?.payloadHash),
+    signature: text(row?.signature),
+    decisionHash: text(row?.decisionHash),
+    signatureKeyVersion: text(row?.signatureKeyVersion, "v1"),
+    chainIndex: Math.max(1, Math.round(numberValue(row?.chainIndex, 1))),
+    metadata:
+      row?.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? row.metadata
+        : {},
+    occurredAt: asIso(row?.occurredAt),
+    createdAt: asIso(row?.createdAt),
+    updatedAt: asIso(row?.updatedAt)
+  };
+}
+
+function sanitizePropertyModerationAuditItem(row = {}, { includeCryptographic = false } = {}) {
+  const normalized = normalizePropertyModerationAuditRow(row);
+  const item = {
+    auditId: normalized.auditId,
+    propertyId: normalized.propertyId,
+    ownerId: normalized.ownerId,
+    actorAdminId: normalized.actorAdminId,
+    action: normalized.action,
+    source: normalized.source,
+    statusBefore: normalized.statusBefore,
+    statusAfter: normalized.statusAfter,
+    fraudRiskScore: normalized.fraudRiskScore,
+    fakeListingSignal: normalized.fakeListingSignal,
+    reasonHash: normalized.reasonHash,
+    reasonPreview: normalized.reasonPreview,
+    chain: {
+      chainIndex: normalized.chainIndex,
+      previousDecisionHash: normalized.previousDecisionHash,
+      decisionHash: normalized.decisionHash
+    },
+    signatureKeyVersion: normalized.signatureKeyVersion,
+    occurredAt: normalized.occurredAt,
+    createdAt: normalized.createdAt,
+    metadata: normalized.metadata
+  };
+  if (includeCryptographic) {
+    item.cryptographic = {
+      payloadHash: normalized.payloadHash,
+      signature: normalized.signature
+    };
+  }
+  return item;
+}
+
+async function listPropertyModerationAudits(propertyId = "", limit = 120) {
+  const safePropertyId = text(propertyId);
+  if (!safePropertyId) return [];
+  const safeLimit = Math.min(1000, Math.max(1, Math.round(numberValue(limit, 120))));
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(safePropertyId)) return [];
+    return CorePropertyModerationAudit.find({ propertyId: safePropertyId })
+      .sort({ chainIndex: -1, occurredAt: -1, createdAt: -1 })
+      .limit(safeLimit)
+      .lean();
+  }
+
+  return (Array.isArray(proMemoryStore.corePropertyModerationAudits)
+    ? proMemoryStore.corePropertyModerationAudits
+    : []
+  )
+    .filter((item) => text(item?.propertyId) === safePropertyId)
+    .sort((a, b) => {
+      const chainDelta =
+        Math.max(0, numberValue(b?.chainIndex, 0)) - Math.max(0, numberValue(a?.chainIndex, 0));
+      if (chainDelta) return chainDelta;
+      return new Date(b?.occurredAt || b?.createdAt || 0) - new Date(a?.occurredAt || a?.createdAt || 0);
+    })
+    .slice(0, safeLimit);
+}
+
+function verifyPropertyModerationAuditChain(rows = []) {
+  const normalizedRows = (Array.isArray(rows) ? rows : [])
+    .map((item) => normalizePropertyModerationAuditRow(item))
+    .filter((item) => Boolean(item.auditId && item.action && item.decisionHash))
+    .sort((a, b) => {
+      const chainDelta = Math.max(0, numberValue(a.chainIndex, 0)) - Math.max(0, numberValue(b.chainIndex, 0));
+      if (chainDelta) return chainDelta;
+      return new Date(a.occurredAt || a.createdAt || 0) - new Date(b.occurredAt || b.createdAt || 0);
+    });
+
+  const issues = [];
+  let previousDecisionHash = normalizedRows.length ? text(normalizedRows[0].previousDecisionHash) : "";
+  let latestDecisionHash = "";
+
+  normalizedRows.forEach((row, index) => {
+    const payload = buildPropertyModerationAuditPayload({
+      auditId: row.auditId,
+      propertyId: row.propertyId,
+      ownerId: row.ownerId,
+      actorAdminId: row.actorAdminId,
+      action: row.action,
+      source: row.source,
+      statusBefore: row.statusBefore,
+      statusAfter: row.statusAfter,
+      fraudRiskScore: row.fraudRiskScore,
+      fakeListingSignal: row.fakeListingSignal,
+      reasonHash: row.reasonHash,
+      occurredAt: row.occurredAt,
+      previousDecisionHash,
+      chainIndex: row.chainIndex
+    });
+    const expectedPayloadHash = hashPropertyModerationAuditPayload(payload);
+    if (row.payloadHash !== expectedPayloadHash) {
+      issues.push({
+        code: "payload-hash-mismatch",
+        chainIndex: row.chainIndex,
+        auditId: row.auditId
+      });
+    }
+    const expectedSignature = signPropertyModerationAuditPayload(
+      expectedPayloadHash,
+      row.signatureKeyVersion,
+      PROPERTY_MODERATION_AUDIT_SECRET
+    );
+    const expectedSignatureSecondary = PROPERTY_MODERATION_AUDIT_SECONDARY_SECRET
+      ? signPropertyModerationAuditPayload(
+          expectedPayloadHash,
+          row.signatureKeyVersion,
+          PROPERTY_MODERATION_AUDIT_SECONDARY_SECRET
+        )
+      : "";
+    const signatureValid =
+      row.signature === expectedSignature ||
+      (Boolean(expectedSignatureSecondary) && row.signature === expectedSignatureSecondary);
+    if (!signatureValid) {
+      issues.push({
+        code: "signature-mismatch",
+        chainIndex: row.chainIndex,
+        auditId: row.auditId
+      });
+    }
+    const expectedDecisionHash = buildPropertyModerationDecisionHash({
+      previousDecisionHash,
+      payloadHash: expectedPayloadHash,
+      signature: row.signature,
+      auditId: row.auditId,
+      action: row.action
+    });
+    if (row.decisionHash !== expectedDecisionHash) {
+      issues.push({
+        code: "decision-hash-mismatch",
+        chainIndex: row.chainIndex,
+        auditId: row.auditId
+      });
+    }
+    if (index > 0 && row.previousDecisionHash !== previousDecisionHash) {
+      issues.push({
+        code: "chain-link-mismatch",
+        chainIndex: row.chainIndex,
+        auditId: row.auditId
+      });
+    }
+    previousDecisionHash = text(row.decisionHash);
+    latestDecisionHash = text(row.decisionHash);
+  });
+
+  const oldest = normalizedRows[0] || null;
+  const newest = normalizedRows[normalizedRows.length - 1] || null;
+  const partial =
+    Boolean(oldest && text(oldest.previousDecisionHash)) &&
+    Math.max(1, Math.round(numberValue(oldest?.chainIndex, 1))) > 1;
+
+  return {
+    valid: issues.length === 0,
+    total: normalizedRows.length,
+    issues,
+    partial,
+    chain: {
+      headDecisionHash: text(newest?.decisionHash),
+      tailDecisionHash: text(oldest?.decisionHash),
+      latestVerifiedDecisionHash: latestDecisionHash,
+      minChainIndex: oldest ? Math.max(1, Math.round(numberValue(oldest.chainIndex, 1))) : 0,
+      maxChainIndex: newest ? Math.max(1, Math.round(numberValue(newest.chainIndex, 1))) : 0
+    }
+  };
+}
+
+async function createPropertyModerationAudit({
+  propertyRow = {},
+  propertyId = "",
+  ownerId = "",
+  actorAdminId = "",
+  action = "",
+  source = "auto",
+  statusBefore = "approved",
+  statusAfter = "approved",
+  fraudRiskScore = 0,
+  fakeListingSignal = false,
+  reason = "",
+  occurredAt = "",
+  metadata = {}
+} = {}) {
+  const safePropertyId = text(propertyId || toId(propertyRow?._id || propertyRow?.id));
+  if (!safePropertyId) return null;
+  const safeAction = text(action);
+  if (!safeAction) return null;
+
+  const normalizedOccurredAt = asIso(occurredAt || new Date()) || new Date().toISOString();
+  const auditId = crypto.randomUUID();
+  const latestRows = await listPropertyModerationAudits(safePropertyId, 1);
+  const latest = latestRows[0] ? normalizePropertyModerationAuditRow(latestRows[0]) : null;
+  const previousDecisionHash = text(latest?.decisionHash);
+  const chainIndex = Math.max(1, Math.round(numberValue(latest?.chainIndex, 0)) + 1);
+  const reasonHash = hashPropertyModerationReason(reason);
+  const payload = buildPropertyModerationAuditPayload({
+    auditId,
+    propertyId: safePropertyId,
+    ownerId,
+    actorAdminId,
+    action: safeAction,
+    source,
+    statusBefore: normalizeModerationStatus(statusBefore, "approved"),
+    statusAfter: normalizeModerationStatus(statusAfter, "approved"),
+    fraudRiskScore,
+    fakeListingSignal,
+    reasonHash,
+    occurredAt: normalizedOccurredAt,
+    previousDecisionHash,
+    chainIndex
+  });
+  const payloadHash = hashPropertyModerationAuditPayload(payload);
+  const signature = signPropertyModerationAuditPayload(
+    payloadHash,
+    PROPERTY_MODERATION_AUDIT_KEY_VERSION,
+    PROPERTY_MODERATION_AUDIT_SECRET
+  );
+  const decisionHash = buildPropertyModerationDecisionHash({
+    previousDecisionHash,
+    payloadHash,
+    signature,
+    auditId,
+    action: safeAction
+  });
+  const row = {
+    auditId,
+    propertyId: toId(safePropertyId),
+    ownerId: toId(ownerId),
+    actorAdminId: toId(actorAdminId),
+    action: safeAction,
+    source: text(source, "auto"),
+    statusBefore: normalizeModerationStatus(statusBefore, "approved"),
+    statusAfter: normalizeModerationStatus(statusAfter, "approved"),
+    fraudRiskScore: Math.max(0, Math.round(numberValue(fraudRiskScore, 0))),
+    fakeListingSignal: Boolean(fakeListingSignal),
+    reasonHash,
+    reasonPreview: text(reason).replace(/\s+/g, " ").slice(0, 140),
+    previousDecisionHash,
+    payloadHash,
+    signature,
+    decisionHash,
+    signatureKeyVersion: text(PROPERTY_MODERATION_AUDIT_KEY_VERSION, "v1"),
+    chainIndex,
+    metadata:
+      metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {},
+    occurredAt: normalizedOccurredAt
+  };
+
+  if (proRuntime.dbConnected) {
+    if (!mongoose.Types.ObjectId.isValid(safePropertyId)) return null;
+    await CorePropertyModerationAudit.create({
+      ...row,
+      propertyId: new mongoose.Types.ObjectId(safePropertyId),
+      ownerId: mongoose.Types.ObjectId.isValid(toId(ownerId))
+        ? new mongoose.Types.ObjectId(toId(ownerId))
+        : null,
+      actorAdminId: mongoose.Types.ObjectId.isValid(toId(actorAdminId))
+        ? new mongoose.Types.ObjectId(toId(actorAdminId))
+        : null,
+      occurredAt: new Date(normalizedOccurredAt)
+    });
+
+    if (PROPERTY_MODERATION_AUDIT_MAX_ITEMS > 0) {
+      const overLimit = await CorePropertyModerationAudit.countDocuments({
+        propertyId: safePropertyId
+      }) - PROPERTY_MODERATION_AUDIT_MAX_ITEMS;
+      if (overLimit > 0) {
+        const staleRows = await CorePropertyModerationAudit.find({
+          propertyId: safePropertyId
+        })
+          .sort({ chainIndex: 1, occurredAt: 1, createdAt: 1 })
+          .limit(overLimit)
+          .select({ _id: 1 })
+          .lean();
+        const staleIds = staleRows.map((item) => item?._id).filter((item) => Boolean(item));
+        if (staleIds.length) {
+          await CorePropertyModerationAudit.deleteMany({ _id: { $in: staleIds } });
+        }
+      }
+    }
+  } else {
+    const previous = Array.isArray(proMemoryStore.corePropertyModerationAudits)
+      ? proMemoryStore.corePropertyModerationAudits
+      : [];
+    proMemoryStore.corePropertyModerationAudits = [...previous, row].slice(
+      -PROPERTY_MODERATION_AUDIT_MAX_ITEMS
+    );
+  }
+
+  return {
+    auditId,
+    propertyId: safePropertyId,
+    action: safeAction,
+    source: text(source, "auto"),
+    statusBefore: normalizeModerationStatus(statusBefore, "approved"),
+    statusAfter: normalizeModerationStatus(statusAfter, "approved"),
+    decisionHash,
+    chainIndex,
+    occurredAt: normalizedOccurredAt,
+    reasonHash
+  };
+}
+
+async function listAdminUserIds() {
+  if (proRuntime.dbConnected) {
+    const rows = await CoreUser.find({ role: "admin" }).select("_id").lean();
+    return rows.map((item) => toId(item?._id)).filter(Boolean);
+  }
+  return (Array.isArray(proMemoryStore.coreUsers) ? proMemoryStore.coreUsers : [])
+    .filter((item) => text(item?.role).toLowerCase() === "admin")
+    .map((item) => toId(item?._id || item?.id))
+    .filter(Boolean);
+}
+
+async function notifyAdminsPropertyModeration({
+  title = "",
+  message = "",
+  metadata = {}
+} = {}) {
+  const adminIds = await listAdminUserIds();
+  await Promise.all(
+    adminIds.map((adminId) =>
+      createCoreNotification({
+        userId: adminId,
+        title: text(title),
+        message: text(message),
+        category: "property-moderation",
+        metadata:
+          metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            ? metadata
+            : {}
+      })
+    )
+  );
+}
+
+async function notifyPropertyOwnerModeration({
+  ownerId = "",
+  title = "",
+  message = "",
+  metadata = {}
+} = {}) {
+  const userId = toId(ownerId);
+  if (!userId) return;
+  await createCoreNotification({
+    userId,
+    title: text(title),
+    message: text(message),
+    category: "property-moderation",
+    metadata:
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? metadata
+        : {}
+  });
+}
+
 function normalizeModerationStatus(value, fallback = "approved") {
   const raw = text(value).toLowerCase();
   if (PROPERTY_MODERATION_STATUSES.has(raw)) return raw;
@@ -431,6 +926,35 @@ function deriveAutoModerationStatus(scan = {}) {
   }
   if (riskScore >= AI_FAKE_LISTING_PENDING_SCORE) return "pending-review";
   return "approved";
+}
+
+function autoModerationActionFromStatus(status = "approved") {
+  const normalized = normalizeModerationStatus(status, "approved");
+  if (normalized === "quarantined") return "auto-quarantined";
+  if (normalized === "pending-review") return "auto-pending-review";
+  return "auto-approved";
+}
+
+function adminModerationActionFromStatus(status = "approved") {
+  const normalized = normalizeModerationStatus(status, "approved");
+  if (normalized === "quarantined") return "admin-quarantine";
+  if (normalized === "pending-review") return "admin-pending-review";
+  return "admin-approve";
+}
+
+function shouldRecordAutoModerationAudit({
+  previousStatus = "approved",
+  nextStatus = "approved",
+  previousRisk = 0,
+  nextRisk = 0,
+  previousSignal = false,
+  nextSignal = false,
+  isCreate = false
+} = {}) {
+  if (isCreate) return true;
+  if (normalizeModerationStatus(previousStatus) !== normalizeModerationStatus(nextStatus)) return true;
+  if (Boolean(previousSignal) !== Boolean(nextSignal)) return true;
+  return Math.abs(Math.round(numberValue(previousRisk, 0)) - Math.round(numberValue(nextRisk, 0))) >= 12;
 }
 
 async function buildServerAiReview(
@@ -1471,11 +1995,64 @@ async function createCorePropertyInternal(req, res, next, options = {}) {
     const item = projectPropertyForViewer(created, getViewerFromRequest(req), {
       includePrivateDocs: true
     });
+    const moderationStatus = normalizeModerationStatus(
+      finalPayload?.aiReview?.moderationStatus,
+      "approved"
+    );
+    const moderation = buildModerationSummary(item?.aiReview || finalPayload.aiReview);
+    const audit = await createPropertyModerationAudit({
+      propertyRow: created,
+      propertyId: toId(created?._id || created?.id),
+      ownerId,
+      action: autoModerationActionFromStatus(moderationStatus),
+      source: "auto",
+      statusBefore: moderationStatus,
+      statusAfter: moderationStatus,
+      fraudRiskScore: numberValue(moderation?.fraudRiskScore, 0),
+      fakeListingSignal: Boolean(moderation?.fakeListingSignal),
+      reason: Array.isArray(finalPayload?.aiReview?.reasons)
+        ? finalPayload.aiReview.reasons.join(" | ")
+        : "",
+      metadata: {
+        flow: "property-create",
+        actorRole: text(req.coreUser?.role, "seller")
+      }
+    });
+
+    if (
+      !actorIsAdmin &&
+      AI_FAKE_LISTING_AUTO_NOTIFY_ADMINS &&
+      moderationStatus !== "approved"
+    ) {
+      await notifyAdminsPropertyModeration({
+        title: "AI Property Moderation Alert",
+        message: `${text(finalPayload?.title, "Property")} moved to ${moderationStatus} by AI scan.`,
+        metadata: {
+          propertyId: toId(created?._id || created?.id),
+          ownerId,
+          moderationStatus,
+          riskScore: Math.max(0, Math.round(numberValue(moderation?.fraudRiskScore, 0)))
+        }
+      });
+    }
+    if (AI_FAKE_LISTING_AUTO_NOTIFY_OWNER && moderationStatus !== "approved") {
+      await notifyPropertyOwnerModeration({
+        ownerId,
+        title: "Property Moderation Update",
+        message: `Your property is marked as ${moderationStatus}. Admin review is required.`,
+        metadata: {
+          propertyId: toId(created?._id || created?.id),
+          moderationStatus,
+          riskScore: Math.max(0, Math.round(numberValue(moderation?.fraudRiskScore, 0)))
+        }
+      });
+    }
 
     return res.status(201).json({
       success: true,
       source: proRuntime.dbConnected ? "mongodb" : "memory",
-      moderation: buildModerationSummary(item?.aiReview || finalPayload.aiReview),
+      moderation,
+      audit,
       item
     });
   } catch (error) {
@@ -1532,6 +2109,7 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
       ...existingNormalized,
       ...updates
     };
+    const previousModeration = buildModerationSummary(existingNormalized?.aiReview);
     const computedAiReview = await buildServerAiReview(mergedPayloadForReview, {
       previousAiReview: existingNormalized?.aiReview,
       excludePropertyId: propertyId,
@@ -1582,10 +2160,72 @@ async function updateCorePropertyInternal(req, res, next, options = {}) {
     const item = projectPropertyForViewer(updated, getViewerFromRequest(req), {
       includePrivateDocs: true
     });
+    const moderation = buildModerationSummary(item?.aiReview || updates.aiReview);
+    const nextStatus = normalizeModerationStatus(moderation?.status, "approved");
+    const previousStatus = normalizeModerationStatus(previousModeration?.status, "approved");
+    const shouldAudit = shouldRecordAutoModerationAudit({
+      previousStatus,
+      nextStatus,
+      previousRisk: numberValue(previousModeration?.fraudRiskScore, 0),
+      nextRisk: numberValue(moderation?.fraudRiskScore, 0),
+      previousSignal: Boolean(previousModeration?.fakeListingSignal),
+      nextSignal: Boolean(moderation?.fakeListingSignal),
+      isCreate: false
+    });
+    const audit = shouldAudit
+      ? await createPropertyModerationAudit({
+          propertyRow: updated,
+          propertyId: toId(updated?._id || updated?.id) || propertyId,
+          ownerId: toId(existingNormalized?.ownerId),
+          action: autoModerationActionFromStatus(nextStatus),
+          source: "auto",
+          statusBefore: previousStatus,
+          statusAfter: nextStatus,
+          fraudRiskScore: numberValue(moderation?.fraudRiskScore, 0),
+          fakeListingSignal: Boolean(moderation?.fakeListingSignal),
+          reason: Array.isArray(updates?.aiReview?.reasons)
+            ? updates.aiReview.reasons.join(" | ")
+            : "",
+          metadata: {
+            flow: "property-update",
+            actorRole: text(req.coreUser?.role, "seller")
+          }
+        })
+      : null;
+
+    const statusEscalated =
+      nextStatus !== "approved" &&
+      (previousStatus === "approved" ||
+        (previousStatus === "pending-review" && nextStatus === "quarantined"));
+    if (!actorIsAdmin && statusEscalated && AI_FAKE_LISTING_AUTO_NOTIFY_ADMINS) {
+      await notifyAdminsPropertyModeration({
+        title: "AI Property Moderation Escalation",
+        message: `${text(updated?.title, "Property")} escalated to ${nextStatus} by AI scan.`,
+        metadata: {
+          propertyId: toId(updated?._id || updated?.id) || propertyId,
+          ownerId: toId(existingNormalized?.ownerId),
+          moderationStatus: nextStatus,
+          riskScore: Math.max(0, Math.round(numberValue(moderation?.fraudRiskScore, 0)))
+        }
+      });
+    }
+    if (statusEscalated && AI_FAKE_LISTING_AUTO_NOTIFY_OWNER) {
+      await notifyPropertyOwnerModeration({
+        ownerId: toId(existingNormalized?.ownerId),
+        title: "Property Moderation Escalated",
+        message: `Your property moderation status changed to ${nextStatus}.`,
+        metadata: {
+          propertyId: toId(updated?._id || updated?.id) || propertyId,
+          moderationStatus: nextStatus,
+          riskScore: Math.max(0, Math.round(numberValue(moderation?.fraudRiskScore, 0)))
+        }
+      });
+    }
 
     return res.json({
       success: true,
-      moderation: buildModerationSummary(item?.aiReview || updates.aiReview),
+      moderation,
+      audit,
       item
     });
   } catch (error) {
@@ -1736,6 +2376,7 @@ export async function decideCorePropertyModeration(req, res, next) {
       });
     }
 
+    const previousModeration = buildModerationSummary(normalized?.aiReview);
     const moderationStatus =
       action === "approve" ? "approved" : action === "quarantine" ? "quarantined" : "pending-review";
     const nowIso = new Date().toISOString();
@@ -1806,13 +2447,97 @@ export async function decideCorePropertyModeration(req, res, next) {
     const item = projectPropertyForViewer(updated, getViewerFromRequest(req), {
       includePrivateDocs: true
     });
+    const moderation = buildModerationSummary(item?.aiReview || nextAiReview);
+    const audit = await createPropertyModerationAudit({
+      propertyRow: updated,
+      propertyId: toId(updated?._id || updated?.id) || propertyId,
+      ownerId: toId(normalized?.ownerId),
+      actorAdminId: adminId,
+      action: adminModerationActionFromStatus(moderationStatus),
+      source: "admin",
+      statusBefore: normalizeModerationStatus(previousModeration?.status, "approved"),
+      statusAfter: normalizeModerationStatus(moderationStatus, "approved"),
+      fraudRiskScore: numberValue(moderation?.fraudRiskScore, 0),
+      fakeListingSignal: Boolean(moderation?.fakeListingSignal),
+      reason,
+      metadata: {
+        flow: "admin-decision",
+        force: Boolean(force)
+      }
+    });
+    await notifyPropertyOwnerModeration({
+      ownerId: toId(normalized?.ownerId),
+      title: "Property Moderation Decision",
+      message: `Admin marked your property as ${moderationStatus}.`,
+      metadata: {
+        propertyId: toId(updated?._id || updated?.id) || propertyId,
+        moderationStatus,
+        action,
+        force: Boolean(force)
+      }
+    });
 
     return res.json({
       success: true,
       action,
       moderationStatus,
-      moderation: buildModerationSummary(item?.aiReview || nextAiReview),
+      moderation,
+      audit,
       item
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCorePropertyModerationAudit(req, res, next) {
+  try {
+    const propertyId = text(req.params.propertyId || req.query.propertyId);
+    const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
+    const includeCryptographic =
+      String(req.query?.includeCryptographic || "false").trim().toLowerCase() === "true";
+    if (!propertyId) {
+      return res.status(400).json({
+        success: false,
+        message: "propertyId is required."
+      });
+    }
+
+    const property = await findCorePropertyById(propertyId);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found."
+      });
+    }
+
+    const propertyRow = normalizeCoreProperty(property);
+    const actorId = toId(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role).toLowerCase();
+    const actorIsAdmin = actorRole === "admin";
+    const actorIsOwner = toId(propertyRow?.ownerId) === actorId;
+    if (!actorIsAdmin && !actorIsOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin or property owner can access moderation audit."
+      });
+    }
+
+    const rows = await listPropertyModerationAudits(propertyId, limit);
+    const verification = verifyPropertyModerationAuditChain(rows);
+    const items = rows.map((row) =>
+      sanitizePropertyModerationAuditItem(row, {
+        includeCryptographic: actorIsAdmin && includeCryptographic
+      })
+    );
+
+    return res.json({
+      success: true,
+      source: proRuntime.dbConnected ? "mongodb" : "memory",
+      propertyId: toId(propertyRow?.id || propertyRow?._id),
+      total: items.length,
+      verification,
+      items
     });
   } catch (error) {
     return next(error);
@@ -1942,6 +2667,7 @@ export async function verifyCoreProperty(req, res, next) {
       existing?.aiReview && typeof existing.aiReview === "object" && !Array.isArray(existing.aiReview)
         ? existing.aiReview
         : {};
+    const previousModeration = buildModerationSummary(previousAiReview);
     const nextModerationStatus = verified
       ? "approved"
       : normalizeModerationStatus(previousAiReview?.moderationStatus, "pending-review");
@@ -1995,8 +2721,40 @@ export async function verifyCoreProperty(req, res, next) {
       }
     }
 
+    const audit = await createPropertyModerationAudit({
+      propertyRow: updated,
+      propertyId: toId(updated?._id || updated?.id) || propertyId,
+      ownerId: toId(existing?.ownerId),
+      actorAdminId: toId(req.coreUser?.id),
+      action: adminModerationActionFromStatus(nextModerationStatus),
+      source: "admin",
+      statusBefore: normalizeModerationStatus(previousModeration?.status, "approved"),
+      statusAfter: normalizeModerationStatus(nextModerationStatus, "approved"),
+      fraudRiskScore: numberValue(nextAiReview?.fraudRiskScore, 0),
+      fakeListingSignal: Boolean(nextAiReview?.fakeListingSignal),
+      reason: text(req.body?.reason, verified ? "admin-verified-property" : "admin-unverified-property"),
+      metadata: {
+        flow: "admin-verify-endpoint",
+        verified: Boolean(verified)
+      }
+    });
+
+    await notifyPropertyOwnerModeration({
+      ownerId: toId(existing?.ownerId),
+      title: verified ? "Property Verified" : "Property Verification Removed",
+      message: verified
+        ? "Admin verified your property and marked moderation as approved."
+        : "Admin updated your property verification. Review moderation status in dashboard.",
+      metadata: {
+        propertyId: toId(updated?._id || updated?.id) || propertyId,
+        verified: Boolean(verified),
+        moderationStatus: normalizeModerationStatus(nextModerationStatus, "approved")
+      }
+    });
+
     return res.json({
       success: true,
+      audit,
       item: projectPropertyForViewer(updated, getViewerFromRequest(req), {
         includePrivateDocs: true
       })

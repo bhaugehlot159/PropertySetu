@@ -9,6 +9,7 @@ import {
   getCorePropertyPrivateDocs,
   getCorePropertyById,
   getCorePropertyTaxonomyOptions,
+  listCorePropertyModerationAudit,
   listCorePropertyModerationQueue,
   listCoreProperties,
   previewCorePropertyDescription,
@@ -58,6 +59,12 @@ router.post(
   coreRoleRequired("admin"),
   corePropertyModerationLimiter,
   decideCorePropertyModeration
+);
+router.get(
+  "/:propertyId/moderation/audit",
+  coreAuthRequired,
+  corePropertyModerationLimiter,
+  listCorePropertyModerationAudit
 );
 router.post("/:propertyId/visit", coreAuthRequired, createCoreVisitBookingForProperty);
 router.get("/:propertyId", getCorePropertyById);

@@ -13,17 +13,19 @@ import CoreSealedBid from "../models/CoreSealedBid.js";
 import CorePrivateDocSecurityEvent from "../models/CorePrivateDocSecurityEvent.js";
 import CorePrivateDocShieldBlock from "../models/CorePrivateDocShieldBlock.js";
 import CorePrivateDocIntegrityDecisionAudit from "../models/CorePrivateDocIntegrityDecisionAudit.js";
+import CorePropertyModerationAudit from "../models/CorePropertyModerationAudit.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 
 export async function getCoreHealth(_req, res, next) {
   try {
     if (proRuntime.dbConnected) {
-      const [users, properties, propertiesPendingModeration, propertiesQuarantined, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
+      const [users, properties, propertiesPendingModeration, propertiesQuarantined, propertyModerationAudits, reviews, subscriptions, messages, uploads, ownerVerificationRequests, propertyCareRequests, wishlistItems, visitBookings, notifications, sealedBids, privateDocSecurityEvents, privateDocShieldBlocks, privateDocShieldReleaseRequests, privateDocIntegrityDecisionAudits, privateDocEmergencyLocks, privateDocEmergencyUnlockRequests] = await Promise.all([
         CoreUser.countDocuments({}),
         CoreProperty.countDocuments({}),
         CoreProperty.countDocuments({ "aiReview.moderationStatus": "pending-review" }),
         CoreProperty.countDocuments({ "aiReview.moderationStatus": "quarantined" }),
+        CorePropertyModerationAudit.countDocuments({}),
         CoreReview.countDocuments({}),
         CoreSubscription.countDocuments({}),
         CoreMessage.countDocuments({}),
@@ -61,6 +63,7 @@ export async function getCoreHealth(_req, res, next) {
           properties,
           propertiesPendingModeration,
           propertiesQuarantined,
+          propertyModerationAudits,
           reviews,
           subscriptions,
           messages,
@@ -94,6 +97,7 @@ export async function getCoreHealth(_req, res, next) {
         propertiesQuarantined: proMemoryStore.coreProperties.filter(
           (item) => String(item?.aiReview?.moderationStatus || "").toLowerCase() === "quarantined"
         ).length,
+        propertyModerationAudits: proMemoryStore.corePropertyModerationAudits.length,
         reviews: proMemoryStore.coreReviews.length,
         subscriptions: proMemoryStore.coreSubscriptions.length,
         messages: proMemoryStore.coreMessages.length,

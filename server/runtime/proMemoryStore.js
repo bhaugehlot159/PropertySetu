@@ -23,6 +23,7 @@ export const proMemoryStore = {
   coreVisitBookings: [],
   coreNotifications: [],
   coreSealedBids: [],
+  corePropertyModerationAudits: [],
   coreReports: [],
   coreAdminConfig: {
     categories: [

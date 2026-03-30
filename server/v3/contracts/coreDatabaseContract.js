@@ -165,14 +165,17 @@ export const coreSystemsBlueprint = [
       "Fake listing detection",
       "Server-side auto moderation on property create/update",
       "Auto quarantine/pending-review based on risk score + signal thresholds",
-      "Admin moderation queue and manual decision override with reason tracking"
+      "Admin moderation queue and manual decision override with reason tracking",
+      "Tamper-evident moderation decision audit trail with chain verification endpoint",
+      "Auto/admin moderation notifications for owner and admin workflows"
     ],
     endpoints: [
       "/api/v3/ai/smart-pricing",
       "/api/v3/ai/similar-properties",
       "/api/v3/ai/fake-listing-detection",
       "/api/v3/properties/moderation/queue",
-      "/api/v3/properties/:propertyId/moderation/decision"
+      "/api/v3/properties/:propertyId/moderation/decision",
+      "/api/v3/properties/:propertyId/moderation/audit"
     ],
     dependencies: ["database"]
   },
