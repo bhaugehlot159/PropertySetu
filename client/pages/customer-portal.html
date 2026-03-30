@@ -13,7 +13,7 @@
     .portal-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
     .btn { background: #0b2f6b; color: #fff; border: none; border-radius: 8px; padding: 9px 12px; cursor: pointer; }
     .bid-box { margin-top: 16px; }
-    input { padding: 8px; border: 1px solid #ccd9f5; border-radius: 8px; }
+    input, select { padding: 8px; border: 1px solid #ccd9f5; border-radius: 8px; }
     @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
     @media (max-width: 560px) { .stat-grid { grid-template-columns: 1fr; } }
   </style>
@@ -48,6 +48,14 @@
         <button class="btn" id="verifiedSearch">Run verified-only search</button>
         <button class="btn" id="clearPortal">Clear portal data</button>
       </div>
+
+      <section class="card bid-box">
+        <h3>Property Selector (Live)</h3>
+        <p>Wishlist, visit aur bid actions ke liye pehle live property select karein.</p>
+        <select id="actionProperty">
+          <option value="">Select Property</option>
+        </select>
+      </section>
 
       <section class="card bid-box">
         <h3>Sealed Bid (Hidden from public)</h3>
