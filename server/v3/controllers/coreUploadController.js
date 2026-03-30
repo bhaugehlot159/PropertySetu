@@ -9,6 +9,7 @@ import CoreProperty from "../models/CoreProperty.js";
 import CorePrivateDocIntegrityDecisionAudit from "../models/CorePrivateDocIntegrityDecisionAudit.js";
 import CorePrivateDocSecurityEvent from "../models/CorePrivateDocSecurityEvent.js";
 import CorePrivateDocShieldBlock from "../models/CorePrivateDocShieldBlock.js";
+import CoreRuntimeConfig from "../models/CoreRuntimeConfig.js";
 import CoreUpload from "../models/CoreUpload.js";
 import {
   buildMaskedPrivateDocUrl,
@@ -135,6 +136,11 @@ const DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY = Object.freeze({
   macroExtensions: [...PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS],
   riskyNameHints: [...PRIVATE_DOC_UPLOAD_THREAT_NAME_HINTS]
 });
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_CONFIG_KEY = "private-doc-upload-threat-policy";
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_HYDRATE_COOLDOWN_MS = Math.max(
+  5_000,
+  Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_HYDRATE_COOLDOWN_MS || 45_000)
+);
 const PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS = Math.max(
   200,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS || 5000)
@@ -353,6 +359,7 @@ let privateDocUploadThreatPolicy = {
   updatedBy: "",
   revision: 1
 };
+let privateDocUploadThreatPolicyHydratedAtTs = 0;
 const privateDocAutoEmergencyLockProfiles = new Map();
 const privateDocAutoEmergencyLockInFlight = new Set();
 let privateDocShieldHydratedAtTs = 0;
@@ -488,7 +495,125 @@ function updatePrivateDocUploadThreatPolicy(
     updatedBy: text(actorId || actorRole, actorId ? `${actorId}:${actorRole}` : actorRole),
     revision: current.revision + 1
   };
+  const normalized = getPrivateDocUploadThreatPolicy();
+  proMemoryStore.corePrivateDocThreatPolicy = normalized;
+  return normalized;
+}
+
+function applyPersistedPrivateDocUploadThreatPolicy(snapshot = {}) {
+  const raw =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      ? snapshot
+      : {};
+  const hydrated = updatePrivateDocUploadThreatPolicy(
+    {
+      enabled: raw.enabled,
+      pendingScore: raw.pendingScore,
+      quarantineScore: raw.quarantineScore,
+      blockAccessUntilApproved: raw.blockAccessUntilApproved,
+      riskyExtensions: raw.riskyExtensions,
+      macroExtensions: raw.macroExtensions,
+      riskyNameHints: raw.riskyNameHints
+    },
+    {
+      actorId: text(raw.updatedBy),
+      actorRole: "persisted-policy"
+    }
+  );
+  privateDocUploadThreatPolicy = {
+    ...hydrated,
+    updatedAt: asIso(raw.updatedAt) || hydrated.updatedAt || "",
+    updatedBy: text(raw.updatedBy, hydrated.updatedBy),
+    revision: Math.max(1, Math.round(numberValue(raw.revision, hydrated.revision)))
+  };
+  const normalized = getPrivateDocUploadThreatPolicy();
+  proMemoryStore.corePrivateDocThreatPolicy = normalized;
+  return normalized;
+}
+
+async function hydratePrivateDocUploadThreatPolicy({ force = false } = {}) {
+  const nowTs = Date.now();
+  const cachedMemoryPolicy =
+    proMemoryStore.corePrivateDocThreatPolicy &&
+    typeof proMemoryStore.corePrivateDocThreatPolicy === "object" &&
+    !Array.isArray(proMemoryStore.corePrivateDocThreatPolicy)
+      ? proMemoryStore.corePrivateDocThreatPolicy
+      : null;
+  if (cachedMemoryPolicy) {
+    applyPersistedPrivateDocUploadThreatPolicy(cachedMemoryPolicy);
+  }
+  if (!proRuntime.dbConnected) {
+    privateDocUploadThreatPolicyHydratedAtTs = nowTs;
+    return getPrivateDocUploadThreatPolicy();
+  }
+  if (
+    !force &&
+    privateDocUploadThreatPolicyHydratedAtTs &&
+    privateDocUploadThreatPolicyHydratedAtTs + PRIVATE_DOC_UPLOAD_THREAT_POLICY_HYDRATE_COOLDOWN_MS > nowTs
+  ) {
+    return getPrivateDocUploadThreatPolicy();
+  }
+
+  try {
+    const row = await CoreRuntimeConfig.findOne({
+      key: PRIVATE_DOC_UPLOAD_THREAT_POLICY_CONFIG_KEY
+    })
+      .select("value")
+      .lean();
+    const value =
+      row?.value && typeof row.value === "object" && !Array.isArray(row.value)
+        ? row.value
+        : null;
+    if (value) {
+      applyPersistedPrivateDocUploadThreatPolicy(value);
+    }
+  } catch {
+    // Keep runtime defaults if persistence read fails.
+  }
+  privateDocUploadThreatPolicyHydratedAtTs = nowTs;
   return getPrivateDocUploadThreatPolicy();
+}
+
+async function persistPrivateDocUploadThreatPolicy({
+  actorId = "",
+  notes = ""
+} = {}) {
+  const policy = getPrivateDocUploadThreatPolicy();
+  if (!proRuntime.dbConnected) {
+    proMemoryStore.corePrivateDocThreatPolicy = policy;
+    return {
+      persisted: false,
+      source: "memory",
+      policy
+    };
+  }
+  try {
+    await CoreRuntimeConfig.findOneAndUpdate(
+      { key: PRIVATE_DOC_UPLOAD_THREAT_POLICY_CONFIG_KEY },
+      {
+        $set: {
+          value: policy,
+          updatedBy: mongoose.Types.ObjectId.isValid(actorId) ? actorId : null,
+          notes: text(notes).slice(0, 240)
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    proMemoryStore.corePrivateDocThreatPolicy = policy;
+    privateDocUploadThreatPolicyHydratedAtTs = Date.now();
+    return {
+      persisted: true,
+      source: "mongodb",
+      policy
+    };
+  } catch {
+    proMemoryStore.corePrivateDocThreatPolicy = policy;
+    return {
+      persisted: false,
+      source: "memory",
+      policy
+    };
+  }
 }
 
 function categoryImpliesPrivate(category) {
@@ -2879,6 +3004,7 @@ function buildUploadRows(req, files = []) {
 
 export async function uploadCorePropertyMedia(req, res, next) {
   try {
+    await hydratePrivateDocUploadThreatPolicy();
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
     const propertyId = normalizePropertyId(req.body?.propertyId);
     const actorRole = text(req.coreUser?.role, "buyer").toLowerCase();
@@ -3496,6 +3622,7 @@ function buildPrivateDocStreamEnvelope({
 
 export async function resolveCorePrivateDocAccess(req, res, next) {
   try {
+    await hydratePrivateDocUploadThreatPolicy();
     const token = text(req.body?.token || req.query?.token);
     const requestIp = getClientIp(req);
     const requestUserAgent = text(req.headers?.["user-agent"]);
@@ -4667,6 +4794,7 @@ export async function listCorePrivateDocEmergencyLockQueue(req, res, next) {
 
 export async function streamCorePrivateDoc(req, res, next) {
   try {
+    await hydratePrivateDocUploadThreatPolicy();
     if (!PRIVATE_DOC_PROXY_ENABLED) {
       return res.status(503).json({
         success: false,
@@ -5735,53 +5863,122 @@ export async function listCorePrivateDocIntegrityDecisionAudits(req, res, next) 
   }
 }
 
-export function getCorePrivateDocThreatPolicy(req, res) {
-  return res.json({
-    success: true,
-    requestedBy: {
-      id: text(req.coreUser?.id),
-      role: text(req.coreUser?.role)
-    },
-    policy: getPrivateDocUploadThreatPolicy()
-  });
+export async function getCorePrivateDocThreatPolicy(req, res, next) {
+  try {
+    await hydratePrivateDocUploadThreatPolicy();
+    return res.json({
+      success: true,
+      requestedBy: {
+        id: text(req.coreUser?.id),
+        role: text(req.coreUser?.role)
+      },
+      policy: getPrivateDocUploadThreatPolicy()
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
-export function updateCorePrivateDocThreatPolicy(req, res) {
-  const patch =
-    req.body && typeof req.body === "object" && !Array.isArray(req.body)
-      ? req.body
-      : {};
-  const nextPolicy = updatePrivateDocUploadThreatPolicy(patch, {
-    actorId: text(req.coreUser?.id),
-    actorRole: text(req.coreUser?.role)
-  });
+export async function updateCorePrivateDocThreatPolicy(req, res, next) {
+  try {
+    await hydratePrivateDocUploadThreatPolicy();
+    const patch =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? req.body
+        : {};
+    const actorId = text(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role);
+    const nextPolicy = updatePrivateDocUploadThreatPolicy(patch, {
+      actorId,
+      actorRole
+    });
+    const persistence = await persistPrivateDocUploadThreatPolicy({
+      actorId,
+      notes: "admin-policy-update"
+    });
 
-  recordPrivateDocAccessEvent({
-    userId: text(req.coreUser?.id),
-    role: text(req.coreUser?.role, "admin").toLowerCase(),
-    reason: "private-doc-upload-threat-policy-updated",
-    source: "security-policy",
-    metadata: {
-      pendingScore: nextPolicy.pendingScore,
-      quarantineScore: nextPolicy.quarantineScore,
-      blockAccessUntilApproved: Boolean(nextPolicy.blockAccessUntilApproved),
-      enabled: Boolean(nextPolicy.enabled)
-    }
-  });
+    recordPrivateDocAccessEvent({
+      userId: actorId,
+      role: text(actorRole, "admin").toLowerCase(),
+      reason: "private-doc-upload-threat-policy-updated",
+      source: "security-policy",
+      metadata: {
+        pendingScore: nextPolicy.pendingScore,
+        quarantineScore: nextPolicy.quarantineScore,
+        blockAccessUntilApproved: Boolean(nextPolicy.blockAccessUntilApproved),
+        enabled: Boolean(nextPolicy.enabled),
+        persisted: Boolean(persistence.persisted)
+      }
+    });
 
-  return res.json({
-    success: true,
-    action: "updated",
-    requestedBy: {
-      id: text(req.coreUser?.id),
-      role: text(req.coreUser?.role)
-    },
-    policy: nextPolicy
-  });
+    return res.json({
+      success: true,
+      action: "updated",
+      requestedBy: {
+        id: actorId,
+        role: actorRole
+      },
+      persistence: {
+        source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
+        persisted: Boolean(persistence.persisted)
+      },
+      policy: nextPolicy
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function resetCorePrivateDocThreatPolicy(req, res, next) {
+  try {
+    await hydratePrivateDocUploadThreatPolicy({ force: true });
+    const actorId = text(req.coreUser?.id);
+    const actorRole = text(req.coreUser?.role);
+    const resetPolicy = updatePrivateDocUploadThreatPolicy(
+      DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY,
+      {
+        actorId,
+        actorRole
+      }
+    );
+    const persistence = await persistPrivateDocUploadThreatPolicy({
+      actorId,
+      notes: "admin-policy-reset"
+    });
+    recordPrivateDocAccessEvent({
+      userId: actorId,
+      role: text(actorRole, "admin").toLowerCase(),
+      reason: "private-doc-upload-threat-policy-reset",
+      source: "security-policy",
+      metadata: {
+        pendingScore: resetPolicy.pendingScore,
+        quarantineScore: resetPolicy.quarantineScore,
+        blockAccessUntilApproved: Boolean(resetPolicy.blockAccessUntilApproved),
+        enabled: Boolean(resetPolicy.enabled),
+        persisted: Boolean(persistence.persisted)
+      }
+    });
+    return res.json({
+      success: true,
+      action: "reset",
+      requestedBy: {
+        id: actorId,
+        role: actorRole
+      },
+      persistence: {
+        source: text(persistence.source, proRuntime.dbConnected ? "mongodb" : "memory"),
+        persisted: Boolean(persistence.persisted)
+      },
+      policy: resetPolicy
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function listCorePrivateDocSecurityEvents(req, res, next) {
   try {
+    await hydratePrivateDocUploadThreatPolicy();
     const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
     const nowTs = Date.now();
     await hydratePrivateDocShieldBlocksFromDb(nowTs);

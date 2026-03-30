@@ -7,6 +7,7 @@ import {
   listCorePrivateDocIntegrityQueue,
   listCorePrivateDocSecurityEvents,
   listMyCoreUploads,
+  resetCorePrivateDocThreatPolicy,
   revokeCorePrivateDocAccess,
   setCorePrivateDocEmergencyAccessLock,
   releaseCorePrivateDocSecurityShield,
@@ -84,6 +85,13 @@ router.patch(
   coreRoleRequired("admin"),
   coreUploadWriteLimiter,
   updateCorePrivateDocThreatPolicy
+);
+router.post(
+  "/private-docs/security/threat-policy/reset",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  coreUploadWriteLimiter,
+  resetCorePrivateDocThreatPolicy
 );
 router.post(
   "/private-docs/security/release",
