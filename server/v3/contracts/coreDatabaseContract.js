@@ -262,7 +262,9 @@ export const coreSystemsBlueprint = [
       "Dual-control abuse guard: repeated invalid chain approvals auto-throttled with adaptive actor lock escalation, distributed actor-abuse detection, and actor-approver pair collusion shield",
       "Approver abuse shield: repeated invalid approvals for the same approverId are auto-blocked with distributed multi-actor/multi-digest detection and adaptive repeat-offender penalty escalation",
       "Operation-digest bound approvals: signed chain override cannot be replayed across different mutation payloads",
-      "Reason-bound dual signatures: strict admin mode enforces reason-integrity-bound override signatures while optional legacy signatures can stay enabled for staged migration"
+      "Reason-bound dual signatures: strict admin mode enforces reason-integrity-bound override signatures while optional legacy signatures can stay enabled for staged migration",
+      "Adaptive per-scope API rate limiter with progressive temporary block escalation for repeat offenders",
+      "Admin-controlled rate-limiter control plane with scope policy overrides and emergency reset support"
     ],
     endpoints: [
       "/api/v3/auth/*",
@@ -288,7 +290,9 @@ export const coreSystemsBlueprint = [
       "/api/v3/system/security-control/restore",
       "/api/v3/system/security-control/reset",
       "/api/v3/system/security-intelligence/release",
-      "/api/v3/system/security-intelligence/quarantine"
+      "/api/v3/system/security-intelligence/quarantine",
+      "/api/v3/system/rate-limiter-control",
+      "/api/v3/system/rate-limiter-control/reset"
     ],
     dependencies: ["authentication", "backendServer"]
   },

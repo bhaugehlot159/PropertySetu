@@ -1190,6 +1190,8 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     securityControlProfilesV3: "/api/v3/system/security-control/profiles",
     securityControlPersistenceV3: "/api/v3/system/security-control/persistence",
     securityControlRestoreV3: "/api/v3/system/security-control/restore",
+    securityRateLimiterV3: "/api/v3/system/rate-limiter-control",
+    securityRateLimiterResetV3: "/api/v3/system/rate-limiter-control/reset",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {

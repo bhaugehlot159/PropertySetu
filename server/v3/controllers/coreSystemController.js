@@ -20,6 +20,11 @@ import {
   restoreProSecurityControlStateFromDisk,
   updateProSecurityControlState
 } from "../../middleware/proSecurityMiddleware.js";
+import {
+  getCoreRateLimiterSecurityState,
+  resetCoreRateLimiterSecurityState,
+  updateCoreRateLimiterSecurityControls
+} from "../middleware/coreSecurityMiddleware.js";
 import CoreUser from "../models/CoreUser.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreReview from "../models/CoreReview.js";
@@ -602,6 +607,73 @@ export function getCoreSystemSecurityControl(req, res) {
       role: String(req.coreUser?.role || "")
     },
     state: getProSecurityControlState()
+  });
+}
+
+export function getCoreSystemRateLimiterControl(req, res) {
+  const includeAudit = toBoolean(req.query?.includeAudit, true);
+  const auditLimit = Math.max(1, Math.min(500, Number(req.query?.auditLimit || 120)));
+  return res.json({
+    success: true,
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    state: getCoreRateLimiterSecurityState({
+      includeAudit,
+      auditLimit
+    })
+  });
+}
+
+export function updateCoreSystemRateLimiterControl(req, res) {
+  const body =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+  const patch =
+    body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
+      ? body.patch
+      : body;
+  const result = updateCoreRateLimiterSecurityControls(patch, {
+    actorId: String(req.coreUser?.id || ""),
+    actorRole: String(req.coreUser?.role || "")
+  });
+  return res.json({
+    success: true,
+    action: "updated",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    ...result
+  });
+}
+
+export function resetCoreSystemRateLimiterControl(req, res) {
+  const body =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+  const scope = text(body.scope || req.query?.scope).toLowerCase();
+  const result = resetCoreRateLimiterSecurityState({
+    scope,
+    clearBuckets: toBoolean(body.clearBuckets, true),
+    clearBlocks: toBoolean(body.clearBlocks, true),
+    clearMetrics: toBoolean(body.clearMetrics, false),
+    clearAudit: toBoolean(body.clearAudit, false),
+    clearScopePolicy: toBoolean(body.clearScopePolicy, false),
+    actorId: String(req.coreUser?.id || ""),
+    actorRole: String(req.coreUser?.role || "")
+  });
+  return res.json({
+    success: true,
+    action: "reset",
+    requestedBy: {
+      id: String(req.coreUser?.id || ""),
+      role: String(req.coreUser?.role || "")
+    },
+    ...result
   });
 }
 

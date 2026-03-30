@@ -18,6 +18,7 @@ import {
 } from "../controllers/coreUploadController.js";
 import { coreAuthRequired, coreRoleRequired } from "../middleware/coreAuthMiddleware.js";
 import {
+  coreUploadPrivateDocSecurityAdminLimiter,
   coreUploadPrivateDocAccessLimiter,
   coreUploadWriteLimiter
 } from "../middleware/coreSecurityMiddleware.js";
@@ -71,18 +72,21 @@ router.get(
   "/private-docs/security/events",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   listCorePrivateDocSecurityEvents
 );
 router.get(
   "/private-docs/security/threat-policy",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   getCorePrivateDocThreatPolicy
 );
 router.patch(
   "/private-docs/security/threat-policy",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   coreUploadWriteLimiter,
   updateCorePrivateDocThreatPolicy
 );
@@ -90,6 +94,7 @@ router.post(
   "/private-docs/security/threat-policy/reset",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   coreUploadWriteLimiter,
   resetCorePrivateDocThreatPolicy
 );
@@ -97,24 +102,28 @@ router.post(
   "/private-docs/security/release",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   releaseCorePrivateDocSecurityShield
 );
 router.get(
   "/private-docs/integrity/review",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   listCorePrivateDocIntegrityQueue
 );
 router.post(
   "/private-docs/integrity/decision",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   decideCorePrivateDocIntegrity
 );
 router.get(
   "/private-docs/integrity/audit",
   coreAuthRequired,
   coreRoleRequired("admin"),
+  coreUploadPrivateDocSecurityAdminLimiter,
   listCorePrivateDocIntegrityDecisionAudits
 );
 router.get("/mine", coreAuthRequired, listMyCoreUploads);
