@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   decideCorePrivateDocIntegrity,
+  getCorePrivateDocThreatPolicy,
   listCorePrivateDocEmergencyLockQueue,
   listCorePrivateDocIntegrityDecisionAudits,
   listCorePrivateDocIntegrityQueue,
@@ -11,6 +12,7 @@ import {
   releaseCorePrivateDocSecurityShield,
   resolveCorePrivateDocAccess,
   streamCorePrivateDoc,
+  updateCorePrivateDocThreatPolicy,
   uploadCorePropertyMedia
 } from "../controllers/coreUploadController.js";
 import { coreAuthRequired, coreRoleRequired } from "../middleware/coreAuthMiddleware.js";
@@ -69,6 +71,19 @@ router.get(
   coreAuthRequired,
   coreRoleRequired("admin"),
   listCorePrivateDocSecurityEvents
+);
+router.get(
+  "/private-docs/security/threat-policy",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  getCorePrivateDocThreatPolicy
+);
+router.patch(
+  "/private-docs/security/threat-policy",
+  coreAuthRequired,
+  coreRoleRequired("admin"),
+  coreUploadWriteLimiter,
+  updateCorePrivateDocThreatPolicy
 );
 router.post(
   "/private-docs/security/release",

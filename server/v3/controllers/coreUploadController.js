@@ -114,6 +114,27 @@ const PRIVATE_DOC_UPLOAD_MIME_BY_EXTENSION = {
   xlsb: ["application/vnd.ms-excel.sheet.binary.macroEnabled.12"],
   pptm: ["application/vnd.ms-powerpoint.presentation.macroEnabled.12"]
 };
+const PRIVATE_DOC_UPLOAD_THREAT_BLOCK_ACCESS_UNTIL_APPROVED =
+  String(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_BLOCK_ACCESS_UNTIL_APPROVED || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_TOKEN_MAX_ITEMS = Math.max(
+  4,
+  Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_TOKEN_MAX_ITEMS || 40)
+);
+const PRIVATE_DOC_UPLOAD_THREAT_POLICY_TOKEN_MAX_LENGTH = Math.max(
+  6,
+  Number(process.env.CORE_PRIVATE_DOC_UPLOAD_THREAT_POLICY_TOKEN_MAX_LENGTH || 32)
+);
+const DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY = Object.freeze({
+  enabled: Boolean(PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED),
+  pendingScore: PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE,
+  quarantineScore: PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE,
+  blockAccessUntilApproved: Boolean(PRIVATE_DOC_UPLOAD_THREAT_BLOCK_ACCESS_UNTIL_APPROVED),
+  riskyExtensions: [...PRIVATE_DOC_UPLOAD_THREAT_RISKY_EXTENSIONS],
+  macroExtensions: [...PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS],
+  riskyNameHints: [...PRIVATE_DOC_UPLOAD_THREAT_NAME_HINTS]
+});
 const PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS = Math.max(
   200,
   Number(process.env.CORE_PRIVATE_DOC_ACCESS_EVENT_MAX_ITEMS || 5000)
@@ -326,12 +347,148 @@ const privateDocConsumedStreamTokenMap = new Map();
 const privateDocAccessShieldProfiles = new Map();
 const privateDocAccessShieldBlocks = new Map();
 const privateDocAccessShieldPenalty = new Map();
+let privateDocUploadThreatPolicy = {
+  ...DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY,
+  updatedAt: "",
+  updatedBy: "",
+  revision: 1
+};
 const privateDocAutoEmergencyLockProfiles = new Map();
 const privateDocAutoEmergencyLockInFlight = new Set();
 let privateDocShieldHydratedAtTs = 0;
 
 function normalizeCategory(value) {
   return text(value, "misc").toLowerCase();
+}
+
+function normalizeThreatPolicyToken(value = "") {
+  return text(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9.+_-]+/g, "")
+    .slice(0, PRIVATE_DOC_UPLOAD_THREAT_POLICY_TOKEN_MAX_LENGTH);
+}
+
+function normalizeThreatPolicyTokens(
+  value,
+  fallback = [],
+  maxItems = PRIVATE_DOC_UPLOAD_THREAT_POLICY_TOKEN_MAX_ITEMS
+) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[,\s;]+/);
+  const normalized = source
+    .map((item) => normalizeThreatPolicyToken(item))
+    .filter((item) => Boolean(item));
+  if (!normalized.length) {
+    return (Array.isArray(fallback) ? fallback : [])
+      .map((item) => normalizeThreatPolicyToken(item))
+      .filter((item) => Boolean(item))
+      .slice(0, maxItems);
+  }
+  return [...new Set(normalized)].slice(0, maxItems);
+}
+
+function getPrivateDocUploadThreatPolicy() {
+  const current = privateDocUploadThreatPolicy || {};
+  const riskyExtensions = normalizeThreatPolicyTokens(
+    current.riskyExtensions,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyExtensions
+  );
+  const macroExtensions = normalizeThreatPolicyTokens(
+    current.macroExtensions,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.macroExtensions
+  );
+  const riskyNameHints = normalizeThreatPolicyTokens(
+    current.riskyNameHints,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyNameHints
+  );
+  const pendingScore = Math.max(
+    20,
+    Math.min(95, Math.round(numberValue(current.pendingScore, DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.pendingScore)))
+  );
+  const quarantineScore = Math.max(
+    pendingScore,
+    Math.min(
+      100,
+      Math.round(numberValue(current.quarantineScore, DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.quarantineScore))
+    )
+  );
+  return {
+    enabled: Boolean(current.enabled),
+    pendingScore,
+    quarantineScore,
+    blockAccessUntilApproved:
+      typeof current.blockAccessUntilApproved === "boolean"
+        ? current.blockAccessUntilApproved
+        : DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.blockAccessUntilApproved,
+    riskyExtensions,
+    macroExtensions,
+    riskyNameHints,
+    updatedAt: asIso(current.updatedAt),
+    updatedBy: text(current.updatedBy),
+    revision: Math.max(1, Math.round(numberValue(current.revision, 1)))
+  };
+}
+
+function updatePrivateDocUploadThreatPolicy(
+  patch = {},
+  { actorId = "", actorRole = "" } = {}
+) {
+  const safePatch =
+    patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
+  const current = getPrivateDocUploadThreatPolicy();
+  const next = {
+    ...current,
+    enabled:
+      typeof safePatch.enabled === "boolean"
+        ? safePatch.enabled
+        : current.enabled,
+    pendingScore:
+      typeof safePatch.pendingScore === "undefined"
+        ? current.pendingScore
+        : Math.max(20, Math.min(95, Math.round(numberValue(safePatch.pendingScore, current.pendingScore)))),
+    quarantineScore:
+      typeof safePatch.quarantineScore === "undefined"
+        ? current.quarantineScore
+        : Math.max(
+            20,
+            Math.min(100, Math.round(numberValue(safePatch.quarantineScore, current.quarantineScore)))
+          ),
+    blockAccessUntilApproved:
+      typeof safePatch.blockAccessUntilApproved === "boolean"
+        ? safePatch.blockAccessUntilApproved
+        : current.blockAccessUntilApproved,
+    riskyExtensions:
+      typeof safePatch.riskyExtensions === "undefined"
+        ? current.riskyExtensions
+        : normalizeThreatPolicyTokens(safePatch.riskyExtensions, current.riskyExtensions),
+    macroExtensions:
+      typeof safePatch.macroExtensions === "undefined"
+        ? current.macroExtensions
+        : normalizeThreatPolicyTokens(safePatch.macroExtensions, current.macroExtensions),
+    riskyNameHints:
+      typeof safePatch.riskyNameHints === "undefined"
+        ? current.riskyNameHints
+        : normalizeThreatPolicyTokens(safePatch.riskyNameHints, current.riskyNameHints)
+  };
+  next.quarantineScore = Math.max(next.pendingScore, next.quarantineScore);
+  if (!next.riskyExtensions.length) {
+    next.riskyExtensions = [...DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyExtensions];
+  }
+  if (!next.macroExtensions.length) {
+    next.macroExtensions = [...DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.macroExtensions];
+  }
+  if (!next.riskyNameHints.length) {
+    next.riskyNameHints = [...DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyNameHints];
+  }
+  const now = new Date().toISOString();
+  privateDocUploadThreatPolicy = {
+    ...next,
+    updatedAt: now,
+    updatedBy: text(actorId || actorRole, actorId ? `${actorId}:${actorRole}` : actorRole),
+    revision: current.revision + 1
+  };
+  return getPrivateDocUploadThreatPolicy();
 }
 
 function categoryImpliesPrivate(category) {
@@ -430,8 +587,9 @@ function parsePrivateDocThreatMismatchReason(reason = "") {
 }
 
 function evaluatePrivateDocUploadThreat(row = {}) {
+  const policy = getPrivateDocUploadThreatPolicy();
   const privateDoc = Boolean(row?.isPrivate) || categoryImpliesPrivate(row?.category);
-  if (!privateDoc || !PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED) {
+  if (!privateDoc || !policy.enabled) {
     return { score: 0, signals: [], status: "clear" };
   }
 
@@ -440,14 +598,24 @@ function evaluatePrivateDocUploadThreat(row = {}) {
   const mimeType = text(row?.type, "application/octet-stream").toLowerCase();
   const sourceUrl = text(row?.url).toLowerCase();
   const sizeBytes = Math.max(0, Math.round(numberValue(row?.sizeBytes, 0)));
+  const riskyExtensions = new Set(
+    normalizeThreatPolicyTokens(policy.riskyExtensions, DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyExtensions)
+  );
+  const macroExtensions = new Set(
+    normalizeThreatPolicyTokens(policy.macroExtensions, DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.macroExtensions)
+  );
+  const riskyNameHints = normalizeThreatPolicyTokens(
+    policy.riskyNameHints,
+    DEFAULT_PRIVATE_DOC_UPLOAD_THREAT_POLICY.riskyNameHints
+  );
   const signals = [];
   let score = 0;
 
-  if (PRIVATE_DOC_UPLOAD_THREAT_RISKY_EXTENSIONS.has(extension)) {
+  if (riskyExtensions.has(extension)) {
     signals.push(`risky-extension:${extension}`);
-    score += PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS.has(extension) ? 45 : 30;
+    score += macroExtensions.has(extension) ? 45 : 30;
   }
-  if (PRIVATE_DOC_UPLOAD_THREAT_MACRO_EXTENSIONS.has(extension)) {
+  if (macroExtensions.has(extension)) {
     signals.push("macro-enabled-office-file");
   }
   const allowedByExtension = PRIVATE_DOC_UPLOAD_MIME_BY_EXTENSION[extension];
@@ -471,7 +639,7 @@ function evaluatePrivateDocUploadThreat(row = {}) {
     score += 12;
   }
 
-  const nameHintsMatched = PRIVATE_DOC_UPLOAD_THREAT_NAME_HINTS.filter((hint) =>
+  const nameHintsMatched = riskyNameHints.filter((hint) =>
     fileName.includes(hint)
   );
   if (nameHintsMatched.length) {
@@ -481,9 +649,9 @@ function evaluatePrivateDocUploadThreat(row = {}) {
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   const status =
-    score >= PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE
+    score >= policy.quarantineScore
       ? "quarantined"
-      : score >= PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE
+      : score >= policy.pendingScore
         ? "pending"
         : "clear";
   return {
@@ -2798,8 +2966,9 @@ export async function uploadCorePropertyMedia(req, res, next) {
       });
     }
 
+    const uploadThreatPolicy = getPrivateDocUploadThreatPolicy();
     let privateDocThreatScans = [];
-    if (PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED) {
+    if (uploadThreatPolicy.enabled) {
       rows = rows.map((row) => {
         if (!Boolean(row?.isPrivate)) return row;
         const scan = evaluatePrivateDocUploadThreat(row);
@@ -2864,9 +3033,10 @@ export async function uploadCorePropertyMedia(req, res, next) {
       source: proRuntime.dbConnected ? "mongodb" : "memory",
       total: created.length,
       threatScan: {
-        enabled: Boolean(PRIVATE_DOC_UPLOAD_THREAT_SCAN_ENABLED),
-        pendingScore: PRIVATE_DOC_UPLOAD_THREAT_PENDING_SCORE,
-        quarantineScore: PRIVATE_DOC_UPLOAD_THREAT_QUARANTINE_SCORE,
+        enabled: Boolean(uploadThreatPolicy.enabled),
+        pendingScore: uploadThreatPolicy.pendingScore,
+        quarantineScore: uploadThreatPolicy.quarantineScore,
+        blockAccessUntilApproved: Boolean(uploadThreatPolicy.blockAccessUntilApproved),
         flaggedCount: privateDocThreatScans.filter((item) => item.status !== "clear").length,
         quarantinedCount: privateDocThreatScans.filter((item) => item.status === "quarantined").length
       },
@@ -3685,9 +3855,33 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
         uploadIntegrityReviewStatus !== "approved" &&
         !(actorIsAdmin && PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS)
       ) {
+        const uploadThreatPolicy = getPrivateDocUploadThreatPolicy();
         const threatMeta = parsePrivateDocThreatMismatchReason(
           text(uploadRow?.privateDocIntegrityMismatchReason)
         );
+        const shouldBlockThreat =
+          !threatMeta.active || Boolean(uploadThreatPolicy.blockAccessUntilApproved);
+        if (!shouldBlockThreat) {
+          recordPrivateDocAccessEvent({
+            userId: actorId,
+            role: actorRole,
+            ownerId,
+            propertyId,
+            uploadId: resolvedUploadId,
+            docId: text(payload.docId),
+            category: docCategory,
+            hash: text(payload.hash),
+            tokenId,
+            tokenFingerprint,
+            replayGuardEnabled: Boolean(PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED),
+            reason: "private-doc-upload-threat-bypass-policy",
+            ip: requestIp,
+            userAgent: requestUserAgent.slice(0, 240),
+            source: "upload",
+            threatDetected: true,
+            threatScore: Math.max(0, Math.round(numberValue(threatMeta.score, 0)))
+          });
+        } else {
         recordPrivateDocAccessEvent({
           userId: actorId,
           role: actorRole,
@@ -3716,6 +3910,7 @@ export async function resolveCorePrivateDocAccess(req, res, next) {
             ? "private-doc-upload-threat-review-pending"
             : "private-doc-integrity-mismatch-blocked"
         });
+        }
       }
       if (PRIVATE_DOC_TOKEN_REPLAY_GUARD_ENABLED) {
         const tokenConsume = consumePrivateDocAccessToken({
@@ -4773,9 +4968,33 @@ export async function streamCorePrivateDoc(req, res, next) {
         uploadIntegrityReviewStatus !== "approved" &&
         !(actorIsAdmin && PRIVATE_DOC_INTEGRITY_MISMATCH_ADMIN_BYPASS)
       ) {
+        const uploadThreatPolicy = getPrivateDocUploadThreatPolicy();
         const threatMeta = parsePrivateDocThreatMismatchReason(
           text(uploadRow?.privateDocIntegrityMismatchReason)
         );
+        const shouldBlockThreat =
+          !threatMeta.active || Boolean(uploadThreatPolicy.blockAccessUntilApproved);
+        if (!shouldBlockThreat) {
+          recordPrivateDocAccessEvent({
+            userId: actorId,
+            role: actorRole,
+            ownerId,
+            propertyId,
+            uploadId: resolvedUploadId,
+            docId: text(payload.docId),
+            category: docCategory,
+            hash: text(payload.hash),
+            tokenId,
+            tokenFingerprint,
+            replayGuardEnabled: Boolean(PRIVATE_DOC_STREAM_TOKEN_REPLAY_GUARD_ENABLED),
+            reason: "private-doc-upload-threat-bypass-policy",
+            ip: requestIp,
+            userAgent: requestUserAgent.slice(0, 240),
+            source: "stream-upload",
+            threatDetected: true,
+            threatScore: Math.max(0, Math.round(numberValue(threatMeta.score, 0)))
+          });
+        } else {
         recordPrivateDocAccessEvent({
           userId: actorId,
           role: actorRole,
@@ -4804,6 +5023,7 @@ export async function streamCorePrivateDoc(req, res, next) {
             ? "private-doc-upload-threat-review-pending"
             : "private-doc-integrity-mismatch-blocked"
         });
+        }
       }
     } else {
       if (!sourceUrl) {
@@ -5515,6 +5735,51 @@ export async function listCorePrivateDocIntegrityDecisionAudits(req, res, next) 
   }
 }
 
+export function getCorePrivateDocThreatPolicy(req, res) {
+  return res.json({
+    success: true,
+    requestedBy: {
+      id: text(req.coreUser?.id),
+      role: text(req.coreUser?.role)
+    },
+    policy: getPrivateDocUploadThreatPolicy()
+  });
+}
+
+export function updateCorePrivateDocThreatPolicy(req, res) {
+  const patch =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
+  const nextPolicy = updatePrivateDocUploadThreatPolicy(patch, {
+    actorId: text(req.coreUser?.id),
+    actorRole: text(req.coreUser?.role)
+  });
+
+  recordPrivateDocAccessEvent({
+    userId: text(req.coreUser?.id),
+    role: text(req.coreUser?.role, "admin").toLowerCase(),
+    reason: "private-doc-upload-threat-policy-updated",
+    source: "security-policy",
+    metadata: {
+      pendingScore: nextPolicy.pendingScore,
+      quarantineScore: nextPolicy.quarantineScore,
+      blockAccessUntilApproved: Boolean(nextPolicy.blockAccessUntilApproved),
+      enabled: Boolean(nextPolicy.enabled)
+    }
+  });
+
+  return res.json({
+    success: true,
+    action: "updated",
+    requestedBy: {
+      id: text(req.coreUser?.id),
+      role: text(req.coreUser?.role)
+    },
+    policy: nextPolicy
+  });
+}
+
 export async function listCorePrivateDocSecurityEvents(req, res, next) {
   try {
     const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120)));
@@ -5644,7 +5909,8 @@ export async function listCorePrivateDocSecurityEvents(req, res, next) {
         adminBypass: Boolean(PRIVATE_DOC_EMERGENCY_LOCK_ADMIN_BYPASS),
         dualAdminUnlockRequired: Boolean(PRIVATE_DOC_EMERGENCY_UNLOCK_DUAL_ADMIN_REQUIRED),
         unlockRequestWindowMinutes: Math.max(1, Math.round(PRIVATE_DOC_EMERGENCY_UNLOCK_REQUEST_WINDOW_MS / 60_000))
-      }
+      },
+      uploadThreatPolicy: getPrivateDocUploadThreatPolicy()
     });
   } catch (error) {
     return next(error);
