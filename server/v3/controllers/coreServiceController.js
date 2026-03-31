@@ -1,7 +1,13 @@
 import mongoose from "mongoose";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
+import CoreDocumentationRequest from "../models/CoreDocumentationRequest.js";
+import CoreFranchiseRequest from "../models/CoreFranchiseRequest.js";
+import CoreLoanAssistanceLead from "../models/CoreLoanAssistanceLead.js";
+import CoreRentAgreementDraft from "../models/CoreRentAgreementDraft.js";
+import CoreServicePartnerBooking from "../models/CoreServicePartnerBooking.js";
 import CoreUser from "../models/CoreUser.js";
+import CoreValuationRequest from "../models/CoreValuationRequest.js";
 import { createCoreNotification } from "./coreNotificationController.js";
 import { toId } from "../utils/coreMappers.js";
 
@@ -151,6 +157,58 @@ function toCitySlug(city) {
     .replace(/^-+|-+$/g, "");
 }
 
+function toOptionalObjectId(value) {
+  const normalized = toId(value);
+  if (!normalized || !mongoose.Types.ObjectId.isValid(normalized)) return null;
+  return normalized;
+}
+
+function toServicePlain(doc) {
+  if (!doc) return null;
+  return typeof doc.toObject === "function" ? doc.toObject() : doc;
+}
+
+function normalizeServiceRow(doc) {
+  const row = toServicePlain(doc);
+  if (!row) return null;
+  const id = toId(row._id || row.id);
+  return {
+    ...row,
+    _id: id,
+    id,
+    userId: toId(row.userId),
+    propertyId: toId(row.propertyId),
+    createdAt: asIso(row.createdAt),
+    updatedAt: asIso(row.updatedAt)
+  };
+}
+
+function mergeWithMemoryRows(dbRows = [], storeKey = "", limit = 3000) {
+  const merged = new Map();
+  const memoryRows = ensureArrayStore(storeKey);
+
+  [...(dbRows || []), ...memoryRows].forEach((row) => {
+    const normalized = normalizeServiceRow(row);
+    const id = toId(normalized?._id || normalized?.id);
+    if (!normalized || !id || merged.has(id)) return;
+    merged.set(id, normalized);
+  });
+
+  return sortByCreatedAtDesc([...merged.values()]).slice(0, limit);
+}
+
+async function listServiceRows({
+  model,
+  storeKey,
+  limit = 3000
+} = {}) {
+  if (proRuntime.dbConnected) {
+    const dbRows = await model.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+    return mergeWithMemoryRows(dbRows, storeKey, limit);
+  }
+  return sortByCreatedAtDesc(ensureArrayStore(storeKey));
+}
+
 async function findCoreUserById(userId) {
   const normalizedId = toId(userId);
   if (!normalizedId) return null;
@@ -266,11 +324,7 @@ function defaultPricePerSqftForType(propertyType) {
 }
 
 function normalizeRows(rows = []) {
-  return rows.map((item) => ({
-    ...item,
-    createdAt: asIso(item.createdAt),
-    updatedAt: asIso(item.updatedAt)
-  }));
+  return rows.map((item) => normalizeServiceRow(item)).filter(Boolean);
 }
 
 export function listCoreDocumentationServices(_req, res) {
@@ -308,26 +362,45 @@ export async function createCoreDocumentationRequest(req, res, next) {
       });
     }
 
-    const createdAt = nowIso();
-    const record = {
-      id: nextMemoryId("documentation"),
-      serviceId: service.id,
-      serviceName: service.name,
-      category: service.category,
-      amount: numberValue(req.body?.amount, service.fee),
-      propertyId: text(req.body?.propertyId) || null,
-      city: text(req.body?.city || "Udaipur"),
-      details,
-      status: "Requested",
-      userId: actor.id,
-      userName: actor.name,
-      createdAt,
-      updatedAt: createdAt
-    };
-
-    const rows = ensureArrayStore("documentationRequests");
-    rows.unshift(record);
-    proMemoryStore.documentationRequests = trimStore(rows, 2500);
+    let record = null;
+    const actorObjectId = toOptionalObjectId(actor.id);
+    const propertyObjectId = toOptionalObjectId(req.body?.propertyId);
+    if (proRuntime.dbConnected && actorObjectId) {
+      const created = await CoreDocumentationRequest.create({
+        serviceId: service.id,
+        serviceName: service.name,
+        category: service.category,
+        amount: numberValue(req.body?.amount, service.fee),
+        propertyId: propertyObjectId,
+        city: text(req.body?.city || "Udaipur"),
+        details,
+        status: "Requested",
+        userId: actorObjectId,
+        userName: actor.name
+      });
+      record = normalizeServiceRow(created);
+    } else {
+      const createdAt = nowIso();
+      record = {
+        id: nextMemoryId("documentation"),
+        serviceId: service.id,
+        serviceName: service.name,
+        category: service.category,
+        amount: numberValue(req.body?.amount, service.fee),
+        propertyId: text(req.body?.propertyId) || null,
+        city: text(req.body?.city || "Udaipur"),
+        details,
+        status: "Requested",
+        userId: actor.id,
+        userName: actor.name,
+        createdAt,
+        updatedAt: createdAt
+      };
+      const rows = ensureArrayStore("documentationRequests");
+      rows.unshift(record);
+      proMemoryStore.documentationRequests = trimStore(rows, 2500);
+      record = normalizeServiceRow(record);
+    }
 
     await notifyAdmins({
       title: "New Documentation Request",
@@ -349,7 +422,12 @@ export async function createCoreDocumentationRequest(req, res, next) {
 export async function listCoreDocumentationRequestsForUser(req, res, next) {
   try {
     const actor = await resolveActor(req);
-    const items = userScopedItems(ensureArrayStore("documentationRequests"), actor);
+    const rows = await listServiceRows({
+      model: CoreDocumentationRequest,
+      storeKey: "documentationRequests",
+      limit: 2500
+    });
+    const items = userScopedItems(rows, actor);
     return res.json({
       success: true,
       total: items.length,
@@ -413,34 +491,61 @@ export async function createCoreLoanAssistance(req, res, next) {
     const estimatedCommission = Math.round(
       requestedAmount * (numberValue(bank.commissionPercent, 0) / 100)
     );
-    const createdAt = nowIso();
-    const record = {
-      id: nextMemoryId("loan"),
-      userId: actor.id,
-      userName: actor.name,
-      bankId: bank.id,
-      bankName: bank.name,
-      propertyId: text(req.body?.propertyId) || null,
-      city: text(req.body?.city || "Udaipur"),
-      locality: text(req.body?.locality),
-      loanType: text(req.body?.loanType || "home-loan"),
-      requestedAmount,
-      propertyValue,
-      monthlyIncome: Math.max(0, numberValue(req.body?.monthlyIncome, 0)),
-      cibilScore: Math.max(0, numberValue(req.body?.cibilScore, 0)),
-      referralSource: text(req.body?.referralSource || "platform"),
-      commissionPercent: numberValue(bank.commissionPercent, 0),
-      estimatedCommission,
-      finalCommissionAmount: null,
-      status: "lead-created",
-      notes: text(req.body?.notes),
-      createdAt,
-      updatedAt: createdAt
-    };
-
-    const rows = ensureArrayStore("loanAssistanceLeads");
-    rows.unshift(record);
-    proMemoryStore.loanAssistanceLeads = trimStore(rows, 3000);
+    let record = null;
+    const actorObjectId = toOptionalObjectId(actor.id);
+    const propertyObjectId = toOptionalObjectId(req.body?.propertyId);
+    if (proRuntime.dbConnected && actorObjectId) {
+      const created = await CoreLoanAssistanceLead.create({
+        userId: actorObjectId,
+        userName: actor.name,
+        bankId: bank.id,
+        bankName: bank.name,
+        propertyId: propertyObjectId,
+        city: text(req.body?.city || "Udaipur"),
+        locality: text(req.body?.locality),
+        loanType: text(req.body?.loanType || "home-loan"),
+        requestedAmount,
+        propertyValue,
+        monthlyIncome: Math.max(0, numberValue(req.body?.monthlyIncome, 0)),
+        cibilScore: Math.max(0, numberValue(req.body?.cibilScore, 0)),
+        referralSource: text(req.body?.referralSource || "platform"),
+        commissionPercent: numberValue(bank.commissionPercent, 0),
+        estimatedCommission,
+        finalCommissionAmount: null,
+        status: "lead-created",
+        notes: text(req.body?.notes)
+      });
+      record = normalizeServiceRow(created);
+    } else {
+      const createdAt = nowIso();
+      record = {
+        id: nextMemoryId("loan"),
+        userId: actor.id,
+        userName: actor.name,
+        bankId: bank.id,
+        bankName: bank.name,
+        propertyId: text(req.body?.propertyId) || null,
+        city: text(req.body?.city || "Udaipur"),
+        locality: text(req.body?.locality),
+        loanType: text(req.body?.loanType || "home-loan"),
+        requestedAmount,
+        propertyValue,
+        monthlyIncome: Math.max(0, numberValue(req.body?.monthlyIncome, 0)),
+        cibilScore: Math.max(0, numberValue(req.body?.cibilScore, 0)),
+        referralSource: text(req.body?.referralSource || "platform"),
+        commissionPercent: numberValue(bank.commissionPercent, 0),
+        estimatedCommission,
+        finalCommissionAmount: null,
+        status: "lead-created",
+        notes: text(req.body?.notes),
+        createdAt,
+        updatedAt: createdAt
+      };
+      const rows = ensureArrayStore("loanAssistanceLeads");
+      rows.unshift(record);
+      proMemoryStore.loanAssistanceLeads = trimStore(rows, 3000);
+      record = normalizeServiceRow(record);
+    }
 
     await notifyAdmins({
       title: "New Loan Assistance Lead",
@@ -462,7 +567,12 @@ export async function createCoreLoanAssistance(req, res, next) {
 export async function listCoreLoanAssistanceForUser(req, res, next) {
   try {
     const actor = await resolveActor(req);
-    const items = userScopedItems(ensureArrayStore("loanAssistanceLeads"), actor);
+    const rows = await listServiceRows({
+      model: CoreLoanAssistanceLead,
+      storeKey: "loanAssistanceLeads",
+      limit: 3000
+    });
+    const items = userScopedItems(rows, actor);
     return res.json({
       success: true,
       total: items.length,
@@ -515,30 +625,53 @@ export async function createCoreEcosystemBooking(req, res, next) {
       });
     }
 
-    const createdAt = nowIso();
-    const record = {
-      id: nextMemoryId("partnerBooking"),
-      serviceId: service.id,
-      serviceName: service.name,
-      serviceFee: Math.max(0, numberValue(req.body?.serviceFee, service.baseFee)),
-      userId: actor.id,
-      userName: actor.name,
-      propertyId: text(req.body?.propertyId) || null,
-      city: text(req.body?.city || "Udaipur"),
-      locality: text(req.body?.locality),
-      preferredDate,
-      budget: Math.max(0, numberValue(req.body?.budget, 0)),
-      contactName: text(req.body?.contactName, actor.name),
-      contactPhone: text(req.body?.contactPhone),
-      notes: text(req.body?.notes),
-      status: "Requested",
-      createdAt,
-      updatedAt: createdAt
-    };
-
-    const rows = ensureArrayStore("servicePartnerBookings");
-    rows.unshift(record);
-    proMemoryStore.servicePartnerBookings = trimStore(rows, 3000);
+    let record = null;
+    const actorObjectId = toOptionalObjectId(actor.id);
+    const propertyObjectId = toOptionalObjectId(req.body?.propertyId);
+    if (proRuntime.dbConnected && actorObjectId) {
+      const created = await CoreServicePartnerBooking.create({
+        serviceId: service.id,
+        serviceName: service.name,
+        serviceFee: Math.max(0, numberValue(req.body?.serviceFee, service.baseFee)),
+        userId: actorObjectId,
+        userName: actor.name,
+        propertyId: propertyObjectId,
+        city: text(req.body?.city || "Udaipur"),
+        locality: text(req.body?.locality),
+        preferredDate,
+        budget: Math.max(0, numberValue(req.body?.budget, 0)),
+        contactName: text(req.body?.contactName, actor.name),
+        contactPhone: text(req.body?.contactPhone),
+        notes: text(req.body?.notes),
+        status: "Requested"
+      });
+      record = normalizeServiceRow(created);
+    } else {
+      const createdAt = nowIso();
+      record = {
+        id: nextMemoryId("partnerBooking"),
+        serviceId: service.id,
+        serviceName: service.name,
+        serviceFee: Math.max(0, numberValue(req.body?.serviceFee, service.baseFee)),
+        userId: actor.id,
+        userName: actor.name,
+        propertyId: text(req.body?.propertyId) || null,
+        city: text(req.body?.city || "Udaipur"),
+        locality: text(req.body?.locality),
+        preferredDate,
+        budget: Math.max(0, numberValue(req.body?.budget, 0)),
+        contactName: text(req.body?.contactName, actor.name),
+        contactPhone: text(req.body?.contactPhone),
+        notes: text(req.body?.notes),
+        status: "Requested",
+        createdAt,
+        updatedAt: createdAt
+      };
+      const rows = ensureArrayStore("servicePartnerBookings");
+      rows.unshift(record);
+      proMemoryStore.servicePartnerBookings = trimStore(rows, 3000);
+      record = normalizeServiceRow(record);
+    }
 
     await notifyAdmins({
       title: "New Partner Service Booking",
@@ -560,7 +693,12 @@ export async function createCoreEcosystemBooking(req, res, next) {
 export async function listCoreEcosystemBookingsForUser(req, res, next) {
   try {
     const actor = await resolveActor(req);
-    const items = userScopedItems(ensureArrayStore("servicePartnerBookings"), actor);
+    const rows = await listServiceRows({
+      model: CoreServicePartnerBooking,
+      storeKey: "servicePartnerBookings",
+      limit: 3000
+    });
+    const items = userScopedItems(rows, actor);
     return res.json({
       success: true,
       total: items.length,
@@ -600,29 +738,50 @@ export async function createCoreValuationEstimate(req, res, next) {
     const max = Math.max(min, Math.round(estimatedPrice * 1.12));
     const confidence = expectedPrice > 0 ? 0.86 : 0.78;
 
-    const createdAt = nowIso();
-    const record = {
-      id: nextMemoryId("valuation"),
-      userId: actor.id || null,
-      userName: actor.name || "guest",
-      locality,
-      propertyType,
-      areaSqft,
-      bedrooms,
-      ageYears,
-      furnished,
-      expectedPrice,
-      estimatedPrice,
-      suggestedBand: { min, max },
-      confidence,
-      source: "propertysetu-valuation-tool-v3",
-      createdAt,
-      updatedAt: createdAt
-    };
-
-    const rows = ensureArrayStore("valuationRequests");
-    rows.unshift(record);
-    proMemoryStore.valuationRequests = trimStore(rows, 3000);
+    let record = null;
+    const actorObjectId = toOptionalObjectId(actor.id);
+    if (proRuntime.dbConnected) {
+      const created = await CoreValuationRequest.create({
+        userId: actorObjectId,
+        userName: actor.name || "guest",
+        locality,
+        propertyType,
+        areaSqft,
+        bedrooms,
+        ageYears,
+        furnished,
+        expectedPrice,
+        estimatedPrice,
+        suggestedBand: { min, max },
+        confidence,
+        source: "propertysetu-valuation-tool-v3"
+      });
+      record = normalizeServiceRow(created);
+    } else {
+      const createdAt = nowIso();
+      record = {
+        id: nextMemoryId("valuation"),
+        userId: actor.id || null,
+        userName: actor.name || "guest",
+        locality,
+        propertyType,
+        areaSqft,
+        bedrooms,
+        ageYears,
+        furnished,
+        expectedPrice,
+        estimatedPrice,
+        suggestedBand: { min, max },
+        confidence,
+        source: "propertysetu-valuation-tool-v3",
+        createdAt,
+        updatedAt: createdAt
+      };
+      const rows = ensureArrayStore("valuationRequests");
+      rows.unshift(record);
+      proMemoryStore.valuationRequests = trimStore(rows, 3000);
+      record = normalizeServiceRow(record);
+    }
 
     return res.json({
       success: true,
@@ -635,13 +794,21 @@ export async function createCoreValuationEstimate(req, res, next) {
   }
 }
 
-export function listCoreValuationRequestsForAdmin(_req, res) {
-  const items = sortByCreatedAtDesc(ensureArrayStore("valuationRequests"));
-  return res.json({
-    success: true,
-    total: items.length,
-    items: normalizeRows(items)
-  });
+export async function listCoreValuationRequestsForAdmin(_req, res, next) {
+  try {
+    const items = await listServiceRows({
+      model: CoreValuationRequest,
+      storeKey: "valuationRequests",
+      limit: 3000
+    });
+    return res.json({
+      success: true,
+      total: items.length,
+      items: normalizeRows(items)
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function createCoreRentAgreementDraft(req, res, next) {
@@ -689,26 +856,44 @@ export async function createCoreRentAgreementDraft(req, res, next) {
       "This is a generated draft and should be reviewed by a legal expert before execution."
     ].join("\n");
 
-    const createdAt = nowIso();
-    const record = {
-      id: nextMemoryId("rentAgreement"),
-      userId: actor.id,
-      userName: actor.name,
-      ownerName,
-      tenantName,
-      propertyAddress,
-      rentAmount,
-      depositAmount,
-      durationMonths,
-      startDate,
-      draftText,
-      createdAt,
-      updatedAt: createdAt
-    };
-
-    const rows = ensureArrayStore("rentAgreementDrafts");
-    rows.unshift(record);
-    proMemoryStore.rentAgreementDrafts = trimStore(rows, 1200);
+    let record = null;
+    const actorObjectId = toOptionalObjectId(actor.id);
+    if (proRuntime.dbConnected && actorObjectId) {
+      const created = await CoreRentAgreementDraft.create({
+        userId: actorObjectId,
+        userName: actor.name,
+        ownerName,
+        tenantName,
+        propertyAddress,
+        rentAmount,
+        depositAmount,
+        durationMonths,
+        startDate,
+        draftText
+      });
+      record = normalizeServiceRow(created);
+    } else {
+      const createdAt = nowIso();
+      record = {
+        id: nextMemoryId("rentAgreement"),
+        userId: actor.id,
+        userName: actor.name,
+        ownerName,
+        tenantName,
+        propertyAddress,
+        rentAmount,
+        depositAmount,
+        durationMonths,
+        startDate,
+        draftText,
+        createdAt,
+        updatedAt: createdAt
+      };
+      const rows = ensureArrayStore("rentAgreementDrafts");
+      rows.unshift(record);
+      proMemoryStore.rentAgreementDrafts = trimStore(rows, 1200);
+      record = normalizeServiceRow(record);
+    }
 
     return res.status(201).json({
       success: true,
@@ -723,7 +908,12 @@ export async function createCoreRentAgreementDraft(req, res, next) {
 export async function listCoreRentAgreementDraftsForUser(req, res, next) {
   try {
     const actor = await resolveActor(req);
-    const items = userScopedItems(ensureArrayStore("rentAgreementDrafts"), actor);
+    const rows = await listServiceRows({
+      model: CoreRentAgreementDraft,
+      storeKey: "rentAgreementDrafts",
+      limit: 1200
+    });
+    const items = userScopedItems(rows, actor);
     return res.json({
       success: true,
       total: items.length,
@@ -787,26 +977,44 @@ export async function createCoreFranchiseRequest(req, res, next) {
       });
     }
 
-    const createdAt = nowIso();
-    const record = {
-      id: nextMemoryId("franchise"),
-      userId: actor.id,
-      userName: actor.name,
-      city,
-      experienceYears: Math.max(0, numberValue(req.body?.experienceYears, 0)),
-      teamSize: Math.max(0, numberValue(req.body?.teamSize, 0)),
-      officeAddress: text(req.body?.officeAddress),
-      investmentBudget,
-      initialFeePotential: Math.max(0, Math.round(investmentBudget * 0.08)),
-      notes: text(req.body?.notes),
-      status: "screening",
-      createdAt,
-      updatedAt: createdAt
-    };
-
-    const rows = ensureArrayStore("franchiseRequests");
-    rows.unshift(record);
-    proMemoryStore.franchiseRequests = trimStore(rows, 2500);
+    let record = null;
+    const actorObjectId = toOptionalObjectId(actor.id);
+    if (proRuntime.dbConnected && actorObjectId) {
+      const created = await CoreFranchiseRequest.create({
+        userId: actorObjectId,
+        userName: actor.name,
+        city,
+        experienceYears: Math.max(0, numberValue(req.body?.experienceYears, 0)),
+        teamSize: Math.max(0, numberValue(req.body?.teamSize, 0)),
+        officeAddress: text(req.body?.officeAddress),
+        investmentBudget,
+        initialFeePotential: Math.max(0, Math.round(investmentBudget * 0.08)),
+        notes: text(req.body?.notes),
+        status: "screening"
+      });
+      record = normalizeServiceRow(created);
+    } else {
+      const createdAt = nowIso();
+      record = {
+        id: nextMemoryId("franchise"),
+        userId: actor.id,
+        userName: actor.name,
+        city,
+        experienceYears: Math.max(0, numberValue(req.body?.experienceYears, 0)),
+        teamSize: Math.max(0, numberValue(req.body?.teamSize, 0)),
+        officeAddress: text(req.body?.officeAddress),
+        investmentBudget,
+        initialFeePotential: Math.max(0, Math.round(investmentBudget * 0.08)),
+        notes: text(req.body?.notes),
+        status: "screening",
+        createdAt,
+        updatedAt: createdAt
+      };
+      const rows = ensureArrayStore("franchiseRequests");
+      rows.unshift(record);
+      proMemoryStore.franchiseRequests = trimStore(rows, 2500);
+      record = normalizeServiceRow(record);
+    }
 
     await notifyAdmins({
       title: "New Franchise Request",
@@ -828,7 +1036,12 @@ export async function createCoreFranchiseRequest(req, res, next) {
 export async function listCoreFranchiseRequestsForUser(req, res, next) {
   try {
     const actor = await resolveActor(req);
-    const items = userScopedItems(ensureArrayStore("franchiseRequests"), actor);
+    const rows = await listServiceRows({
+      model: CoreFranchiseRequest,
+      storeKey: "franchiseRequests",
+      limit: 2500
+    });
+    const items = userScopedItems(rows, actor);
     return res.json({
       success: true,
       total: items.length,

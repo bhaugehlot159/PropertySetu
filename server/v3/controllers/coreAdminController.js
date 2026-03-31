@@ -1,9 +1,15 @@
 import mongoose from "mongoose";
 import CoreAdminActionAudit from "../models/CoreAdminActionAudit.js";
+import CoreDocumentationRequest from "../models/CoreDocumentationRequest.js";
+import CoreFranchiseRequest from "../models/CoreFranchiseRequest.js";
+import CoreLoanAssistanceLead from "../models/CoreLoanAssistanceLead.js";
 import CoreOwnerVerification from "../models/CoreOwnerVerification.js";
 import CoreProperty from "../models/CoreProperty.js";
+import CoreRentAgreementDraft from "../models/CoreRentAgreementDraft.js";
+import CoreServicePartnerBooking from "../models/CoreServicePartnerBooking.js";
 import CoreSubscription from "../models/CoreSubscription.js";
 import CoreUser from "../models/CoreUser.js";
+import CoreValuationRequest from "../models/CoreValuationRequest.js";
 import { proRuntime } from "../../config/proRuntime.js";
 import { proMemoryStore } from "../../runtime/proMemoryStore.js";
 import { notifyCoreServiceStatusUpdate } from "./coreServiceController.js";
@@ -281,10 +287,88 @@ function listStoreRows(key) {
 
 function setStoreStatus(key, id, status, extra = {}) {
   const rows = ensureArrayStore(key);
-  const index = rows.findIndex((item) => text(item.id || item._id) === text(id));
+  const index = rows.findIndex((item) => toId(item.id || item._id) === toId(id));
   if (index < 0) return null;
   rows[index] = { ...rows[index], status, ...extra, updatedAt: new Date().toISOString() };
   return rows[index];
+}
+
+function toPlain(doc) {
+  if (!doc) return null;
+  return typeof doc.toObject === "function" ? doc.toObject() : doc;
+}
+
+function normalizeServiceRow(doc) {
+  const row = toPlain(doc);
+  if (!row) return null;
+  const id = toId(row._id || row.id);
+  return {
+    ...row,
+    _id: id,
+    id,
+    userId: toId(row.userId),
+    propertyId: toId(row.propertyId),
+    createdAt: asIso(row.createdAt),
+    updatedAt: asIso(row.updatedAt)
+  };
+}
+
+function mergeDbMemoryRows(dbRows = [], storeKey = "", limit = 3000) {
+  const merged = new Map();
+  const memoryRows = ensureArrayStore(storeKey);
+  [...(dbRows || []), ...memoryRows].forEach((row) => {
+    const normalized = normalizeServiceRow(row);
+    const id = toId(normalized?._id || normalized?.id);
+    if (!normalized || !id || merged.has(id)) return;
+    merged.set(id, normalized);
+  });
+  return [...merged.values()]
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    .slice(0, limit);
+}
+
+async function listServiceRowsRaw({
+  model,
+  storeKey,
+  limit = 3000
+} = {}) {
+  if (proRuntime.dbConnected) {
+    const dbRows = await model.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+    return mergeDbMemoryRows(dbRows, storeKey, limit);
+  }
+  return listStoreRows(storeKey).slice(0, limit).map((row) => normalizeServiceRow(row));
+}
+
+async function updateServiceStatus({
+  model,
+  storeKey,
+  id,
+  status,
+  extra = {}
+} = {}) {
+  const normalizedId = toId(id);
+  if (!normalizedId) return null;
+
+  if (proRuntime.dbConnected && mongoose.Types.ObjectId.isValid(normalizedId)) {
+    const updatePayload = {
+      ...extra,
+      status,
+      updatedAt: new Date()
+    };
+    Object.keys(updatePayload).forEach((key) => {
+      if (typeof updatePayload[key] === "undefined") {
+        delete updatePayload[key];
+      }
+    });
+    const updated = await model.findByIdAndUpdate(
+      normalizedId,
+      { $set: updatePayload },
+      { new: true }
+    );
+    if (updated) return normalizeServiceRow(updated);
+  }
+
+  return normalizeServiceRow(setStoreStatus(storeKey, normalizedId, status, extra));
 }
 
 function getClientIp(req) {
@@ -398,6 +482,45 @@ export async function getCoreAdminOverview(_req, res, next) {
       listCoreSubscriptionsRaw(5000),
       listCoreOwnerVerificationRaw(5000)
     ]);
+    const [
+      documentationRequests,
+      loanAssistanceLeads,
+      servicePartnerBookings,
+      valuationRequests,
+      rentAgreementDrafts,
+      franchiseRequests
+    ] = await Promise.all([
+      listServiceRowsRaw({
+        model: CoreDocumentationRequest,
+        storeKey: "documentationRequests",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreLoanAssistanceLead,
+        storeKey: "loanAssistanceLeads",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreServicePartnerBooking,
+        storeKey: "servicePartnerBookings",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreValuationRequest,
+        storeKey: "valuationRequests",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreRentAgreementDraft,
+        storeKey: "rentAgreementDrafts",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreFranchiseRequest,
+        storeKey: "franchiseRequests",
+        limit: 5000
+      })
+    ]);
     const normalizedProperties = properties.map((item) => normalizeAdminProperty(item));
     const nowTime = Date.now();
     const activeSubs = subscriptions.filter((item) => {
@@ -416,12 +539,12 @@ export async function getCoreAdminOverview(_req, res, next) {
         ownerVerificationPending: ownerVerifications.filter((item) => normalizeStatus(item.status) === "pending review").length,
         careRequests: ensureArrayStore("corePropertyCareRequests").length + ensureArrayStore("propertyCareRequests").length,
         legalRequests: ensureArrayStore("legalRequests").length,
-        documentationRequests: ensureArrayStore("documentationRequests").length,
-        loanAssistanceLeads: ensureArrayStore("loanAssistanceLeads").length,
-        servicePartnerBookings: ensureArrayStore("servicePartnerBookings").length,
-        valuationRequests: ensureArrayStore("valuationRequests").length,
-        rentAgreementDrafts: ensureArrayStore("rentAgreementDrafts").length,
-        franchiseRequests: ensureArrayStore("franchiseRequests").length,
+        documentationRequests: documentationRequests.length,
+        loanAssistanceLeads: loanAssistanceLeads.length,
+        servicePartnerBookings: servicePartnerBookings.length,
+        valuationRequests: valuationRequests.length,
+        rentAgreementDrafts: rentAgreementDrafts.length,
+        franchiseRequests: franchiseRequests.length,
         reports: listReportsRaw().length,
         activeSubs: activeSubs.length,
         totalBids: ensureArrayStore("coreSealedBids").length + ensureArrayStore("sealedBids").length
@@ -710,6 +833,33 @@ export async function getCoreAdminCommissionAnalytics(_req, res, next) {
   try {
     const subscriptions = await listCoreSubscriptionsRaw(5000);
     const properties = await listCorePropertiesRaw(5000);
+    const [
+      documentationRequests,
+      servicePartnerBookings,
+      loanAssistanceLeads,
+      franchiseRequests
+    ] = await Promise.all([
+      listServiceRowsRaw({
+        model: CoreDocumentationRequest,
+        storeKey: "documentationRequests",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreServicePartnerBooking,
+        storeKey: "servicePartnerBookings",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreLoanAssistanceLead,
+        storeKey: "loanAssistanceLeads",
+        limit: 5000
+      }),
+      listServiceRowsRaw({
+        model: CoreFranchiseRequest,
+        storeKey: "franchiseRequests",
+        limit: 5000
+      })
+    ]);
     const paid = subscriptions.filter((item) => numberValue(item.amount, 0) > 0).map((item) => ({ ...item, normalizedPlanType: inferPlanType(item) }));
     const featuredListingRevenue = sumAmount(paid.filter((item) => item.normalizedPlanType === "featured"));
     const verifiedBadgeRevenue = sumAmount(paid.filter((item) => item.normalizedPlanType === "verification"));
@@ -717,10 +867,10 @@ export async function getCoreAdminCommissionAnalytics(_req, res, next) {
     const agentMembershipRevenue = sumAmount(paid.filter((item) => item.normalizedPlanType === "agent"));
     const propertyCareRevenue = sumAmount(paid.filter((item) => item.normalizedPlanType === "care"));
     const legalServiceRevenue = ensureArrayStore("legalRequests").reduce((sum, item) => sum + numberValue(item.amount, 0), 0);
-    const documentationServiceFeeRevenue = ensureArrayStore("documentationRequests").reduce((sum, item) => sum + numberValue(item.amount, 0), 0);
-    const ecosystemServiceRevenue = ensureArrayStore("servicePartnerBookings").reduce((sum, item) => sum + numberValue(item.serviceFee, 0), 0);
-    const loanAssistanceCommissionRevenue = ensureArrayStore("loanAssistanceLeads").reduce((sum, item) => sum + numberValue(item.finalCommissionAmount || item.estimatedCommission, 0), 0);
-    const franchisePipelineValue = ensureArrayStore("franchiseRequests").reduce((sum, item) => sum + numberValue(item.initialFeePotential, 0), 0);
+    const documentationServiceFeeRevenue = documentationRequests.reduce((sum, item) => sum + numberValue(item.amount, 0), 0);
+    const ecosystemServiceRevenue = servicePartnerBookings.reduce((sum, item) => sum + numberValue(item.serviceFee, 0), 0);
+    const loanAssistanceCommissionRevenue = loanAssistanceLeads.reduce((sum, item) => sum + numberValue(item.finalCommissionAmount || item.estimatedCommission, 0), 0);
+    const franchisePipelineValue = franchiseRequests.reduce((sum, item) => sum + numberValue(item.initialFeePotential, 0), 0);
     const estimatedCommission = Math.round(properties.filter((item) => normalizeStatus(inferPropertyStatus(item)) === "approved").length * 2500);
     const subscriptionRevenue = sumAmount(paid);
     const totalMonetized = featuredListingRevenue + verifiedBadgeRevenue + subscriptionModelRevenue + agentMembershipRevenue + propertyCareRevenue + legalServiceRevenue + documentationServiceFeeRevenue + ecosystemServiceRevenue + loanAssistanceCommissionRevenue + estimatedCommission;
@@ -866,160 +1016,280 @@ export async function decideCoreAdminOwnerVerification(req, res, next) {
   }
 }
 
-export function listCoreDocumentationRequests(_req, res) {
-  const items = listStoreRows("documentationRequests");
-  return res.json({ success: true, total: items.length, items });
-}
-
-export function updateCoreDocumentationRequestStatus(req, res) {
-  const status = text(req.body?.status);
-  const statusKey = normalizeStatusKey(status);
-  const reason = getAdminReason(req);
-  if (CORE_ADMIN_RISKY_DOC_STATUS.has(statusKey)) {
-    const requiredReason = requireAdminReason(req, res, "Updating documentation request to risky status");
-    if (!requiredReason) return null;
-  }
-  const updated = setStoreStatus("documentationRequests", req.params.requestId, status, {
-    adminNote: joinAdminNote(req.body?.adminNote, reason),
-    moderationReason: text(reason)
-  });
-  if (!updated) return res.status(404).json({ success: false, message: "Documentation request not found." });
-  if (reason) {
-    trackCoreAdminAction(req, {
-      action: "admin-documentation-status-update",
-      targetId: text(req.params.requestId),
-      status,
-      reason
+export async function listCoreDocumentationRequests(_req, res, next) {
+  try {
+    const items = await listServiceRowsRaw({
+      model: CoreDocumentationRequest,
+      storeKey: "documentationRequests",
+      limit: 3000
     });
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
   }
-  notifyCoreServiceStatusUpdate({
-    userId: toId(updated.userId),
-    title: "Documentation Request Updated",
-    message: `Your documentation request is now "${text(updated.status)}".`,
-    category: "documentation",
-    metadata: { requestId: toId(updated.id || updated._id), status: text(updated.status) }
-  }).catch(() => {});
-  return res.json({ success: true, request: updated });
 }
 
-export function listCoreLoanAssistance(_req, res) {
-  const items = listStoreRows("loanAssistanceLeads");
-  return res.json({ success: true, total: items.length, items });
-}
-
-export function updateCoreLoanAssistanceStatus(req, res) {
-  const status = text(req.body?.status);
-  const statusKey = normalizeStatusKey(status);
-  const reason = getAdminReason(req);
-  if (CORE_ADMIN_RISKY_LOAN_STATUS.has(statusKey)) {
-    const requiredReason = requireAdminReason(req, res, "Updating loan assistance to risky status");
-    if (!requiredReason) return null;
-  }
-  const updated = setStoreStatus("loanAssistanceLeads", req.params.leadId, status, {
-    adminNote: joinAdminNote(req.body?.adminNote, reason),
-    moderationReason: text(reason),
-    finalCommissionAmount:
-      typeof req.body?.finalCommissionAmount === "undefined"
-        ? undefined
-        : Math.max(0, numberValue(req.body?.finalCommissionAmount, 0))
-  });
-  if (!updated) return res.status(404).json({ success: false, message: "Loan assistance lead not found." });
-  if (reason) {
-    trackCoreAdminAction(req, {
-      action: "admin-loan-status-update",
-      targetId: text(req.params.leadId),
+export async function updateCoreDocumentationRequestStatus(req, res, next) {
+  try {
+    const status = text(req.body?.status);
+    const statusKey = normalizeStatusKey(status);
+    const reason = getAdminReason(req);
+    if (CORE_ADMIN_RISKY_DOC_STATUS.has(statusKey)) {
+      const requiredReason = requireAdminReason(
+        req,
+        res,
+        "Updating documentation request to risky status"
+      );
+      if (!requiredReason) return null;
+    }
+    const updated = await updateServiceStatus({
+      model: CoreDocumentationRequest,
+      storeKey: "documentationRequests",
+      id: req.params.requestId,
       status,
-      reason
+      extra: {
+        adminNote: joinAdminNote(req.body?.adminNote, reason),
+        moderationReason: text(reason)
+      }
     });
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Documentation request not found." });
+    }
+    if (reason) {
+      trackCoreAdminAction(req, {
+        action: "admin-documentation-status-update",
+        targetId: text(req.params.requestId),
+        status,
+        reason
+      });
+    }
+    notifyCoreServiceStatusUpdate({
+      userId: toId(updated.userId),
+      title: "Documentation Request Updated",
+      message: `Your documentation request is now "${text(updated.status)}".`,
+      category: "documentation",
+      metadata: { requestId: toId(updated.id || updated._id), status: text(updated.status) }
+    }).catch(() => {});
+    return res.json({ success: true, request: updated });
+  } catch (error) {
+    return next(error);
   }
-  notifyCoreServiceStatusUpdate({
-    userId: toId(updated.userId),
-    title: "Loan Assistance Updated",
-    message: `Your loan assistance lead is now "${text(updated.status)}".`,
-    category: "loan",
-    metadata: { leadId: toId(updated.id || updated._id), status: text(updated.status) }
-  }).catch(() => {});
-  return res.json({ success: true, lead: updated });
 }
 
-export function listCoreEcosystemBookings(_req, res) {
-  const items = listStoreRows("servicePartnerBookings");
-  return res.json({ success: true, total: items.length, items });
+export async function listCoreLoanAssistance(_req, res, next) {
+  try {
+    const items = await listServiceRowsRaw({
+      model: CoreLoanAssistanceLead,
+      storeKey: "loanAssistanceLeads",
+      limit: 3000
+    });
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
+  }
 }
 
-export function updateCoreEcosystemBookingStatus(req, res) {
-  const status = text(req.body?.status);
-  const statusKey = normalizeStatusKey(status);
-  const reason = getAdminReason(req);
-  if (CORE_ADMIN_RISKY_ECOSYSTEM_STATUS.has(statusKey)) {
-    const requiredReason = requireAdminReason(req, res, "Updating ecosystem booking to risky status");
-    if (!requiredReason) return null;
-  }
-  const updated = setStoreStatus("servicePartnerBookings", req.params.bookingId, status, {
-    adminNote: joinAdminNote(req.body?.adminNote, reason),
-    moderationReason: text(reason)
-  });
-  if (!updated) return res.status(404).json({ success: false, message: "Ecosystem booking not found." });
-  if (reason) {
-    trackCoreAdminAction(req, {
-      action: "admin-ecosystem-booking-status-update",
-      targetId: text(req.params.bookingId),
+export async function updateCoreLoanAssistanceStatus(req, res, next) {
+  try {
+    const status = text(req.body?.status);
+    const statusKey = normalizeStatusKey(status);
+    const reason = getAdminReason(req);
+    if (CORE_ADMIN_RISKY_LOAN_STATUS.has(statusKey)) {
+      const requiredReason = requireAdminReason(
+        req,
+        res,
+        "Updating loan assistance to risky status"
+      );
+      if (!requiredReason) return null;
+    }
+    const updated = await updateServiceStatus({
+      model: CoreLoanAssistanceLead,
+      storeKey: "loanAssistanceLeads",
+      id: req.params.leadId,
       status,
-      reason
+      extra: {
+        adminNote: joinAdminNote(req.body?.adminNote, reason),
+        moderationReason: text(reason),
+        finalCommissionAmount:
+          typeof req.body?.finalCommissionAmount === "undefined"
+            ? undefined
+            : Math.max(0, numberValue(req.body?.finalCommissionAmount, 0))
+      }
     });
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Loan assistance lead not found." });
+    }
+    if (reason) {
+      trackCoreAdminAction(req, {
+        action: "admin-loan-status-update",
+        targetId: text(req.params.leadId),
+        status,
+        reason
+      });
+    }
+    notifyCoreServiceStatusUpdate({
+      userId: toId(updated.userId),
+      title: "Loan Assistance Updated",
+      message: `Your loan assistance lead is now "${text(updated.status)}".`,
+      category: "loan",
+      metadata: { leadId: toId(updated.id || updated._id), status: text(updated.status) }
+    }).catch(() => {});
+    return res.json({ success: true, lead: updated });
+  } catch (error) {
+    return next(error);
   }
-  notifyCoreServiceStatusUpdate({
-    userId: toId(updated.userId),
-    title: "Service Booking Updated",
-    message: `Your service booking is now "${text(updated.status)}".`,
-    category: "ecosystem",
-    metadata: { bookingId: toId(updated.id || updated._id), status: text(updated.status) }
-  }).catch(() => {});
-  return res.json({ success: true, booking: updated });
 }
 
-export function listCoreValuationRequests(_req, res) {
-  const items = listStoreRows("valuationRequests");
-  return res.json({ success: true, total: items.length, items });
-}
-
-export function listCoreRentAgreementDrafts(_req, res) {
-  const items = listStoreRows("rentAgreementDrafts");
-  return res.json({ success: true, total: items.length, items });
-}
-
-export function listCoreFranchiseRequests(_req, res) {
-  const items = listStoreRows("franchiseRequests");
-  return res.json({ success: true, total: items.length, items });
-}
-
-export function updateCoreFranchiseRequestStatus(req, res) {
-  const status = text(req.body?.status);
-  const statusKey = normalizeStatusKey(status);
-  const reason = getAdminReason(req);
-  if (CORE_ADMIN_RISKY_FRANCHISE_STATUS.has(statusKey)) {
-    const requiredReason = requireAdminReason(req, res, "Updating franchise request to risky status");
-    if (!requiredReason) return null;
+export async function listCoreEcosystemBookings(_req, res, next) {
+  try {
+    const items = await listServiceRowsRaw({
+      model: CoreServicePartnerBooking,
+      storeKey: "servicePartnerBookings",
+      limit: 3000
+    });
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
   }
-  const updated = setStoreStatus("franchiseRequests", req.params.requestId, status, {
-    adminNote: joinAdminNote(req.body?.adminNote, reason),
-    moderationReason: text(reason)
-  });
-  if (!updated) return res.status(404).json({ success: false, message: "Franchise request not found." });
-  if (reason) {
-    trackCoreAdminAction(req, {
-      action: "admin-franchise-status-update",
-      targetId: text(req.params.requestId),
+}
+
+export async function updateCoreEcosystemBookingStatus(req, res, next) {
+  try {
+    const status = text(req.body?.status);
+    const statusKey = normalizeStatusKey(status);
+    const reason = getAdminReason(req);
+    if (CORE_ADMIN_RISKY_ECOSYSTEM_STATUS.has(statusKey)) {
+      const requiredReason = requireAdminReason(
+        req,
+        res,
+        "Updating ecosystem booking to risky status"
+      );
+      if (!requiredReason) return null;
+    }
+    const updated = await updateServiceStatus({
+      model: CoreServicePartnerBooking,
+      storeKey: "servicePartnerBookings",
+      id: req.params.bookingId,
       status,
-      reason
+      extra: {
+        adminNote: joinAdminNote(req.body?.adminNote, reason),
+        moderationReason: text(reason)
+      }
     });
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Ecosystem booking not found." });
+    }
+    if (reason) {
+      trackCoreAdminAction(req, {
+        action: "admin-ecosystem-booking-status-update",
+        targetId: text(req.params.bookingId),
+        status,
+        reason
+      });
+    }
+    notifyCoreServiceStatusUpdate({
+      userId: toId(updated.userId),
+      title: "Service Booking Updated",
+      message: `Your service booking is now "${text(updated.status)}".`,
+      category: "ecosystem",
+      metadata: { bookingId: toId(updated.id || updated._id), status: text(updated.status) }
+    }).catch(() => {});
+    return res.json({ success: true, booking: updated });
+  } catch (error) {
+    return next(error);
   }
-  notifyCoreServiceStatusUpdate({
-    userId: toId(updated.userId),
-    title: "Franchise Request Updated",
-    message: `Your franchise request for ${text(updated.city, "your city")} is now "${text(updated.status)}".`,
-    category: "franchise",
-    metadata: { requestId: toId(updated.id || updated._id), status: text(updated.status) }
-  }).catch(() => {});
-  return res.json({ success: true, request: updated });
+}
+
+export async function listCoreValuationRequests(_req, res, next) {
+  try {
+    const items = await listServiceRowsRaw({
+      model: CoreValuationRequest,
+      storeKey: "valuationRequests",
+      limit: 3000
+    });
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCoreRentAgreementDrafts(_req, res, next) {
+  try {
+    const items = await listServiceRowsRaw({
+      model: CoreRentAgreementDraft,
+      storeKey: "rentAgreementDrafts",
+      limit: 3000
+    });
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCoreFranchiseRequests(_req, res, next) {
+  try {
+    const items = await listServiceRowsRaw({
+      model: CoreFranchiseRequest,
+      storeKey: "franchiseRequests",
+      limit: 3000
+    });
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateCoreFranchiseRequestStatus(req, res, next) {
+  try {
+    const status = text(req.body?.status);
+    const statusKey = normalizeStatusKey(status);
+    const reason = getAdminReason(req);
+    if (CORE_ADMIN_RISKY_FRANCHISE_STATUS.has(statusKey)) {
+      const requiredReason = requireAdminReason(
+        req,
+        res,
+        "Updating franchise request to risky status"
+      );
+      if (!requiredReason) return null;
+    }
+    const updated = await updateServiceStatus({
+      model: CoreFranchiseRequest,
+      storeKey: "franchiseRequests",
+      id: req.params.requestId,
+      status,
+      extra: {
+        adminNote: joinAdminNote(req.body?.adminNote, reason),
+        moderationReason: text(reason)
+      }
+    });
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Franchise request not found." });
+    }
+    if (reason) {
+      trackCoreAdminAction(req, {
+        action: "admin-franchise-status-update",
+        targetId: text(req.params.requestId),
+        status,
+        reason
+      });
+    }
+    notifyCoreServiceStatusUpdate({
+      userId: toId(updated.userId),
+      title: "Franchise Request Updated",
+      message: `Your franchise request for ${text(updated.city, "your city")} is now "${text(updated.status)}".`,
+      category: "franchise",
+      metadata: { requestId: toId(updated.id || updated._id), status: text(updated.status) }
+    }).catch(() => {});
+    return res.json({ success: true, request: updated });
+  } catch (error) {
+    return next(error);
+  }
 }
