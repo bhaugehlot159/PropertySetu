@@ -1004,6 +1004,117 @@
         return null;
       }
 
+      if (rawPath === '/admin/report' && method === 'GET') {
+        const days = Math.max(1, Math.min(180, numberFrom(query.get('days'), 30)));
+        const [overviewResult, commissionResult] = await Promise.allSettled([
+          requestJson(CORE_API_BASE, '/admin/overview', {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }),
+          requestJson(CORE_API_BASE, '/admin/commission-analytics', {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }),
+        ]);
+
+        const overview = overviewResult.status === 'fulfilled'
+          ? toObject(overviewResult.value?.overview)
+          : {};
+        const commission = commissionResult.status === 'fulfilled'
+          ? toObject(commissionResult.value?.analytics)
+          : {};
+
+        return {
+          ok: true,
+          success: true,
+          days,
+          generatedAt: new Date().toISOString(),
+          overview,
+          commission,
+        };
+      }
+
+      if (rawPath.startsWith('/uploads/')) {
+        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
+        return requestJson(CORE_API_BASE, forwardPath, {
+          method,
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
+        });
+      }
+
+      if (rawPath.startsWith('/owner-verification')) {
+        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
+        return requestJson(CORE_API_BASE, forwardPath, {
+          method,
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
+        });
+      }
+
+      if (rawPath.startsWith('/property-care')) {
+        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
+        return requestJson(CORE_API_BASE, forwardPath, {
+          method,
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
+        });
+      }
+
+      if (rawPath === '/reports' && method === 'POST') {
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, '/reports', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: {
+            propertyId: text(payload.propertyId),
+            propertyTitle: text(payload.propertyTitle),
+            reason: text(payload.reason),
+          },
+        });
+      }
+
+      if (rawPath === '/reports/mine' && method === 'GET') {
+        const limit = text(query.get('limit'));
+        return requestJson(
+          CORE_API_BASE,
+          `/reports/mine${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      if (rawPath === '/recommendations' && method === 'GET') {
+        return requestJson(
+          CORE_API_BASE,
+          `/ai/recommendations${rawQuery ? `?${rawQuery}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      if (rawPath.startsWith('/ai/')) {
+        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
+        return requestJson(CORE_API_BASE, forwardPath, {
+          method,
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
+        });
+      }
+
       if (
         rawPath.startsWith('/admin')
         || rawPath.startsWith('/documentation')

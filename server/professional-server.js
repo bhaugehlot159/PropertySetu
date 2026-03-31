@@ -37,6 +37,7 @@ import coreOwnerVerificationRoutes from "./v3/routes/coreOwnerVerificationRoutes
 import coreNotificationRoutes from "./v3/routes/coreNotificationRoutes.js";
 import corePropertyRoutes from "./v3/routes/corePropertyRoutes.js";
 import corePropertyCareRoutes from "./v3/routes/corePropertyCareRoutes.js";
+import coreReportRoutes from "./v3/routes/coreReportRoutes.js";
 import coreReviewRoutes from "./v3/routes/coreReviewRoutes.js";
 import coreSystemRoutes from "./v3/routes/coreSystemRoutes.js";
 import coreSeoRoutes from "./v3/routes/coreSeoRoutes.js";
@@ -114,6 +115,7 @@ app.use(`${apiV3Prefix}/chat`, coreChatRoutes);
 app.use(`${apiV3Prefix}/uploads`, coreUploadRoutes);
 app.use(`${apiV3Prefix}/owner-verification`, coreOwnerVerificationRoutes);
 app.use(`${apiV3Prefix}/property-care`, corePropertyCareRoutes);
+app.use(`${apiV3Prefix}/reports`, coreReportRoutes);
 app.use(`${apiV3Prefix}/visits`, coreVisitRoutes);
 app.use(`${apiV3Prefix}/wishlist`, coreWishlistRoutes);
 app.use(`${apiV3Prefix}/notifications`, coreNotificationRoutes);

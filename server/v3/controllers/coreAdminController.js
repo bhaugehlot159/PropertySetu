@@ -5,6 +5,7 @@ import CoreFranchiseRequest from "../models/CoreFranchiseRequest.js";
 import CoreLoanAssistanceLead from "../models/CoreLoanAssistanceLead.js";
 import CoreOwnerVerification from "../models/CoreOwnerVerification.js";
 import CoreProperty from "../models/CoreProperty.js";
+import CoreReport from "../models/CoreReport.js";
 import CoreRentAgreementDraft from "../models/CoreRentAgreementDraft.js";
 import CoreServicePartnerBooking from "../models/CoreServicePartnerBooking.js";
 import CoreSubscription from "../models/CoreSubscription.js";
@@ -183,16 +184,57 @@ function sumAmount(items = []) {
   return (items || []).reduce((sum, item) => sum + numberValue(item.amount, 0), 0);
 }
 
-function listReportsRaw() {
+function normalizeReportRow(item = {}) {
+  const id = text(item.id || item._id);
+  return {
+    ...item,
+    id,
+    _id: id,
+    propertyId: toId(item.propertyId),
+    propertyTitle: text(item.propertyTitle),
+    reason: text(item.reason),
+    status: text(item.status, "open"),
+    createdAt: asIso(item.createdAt),
+    updatedAt: asIso(item.updatedAt),
+    resolvedAt: asIso(item.resolvedAt),
+    resolvedReason: text(item.resolvedReason),
+    resolvedBy: toId(item.resolvedBy),
+    userId: toId(item.userId)
+  };
+}
+
+async function listReportsRaw(limit = 3000) {
+  const safeLimit = Math.min(5000, Math.max(1, numberValue(limit, 1000)));
   const primary = ensureArrayStore("coreReports");
   const legacy = ensureArrayStore("reports");
-  const map = new Map();
-  [...primary, ...legacy].forEach((item) => {
-    const id = text(item.id || item._id);
-    if (!id) return;
-    map.set(id, item);
-  });
-  return [...map.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const memoryRows = [...primary, ...legacy]
+    .map((item) => normalizeReportRow(item))
+    .filter((item) => Boolean(item.id));
+
+  if (!proRuntime.dbConnected) {
+    return memoryRows
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, safeLimit);
+  }
+
+  try {
+    const dbRowsRaw = await CoreReport.find({})
+      .sort({ createdAt: -1 })
+      .limit(safeLimit)
+      .lean();
+    const merged = new Map();
+    [...dbRowsRaw.map((item) => normalizeReportRow(item)), ...memoryRows].forEach((item) => {
+      if (!item.id || merged.has(item.id)) return;
+      merged.set(item.id, item);
+    });
+    return [...merged.values()]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, safeLimit);
+  } catch {
+    return memoryRows
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, safeLimit);
+  }
 }
 
 function toCoreAdminAuditId(row = {}) {
@@ -521,6 +563,7 @@ export async function getCoreAdminOverview(_req, res, next) {
         limit: 5000
       })
     ]);
+    const reports = await listReportsRaw(5000);
     const normalizedProperties = properties.map((item) => normalizeAdminProperty(item));
     const nowTime = Date.now();
     const activeSubs = subscriptions.filter((item) => {
@@ -545,7 +588,7 @@ export async function getCoreAdminOverview(_req, res, next) {
         valuationRequests: valuationRequests.length,
         rentAgreementDrafts: rentAgreementDrafts.length,
         franchiseRequests: franchiseRequests.length,
-        reports: listReportsRaw().length,
+        reports: reports.length,
         activeSubs: activeSubs.length,
         totalBids: ensureArrayStore("coreSealedBids").length + ensureArrayStore("sealedBids").length
       }
@@ -739,17 +782,22 @@ export async function updateCoreAdminUserBlock(req, res, next) {
   }
 }
 
-export function listCoreAdminReports(_req, res) {
-  const items = listReportsRaw().map((item) => ({
-    id: text(item.id || item._id),
-    propertyId: text(item.propertyId),
-    propertyTitle: text(item.propertyTitle),
-    reason: text(item.reason),
-    status: text(item.status, "open"),
-    createdAt: asIso(item.createdAt),
-    resolvedAt: asIso(item.resolvedAt)
-  }));
-  return res.json({ success: true, total: items.length, items });
+export async function listCoreAdminReports(_req, res, next) {
+  try {
+    const rows = await listReportsRaw(3000);
+    const items = rows.map((item) => ({
+      id: text(item.id || item._id),
+      propertyId: text(item.propertyId),
+      propertyTitle: text(item.propertyTitle),
+      reason: text(item.reason),
+      status: text(item.status, "open"),
+      createdAt: asIso(item.createdAt),
+      resolvedAt: asIso(item.resolvedAt)
+    }));
+    return res.json({ success: true, total: items.length, items });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function listCoreAdminActionAudit(req, res, next) {
@@ -798,35 +846,95 @@ export async function listCoreAdminActionAudit(req, res, next) {
   }
 }
 
-export function resolveCoreAdminReport(req, res) {
-  const reportId = text(req.params.reportId);
-  if (!reportId) return res.status(400).json({ success: false, message: "reportId is required." });
-  const reason = requireAdminReason(req, res, "Resolving report");
-  if (!reason) return null;
-  const coreReports = ensureArrayStore("coreReports");
-  const legacyReports = ensureArrayStore("reports");
-  let updated = null;
-  [coreReports, legacyReports].forEach((rows) => {
-    const index = rows.findIndex((item) => text(item.id || item._id) === reportId);
-    if (index >= 0) {
-      rows[index] = {
-        ...rows[index],
-        status: "resolved",
-        resolvedAt: new Date().toISOString(),
-        resolvedReason: reason,
-        updatedAt: new Date().toISOString()
-      };
-      updated = rows[index];
+export async function resolveCoreAdminReport(req, res, next) {
+  try {
+    const reportId = text(req.params.reportId);
+    if (!reportId) {
+      return res.status(400).json({ success: false, message: "reportId is required." });
     }
-  });
-  if (!updated) return res.status(404).json({ success: false, message: "Report not found." });
-  trackCoreAdminAction(req, {
-    action: "admin-report-resolve",
-    targetId: reportId,
-    status: "success",
-    reason
-  });
-  return res.json({ success: true, report: updated });
+    const reason = requireAdminReason(req, res, "Resolving report");
+    if (!reason) return null;
+
+    const now = new Date();
+    const resolvedBy = toId(req.coreUser?.id);
+    const reportIdAsObjectId = mongoose.Types.ObjectId.isValid(reportId);
+
+    let dbRow = null;
+    if (proRuntime.dbConnected && reportIdAsObjectId) {
+      const dbPatch = {
+        status: "resolved",
+        resolvedAt: now,
+        resolvedReason: reason
+      };
+      if (resolvedBy && mongoose.Types.ObjectId.isValid(resolvedBy)) {
+        dbPatch.resolvedBy = resolvedBy;
+      }
+      dbRow = await CoreReport.findByIdAndUpdate(
+        reportId,
+        { $set: dbPatch },
+        { new: true }
+      ).lean();
+    }
+
+    const patchMemoryRows = (rows = []) => {
+      let localUpdated = null;
+      rows.forEach((item, index) => {
+        const rowId = text(item.id || item._id);
+        if (!rowId) return;
+        if (rowId !== reportId && toId(rowId) !== reportId) return;
+        rows[index] = {
+          ...item,
+          status: "resolved",
+          resolvedAt: now.toISOString(),
+          resolvedReason: reason,
+          ...(resolvedBy ? { resolvedBy } : {}),
+          updatedAt: now.toISOString()
+        };
+        localUpdated = rows[index];
+      });
+      return localUpdated;
+    };
+
+    const coreReports = ensureArrayStore("coreReports");
+    const legacyReports = ensureArrayStore("reports");
+    const coreUpdated = patchMemoryRows(coreReports);
+    const legacyUpdated = patchMemoryRows(legacyReports);
+    const memoryUpdated = coreUpdated || legacyUpdated;
+
+    if (!dbRow && !memoryUpdated) {
+      return res.status(404).json({ success: false, message: "Report not found." });
+    }
+
+    const normalized = normalizeReportRow(dbRow || memoryUpdated || {});
+    if (normalized.id) {
+      const index = coreReports.findIndex(
+        (item) => text(item.id || item._id) === normalized.id
+      );
+      if (index >= 0) {
+        coreReports[index] = {
+          ...coreReports[index],
+          ...normalized
+        };
+      } else {
+        coreReports.unshift(normalized);
+      }
+      if (coreReports.length > 3000) coreReports.length = 3000;
+    }
+
+    trackCoreAdminAction(req, {
+      action: "admin-report-resolve",
+      targetId: reportId,
+      status: "success",
+      reason
+    });
+    return res.json({
+      success: true,
+      source: dbRow ? "mongodb" : "memory",
+      report: normalized
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function getCoreAdminCommissionAnalytics(_req, res, next) {
