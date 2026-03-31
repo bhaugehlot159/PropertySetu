@@ -1,5 +1,11 @@
 import { Router } from "express";
 import {
+  batchReadCoreClientState,
+  batchWriteCoreClientState,
+  getCoreClientState,
+  updateCoreClientState
+} from "../controllers/coreClientStateController.js";
+import {
   applyCoreSystemSecurityControlProfile,
   getCoreSystemArchitecturePlan,
   getCoreSystemStackOptions,
@@ -36,6 +42,10 @@ router.get("/stack-readiness", getCoreSystemStackReadiness);
 router.get("/database-structure", getCoreSystemDatabaseStructure);
 router.get("/core-systems", getCoreSystemBlueprint);
 router.get("/execution-plan", getCoreSystemExecutionPlan);
+router.get("/client-state", coreAuthRequired, getCoreClientState);
+router.patch("/client-state", coreAuthRequired, updateCoreClientState);
+router.post("/client-state/batch-read", coreAuthRequired, batchReadCoreClientState);
+router.patch("/client-state/batch-write", coreAuthRequired, batchWriteCoreClientState);
 router.get("/security-audit", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemSecurityAudit);
 router.get("/security-intelligence", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemSecurityIntelligence);
 router.get("/security-control", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemSecurityControl);

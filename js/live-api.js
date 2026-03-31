@@ -35,8 +35,33 @@
     || readStorageFlag(DEMO_FALLBACK_KEY)
   );
   const strictRealMode = !allowDemoFallback;
+  const REMOTE_STATE_PREFIX = 'propertysetu:';
+  const REMOTE_STATE_MAX_BATCH = 24;
+  const REMOTE_STATE_EXCLUDED_KEYS = new Set([
+    LISTINGS_KEY.toLowerCase(),
+    DEMO_FALLBACK_KEY.toLowerCase(),
+    'propertysetu:notifications:ping',
+    'propertysetu:notified',
+  ]);
+  const REMOTE_STATE_BOOTSTRAP_KEYS = [
+    'propertySetu:auctionState',
+    'propertySetu:auctionBids',
+    'propertySetu:auctionPrefs',
+    'propertySetu:auctionWatchlist',
+    'propertySetu:auctionAudit',
+    'propertySetu:auctionAdminPrefs',
+    'propertySetu:auctionAdminAudit',
+    'propertySetu:auctionSettlementSla',
+    'propertySetu:auctionPayoutReconciliation',
+    'propertySetu:auctionTimeline',
+  ];
+  const remoteStateHydratedKeys = new Set();
+  const remoteStateHydrationInFlight = new Set();
+  const remoteStateWriteQueue = new Map();
+  let remoteStateFlushTimer = null;
+  let remoteStateBootstrapped = false;
 
-  const readJson = (key, fallback) => {
+  const readLocalJson = (key, fallback) => {
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
@@ -45,12 +70,44 @@
     }
   };
 
-  const writeJson = (key, value) => {
+  const writeLocalJson = (key, value) => {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      const safeValue = typeof value === 'undefined' ? null : value;
+      localStorage.setItem(key, JSON.stringify(safeValue));
     } catch {
       // no-op
     }
+  };
+
+  const readSessionTokenRaw = (storageKey) => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return '';
+      const parsed = JSON.parse(raw);
+      return String(parsed?.token || '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const getAnyTokenFromStorage = () => (
+    readSessionTokenRaw(SESSION_KEYS.customer)
+    || readSessionTokenRaw(SESSION_KEYS.admin)
+    || readSessionTokenRaw(SESSION_KEYS.seller)
+    || ''
+  );
+
+  const readJson = (key, fallback) => {
+    const normalizedKey = String(key || '');
+    const value = readLocalJson(normalizedKey, fallback);
+    maybeHydrateRemoteStateForKey(normalizedKey);
+    return value;
+  };
+
+  const writeJson = (key, value) => {
+    const normalizedKey = String(key || '');
+    writeLocalJson(normalizedKey, value);
+    queueRemoteStateWrite(normalizedKey, value);
   };
 
   const text = (value, fallback = '') => {
@@ -146,6 +203,158 @@
       clearTimeout(timer);
     }
   };
+
+  const shouldRemoteSyncKey = (key) => {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (!normalized || !normalized.startsWith(REMOTE_STATE_PREFIX)) return false;
+    if (REMOTE_STATE_EXCLUDED_KEYS.has(normalized)) return false;
+    return true;
+  };
+
+  const resolveRemoteStateScope = (key) => {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (normalized.startsWith('propertysetu:auction')) return 'global';
+    return 'user';
+  };
+
+  const markRemoteStateHydrated = (key) => {
+    const normalized = String(key || '').trim();
+    if (!normalized) return;
+    remoteStateHydratedKeys.add(normalized);
+  };
+
+  async function hydrateRemoteStateForKey(key) {
+    const normalizedKey = String(key || '').trim();
+    if (!shouldRemoteSyncKey(normalizedKey)) return;
+    const token = getAnyTokenFromStorage();
+    if (!token) return;
+    if (remoteStateHydratedKeys.has(normalizedKey)) return;
+    if (remoteStateHydrationInFlight.has(normalizedKey)) return;
+
+    remoteStateHydrationInFlight.add(normalizedKey);
+    try {
+      const scope = resolveRemoteStateScope(normalizedKey);
+      const response = await requestJson(
+        CORE_API_BASE,
+        `/system/client-state?key=${encodeURIComponent(normalizedKey)}&scope=${encodeURIComponent(scope)}`,
+        {
+          method: 'GET',
+          token,
+          timeoutMs: 9000,
+        }
+      );
+      if (response?.success && response?.exists) {
+        writeLocalJson(normalizedKey, response.value);
+      }
+      markRemoteStateHydrated(normalizedKey);
+    } catch {
+      // Keep local behavior if remote state API is temporarily unavailable.
+    } finally {
+      remoteStateHydrationInFlight.delete(normalizedKey);
+    }
+  }
+
+  async function hydrateRemoteStateBatch() {
+    if (remoteStateBootstrapped) return;
+    const token = getAnyTokenFromStorage();
+    if (!token) return;
+    const requests = REMOTE_STATE_BOOTSTRAP_KEYS
+      .filter((key) => shouldRemoteSyncKey(key))
+      .map((key) => ({
+        key,
+        scope: resolveRemoteStateScope(key),
+      }))
+      .slice(0, REMOTE_STATE_MAX_BATCH);
+    if (!requests.length) {
+      remoteStateBootstrapped = true;
+      return;
+    }
+
+    remoteStateBootstrapped = true;
+    try {
+      const response = await requestJson(CORE_API_BASE, '/system/client-state/batch-read', {
+        method: 'POST',
+        token,
+        timeoutMs: 12000,
+        data: { requests },
+      });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      items.forEach((item) => {
+        const key = String(item?.key || '').trim();
+        if (!key) return;
+        if (item?.exists) {
+          writeLocalJson(key, item.value);
+        }
+        markRemoteStateHydrated(key);
+      });
+    } catch {
+      // non-blocking
+    }
+  }
+
+  function maybeHydrateRemoteStateForKey(key) {
+    if (!shouldRemoteSyncKey(key)) return;
+    hydrateRemoteStateBatch().catch(() => {});
+    hydrateRemoteStateForKey(key).catch(() => {});
+  }
+
+  async function flushRemoteStateWrites() {
+    if (!remoteStateWriteQueue.size) return;
+    const token = getAnyTokenFromStorage();
+    if (!token) return;
+
+    const batch = [...remoteStateWriteQueue.values()].slice(0, REMOTE_STATE_MAX_BATCH);
+    batch.forEach((item) => remoteStateWriteQueue.delete(item.key));
+    if (!batch.length) return;
+
+    try {
+      await requestJson(CORE_API_BASE, '/system/client-state/batch-write', {
+        method: 'PATCH',
+        token,
+        timeoutMs: 12000,
+        data: {
+          items: batch.map((item) => ({
+            key: item.key,
+            scope: item.scope,
+            value: item.value,
+          })),
+        },
+      });
+      batch.forEach((item) => markRemoteStateHydrated(item.key));
+    } catch {
+      batch.forEach((item) => {
+        if (!remoteStateWriteQueue.has(item.key)) {
+          remoteStateWriteQueue.set(item.key, item);
+        }
+      });
+    } finally {
+      if (remoteStateWriteQueue.size) {
+        scheduleRemoteStateFlush();
+      }
+    }
+  }
+
+  function scheduleRemoteStateFlush() {
+    if (remoteStateFlushTimer) return;
+    remoteStateFlushTimer = window.setTimeout(() => {
+      remoteStateFlushTimer = null;
+      flushRemoteStateWrites().catch(() => {});
+    }, 600);
+  }
+
+  function queueRemoteStateWrite(key, value) {
+    const normalizedKey = String(key || '').trim();
+    if (!shouldRemoteSyncKey(normalizedKey)) return;
+    const token = getAnyTokenFromStorage();
+    if (!token) return;
+
+    remoteStateWriteQueue.set(normalizedKey, {
+      key: normalizedKey,
+      scope: resolveRemoteStateScope(normalizedKey),
+      value: typeof value === 'undefined' ? null : value,
+    });
+    scheduleRemoteStateFlush();
+  }
 
   const toCoreRole = (role) => {
     const raw = text(role).toLowerCase();

@@ -18,6 +18,7 @@ export const proMemoryStore = {
   corePrivateDocShieldBlocks: [],
   corePrivateDocIntegrityDecisionAudits: [],
   corePrivateDocCryptoControlAudits: [],
+  coreClientStateRecords: [],
   corePrivateDocThreatPolicy: {},
   corePrivateDocThreatPolicyApprovalRequest: {},
   coreOwnerVerificationRequests: [],
