@@ -265,6 +265,7 @@ export const coreSystemsBlueprint = [
       "Reason-bound dual signatures: strict admin mode enforces reason-integrity-bound override signatures while optional legacy signatures can stay enabled for staged migration",
       "Adaptive per-scope API rate limiter with progressive temporary block escalation for repeat offenders",
       "Admin-controlled rate-limiter control plane with scope policy overrides and emergency reset support",
+      "MongoDB-persisted admin high-risk action audit feed with memory fallback for continuity",
       "Private-doc access token crypto key rotation control with key-id bound signing/encryption, dual-admin approval for high-risk changes, and legacy token compatibility guard",
       "Tamper-evident private-doc crypto control audit chain with verification endpoint"
     ],
@@ -295,6 +296,7 @@ export const coreSystemsBlueprint = [
       "/api/v3/system/security-intelligence/quarantine",
       "/api/v3/system/rate-limiter-control",
       "/api/v3/system/rate-limiter-control/reset",
+      "/api/v3/admin/action-audit",
       "/api/v3/system/private-doc-crypto-control",
       "/api/v3/system/private-doc-crypto-control/audit",
       "/api/v3/system/private-doc-crypto-control/reset"

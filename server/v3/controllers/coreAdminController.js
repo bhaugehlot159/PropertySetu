@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import CoreAdminActionAudit from "../models/CoreAdminActionAudit.js";
 import CoreOwnerVerification from "../models/CoreOwnerVerification.js";
 import CoreProperty from "../models/CoreProperty.js";
 import CoreSubscription from "../models/CoreSubscription.js";
@@ -188,12 +189,62 @@ function listReportsRaw() {
   return [...map.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-function listCoreAdminActionAuditRaw() {
-  return [...ensureArrayStore("coreAdminActionAudit")].sort(
-    (a, b) =>
-      new Date(b.createdAt || b.updatedAt || 0).getTime() -
-      new Date(a.createdAt || a.updatedAt || 0).getTime()
-  );
+function toCoreAdminAuditId(row = {}) {
+  return text(row.id || row.auditId || row._id);
+}
+
+function normalizeCoreAdminAuditRow(row = {}) {
+  return {
+    id: toCoreAdminAuditId(row),
+    action: text(row.action),
+    targetId: text(row.targetId),
+    status: text(row.status, "success"),
+    severity: text(row.severity, "high"),
+    reason: text(row.reason).replace(/\s+/g, " ").slice(0, 300),
+    metadata:
+      row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? row.metadata
+        : {},
+    adminId: toId(row.adminId),
+    adminRole: text(row.adminRole, "admin"),
+    clientIp: text(row.clientIp),
+    userAgent: text(row.userAgent).slice(0, 180),
+    createdAt: asIso(row.createdAt || row.occurredAt),
+    occurredAt: asIso(row.occurredAt || row.createdAt)
+  };
+}
+
+async function listCoreAdminActionAuditRaw(limit = CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS) {
+  const safeLimit = Math.min(CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS, Math.max(1, numberValue(limit, 200)));
+  const memoryRows = [...ensureArrayStore("coreAdminActionAudit")]
+    .map((item) => normalizeCoreAdminAuditRow(item))
+    .filter((item) => Boolean(item.id));
+
+  if (!proRuntime.dbConnected) {
+    return memoryRows
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, safeLimit);
+  }
+
+  try {
+    const dbRowsRaw = await CoreAdminActionAudit.find({})
+      .sort({ occurredAt: -1, createdAt: -1 })
+      .limit(safeLimit)
+      .lean();
+    const merged = new Map();
+    [...dbRowsRaw.map((item) => normalizeCoreAdminAuditRow(item)), ...memoryRows].forEach((item) => {
+      const id = toCoreAdminAuditId(item);
+      if (!id || merged.has(id)) return;
+      merged.set(id, item);
+    });
+    return [...merged.values()]
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, safeLimit);
+  } catch {
+    return memoryRows
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, safeLimit);
+  }
 }
 
 async function listCoreUsersRaw(limit = 200) {
@@ -283,13 +334,13 @@ function joinAdminNote(adminNote = "", reason = "") {
 
 function trackCoreAdminAction(req, payload = {}) {
   const rows = ensureArrayStore("coreAdminActionAudit");
-  rows.unshift({
+  const auditRow = normalizeCoreAdminAuditRow({
     id: `admin-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     action: text(payload.action),
     targetId: text(payload.targetId),
     status: text(payload.status),
     severity: text(payload.severity, "high"),
-    reason: text(payload.reason).replace(/\s+/g, " ").slice(0, 300),
+    reason: text(payload.reason),
     metadata:
       payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
         ? payload.metadata
@@ -298,10 +349,31 @@ function trackCoreAdminAction(req, payload = {}) {
     adminRole: text(req?.coreUser?.role, "admin"),
     clientIp: getClientIp(req),
     userAgent: text(req?.headers?.["user-agent"]).slice(0, 180),
+    occurredAt: new Date().toISOString(),
     createdAt: new Date().toISOString()
   });
+  rows.unshift(auditRow);
   if (rows.length > CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS) {
     rows.length = CORE_ADMIN_ACTION_AUDIT_MAX_ITEMS;
+  }
+
+  if (proRuntime.dbConnected) {
+    const adminId = toId(req?.coreUser?.id);
+    const adminObjectId = mongoose.Types.ObjectId.isValid(adminId) ? adminId : null;
+    CoreAdminActionAudit.create({
+      auditId: auditRow.id,
+      action: auditRow.action,
+      targetId: auditRow.targetId,
+      status: auditRow.status,
+      severity: auditRow.severity,
+      reason: auditRow.reason,
+      metadata: auditRow.metadata,
+      adminId: adminObjectId,
+      adminRole: auditRow.adminRole,
+      clientIp: auditRow.clientIp,
+      userAgent: auditRow.userAgent,
+      occurredAt: auditRow.createdAt || new Date().toISOString()
+    }).catch(() => {});
   }
 }
 
@@ -557,60 +629,50 @@ export function listCoreAdminReports(_req, res) {
   return res.json({ success: true, total: items.length, items });
 }
 
-export function listCoreAdminActionAudit(req, res) {
-  const limit = Math.min(1000, Math.max(1, numberValue(req.query.limit, 200)));
-  const actionFilter = normalizeStatus(text(req.query.action));
-  const targetFilter = normalizeStatus(text(req.query.targetId || req.query.target));
-  const statusFilter = normalizeStatus(text(req.query.status));
-  const severityFilter = normalizeStatus(text(req.query.severity));
+export async function listCoreAdminActionAudit(req, res, next) {
+  try {
+    const limit = Math.min(1000, Math.max(1, numberValue(req.query.limit, 200)));
+    const actionFilter = normalizeStatus(text(req.query.action));
+    const targetFilter = normalizeStatus(text(req.query.targetId || req.query.target));
+    const statusFilter = normalizeStatus(text(req.query.status));
+    const severityFilter = normalizeStatus(text(req.query.severity));
 
-  let items = listCoreAdminActionAuditRaw().map((item) => ({
-    id: text(item.id || item._id),
-    action: text(item.action),
-    targetId: text(item.targetId),
-    status: text(item.status, "success"),
-    severity: text(item.severity, "high"),
-    reason: text(item.reason),
-    adminId: text(item.adminId),
-    adminRole: text(item.adminRole, "admin"),
-    clientIp: text(item.clientIp),
-    userAgent: text(item.userAgent),
-    createdAt: asIso(item.createdAt),
-    metadata:
-      item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
-        ? item.metadata
-        : {}
-  }));
+    let items = (await listCoreAdminActionAuditRaw(limit)).map((item) =>
+      normalizeCoreAdminAuditRow(item)
+    );
 
-  if (actionFilter) {
-    items = items.filter((item) => normalizeStatus(item.action).includes(actionFilter));
-  }
-  if (targetFilter) {
-    items = items.filter((item) => normalizeStatus(item.targetId).includes(targetFilter));
-  }
-  if (statusFilter) {
-    items = items.filter((item) => normalizeStatus(item.status) === statusFilter);
-  }
-  if (severityFilter) {
-    items = items.filter((item) => normalizeStatus(item.severity) === severityFilter);
-  }
+    if (actionFilter) {
+      items = items.filter((item) => normalizeStatus(item.action).includes(actionFilter));
+    }
+    if (targetFilter) {
+      items = items.filter((item) => normalizeStatus(item.targetId).includes(targetFilter));
+    }
+    if (statusFilter) {
+      items = items.filter((item) => normalizeStatus(item.status) === statusFilter);
+    }
+    if (severityFilter) {
+      items = items.filter((item) => normalizeStatus(item.severity) === severityFilter);
+    }
 
-  const summary = {
-    success: items.filter((item) => normalizeStatus(item.status) === "success").length,
-    errors: items.filter((item) => normalizeStatus(item.status) !== "success").length,
-    critical: items.filter((item) => normalizeStatus(item.severity) === "critical").length,
-    high: items.filter((item) => normalizeStatus(item.severity) === "high").length,
-    medium: items.filter((item) => normalizeStatus(item.severity) === "medium").length,
-    low: items.filter((item) => normalizeStatus(item.severity) === "low").length
-  };
+    const summary = {
+      success: items.filter((item) => normalizeStatus(item.status) === "success").length,
+      errors: items.filter((item) => normalizeStatus(item.status) !== "success").length,
+      critical: items.filter((item) => normalizeStatus(item.severity) === "critical").length,
+      high: items.filter((item) => normalizeStatus(item.severity) === "high").length,
+      medium: items.filter((item) => normalizeStatus(item.severity) === "medium").length,
+      low: items.filter((item) => normalizeStatus(item.severity) === "low").length
+    };
 
-  return res.json({
-    success: true,
-    total: items.length,
-    limit,
-    summary,
-    items: items.slice(0, limit)
-  });
+    return res.json({
+      success: true,
+      total: items.length,
+      limit,
+      summary,
+      items: items.slice(0, limit)
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export function resolveCoreAdminReport(req, res) {
