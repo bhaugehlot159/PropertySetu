@@ -3,6 +3,7 @@ import {
   batchReadCoreClientState,
   batchWriteCoreClientState,
   getCoreClientState,
+  listCoreClientState,
   updateCoreClientState
 } from "../controllers/coreClientStateController.js";
 import {
@@ -42,6 +43,7 @@ router.get("/stack-readiness", getCoreSystemStackReadiness);
 router.get("/database-structure", getCoreSystemDatabaseStructure);
 router.get("/core-systems", getCoreSystemBlueprint);
 router.get("/execution-plan", getCoreSystemExecutionPlan);
+router.get("/client-state/list", coreAuthRequired, listCoreClientState);
 router.get("/client-state", coreAuthRequired, getCoreClientState);
 router.patch("/client-state", coreAuthRequired, updateCoreClientState);
 router.post("/client-state/batch-read", coreAuthRequired, batchReadCoreClientState);

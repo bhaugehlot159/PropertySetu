@@ -13,6 +13,10 @@ const CORE_CLIENT_STATE_MAX_BATCH = Math.max(
   1,
   Math.min(100, Number(process.env.CORE_CLIENT_STATE_MAX_BATCH || 40))
 );
+const CORE_CLIENT_STATE_LIST_LIMIT = Math.max(
+  1,
+  Math.min(500, Number(process.env.CORE_CLIENT_STATE_LIST_LIMIT || 120))
+);
 const CORE_CLIENT_STATE_GLOBAL_WRITE_PREFIXES_NON_ADMIN = [
   "propertysetu:auction"
 ];
@@ -82,6 +86,18 @@ function buildStorageKey({ key, scope, userId }) {
   const ownerSegment =
     normalizedScope === "global" ? "global" : toId(userId) || "anonymous";
   return `client-state:${normalizedScope}:${ownerSegment}:${normalizedKey}`;
+}
+
+function buildStoragePrefix({ prefix = "", scope, userId }) {
+  return buildStorageKey({
+    key: text(prefix),
+    scope,
+    userId
+  });
+}
+
+function escapeRegExp(value = "") {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function canWriteGlobalState(role, key) {
@@ -248,6 +264,91 @@ function normalizeBatchWriteItems(rawItems = []) {
   }));
 }
 
+function normalizeListPrefix(raw = "") {
+  const prefix = text(raw);
+  if (!prefix) return { ok: true, prefix: "propertySetu:" };
+  if (prefix.toLowerCase().includes("__proto__")) {
+    return { ok: false, message: "Invalid prefix." };
+  }
+  if (!/^propertysetu:[a-z0-9:_-]*$/i.test(prefix)) {
+    return {
+      ok: false,
+      message: "Invalid prefix. Use propertySetu:* pattern."
+    };
+  }
+  return { ok: true, prefix };
+}
+
+function normalizeListLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return CORE_CLIENT_STATE_LIST_LIMIT;
+  return Math.max(1, Math.min(CORE_CLIENT_STATE_LIST_LIMIT, Math.round(parsed)));
+}
+
+function sortByUpdatedAtDesc(items = []) {
+  return [...items].sort(
+    (a, b) =>
+      new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+  );
+}
+
+async function listClientStateRecords({
+  scope = "user",
+  userId = "",
+  prefix = "propertySetu:",
+  limit = CORE_CLIENT_STATE_LIST_LIMIT
+} = {}) {
+  const normalizedScope = normalizeScope(scope);
+  const ownerId = normalizedScope === "global" ? "" : toId(userId);
+  const storagePrefix = buildStoragePrefix({
+    prefix,
+    scope: normalizedScope,
+    userId: ownerId
+  });
+  const prefixLower = text(prefix).toLowerCase();
+
+  const memoryRows = ensureMemoryStore()
+    .filter((row) => text(row.storageKey).startsWith(storagePrefix))
+    .map((row) =>
+      normalizeRecordValue(row, {
+        scope: normalizedScope,
+        ownerId
+      })
+    )
+    .filter((row) => text(row.key).toLowerCase().startsWith(prefixLower))
+    .map((row) => ({ ...row, source: "memory" }));
+
+  if (!proRuntime.dbConnected) {
+    return sortByUpdatedAtDesc(memoryRows).slice(0, limit);
+  }
+
+  const rows = await CoreRuntimeConfig.find({
+    key: { $regex: `^${escapeRegExp(storagePrefix)}` }
+  })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .lean();
+
+  const dbRows = rows
+    .map((row) =>
+      normalizeRecordValue(row, {
+        scope: normalizedScope,
+        ownerId
+      })
+    )
+    .filter((row) => text(row.key).toLowerCase().startsWith(prefixLower))
+    .map((row) => ({ ...row, source: "mongodb" }));
+
+  const merged = new Map();
+  [...dbRows, ...memoryRows].forEach((row) => {
+    const key = text(row.key);
+    if (!key || merged.has(key)) return;
+    merged.set(key, row);
+  });
+
+  return sortByUpdatedAtDesc([...merged.values()]).slice(0, limit);
+}
+
 export async function getCoreClientState(req, res, next) {
   try {
     const keyValidation = validateStateKey(req.query.key || req.body?.key);
@@ -284,6 +385,50 @@ export async function getCoreClientState(req, res, next) {
       value: row.value,
       updatedAt: row.updatedAt,
       source: row.source
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listCoreClientState(req, res, next) {
+  try {
+    const scope = normalizeScope(req.query.scope || "user");
+    const userId = toId(req.coreUser?.id);
+    const prefixValidation = normalizeListPrefix(req.query.prefix);
+    if (!prefixValidation.ok) {
+      return res
+        .status(400)
+        .json({ success: false, message: prefixValidation.message });
+    }
+    const limit = normalizeListLimit(req.query.limit);
+
+    if (scope === "user" && !userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required for user scope."
+      });
+    }
+
+    const items = await listClientStateRecords({
+      scope,
+      userId,
+      prefix: prefixValidation.prefix,
+      limit
+    });
+
+    return res.json({
+      success: true,
+      total: items.length,
+      scope,
+      prefix: prefixValidation.prefix,
+      items: items.map((item) => ({
+        key: item.key,
+        scope: item.scope,
+        value: item.value,
+        updatedAt: item.updatedAt,
+        source: item.source
+      }))
     });
   } catch (error) {
     return next(error);

@@ -37,28 +37,20 @@
   const strictRealMode = !allowDemoFallback;
   const REMOTE_STATE_PREFIX = 'propertysetu:';
   const REMOTE_STATE_MAX_BATCH = 24;
+  const REMOTE_STATE_LIST_LIMIT = 180;
+  const REMOTE_STATE_SCAN_INTERVAL_MS = 12000;
   const REMOTE_STATE_EXCLUDED_KEYS = new Set([
     LISTINGS_KEY.toLowerCase(),
     DEMO_FALLBACK_KEY.toLowerCase(),
     'propertysetu:notifications:ping',
     'propertysetu:notified',
   ]);
-  const REMOTE_STATE_BOOTSTRAP_KEYS = [
-    'propertySetu:auctionState',
-    'propertySetu:auctionBids',
-    'propertySetu:auctionPrefs',
-    'propertySetu:auctionWatchlist',
-    'propertySetu:auctionAudit',
-    'propertySetu:auctionAdminPrefs',
-    'propertySetu:auctionAdminAudit',
-    'propertySetu:auctionSettlementSla',
-    'propertySetu:auctionPayoutReconciliation',
-    'propertySetu:auctionTimeline',
-  ];
   const remoteStateHydratedKeys = new Set();
   const remoteStateHydrationInFlight = new Set();
+  const remoteStateSyncedHash = new Map();
   const remoteStateWriteQueue = new Map();
   let remoteStateFlushTimer = null;
+  let remoteStateScanTimer = null;
   let remoteStateBootstrapped = false;
 
   const readLocalJson = (key, fallback) => {
@@ -211,6 +203,64 @@
     return true;
   };
 
+  const parseStorageValue = (rawValue) => {
+    if (typeof rawValue !== 'string') return null;
+    try {
+      return JSON.parse(rawValue);
+    } catch {
+      return rawValue;
+    }
+  };
+
+  const serializeStateValue = (value) => {
+    try {
+      return JSON.stringify(typeof value === 'undefined' ? null : value);
+    } catch {
+      return null;
+    }
+  };
+
+  const rememberRemoteSyncedValue = (key, value) => {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) return;
+    const serialized = serializeStateValue(value);
+    if (serialized === null) return;
+    remoteStateSyncedHash.set(normalizedKey, serialized);
+  };
+
+  const collectLocalStorageStateItems = (limit = REMOTE_STATE_MAX_BATCH) => {
+    const rows = [];
+    const maxRows = Math.max(1, Number(limit || REMOTE_STATE_MAX_BATCH));
+    let totalKeys = 0;
+    try {
+      totalKeys = Number(localStorage.length || 0);
+    } catch {
+      return rows;
+    }
+    for (let index = 0; index < totalKeys; index += 1) {
+      let key = '';
+      try {
+        key = String(localStorage.key(index) || '').trim();
+      } catch {
+        key = '';
+      }
+      if (!shouldRemoteSyncKey(key)) continue;
+      let rawValue = null;
+      try {
+        rawValue = localStorage.getItem(key);
+      } catch {
+        rawValue = null;
+      }
+      rows.push({
+        key,
+        scope: resolveRemoteStateScope(key),
+        value: parseStorageValue(rawValue),
+      });
+      if (rows.length >= maxRows) break;
+    }
+    return rows;
+  };
+
   const resolveRemoteStateScope = (key) => {
     const normalized = String(key || '').trim().toLowerCase();
     if (normalized.startsWith('propertysetu:auction')) return 'global';
@@ -222,6 +272,22 @@
     if (!normalized) return;
     remoteStateHydratedKeys.add(normalized);
   };
+
+  async function listRemoteState(scope, prefix = 'propertySetu:', limit = REMOTE_STATE_LIST_LIMIT) {
+    const token = getAnyTokenFromStorage();
+    if (!token) return [];
+    const params = new URLSearchParams({
+      scope: String(scope || 'user'),
+      prefix: String(prefix || 'propertySetu:'),
+      limit: String(Math.max(1, Number(limit || REMOTE_STATE_LIST_LIMIT))),
+    });
+    const response = await requestJson(CORE_API_BASE, `/system/client-state/list?${params.toString()}`, {
+      method: 'GET',
+      token,
+      timeoutMs: 12000,
+    });
+    return Array.isArray(response?.items) ? response.items : [];
+  }
 
   async function hydrateRemoteStateForKey(key) {
     const normalizedKey = String(key || '').trim();
@@ -245,6 +311,7 @@
       );
       if (response?.success && response?.exists) {
         writeLocalJson(normalizedKey, response.value);
+        rememberRemoteSyncedValue(normalizedKey, response.value);
       }
       markRemoteStateHydrated(normalizedKey);
     } catch {
@@ -258,35 +325,23 @@
     if (remoteStateBootstrapped) return;
     const token = getAnyTokenFromStorage();
     if (!token) return;
-    const requests = REMOTE_STATE_BOOTSTRAP_KEYS
-      .filter((key) => shouldRemoteSyncKey(key))
-      .map((key) => ({
-        key,
-        scope: resolveRemoteStateScope(key),
-      }))
-      .slice(0, REMOTE_STATE_MAX_BATCH);
-    if (!requests.length) {
-      remoteStateBootstrapped = true;
-      return;
-    }
-
     remoteStateBootstrapped = true;
     try {
-      const response = await requestJson(CORE_API_BASE, '/system/client-state/batch-read', {
-        method: 'POST',
-        token,
-        timeoutMs: 12000,
-        data: { requests },
-      });
-      const items = Array.isArray(response?.items) ? response.items : [];
+      const [globalItems, userItems] = await Promise.all([
+        listRemoteState('global', 'propertySetu:', REMOTE_STATE_LIST_LIMIT),
+        listRemoteState('user', 'propertySetu:', REMOTE_STATE_LIST_LIMIT),
+      ]);
+      const items = [...globalItems, ...userItems];
       items.forEach((item) => {
         const key = String(item?.key || '').trim();
         if (!key) return;
-        if (item?.exists) {
-          writeLocalJson(key, item.value);
-        }
+        writeLocalJson(key, item.value);
+        rememberRemoteSyncedValue(key, item.value);
         markRemoteStateHydrated(key);
       });
+
+      const localSeedItems = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
+      localSeedItems.forEach((item) => queueRemoteStateWrite(item.key, item.value));
     } catch {
       // non-blocking
     }
@@ -296,6 +351,15 @@
     if (!shouldRemoteSyncKey(key)) return;
     hydrateRemoteStateBatch().catch(() => {});
     hydrateRemoteStateForKey(key).catch(() => {});
+  }
+
+  function scheduleRemoteStateScan() {
+    if (remoteStateScanTimer) return;
+    remoteStateScanTimer = window.setInterval(() => {
+      if (!getAnyTokenFromStorage()) return;
+      const items = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
+      items.forEach((item) => queueRemoteStateWrite(item.key, item.value));
+    }, REMOTE_STATE_SCAN_INTERVAL_MS);
   }
 
   async function flushRemoteStateWrites() {
@@ -320,7 +384,13 @@
           })),
         },
       });
-      batch.forEach((item) => markRemoteStateHydrated(item.key));
+      batch.forEach((item) => {
+        markRemoteStateHydrated(item.key);
+        const serialized = String(item.serialized || serializeStateValue(item.value) || '');
+        if (serialized) {
+          remoteStateSyncedHash.set(item.key, serialized);
+        }
+      });
     } catch {
       batch.forEach((item) => {
         if (!remoteStateWriteQueue.has(item.key)) {
@@ -347,11 +417,17 @@
     if (!shouldRemoteSyncKey(normalizedKey)) return;
     const token = getAnyTokenFromStorage();
     if (!token) return;
+    const safeValue = typeof value === 'undefined' ? null : value;
+    const serialized = serializeStateValue(safeValue);
+    if (serialized === null) return;
+    const lastSynced = remoteStateSyncedHash.get(normalizedKey);
+    if (lastSynced === serialized) return;
 
     remoteStateWriteQueue.set(normalizedKey, {
       key: normalizedKey,
       scope: resolveRemoteStateScope(normalizedKey),
-      value: typeof value === 'undefined' ? null : value,
+      value: safeValue,
+      serialized,
     });
     scheduleRemoteStateFlush();
   }
@@ -1516,6 +1592,26 @@
     myRequests: async () => request('/franchise/requests'),
   };
 
+  if (getAnyTokenFromStorage()) {
+    hydrateRemoteStateBatch().catch(() => {});
+    scheduleRemoteStateScan();
+  }
+
+  window.addEventListener('storage', (event) => {
+    const key = String(event?.key || '').trim();
+    if (!shouldRemoteSyncKey(key)) return;
+    const value = parseStorageValue(event?.newValue);
+    queueRemoteStateWrite(key, value);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      hydrateRemoteStateBatch().catch(() => {});
+      const items = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
+      items.forEach((item) => queueRemoteStateWrite(item.key, item.value));
+    }
+  });
+
   window.PropertySetuLive = {
     API_BASE,
     PRO_API_BASE,
@@ -1539,6 +1635,12 @@
     normalizeApiListing,
     mergeById,
     syncLocalListingsFromApi,
+    syncClientStateNow: async () => {
+      const items = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
+      items.forEach((item) => queueRemoteStateWrite(item.key, item.value));
+      await flushRemoteStateWrites();
+      return { success: true, queued: items.length };
+    },
     properties,
     visits,
     ai,
