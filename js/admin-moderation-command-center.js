@@ -13,6 +13,7 @@
   const REPORT_CACHE_KEY = 'propertySetu:adminReportsCache';
   const PREF_KEY = 'propertySetu:adminModerationPrefs';
   const AUDIT_KEY = 'propertySetu:adminModerationAudit';
+  const AUDIT_REMOTE_CACHE_KEY = 'propertySetu:adminModerationRemoteAudit';
 
   const text = (value, fallback = '') => {
     const normalized = String(value || '').trim();
@@ -151,31 +152,52 @@
     createdAt: text(item.createdAt),
     resolvedAt: text(item.resolvedAt),
   });
+  const normalizeRemoteAudit = (item = {}) => ({
+    id: text(item.id || item._id),
+    action: text(item.action),
+    targetId: text(item.targetId),
+    status: text(item.status, 'success').toLowerCase(),
+    severity: text(item.severity, 'high').toLowerCase(),
+    reason: text(item.reason),
+    adminId: text(item.adminId || item.by, 'admin'),
+    createdAt: text(item.createdAt || item.at),
+    source: 'server',
+  });
 
   const fetchData = async () => {
     const token = getAdminToken();
     let users = [];
     let reports = [];
+    let remoteAudit = [];
 
     if (token && live.request) {
       try {
-        const [usersRes, reportsRes] = await Promise.all([
+        const [usersRes, reportsRes, auditRes] = await Promise.all([
           live.request('/admin/users', { token }),
           live.request('/admin/reports', { token }),
+          live.request('/admin/action-audit?limit=240', { token }),
         ]);
         users = (usersRes?.items || []).map(normalizeUser).filter((row) => row.id);
         reports = (reportsRes?.items || []).map(normalizeReport).filter((row) => row.id);
+        remoteAudit = (auditRes?.items || []).map(normalizeRemoteAudit).filter((row) => row.id);
         writeJson(USER_CACHE_KEY, users);
         writeJson(REPORT_CACHE_KEY, reports);
+        writeJson(AUDIT_REMOTE_CACHE_KEY, remoteAudit);
       } catch {
         users = (Array.isArray(readJson(USER_CACHE_KEY, [])) ? readJson(USER_CACHE_KEY, []) : []).map(normalizeUser).filter((row) => row.id);
         reports = (Array.isArray(readJson(REPORT_CACHE_KEY, [])) ? readJson(REPORT_CACHE_KEY, []) : []).map(normalizeReport).filter((row) => row.id);
+        remoteAudit = (Array.isArray(readJson(AUDIT_REMOTE_CACHE_KEY, [])) ? readJson(AUDIT_REMOTE_CACHE_KEY, []) : [])
+          .map(normalizeRemoteAudit)
+          .filter((row) => row.id);
       }
     } else {
       users = (Array.isArray(readJson(USER_CACHE_KEY, [])) ? readJson(USER_CACHE_KEY, []) : []).map(normalizeUser).filter((row) => row.id);
       reports = (Array.isArray(readJson(REPORT_CACHE_KEY, [])) ? readJson(REPORT_CACHE_KEY, []) : []).map(normalizeReport).filter((row) => row.id);
+      remoteAudit = (Array.isArray(readJson(AUDIT_REMOTE_CACHE_KEY, [])) ? readJson(AUDIT_REMOTE_CACHE_KEY, []) : [])
+        .map(normalizeRemoteAudit)
+        .filter((row) => row.id);
     }
-    return { users, reports };
+    return { users, reports, remoteAudit };
   };
 
   const buildModel = (rawUsers, rawReports) => {
@@ -325,6 +347,32 @@
     return { ok: true, message: 'Report resolved.' };
   };
 
+  const buildAuditFeedRows = () => {
+    const localRows = getAudit().map((row) => ({
+      id: text(row.id),
+      at: text(row.at, nowIso()),
+      by: text(row.by, 'Admin'),
+      action: text(row.action),
+      target: text(row.target),
+      detail: text(row.detail),
+      status: text(row.status, 'ok').toLowerCase(),
+      severity: 'local',
+      source: 'local',
+    }));
+    const serverRows = (Array.isArray(state.remoteAudit) ? state.remoteAudit : []).map((row) => ({
+      id: text(row.id),
+      at: text(row.createdAt, nowIso()),
+      by: text(row.adminId, 'admin'),
+      action: text(row.action),
+      target: text(row.targetId),
+      detail: text(row.reason),
+      status: text(row.status, 'success').toLowerCase(),
+      severity: text(row.severity, 'high').toLowerCase(),
+      source: 'server',
+    }));
+    return [...serverRows, ...localRows].sort((a, b) => epoch(b.at) - epoch(a.at));
+  };
+
   const exportCsv = (users, reports) => {
     const userHeader = ['id', 'name', 'role', 'blocked', 'riskBand', 'riskScore', 'listingCount', 'openReportsByOwner', 'openReportsByReporter', 'createdAt', 'lastLoginAt'];
     const userLines = users.map((row) => [
@@ -338,6 +386,10 @@
       row.id, row.status, row.propertyId, row.propertyTitle, row.ownerId, row.ownerName,
       row.reportedBy, row.reportedByName, row.reason, String(row.ageHours), row.createdAt, row.resolvedAt,
     ].map((cell) => `"${String(cell || '').replace(/"/g, '""')}"`).join(','));
+    const auditHeader = ['id', 'source', 'action', 'target', 'status', 'severity', 'by', 'detail', 'at'];
+    const auditLines = buildAuditFeedRows().slice(0, 300).map((row) => [
+      row.id, row.source, row.action, row.target, row.status, row.severity, row.by, row.detail, row.at,
+    ].map((cell) => `"${String(cell || '').replace(/"/g, '""')}"`).join(','));
 
     const csv = [
       '## USER_MODERATION',
@@ -347,6 +399,10 @@
       '## REPORT_MANAGEMENT',
       reportHeader.join(','),
       ...reportLines,
+      '',
+      '## ACTION_AUDIT',
+      auditHeader.join(','),
+      ...auditLines,
     ].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -468,6 +524,7 @@
   const state = {
     users: [],
     reports: [],
+    remoteAudit: [],
     filteredUsers: [],
     filteredReports: [],
     selectedUserId: '',
@@ -652,16 +709,17 @@
   };
 
   const renderAudit = () => {
-    const rows = getAudit();
+    const rows = buildAuditFeedRows();
     if (!rows.length) {
       ui.audit.innerHTML = '<p style="margin:0;color:#607da8;">No moderation audit entries yet.</p>';
       return;
     }
     ui.audit.innerHTML = rows.slice(0, 40).map((row) => `
 <div class="amcc-audit-item">
-  <b>${escapeHtml(text(row.action).toUpperCase())}</b> - ${escapeHtml(text(row.target, '-'))}<br>
-  ${escapeHtml(text(row.detail))}<br>
-  <small style="color:#6d86a5;">${escapeHtml(shortTime(row.at))} | ${escapeHtml(text(row.by, 'Admin'))}</small>
+  <b>${escapeHtml(text(row.action).toUpperCase())}</b> - ${escapeHtml(text(row.target, '-'))}
+  <span class="amcc-chip ${row.source === 'server' ? 'active' : 'medium'}">${escapeHtml(text(row.source))}</span><br>
+  ${escapeHtml(text(row.detail, '-'))}<br>
+  <small style="color:#6d86a5;">${escapeHtml(shortTime(row.at))} | ${escapeHtml(text(row.by, 'Admin'))} | status=${escapeHtml(text(row.status, '-'))} | severity=${escapeHtml(text(row.severity, '-'))}</small>
 </div>`).join('');
   };
 
@@ -679,8 +737,9 @@
     const model = buildModel(data.users, data.reports);
     state.users = model.userRows;
     state.reports = model.reportRows;
+    state.remoteAudit = Array.isArray(data.remoteAudit) ? data.remoteAudit : [];
     renderAll();
-    if (!options.silent) setStatus(`Moderation board refreshed (${state.filteredUsers.length} users, ${state.filteredReports.length} reports).`, true);
+    if (!options.silent) setStatus(`Moderation board refreshed (${state.filteredUsers.length} users, ${state.filteredReports.length} reports, ${state.remoteAudit.length} server audits).`, true);
   };
 
   const setAutoRefresh = (seconds, options = {}) => {

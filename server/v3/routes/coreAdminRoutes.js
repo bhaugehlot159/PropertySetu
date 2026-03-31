@@ -11,6 +11,7 @@ import {
   getCoreAdminOverview,
   listCoreAdminOwnerVerification,
   listCoreAdminProperties,
+  listCoreAdminActionAudit,
   listCoreAdminReports,
   listCoreAdminUsers,
   listCoreDocumentationRequests,
@@ -57,6 +58,7 @@ router.get("/users", listCoreAdminUsers);
 router.post("/users/:userId/:action", updateCoreAdminUserBlock);
 
 router.get("/reports", listCoreAdminReports);
+router.get("/action-audit", listCoreAdminActionAudit);
 router.post("/reports/:reportId/resolve", resolveCoreAdminReport);
 
 router.get("/commission-analytics", getCoreAdminCommissionAnalytics);

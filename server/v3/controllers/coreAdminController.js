@@ -188,6 +188,14 @@ function listReportsRaw() {
   return [...map.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
+function listCoreAdminActionAuditRaw() {
+  return [...ensureArrayStore("coreAdminActionAudit")].sort(
+    (a, b) =>
+      new Date(b.createdAt || b.updatedAt || 0).getTime() -
+      new Date(a.createdAt || a.updatedAt || 0).getTime()
+  );
+}
+
 async function listCoreUsersRaw(limit = 200) {
   if (proRuntime.dbConnected) {
     return CoreUser.find({}).sort({ createdAt: -1 }).limit(limit).lean();
@@ -547,6 +555,62 @@ export function listCoreAdminReports(_req, res) {
     resolvedAt: asIso(item.resolvedAt)
   }));
   return res.json({ success: true, total: items.length, items });
+}
+
+export function listCoreAdminActionAudit(req, res) {
+  const limit = Math.min(1000, Math.max(1, numberValue(req.query.limit, 200)));
+  const actionFilter = normalizeStatus(text(req.query.action));
+  const targetFilter = normalizeStatus(text(req.query.targetId || req.query.target));
+  const statusFilter = normalizeStatus(text(req.query.status));
+  const severityFilter = normalizeStatus(text(req.query.severity));
+
+  let items = listCoreAdminActionAuditRaw().map((item) => ({
+    id: text(item.id || item._id),
+    action: text(item.action),
+    targetId: text(item.targetId),
+    status: text(item.status, "success"),
+    severity: text(item.severity, "high"),
+    reason: text(item.reason),
+    adminId: text(item.adminId),
+    adminRole: text(item.adminRole, "admin"),
+    clientIp: text(item.clientIp),
+    userAgent: text(item.userAgent),
+    createdAt: asIso(item.createdAt),
+    metadata:
+      item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+        ? item.metadata
+        : {}
+  }));
+
+  if (actionFilter) {
+    items = items.filter((item) => normalizeStatus(item.action).includes(actionFilter));
+  }
+  if (targetFilter) {
+    items = items.filter((item) => normalizeStatus(item.targetId).includes(targetFilter));
+  }
+  if (statusFilter) {
+    items = items.filter((item) => normalizeStatus(item.status) === statusFilter);
+  }
+  if (severityFilter) {
+    items = items.filter((item) => normalizeStatus(item.severity) === severityFilter);
+  }
+
+  const summary = {
+    success: items.filter((item) => normalizeStatus(item.status) === "success").length,
+    errors: items.filter((item) => normalizeStatus(item.status) !== "success").length,
+    critical: items.filter((item) => normalizeStatus(item.severity) === "critical").length,
+    high: items.filter((item) => normalizeStatus(item.severity) === "high").length,
+    medium: items.filter((item) => normalizeStatus(item.severity) === "medium").length,
+    low: items.filter((item) => normalizeStatus(item.severity) === "low").length
+  };
+
+  return res.json({
+    success: true,
+    total: items.length,
+    limit,
+    summary,
+    items: items.slice(0, limit)
+  });
 }
 
 export function resolveCoreAdminReport(req, res) {
