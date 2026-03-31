@@ -24,7 +24,7 @@
   const DEMO_FALLBACK_KEY = 'propertySetu:enableDemoFallback';
   const readStorageFlag = (key) => {
     try {
-      const raw = String(localStorage.getItem(key) || '').trim().toLowerCase();
+      const raw = String(storageGetItemRaw(key) || '').trim().toLowerCase();
       return ['1', 'true', 'yes', 'on'].includes(raw);
     } catch {
       return false;
@@ -52,10 +52,31 @@
   let remoteStateFlushTimer = null;
   let remoteStateScanTimer = null;
   let remoteStateBootstrapped = false;
+  let storageSyncHookInstalled = false;
+
+  const storageProto = (() => {
+    try {
+      return Object.getPrototypeOf(localStorage);
+    } catch {
+      return null;
+    }
+  })();
+  const storageGetItemRaw = (() => {
+    if (storageProto && typeof storageProto.getItem === 'function') {
+      return storageProto.getItem.bind(localStorage);
+    }
+    return localStorage.getItem.bind(localStorage);
+  })();
+  const storageSetItemRaw = (() => {
+    if (storageProto && typeof storageProto.setItem === 'function') {
+      return storageProto.setItem.bind(localStorage);
+    }
+    return localStorage.setItem.bind(localStorage);
+  })();
 
   const readLocalJson = (key, fallback) => {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = storageGetItemRaw(key);
       return raw ? JSON.parse(raw) : fallback;
     } catch {
       return fallback;
@@ -65,7 +86,7 @@
   const writeLocalJson = (key, value) => {
     try {
       const safeValue = typeof value === 'undefined' ? null : value;
-      localStorage.setItem(key, JSON.stringify(safeValue));
+      storageSetItemRaw(key, JSON.stringify(safeValue));
     } catch {
       // no-op
     }
@@ -73,7 +94,7 @@
 
   const readSessionTokenRaw = (storageKey) => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = storageGetItemRaw(storageKey);
       if (!raw) return '';
       const parsed = JSON.parse(raw);
       return String(parsed?.token || '').trim();
@@ -430,6 +451,42 @@
       serialized,
     });
     scheduleRemoteStateFlush();
+  }
+
+  function installStorageSyncHooks() {
+    if (storageSyncHookInstalled) return;
+    if (!storageProto) return;
+    const protoSetItem = storageProto.setItem;
+    const protoRemoveItem = storageProto.removeItem;
+    if (typeof protoSetItem !== 'function' || typeof protoRemoveItem !== 'function') return;
+
+    storageProto.setItem = function patchedStorageSetItem(key, value) {
+      const result = protoSetItem.apply(this, [key, value]);
+      try {
+        if (this !== localStorage) return result;
+        const normalizedKey = String(key || '').trim();
+        if (!shouldRemoteSyncKey(normalizedKey)) return result;
+        queueRemoteStateWrite(normalizedKey, parseStorageValue(String(value)));
+      } catch {
+        // no-op
+      }
+      return result;
+    };
+
+    storageProto.removeItem = function patchedStorageRemoveItem(key) {
+      const result = protoRemoveItem.apply(this, [key]);
+      try {
+        if (this !== localStorage) return result;
+        const normalizedKey = String(key || '').trim();
+        if (!shouldRemoteSyncKey(normalizedKey)) return result;
+        queueRemoteStateWrite(normalizedKey, null);
+      } catch {
+        // no-op
+      }
+      return result;
+    };
+
+    storageSyncHookInstalled = true;
   }
 
   const toCoreRole = (role) => {
@@ -1592,9 +1649,11 @@
     myRequests: async () => request('/franchise/requests'),
   };
 
+  installStorageSyncHooks();
+  scheduleRemoteStateScan();
+
   if (getAnyTokenFromStorage()) {
     hydrateRemoteStateBatch().catch(() => {});
-    scheduleRemoteStateScan();
   }
 
   window.addEventListener('storage', (event) => {
