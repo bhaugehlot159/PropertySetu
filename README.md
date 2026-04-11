@@ -14,6 +14,7 @@ Other root scripts:
 - `npm run option2:dev`
 - `npm run option1:start`
 - `npm run option1:dev`
+- `npm run site:smoke`
 - `npm run pro:preflight`
 - `npm run pro:db:contract`
 - `npm run pro:steps:check`
