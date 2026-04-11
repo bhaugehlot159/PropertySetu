@@ -7,6 +7,9 @@
   const mostUsedHint = document.getElementById("mostUsedFeatureHint");
   const mostUsedRoleTabs = Array.from(document.querySelectorAll("[data-most-role]"));
   const mostUsedWindowTabs = Array.from(document.querySelectorAll("[data-most-window]"));
+  const mostUsedExportBtn = document.getElementById("mostUsedExportBtn");
+  const mostUsedResetBtn = document.getElementById("mostUsedResetBtn");
+  const mostUsedStatus = document.getElementById("mostUsedStatus");
   const STORAGE_KEY = "propertysetu:home-recent-features";
   const USAGE_STORAGE_KEY = "propertysetu:home-feature-usage";
   const LIMIT = 6;
@@ -123,6 +126,31 @@
     if (windowKey === "7d") return "7 Days";
     if (windowKey === "30d") return "30 Days";
     return "Today";
+  };
+  const setMostUsedStatus = (message = "") => {
+    if (!mostUsedStatus) return;
+    mostUsedStatus.textContent = String(message || "").trim();
+  };
+  const csvEscape = (value = "") => {
+    const text = String(value ?? "");
+    if (/[",\n]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+  const downloadCsv = (rows = [], fileName = "propertysetu-usage.csv") => {
+    if (!rows.length) return false;
+    const csv = rows.map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    return true;
   };
   const roleFromText = (value = "") => {
     const text = String(value || "").toLowerCase();
@@ -283,8 +311,7 @@
     renderMostUsed();
   };
 
-  const renderMostUsed = () => {
-    if (!mostUsedGrid) return;
+  const buildMostUsedDisplay = () => {
     const usage = safeRead(USAGE_STORAGE_KEY);
     const fallbackUsage = defaults.map((item, index) => ({
       ...item,
@@ -297,14 +324,23 @@
       : list.filter((item) => normalizeRole(item.role || inferRole(item)) === currentMostRole);
     const roleScoped = scoped.length ? scoped : list;
     const windowScoped = roleScoped.filter((item) => isWithinWindow(item.at, currentMostWindow));
-    const workingList = windowScoped;
-    const sorted = [...workingList]
+    const sorted = [...windowScoped]
       .sort((a, b) => {
         const countDiff = (Number(b.count) || 0) - (Number(a.count) || 0);
         if (countDiff !== 0) return countDiff;
         return new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime();
       })
       .slice(0, LIMIT);
+    return {
+      usage,
+      sorted,
+    };
+  };
+
+  const renderMostUsed = () => {
+    if (!mostUsedGrid) return;
+    setMostUsedStatus("");
+    const { usage, sorted } = buildMostUsedDisplay();
     const maxCount = Math.max(1, ...sorted.map((item) => Number(item.count) || 0), 1);
     mostUsedGrid.innerHTML = "";
 
@@ -427,6 +463,46 @@
       setMostWindowTab(button.getAttribute("data-most-window") || "today");
       renderMostUsed();
     });
+  });
+
+  mostUsedExportBtn?.addEventListener("click", () => {
+    const { sorted } = buildMostUsedDisplay();
+    if (!sorted.length) {
+      setMostUsedStatus("No usage data to export for selected filters.");
+      return;
+    }
+    const rows = [
+      ["label", "href", "role", "count", "source", "note", "last_used_at", "role_filter", "window"],
+      ...sorted.map((item) => [
+        item.label || "",
+        item.href || "",
+        normalizeRole(item.role || inferRole(item)),
+        Number(item.count) || 0,
+        item.source || "",
+        item.note || "",
+        item.at || "",
+        roleLabel(currentMostRole),
+        windowLabel(currentMostWindow),
+      ]),
+    ];
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = `propertysetu-home-usage-${normalizeRole(currentMostRole)}-${normalizeWindow(currentMostWindow)}-${stamp}.csv`;
+    const ok = downloadCsv(rows, file);
+    setMostUsedStatus(ok ? "Usage CSV exported successfully." : "Usage CSV export failed.");
+  });
+
+  mostUsedResetBtn?.addEventListener("click", () => {
+    const allow = window.confirm(
+      "Reset usage analytics? Isse homepage aur dashboard usage ranking clear ho jayegi."
+    );
+    if (!allow) return;
+    try {
+      localStorage.removeItem(USAGE_STORAGE_KEY);
+      renderMostUsed();
+      setMostUsedStatus("Usage analytics reset completed.");
+    } catch {
+      setMostUsedStatus("Unable to reset usage analytics.");
+    }
   });
 
   setMostRoleTab("all");
