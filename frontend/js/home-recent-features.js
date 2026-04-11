@@ -3,7 +3,10 @@
   if (!grid) return;
 
   const hint = document.getElementById("recentFeatureHint");
+  const mostUsedGrid = document.getElementById("mostUsedFeatureGrid");
+  const mostUsedHint = document.getElementById("mostUsedFeatureHint");
   const STORAGE_KEY = "propertysetu:home-recent-features";
+  const USAGE_STORAGE_KEY = "propertysetu:home-feature-usage";
   const LIMIT = 6;
   const SAME_PAGE = `${window.location.pathname.split("/").pop() || "index.html"}`;
 
@@ -31,9 +34,9 @@
     },
   ];
 
-  const safeRead = () => {
+  const safeRead = (key = STORAGE_KEY) => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch {
@@ -41,9 +44,9 @@
     }
   };
 
-  const safeWrite = (items = []) => {
+  const safeWrite = (items = [], key = STORAGE_KEY) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      localStorage.setItem(key, JSON.stringify(items));
     } catch {
       // ignore storage write failures
     }
@@ -87,6 +90,10 @@
   };
 
   const makeItemKey = (item = {}) => `${String(item.href || "").trim()}|${String(item.label || "").trim()}`;
+  const formatCount = (count = 0) => {
+    const safe = Math.max(0, Number(count) || 0);
+    return `${safe} ${safe === 1 ? "use" : "uses"}`;
+  };
 
   const sourceFromElement = (el) => {
     if (!el) return "Homepage";
@@ -107,11 +114,36 @@
 
   const addRecentItem = (item = {}) => {
     if (!item.href || !item.label) return;
-    const current = safeRead();
+    const current = safeRead(STORAGE_KEY);
     const key = makeItemKey(item);
     const filtered = current.filter((row) => makeItemKey(row) !== key);
     filtered.unshift(item);
-    safeWrite(filtered.slice(0, LIMIT));
+    safeWrite(filtered.slice(0, LIMIT), STORAGE_KEY);
+    render();
+  };
+
+  const trackFeatureUsage = (item = {}) => {
+    if (!item.href || !item.label) return;
+    const current = safeRead(USAGE_STORAGE_KEY);
+    const key = makeItemKey(item);
+    const now = new Date().toISOString();
+    const existing = current.find((row) => makeItemKey(row) === key);
+    const nextItem = existing
+      ? {
+          ...existing,
+          count: Math.max(0, Number(existing.count) || 0) + 1,
+          at: now,
+          source: item.source || existing.source,
+          note: item.note || existing.note,
+        }
+      : {
+          ...item,
+          count: 1,
+          at: now,
+        };
+    const filtered = current.filter((row) => makeItemKey(row) !== key);
+    filtered.unshift(nextItem);
+    safeWrite(filtered.slice(0, 80), USAGE_STORAGE_KEY);
     render();
   };
 
@@ -126,7 +158,7 @@
   };
 
   const render = () => {
-    const stored = safeRead();
+    const stored = safeRead(STORAGE_KEY);
     const list = stored.length ? stored : defaults;
     grid.innerHTML = "";
 
@@ -150,6 +182,13 @@
       action.textContent = "Open Again";
       action.addEventListener("click", (event) => {
         event.preventDefault();
+        trackFeatureUsage({
+          label: item.label,
+          href: item.href,
+          source: "Recent Features",
+          note: item.note || "Repeated from recent features panel.",
+          at: new Date().toISOString(),
+        });
         openHref(item.href);
       });
 
@@ -161,6 +200,75 @@
       hint.textContent = stored.length
         ? "Recent panel auto update ho raha hai. Jitna zyada use, utna fast repeat workflow."
         : "Recent history abhi empty hai. Aapke next actions yahan automatically save honge.";
+    }
+
+    renderMostUsed();
+  };
+
+  const renderMostUsed = () => {
+    if (!mostUsedGrid) return;
+    const usage = safeRead(USAGE_STORAGE_KEY);
+    const fallbackUsage = defaults.map((item, index) => ({
+      ...item,
+      count: Math.max(1, 3 - index),
+    }));
+    const list = usage.length ? usage : fallbackUsage;
+    const sorted = [...list]
+      .sort((a, b) => {
+        const countDiff = (Number(b.count) || 0) - (Number(a.count) || 0);
+        if (countDiff !== 0) return countDiff;
+        return new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime();
+      })
+      .slice(0, LIMIT);
+    const maxCount = Math.max(1, ...sorted.map((item) => Number(item.count) || 0));
+    mostUsedGrid.innerHTML = "";
+
+    sorted.forEach((item, index) => {
+      const card = document.createElement("article");
+      card.className = "most-used-card";
+
+      const rank = document.createElement("span");
+      rank.className = "rank";
+      rank.textContent = String(index + 1);
+
+      const title = document.createElement("h3");
+      title.textContent = shortText(item.label || "Top Feature", 64);
+
+      const usageMeta = document.createElement("p");
+      usageMeta.className = "usage-meta";
+      usageMeta.textContent = `${formatCount(item.count)} • ${shortText(item.source || "Homepage", 24)}`;
+
+      const meter = document.createElement("div");
+      meter.className = "usage-meter";
+      const meterBar = document.createElement("span");
+      const width = Math.max(12, Math.round(((Number(item.count) || 0) / maxCount) * 100));
+      meterBar.style.width = `${width}%`;
+      meter.appendChild(meterBar);
+
+      const action = document.createElement("a");
+      action.className = "outline-btn dark-outline";
+      action.href = item.href || "#featureCommandCenter";
+      action.textContent = "Open Feature";
+      action.addEventListener("click", (event) => {
+        event.preventDefault();
+        trackFeatureUsage({
+          label: item.label,
+          href: item.href,
+          source: "Most Used Features",
+          note: item.note || "Opened from most-used ranking.",
+          at: new Date().toISOString(),
+        });
+        openHref(item.href);
+      });
+
+      card.append(rank, title, usageMeta, meter, action);
+      mostUsedGrid.appendChild(card);
+    });
+
+    if (mostUsedHint) {
+      mostUsedHint.textContent = usage.length
+        ? "Top used features real usage count ke saath update ho rahe hain."
+        : "Usage data build hone tak starter ranking dikhayi ja rahi hai.";
     }
   };
 
@@ -198,6 +306,7 @@
         note: noteFromElement(interactive),
         at: new Date().toISOString(),
       };
+      trackFeatureUsage(item);
       addRecentItem(item);
     },
     true

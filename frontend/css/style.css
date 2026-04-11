@@ -1243,6 +1243,68 @@ footer {
   margin-top: 10px;
 }
 
+.most-used-section {
+  padding-top: 18px;
+}
+
+.most-used-grid {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.most-used-card {
+  border: 1px solid #c7ddee;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(6, 45, 74, 0.08);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.most-used-card h3 {
+  margin: 0;
+  color: #114567;
+  font-size: 0.94rem;
+}
+
+.most-used-card .rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #0f466f;
+  color: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.most-used-card .usage-meta {
+  font-size: 0.78rem;
+  color: #3f5f79;
+  font-weight: 700;
+}
+
+.usage-meter {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: #d8e7f4;
+  overflow: hidden;
+}
+
+.usage-meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: linear-gradient(90deg, #0f466f, #1d79b2);
+  border-radius: 999px;
+}
+
 .feature-command-toolbar {
   margin-top: 14px;
   border: 1px solid #c8ddf0;
@@ -1520,6 +1582,10 @@ footer {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .most-used-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .home-top-nav {
     overflow-x: auto;
     flex-wrap: nowrap;
@@ -1601,6 +1667,10 @@ footer {
   }
 
   .recent-feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .most-used-grid {
     grid-template-columns: 1fr;
   }
 
