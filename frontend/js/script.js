@@ -175,7 +175,7 @@
         </div>
         <div class="dashboard-links">
           <a href="admin-dashboard.html">Open Admin Dashboard</a>
-          <a href="client/pages/admin-portal.html">Open Admin Portal</a>
+          <a href="/client/pages/admin-portal.html">Open Admin Portal</a>
         </div>
       `;
       return;
@@ -190,7 +190,7 @@
       </div>
       <div class="dashboard-links">
         <a href="dashboard.html">Open Customer Dashboard</a>
-        <a href="client/pages/customer-portal.html">Open Customer Portal</a>
+        <a href="/client/pages/customer-portal.html">Open Customer Portal</a>
       </div>
     `;
   };
