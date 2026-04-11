@@ -117,6 +117,53 @@
     message: text(entry.message || entry.details || ''),
   });
 
+  const uniqueBy = (rows = [], selector = (row) => row?.id) => {
+    const out = [];
+    const seen = new Set();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = text(selector(row));
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(row);
+    });
+    return out;
+  };
+
+  const auditAmount = (row = {}) => {
+    const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    const previous = metadata?.previous && typeof metadata.previous === 'object' ? metadata.previous : {};
+    const next = metadata?.next && typeof metadata.next === 'object' ? metadata.next : {};
+    return Math.max(
+      0,
+      numberFrom(
+        metadata.amount
+        || metadata.finalCommissionAmount
+        || metadata.estimatedCommission
+        || next.amount
+        || next.finalCommissionAmount
+        || previous.amount,
+        0
+      )
+    );
+  };
+
+  const normalizeAdminAuditActivity = (entry = {}) => normalizeActivity({
+    id: text(entry.id || entry._id),
+    createdAt: text(entry.createdAt || entry.at),
+    type: text(entry.action, 'admin-audit'),
+    title: text(entry.action, 'admin-audit'),
+    amount: auditAmount(entry),
+    priority: ({
+      critical: 95,
+      high: 80,
+      medium: 55,
+      low: 30,
+    }[norm(entry.severity)] || 45),
+    propertyId: text(entry.targetId),
+    details: text(entry.reason || entry.message || entry.status),
+    message: `${text(entry.status, 'success')}${text(entry.targetId) ? ` | target: ${text(entry.targetId)}` : ''}`,
+  }, 'admin-audit');
+
   const getTimeFilter = () => {
     const filter = readJson(FILTER_KEY, {});
     return {
@@ -137,24 +184,48 @@
 
   const loadLiveQueues = async () => {
     const token = getToken();
-    if (!token || typeof live.request !== 'function') {
-      return {
-        docs: getLocalRows(DOC_LOCAL_KEY),
-        loans: getLocalRows(LOAN_LOCAL_KEY),
-        bookings: getLocalRows(BOOKING_LOCAL_KEY),
-        franchise: getLocalRows(FRANCHISE_LOCAL_KEY),
-        commissionAnalytics: {},
-        report: {},
-      };
+    const liveEnabled = Boolean(token && typeof live.request === 'function');
+    const localFallback = {
+      docs: getLocalRows(DOC_LOCAL_KEY),
+      loans: getLocalRows(LOAN_LOCAL_KEY),
+      bookings: getLocalRows(BOOKING_LOCAL_KEY),
+      franchise: getLocalRows(FRANCHISE_LOCAL_KEY),
+      commissionAnalytics: {},
+      report: {},
+      overview: {},
+      properties: [],
+      reports: [],
+      audits: [],
+      synced: false,
+      liveEnabled,
+      source: liveEnabled ? 'local-fallback' : 'local',
+    };
+    if (!liveEnabled) {
+      return localFallback;
     }
     try {
-      const [docsRes, loansRes, bookingsRes, franchiseRes, commissionRes, reportRes] = await Promise.allSettled([
+      const [
+        docsRes,
+        loansRes,
+        bookingsRes,
+        franchiseRes,
+        commissionRes,
+        reportRes,
+        overviewRes,
+        propertiesRes,
+        reportsRes,
+        auditRes,
+      ] = await Promise.allSettled([
         live.request('/documentation/requests', { token }),
         live.request('/loan/assistance', { token }),
         live.request('/ecosystem/bookings', { token }),
         live.request('/franchise/requests', { token }),
         live.request('/admin/commission-analytics', { token }),
         live.request('/admin/report?days=30', { token }),
+        live.request('/admin/overview', { token }),
+        live.request('/admin/properties', { token }),
+        live.request('/admin/reports', { token }),
+        live.request('/admin/action-audit?limit=300', { token }),
       ]);
 
       const toItems = (result) => (result.status === 'fulfilled' ? (Array.isArray(result.value?.items) ? result.value.items : []) : []);
@@ -165,22 +236,22 @@
         franchise: toItems(franchiseRes),
         commissionAnalytics: commissionRes.status === 'fulfilled' ? (commissionRes.value?.analytics || {}) : {},
         report: reportRes.status === 'fulfilled' ? (reportRes.value || {}) : {},
+        overview: overviewRes.status === 'fulfilled' ? (overviewRes.value?.overview || {}) : {},
+        properties: toItems(propertiesRes),
+        reports: toItems(reportsRes),
+        audits: toItems(auditRes),
+        synced: true,
+        liveEnabled: true,
+        source: 'live',
       };
     } catch {
-      return {
-        docs: getLocalRows(DOC_LOCAL_KEY),
-        loans: getLocalRows(LOAN_LOCAL_KEY),
-        bookings: getLocalRows(BOOKING_LOCAL_KEY),
-        franchise: getLocalRows(FRANCHISE_LOCAL_KEY),
-        commissionAnalytics: {},
-        report: {},
-      };
+      return localFallback;
     }
   };
 
   const buildModel = async () => {
     const filter = getTimeFilter();
-    const listings = getLocalRows(LISTINGS_KEY)
+    const localListings = getLocalRows(LISTINGS_KEY)
       .map((item) => normalizeListing(item))
       .filter((item) => item.id);
 
@@ -193,12 +264,23 @@
     const expiryLog = getLocalRows(SELLER_EXPIRY_LOG_KEY).map((item) => normalizeActivity(item, 'expiry'));
 
     const liveQueues = await loadLiveQueues();
+    const liveListings = (Array.isArray(liveQueues.properties) ? liveQueues.properties : [])
+      .map((item) => normalizeListing(item))
+      .filter((item) => item.id);
+    const listings = uniqueBy(
+      [...(liveQueues.synced ? liveListings : []), ...localListings],
+      (item) => item.id
+    );
+
     const docs = Array.isArray(liveQueues.docs) ? liveQueues.docs : [];
     const loans = Array.isArray(liveQueues.loans) ? liveQueues.loans : [];
     const bookings = Array.isArray(liveQueues.bookings) ? liveQueues.bookings : [];
     const franchise = Array.isArray(liveQueues.franchise) ? liveQueues.franchise : [];
     const commissionAnalytics = liveQueues.commissionAnalytics || {};
-    const report = liveQueues.report || {};
+    const reportSnapshot = liveQueues.report || {};
+    const overview = liveQueues.overview || {};
+    const reportRows = Array.isArray(liveQueues.reports) ? liveQueues.reports : [];
+    const auditRows = Array.isArray(liveQueues.audits) ? liveQueues.audits : [];
 
     const cityMap = {};
     const categoryMap = {};
@@ -222,7 +304,13 @@
       .sort((a, b) => b.riskScore - a.riskScore)
       .slice(0, 50);
 
-    const activityRows = [...revenueLog, ...automationLog, ...boostLog, ...expiryLog]
+    const reportOpen = reportRows.filter((item) => norm(item?.status) !== 'resolved');
+    const reportResolved = reportRows.filter((item) => norm(item?.status) === 'resolved');
+    const auditActivities = auditRows
+      .map((item) => normalizeAdminAuditActivity(item))
+      .filter((item) => item.id);
+
+    const activityRows = [...revenueLog, ...automationLog, ...boostLog, ...expiryLog, ...auditActivities]
       .filter((item) => withinDays(item.at, filter.days))
       .sort((a, b) => ts(b.at) - ts(a.at))
       .slice(0, 120);
@@ -238,16 +326,20 @@
       verified: listings.filter((item) => item.verified).length,
       featured: listings.filter((item) => item.featured).length,
       pending: listings.filter((item) => norm(item.status).includes('pending')).length,
-      blockedUsers: blockedUsers.length,
+      users: numberFrom(overview?.users, 0),
+      blockedUsers: Math.max(blockedUsers.length, numberFrom(overview?.blockedUsers, 0)),
       governanceIssues: numberFrom(governanceCache?.summary?.issues || governanceCache?.summary?.totalIssues, 0),
       highRisk: riskRows.length,
+      openReports: reportOpen.length,
+      resolvedReports: reportResolved.length,
+      adminAudits: auditRows.length,
       docsQueue: docs.length,
       loanQueue: loans.length,
       bookingQueue: bookings.length,
       franchiseQueue: franchise.length,
       revenueWindow: revenueFromLogs,
-      estimatedCommission: numberFrom(commissionAnalytics?.estimatedCommission || report?.commission?.estimatedCommission, 0),
-      monetizedCommission: numberFrom(commissionAnalytics?.totalMonetized || report?.commission?.totalMonetized, 0),
+      estimatedCommission: numberFrom(commissionAnalytics?.estimatedCommission || reportSnapshot?.commission?.estimatedCommission, 0),
+      monetizedCommission: numberFrom(commissionAnalytics?.totalMonetized || reportSnapshot?.commission?.totalMonetized, 0),
     };
 
     const dailyTrendMap = {};
@@ -280,6 +372,13 @@
         loans,
         bookings,
         franchise,
+        reports: reportRows,
+        audits: auditRows,
+      },
+      sync: {
+        source: text(liveQueues?.source, 'local'),
+        liveEnabled: Boolean(liveQueues?.liveEnabled),
+        synced: Boolean(liveQueues?.synced),
       },
       fraudTrack: Array.isArray(fraudTrack) ? fraudTrack : [],
     };
@@ -395,12 +494,16 @@
     const s = model?.summary || {};
     kpiEl.innerHTML = `
       <div class="aacc-kpi-item"><small>Listings</small><b>${numberFrom(s.listings, 0)}</b></div>
+      <div class="aacc-kpi-item"><small>Users</small><b>${numberFrom(s.users, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Verified</small><b>${numberFrom(s.verified, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Featured</small><b>${numberFrom(s.featured, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Pending</small><b>${numberFrom(s.pending, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Blocked Users</small><b>${numberFrom(s.blockedUsers, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Governance Issues</small><b>${numberFrom(s.governanceIssues, 0)}</b></div>
       <div class="aacc-kpi-item"><small>High Risk</small><b>${numberFrom(s.highRisk, 0)}</b></div>
+      <div class="aacc-kpi-item"><small>Open Reports</small><b>${numberFrom(s.openReports, 0)}</b></div>
+      <div class="aacc-kpi-item"><small>Resolved Reports</small><b>${numberFrom(s.resolvedReports, 0)}</b></div>
+      <div class="aacc-kpi-item"><small>Admin Audits</small><b>${numberFrom(s.adminAudits, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Docs Queue</small><b>${numberFrom(s.docsQueue, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Loan Queue</small><b>${numberFrom(s.loanQueue, 0)}</b></div>
       <div class="aacc-kpi-item"><small>Booking Queue</small><b>${numberFrom(s.bookingQueue, 0)}</b></div>
@@ -461,6 +564,8 @@
       { label: 'Loan Assistance', count: numberFrom(model?.summary?.loanQueue, 0) },
       { label: 'Ecosystem Bookings', count: numberFrom(model?.summary?.bookingQueue, 0) },
       { label: 'Franchise Requests', count: numberFrom(model?.summary?.franchiseQueue, 0) },
+      { label: 'Open Reports', count: numberFrom(model?.summary?.openReports, 0) },
+      { label: 'Admin Action Audits', count: numberFrom(model?.summary?.adminAudits, 0) },
     ];
     queuesEl.innerHTML = `
       <table>
@@ -538,7 +643,9 @@
   const refresh = async () => {
     model = await buildModel();
     renderAll();
-    setStatus(`Analytics synced. ${numberFrom(model?.summary?.listings, 0)} listings, ${numberFrom(model?.activityRows?.length, 0)} ops events in ${numberFrom(model?.filter?.days, 30)}d.`);
+    const sync = model?.sync || {};
+    const syncLabel = sync.synced ? 'live' : (sync.liveEnabled ? 'local-fallback' : 'local');
+    setStatus(`Analytics synced (${syncLabel}). ${numberFrom(model?.summary?.listings, 0)} listings, ${numberFrom(model?.activityRows?.length, 0)} ops events in ${numberFrom(model?.filter?.days, 30)}d.`);
   };
 
   const exportCsv = () => {
