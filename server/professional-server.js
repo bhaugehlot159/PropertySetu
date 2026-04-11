@@ -61,8 +61,32 @@ const apiPrefix = "/api/v2";
 const apiV3Prefix = "/api/v3";
 const clientDistPath = path.resolve(__dirname, "../client/dist");
 const legacyWebRoot = path.resolve(__dirname, "..");
+const appAssociationWellKnownRoot = path.resolve(__dirname, "../app-association/.well-known");
 const jsonLimit = String(process.env.API_JSON_LIMIT || "2mb");
 const formLimit = String(process.env.API_FORM_LIMIT || "2mb");
+
+function readAppAssociationFile(fileName) {
+  const resolved = path.join(appAssociationWellKnownRoot, fileName);
+  if (!fs.existsSync(resolved)) return "";
+  try {
+    return fs.readFileSync(resolved, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function sendAppAssociationFile(res, fileName) {
+  const body = readAppAssociationFile(fileName);
+  if (!body) {
+    return res.status(404).json({
+      success: false,
+      message: `${fileName} not found.`
+    });
+  }
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("application/json");
+  return res.send(body);
+}
 
 app.disable("x-powered-by");
 app.set("trust proxy", Number(process.env.TRUST_PROXY || 1));
@@ -84,6 +108,12 @@ app.use("/api", proFakeListingAiGuard);
 app.use("/api", proAuthFailureIntelligence);
 app.use(`${apiV3Prefix}/auth`, proAuthRateLimiter);
 app.use("/api/auth", proAuthRateLimiter);
+app.get("/.well-known/assetlinks.json", (_req, res) => sendAppAssociationFile(res, "assetlinks.json"));
+app.get(
+  "/.well-known/apple-app-site-association",
+  (_req, res) => sendAppAssociationFile(res, "apple-app-site-association")
+);
+app.get("/apple-app-site-association", (_req, res) => sendAppAssociationFile(res, "apple-app-site-association"));
 app.use(proBlockSensitivePublicFiles);
 
 app.get("/", (_req, res) => {

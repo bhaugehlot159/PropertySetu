@@ -1,0 +1,24 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.in.propertysetu.app",
+        "paths": [
+          "/property-details*",
+          "/properties/*",
+          "/add-property*",
+          "/customer-dashboard*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "TEAMID.in.propertysetu.app"
+    ]
+  },
+  "appclips": {
+    "apps": []
+  }
+}

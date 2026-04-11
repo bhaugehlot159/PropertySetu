@@ -47,6 +47,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../../..");
+const APP_ASSOCIATION_WELL_KNOWN_ROOT = path.join(rootDir, "app-association", ".well-known");
 const PRIVATE_DOC_CRYPTO_CONTROL_CONFIG_KEY = "private-doc-crypto-control";
 const PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS = Math.max(
   5_000,
@@ -135,6 +136,124 @@ function isConfiguredCredential(value) {
     !raw.includes("placeholder") &&
     !raw.startsWith("your_")
   );
+}
+
+function isConfiguredAppIdentifier(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return false;
+  return !raw.includes("replace") && !raw.includes("placeholder") && !raw.startsWith("your.");
+}
+
+function splitCsv(value = "") {
+  return String(value || "")
+    .split(",")
+    .map((item) => text(item))
+    .filter((item) => Boolean(item));
+}
+
+function resolveRequestProtocol(req) {
+  const forwarded = text(req.headers?.["x-forwarded-proto"]).split(",")[0].trim().toLowerCase();
+  if (forwarded === "http" || forwarded === "https") return forwarded;
+  if (req.protocol === "http" || req.protocol === "https") return req.protocol;
+  return "https";
+}
+
+function resolvePublicOrigin(req) {
+  const forced = text(process.env.PUBLIC_WEB_ORIGIN || process.env.PUBLIC_ORIGIN);
+  if (forced) return forced.replace(/\/+$/, "");
+  const host = text(req.headers?.["x-forwarded-host"]).split(",")[0].trim() || text(req.get("host"));
+  if (!host) return "";
+  return `${resolveRequestProtocol(req)}://${host}`;
+}
+
+function parseHostFromOrigin(origin = "") {
+  const raw = text(origin);
+  if (!raw) return "";
+  try {
+    return new URL(raw).host;
+  } catch {
+    return raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  }
+}
+
+function appAssociationFileExists(fileName) {
+  return fs.existsSync(path.join(APP_ASSOCIATION_WELL_KNOWN_ROOT, fileName));
+}
+
+function buildCoreSystemAppLaunchReadinessPayload(req) {
+  const publicOrigin = resolvePublicOrigin(req);
+  const originHost = parseHostFromOrigin(publicOrigin);
+  const manifestFile = path.join(rootDir, "manifest.webmanifest");
+  const serviceWorkerFile = path.join(rootDir, "service-worker.js");
+  const androidPackage = text(process.env.APP_ANDROID_PACKAGE || "com.propertysetu.app");
+  const androidFingerprints = splitCsv(
+    process.env.APP_ANDROID_SHA256_FINGERPRINTS || process.env.ANDROID_APP_SHA256_FINGERPRINTS
+  );
+  const iosBundleId = text(process.env.APP_IOS_BUNDLE_ID || "in.propertysetu.app");
+  const iosTeamId = text(process.env.APP_IOS_TEAM_ID || "");
+  const deepLinkScheme = text(process.env.APP_DEEP_LINK_SCHEME || "propertysetu");
+  const deepLinkHost = text(process.env.APP_DEEP_LINK_HOST || "open");
+  const wellKnownFiles = [
+    {
+      path: "/.well-known/assetlinks.json",
+      exists: appAssociationFileExists("assetlinks.json")
+    },
+    {
+      path: "/.well-known/apple-app-site-association",
+      exists: appAssociationFileExists("apple-app-site-association")
+    }
+  ];
+  const wellKnownReady = wellKnownFiles.every((item) => item.exists);
+  const webReady = fs.existsSync(manifestFile) && fs.existsSync(serviceWorkerFile);
+  const androidReady =
+    isConfiguredAppIdentifier(androidPackage) &&
+    androidFingerprints.length > 0 &&
+    wellKnownReady;
+  const iosReady =
+    isConfiguredAppIdentifier(iosBundleId) &&
+    isConfiguredAppIdentifier(iosTeamId) &&
+    wellKnownReady;
+
+  return {
+    success: true,
+    generatedAt: new Date().toISOString(),
+    publicOrigin: publicOrigin || "(request-host)",
+    platform: {
+      android: {
+        packageName: androidPackage,
+        certificateFingerprints: androidFingerprints,
+        ready: androidReady
+      },
+      ios: {
+        teamId: iosTeamId || "missing",
+        bundleId: iosBundleId,
+        ready: iosReady
+      }
+    },
+    deepLinking: {
+      customScheme: {
+        scheme: deepLinkScheme,
+        host: deepLinkHost,
+        sample: `${deepLinkScheme}://${deepLinkHost}/property/{propertyId}`
+      },
+      universalLinks: {
+        host: originHost || "missing-host",
+        sample: originHost ? `https://${originHost}/property-details?pid={propertyId}` : ""
+      },
+      wellKnownFiles,
+      ready: wellKnownReady
+    },
+    webToAppReadiness: {
+      manifestPath: "/manifest.webmanifest",
+      serviceWorkerPath: "/service-worker.js",
+      manifestReady: fs.existsSync(manifestFile),
+      serviceWorkerReady: fs.existsSync(serviceWorkerFile),
+      ready: webReady
+    },
+    stage: webReady && (androidReady || iosReady)
+      ? "launch-ready"
+      : "setup-in-progress"
+  };
 }
 
 function readJsonSafe(filePath) {
@@ -1388,6 +1507,10 @@ export function getCoreSystemExecutionPlan(_req, res) {
     },
     runtime: snapshot.runtime
   });
+}
+
+export function getCoreSystemAppLaunchReadiness(req, res) {
+  return res.json(buildCoreSystemAppLaunchReadinessPayload(req));
 }
 
 export function getCoreSystemSecurityAudit(req, res) {

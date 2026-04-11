@@ -9,6 +9,7 @@ import {
 import {
   applyCoreSystemSecurityControlProfile,
   getCoreSystemArchitecturePlan,
+  getCoreSystemAppLaunchReadiness,
   getCoreSystemStackOptions,
   getCoreSystemStackReadiness,
   getCoreSystemDatabaseStructure,
@@ -40,6 +41,7 @@ const router = Router();
 router.get("/architecture-plan", getCoreSystemArchitecturePlan);
 router.get("/stack-options", getCoreSystemStackOptions);
 router.get("/stack-readiness", getCoreSystemStackReadiness);
+router.get("/app-launch-readiness", getCoreSystemAppLaunchReadiness);
 router.get("/database-structure", getCoreSystemDatabaseStructure);
 router.get("/core-systems", getCoreSystemBlueprint);
 router.get("/execution-plan", getCoreSystemExecutionPlan);

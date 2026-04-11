@@ -1,0 +1,52 @@
+{
+  "name": "PropertySetu",
+  "short_name": "PropertySetu",
+  "description": "Verified real estate marketplace with secure workflows, visits, chat, and admin moderation.",
+  "id": "/?source=pwa",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f8ff",
+  "theme_color": "#0f466f",
+  "lang": "en-IN",
+  "categories": [
+    "business",
+    "finance",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/assets/icons/propertysetu-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Property",
+      "short_name": "Add",
+      "url": "/add-property",
+      "icons": [
+        {
+          "src": "/assets/icons/propertysetu-app-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Customer Dashboard",
+      "short_name": "Dashboard",
+      "url": "/customer-dashboard",
+      "icons": [
+        {
+          "src": "/assets/icons/propertysetu-app-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">PropertySetu App Icon</title>
+  <desc id="desc">Shield and home icon for PropertySetu mobile-ready web app.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f466f"/>
+      <stop offset="100%" stop-color="#1f7c9d"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f5fbff"/>
+      <stop offset="100%" stop-color="#d9eeff"/>
+    </linearGradient>
+  </defs>
+  <rect x="28" y="28" width="456" height="456" rx="110" fill="url(#bg)"/>
+  <path d="M256 92l130 72v98c0 92-62 164-130 188-68-24-130-96-130-188v-98z" fill="#0c2f4a" opacity=".45"/>
+  <rect x="112" y="146" width="288" height="220" rx="32" fill="url(#tile)"/>
+  <path d="M164 248l92-78 92 78v86h-62v-62h-60v62h-62z" fill="#0f5f93"/>
+  <rect x="212" y="318" width="88" height="18" rx="9" fill="#1d7f4b"/>
+  <text x="256" y="404" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="42" font-weight="700" fill="#e7f7ff">PS</text>
+</svg>

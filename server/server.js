@@ -73,6 +73,8 @@ const activeWebRoot = hasFrontendRoot ? frontendRoot : webRoot;
 const dbDir = path.join(webRoot, "database");
 const dbFile = path.join(dbDir, "live-data.json");
 const uploadsRoot = path.join(webRoot, "uploads");
+const appAssociationRoot = path.join(webRoot, "app-association");
+const appAssociationWellKnownRoot = path.join(appAssociationRoot, ".well-known");
 const liveRouteMap = [
   { path: "/", file: "index.html", feature: "homepage", live: true },
   { path: "/udaipur", file: "index.html", feature: "city-live", live: true },
@@ -330,6 +332,133 @@ const isConfiguredCredential = (value) => {
     && !raw.includes("placeholder")
     && !raw.startsWith("your_")
   );
+};
+const resolveRequestProtocol = (req) => {
+  const forwarded = txt(req.headers["x-forwarded-proto"]).split(",")[0].trim().toLowerCase();
+  if (forwarded === "http" || forwarded === "https") return forwarded;
+  if (req.protocol === "http" || req.protocol === "https") return req.protocol;
+  return "https";
+};
+const resolvePublicOrigin = (req) => {
+  const forced = txt(process.env.PUBLIC_WEB_ORIGIN || process.env.PUBLIC_ORIGIN);
+  if (forced) return forced.replace(/\/+$/, "");
+  const host = txt(req.headers["x-forwarded-host"]).split(",")[0].trim() || txt(req.get("host"));
+  if (!host) return "";
+  return `${resolveRequestProtocol(req)}://${host}`;
+};
+const splitCsv = (value) => txt(value)
+  .split(",")
+  .map((item) => txt(item))
+  .filter(Boolean);
+const appIdentifierConfigured = (value) => {
+  const raw = txt(value).toLowerCase();
+  if (!raw) return false;
+  return !raw.includes("replace") && !raw.includes("placeholder") && !raw.startsWith("your.");
+};
+const readAppAssociationFile = (fileName) => {
+  const resolved = path.join(appAssociationWellKnownRoot, fileName);
+  if (!fs.existsSync(resolved)) return "";
+  try {
+    return fs.readFileSync(resolved, "utf8");
+  } catch {
+    return "";
+  }
+};
+const sendAppAssociationFile = (res, fileName) => {
+  const body = readAppAssociationFile(fileName);
+  if (!body) {
+    return res.status(404).json({
+      ok: false,
+      message: `${fileName} not found.`
+    });
+  }
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("application/json");
+  return res.send(body);
+};
+const parseHostFromOrigin = (origin) => {
+  const raw = txt(origin);
+  if (!raw) return "";
+  try {
+    return new URL(raw).host;
+  } catch {
+    return raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  }
+};
+const buildAppLaunchReadinessPayload = (req) => {
+  const publicOrigin = resolvePublicOrigin(req);
+  const originHost = parseHostFromOrigin(publicOrigin);
+  const deepLinkScheme = txt(process.env.APP_DEEP_LINK_SCHEME || "propertysetu");
+  const deepLinkHost = txt(process.env.APP_DEEP_LINK_HOST || "open");
+  const androidPackage = txt(process.env.APP_ANDROID_PACKAGE || "com.propertysetu.app");
+  const androidFingerprints = splitCsv(
+    process.env.APP_ANDROID_SHA256_FINGERPRINTS || process.env.ANDROID_APP_SHA256_FINGERPRINTS
+  );
+  const iosBundleId = txt(process.env.APP_IOS_BUNDLE_ID || "in.propertysetu.app");
+  const iosTeamId = txt(process.env.APP_IOS_TEAM_ID || "");
+  const manifestFile = resolveWebFile("manifest.webmanifest");
+  const serviceWorkerFile = resolveWebFile("service-worker.js");
+  const associationFiles = [
+    {
+      path: "/.well-known/assetlinks.json",
+      exists: fs.existsSync(path.join(appAssociationWellKnownRoot, "assetlinks.json"))
+    },
+    {
+      path: "/.well-known/apple-app-site-association",
+      exists: fs.existsSync(path.join(appAssociationWellKnownRoot, "apple-app-site-association"))
+    }
+  ];
+  const allAssociationFilesReady = associationFiles.every((item) => item.exists);
+  const webPwaReady = fs.existsSync(manifestFile) && fs.existsSync(serviceWorkerFile);
+  const androidReady =
+    appIdentifierConfigured(androidPackage) &&
+    androidFingerprints.length > 0 &&
+    allAssociationFilesReady;
+  const iosReady =
+    appIdentifierConfigured(iosBundleId) &&
+    appIdentifierConfigured(iosTeamId) &&
+    allAssociationFilesReady;
+
+  return {
+    ok: true,
+    generatedAt: now(),
+    publicOrigin: publicOrigin || "(request-host)",
+    platform: {
+      android: {
+        packageName: androidPackage,
+        certificateFingerprints: androidFingerprints,
+        ready: androidReady
+      },
+      ios: {
+        teamId: iosTeamId || "missing",
+        bundleId: iosBundleId,
+        ready: iosReady
+      }
+    },
+    deepLinking: {
+      customScheme: {
+        scheme: deepLinkScheme,
+        host: deepLinkHost,
+        sample: `${deepLinkScheme}://${deepLinkHost}/property/{propertyId}`
+      },
+      universalLinks: {
+        host: originHost || "missing-host",
+        sample: originHost ? `https://${originHost}/property-details?pid={propertyId}` : ""
+      },
+      wellKnownFiles: associationFiles,
+      ready: allAssociationFilesReady
+    },
+    webToAppReadiness: {
+      manifestPath: "/manifest.webmanifest",
+      serviceWorkerPath: "/service-worker.js",
+      manifestReady: fs.existsSync(manifestFile),
+      serviceWorkerReady: fs.existsSync(serviceWorkerFile),
+      ready: webPwaReady
+    },
+    stage: webPwaReady && (androidReady || iosReady)
+      ? "launch-ready"
+      : "setup-in-progress"
+  };
 };
 const role = (v) => {
   const r = txt(v).toLowerCase();
@@ -1150,6 +1279,12 @@ app.use("/api", proAiThreatAutoDetector);
 app.use("/api", proFakeListingAiGuard);
 app.use("/api", proAuthFailureIntelligence);
 app.use("/api/auth", proAuthRateLimiter);
+app.get("/.well-known/assetlinks.json", (_req, res) => sendAppAssociationFile(res, "assetlinks.json"));
+app.get(
+  "/.well-known/apple-app-site-association",
+  (_req, res) => sendAppAssociationFile(res, "apple-app-site-association")
+);
+app.get("/apple-app-site-association", (_req, res) => sendAppAssociationFile(res, "apple-app-site-association"));
 app.use(proBlockSensitivePublicFiles);
 app.use(express.static(activeWebRoot, createProSafeStaticOptions()));
 if (activeWebRoot !== webRoot) {
@@ -1207,6 +1342,9 @@ app.get("/api/system/live-roots", (_req, res) => res.json({
   routePattern: "PropertySetu.in/{city-slug}",
   routes: liveRouteMap,
 }));
+app.get("/api/system/app-launch-readiness", (req, res) => {
+  return res.json(buildAppLaunchReadinessPayload(req));
+});
 app.get("/api/system/capabilities", (_req, res) => res.json({
   ok: true,
   capabilities: {
@@ -1219,6 +1357,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     aiIntegration: true,
     secureChat: true,
     ecosystemServices: true,
+    mobileAppLaunchPrep: true,
   },
   modules: {
     auth: "/api/auth/*",
@@ -1279,6 +1418,7 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     privateDocCryptoControlV3: "/api/v3/system/private-doc-crypto-control",
     privateDocCryptoControlAuditV3: "/api/v3/system/private-doc-crypto-control/audit",
     privateDocCryptoControlResetV3: "/api/v3/system/private-doc-crypto-control/reset",
+    appLaunchReadiness: "/api/system/app-launch-readiness",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {
