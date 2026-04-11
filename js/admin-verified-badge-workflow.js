@@ -423,6 +423,10 @@
     return 'pending';
   };
 
+  const verificationFlagFromDecision = (decisionStatus) => (
+    asDecisionStatus(decisionStatus) === 'verified'
+  );
+
   const setBusy = (id, busy) => {
     busyById = { ...busyById, [id]: busy };
     renderQueue();
@@ -481,12 +485,20 @@
           auditRow.error = text(error?.message, 'Decision API fallback');
         }
 
-        if (decisionStatus === 'verified' && row.propertyId) {
+        if (row.propertyId) {
+          const verified = verificationFlagFromDecision(decisionStatus);
+          const propertyReason = reason || (verified
+            ? 'Owner verification approved by admin workflow.'
+            : 'Owner verification moved out of verified state by admin workflow.');
           try {
-            await live.request(`/properties/${encodeURIComponent(row.propertyId)}/approve`, {
+            await live.request(`/properties/${encodeURIComponent(row.propertyId)}/verify`, {
               method: 'POST',
               token,
-              data: {},
+              data: {
+                verified,
+                reason: propertyReason,
+                moderationReason: propertyReason,
+              },
             });
             auditRow.livePropertySync = true;
           } catch (error) {
@@ -499,8 +511,8 @@
       }
 
       persistLocalDecision(row, decisionStatus, reason);
-      if (decisionStatus === 'verified' && row.propertyId) {
-        applyLocalPropertyVerified(row.propertyId, true);
+      if (row.propertyId) {
+        applyLocalPropertyVerified(row.propertyId, verificationFlagFromDecision(decisionStatus));
       }
       queueItems = queueItems.map((item) => (
         item.id === row.id
@@ -525,17 +537,47 @@
     }
   };
 
-  const showRowHistory = (id) => {
-    const rows = readAudit().filter((row) => text(row.requestId) === text(id)).slice(0, 8);
-    if (!rows.length) {
-      window.alert(`No audit records found for request ${id}.`);
+  const showRowHistory = async (id) => {
+    const requestId = text(id);
+    const queueRow = queueItems.find((item) => text(item.id) === requestId) || {};
+    const propertyId = text(queueRow.propertyId);
+    const localRows = readAudit().filter((row) => text(row.requestId) === requestId).slice(0, 8);
+    const sections = [];
+
+    if (localRows.length) {
+      const localBody = localRows.map((row) => (
+        `${toDateLabel(row.at)} | ${labelForStatus(row.action)} | ${text(row.reason, '-')}\n` +
+        `admin=${text(row.adminId)} liveDecision=${row.liveDecision ? 'yes' : 'no'} livePropertySync=${row.livePropertySync ? 'yes' : 'no'}`
+      )).join('\n\n');
+      sections.push(`Local Audit\n${localBody}`);
+    }
+
+    const token = getAdminToken();
+    if (propertyId && token && live.request) {
+      try {
+        const response = await live.request(
+          `/properties/${encodeURIComponent(propertyId)}/moderation/audit?limit=8`,
+          { token }
+        );
+        const items = Array.isArray(response?.items) ? response.items : [];
+        const verification = response?.verification || {};
+        if (items.length) {
+          const serverBody = items.map((row) => (
+            `${toDateLabel(row.occurredAt || row.createdAt)} | ${text(row.action)} | ${text(row.statusBefore)} -> ${text(row.statusAfter)} | ${text(row.reasonPreview, '-')}`
+          )).join('\n');
+          const chainSummary = `Chain valid=${verification?.valid ? 'yes' : 'no'} total=${numberFrom(verification?.total, items.length)} partial=${verification?.partial ? 'yes' : 'no'}`;
+          sections.push(`Server Moderation Audit (${propertyId})\n${chainSummary}\n${serverBody}`);
+        }
+      } catch {
+        // best effort: local audit section is still shown
+      }
+    }
+
+    if (!sections.length) {
+      window.alert(`No audit records found for request ${requestId}.`);
       return;
     }
-    const body = rows.map((row) => (
-      `${toDateLabel(row.at)} | ${labelForStatus(row.action)} | ${text(row.reason, '-')}\n` +
-      `admin=${text(row.adminId)} liveDecision=${row.liveDecision ? 'yes' : 'no'} livePropertySync=${row.livePropertySync ? 'yes' : 'no'}`
-    )).join('\n\n');
-    window.alert(body);
+    window.alert(sections.join('\n\n--------------------\n\n'));
   };
 
   const exportAuditCsv = () => {
@@ -601,7 +643,7 @@
     const id = text(target.getAttribute('data-id'));
     if (!action || !id) return;
     if (action === 'history') {
-      showRowHistory(id);
+      showRowHistory(id).catch((error) => setStatus(text(error?.message, 'Audit history unavailable.'), false));
       return;
     }
     if (action === 'verify' || action === 'needs-info' || action === 'reject') {
