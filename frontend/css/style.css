@@ -1047,11 +1047,11 @@ footer {
 
 .home-top-nav {
   flex: 1 1 520px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(206, 229, 248, 0.7) rgba(255, 255, 255, 0.06);
-  padding-bottom: 2px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: visible;
+  padding-bottom: 0;
 }
 
 .home-top-nav::-webkit-scrollbar {
@@ -1065,6 +1065,79 @@ footer {
 
 .home-top-nav a {
   white-space: nowrap;
+  font-size: 0.8rem;
+  border: 1px solid rgba(198, 220, 238, 0.42);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.home-top-nav a:hover {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.nav-group {
+  position: relative;
+}
+
+.nav-group > summary {
+  list-style: none;
+  font-size: 0.8rem;
+  color: #d7eaff;
+  border: 1px solid rgba(198, 220, 238, 0.42);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nav-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.nav-group > summary::after {
+  content: " +";
+  font-weight: 800;
+}
+
+.nav-group[open] > summary {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.nav-group[open] > summary::after {
+  content: " -";
+}
+
+.nav-group-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 230px;
+  border: 1px solid #bfd6ea;
+  border-radius: 12px;
+  box-shadow: 0 16px 30px rgba(5, 33, 54, 0.34);
+  background: #ffffff;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  z-index: 1300;
+}
+
+.nav-group-menu a {
+  color: #15486c;
+  background: #f8fbff;
+  border: 1px solid #d3e2f0;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 7px 9px;
+}
+
+.nav-group-menu a:hover {
+  background: #edf5fc;
+  border-color: #aac8df;
 }
 
 .quick-action-strip {
@@ -1395,6 +1468,14 @@ footer {
   .feature-finder-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .home-top-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(206, 229, 248, 0.7) rgba(255, 255, 255, 0.06);
+    padding-bottom: 2px;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1403,6 +1484,10 @@ footer {
   }
 
   .desktop-dock-shell {
+    display: none;
+  }
+
+  .home-top-nav {
     display: none;
   }
 
