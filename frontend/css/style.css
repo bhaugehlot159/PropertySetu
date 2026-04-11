@@ -1485,6 +1485,13 @@ footer {
   gap: 8px;
 }
 
+.dash-usage-tools {
+  margin: 0 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .dash-usage-tab {
   border: 1px solid #a9c7df;
   background: #ffffff;
@@ -1560,6 +1567,13 @@ footer {
   margin-top: 10px;
   color: #3b5f79;
   font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.dash-usage-status {
+  margin-top: 8px;
+  color: #2f5675;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 

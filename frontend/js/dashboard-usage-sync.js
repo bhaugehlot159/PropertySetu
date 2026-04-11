@@ -150,14 +150,22 @@
       <button type="button" class="dash-usage-tab active" data-dash-window="7d">7 Days</button>
       <button type="button" class="dash-usage-tab" data-dash-window="30d">30 Days</button>
     </div>
+    <div class="dash-usage-tools">
+      <button type="button" class="dash-usage-tab" id="dashUsageExportBtn">Export Usage CSV</button>
+      <button type="button" class="dash-usage-tab" id="dashUsageResetBtn">Reset Usage Data</button>
+    </div>
     <div class="dash-usage-items" id="dashUsageItems"></div>
     <p class="dash-usage-hint" id="dashUsageHint">Usage insights loading...</p>
+    <p class="dash-usage-status" id="dashUsageStatus"></p>
   `;
   main.insertBefore(panel, main.firstElementChild || null);
 
   const usageItemsEl = panel.querySelector("#dashUsageItems");
   const usageHintEl = panel.querySelector("#dashUsageHint");
+  const usageStatusEl = panel.querySelector("#dashUsageStatus");
   const windowTabs = Array.from(panel.querySelectorAll("[data-dash-window]"));
+  const exportBtn = panel.querySelector("#dashUsageExportBtn");
+  const resetBtn = panel.querySelector("#dashUsageResetBtn");
 
   const sourceFromElement = (el) => {
     if (!el) return `${pageRoleTitle} Dashboard`;
@@ -211,17 +219,43 @@
     window.location.href = href;
   };
 
-  const renderUsage = () => {
-    if (!usageItemsEl) return;
+  const setStatus = (message = "") => {
+    if (!usageStatusEl) return;
+    usageStatusEl.textContent = String(message || "").trim();
+  };
+
+  const csvEscape = (value = "") => {
+    const text = String(value ?? "");
+    if (/[",\n]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+
+  const downloadCsv = (rows = [], fileName = "dashboard-usage.csv") => {
+    if (!rows.length) return false;
+    const csv = rows.map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  };
+
+  const buildDisplayList = () => {
     const usage = safeRead(USAGE_STORAGE_KEY);
     const scopedRole = usage.filter((item) => {
       const role = normalizeRole(item.role || pageRole);
       return role === pageRole || role === "all";
     });
     const windowScoped = scopedRole.filter((item) => isWithinWindow(item.at, currentWindow));
-    const list = windowScoped.length
-      ? windowScoped
-      : (defaultsByRole[pageRole] || []).map((item) => ({ ...item, at: new Date().toISOString() }));
+    const fallback = (defaultsByRole[pageRole] || []).map((item) => ({ ...item, at: new Date().toISOString() }));
+    const list = windowScoped.length ? windowScoped : fallback;
     const sorted = [...list]
       .sort((a, b) => {
         const countDiff = (Number(b.count) || 0) - (Number(a.count) || 0);
@@ -229,6 +263,17 @@
         return toMs(b.at) - toMs(a.at);
       })
       .slice(0, LIMIT);
+    return {
+      usage,
+      sorted,
+      isFallback: !windowScoped.length,
+    };
+  };
+
+  const renderUsage = () => {
+    if (!usageItemsEl) return;
+    setStatus("");
+    const { usage, sorted, isFallback } = buildDisplayList();
 
     usageItemsEl.innerHTML = "";
     if (!sorted.length) {
@@ -284,7 +329,9 @@
     });
 
     if (usageHintEl) {
-      usageHintEl.textContent = `Showing ${pageRoleTitle} actions for ${windowLabel(currentWindow)} window.`;
+      usageHintEl.textContent = isFallback
+        ? `Real usage not found for selected window, showing ${pageRoleTitle} starter actions.`
+        : `Showing ${pageRoleTitle} actions for ${windowLabel(currentWindow)} window.`;
     }
   };
 
@@ -297,6 +344,46 @@
       });
       renderUsage();
     });
+  });
+
+  exportBtn?.addEventListener("click", () => {
+    const { sorted } = buildDisplayList();
+    if (!sorted.length) {
+      setStatus("No usage data to export for selected filters.");
+      return;
+    }
+    const rows = [
+      ["label", "href", "role", "count", "source", "note", "last_used_at", "window", "dashboard_role"],
+      ...sorted.map((item) => [
+        item.label || "",
+        item.href || "",
+        normalizeRole(item.role || pageRole),
+        Number(item.count) || 0,
+        item.source || "",
+        item.note || "",
+        item.at || "",
+        windowLabel(currentWindow),
+        pageRoleTitle,
+      ]),
+    ];
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = `propertysetu-${pageRole}-usage-${normalizeWindow(currentWindow)}-${stamp}.csv`;
+    const ok = downloadCsv(rows, file);
+    setStatus(ok ? "Usage CSV exported successfully." : "Usage CSV export failed.");
+  });
+
+  resetBtn?.addEventListener("click", () => {
+    const allow = window.confirm(
+      "Reset usage analytics? Ye homepage aur dashboard usage ranking clear karega."
+    );
+    if (!allow) return;
+    try {
+      localStorage.removeItem(USAGE_STORAGE_KEY);
+      renderUsage();
+      setStatus("Usage analytics reset completed.");
+    } catch {
+      setStatus("Unable to reset usage analytics.");
+    }
   });
 
   document.addEventListener(
