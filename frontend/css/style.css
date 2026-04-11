@@ -961,6 +961,82 @@ footer {
   color: #476079;
 }
 
+.quick-action-strip {
+  margin-top: -18px;
+  padding-bottom: 6px;
+}
+
+.quick-action-board {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
+  gap: 10px;
+}
+
+.quick-action-card {
+  border: 1px solid #c9ddf0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(6, 45, 74, 0.12);
+  padding: 12px 13px;
+}
+
+.quick-action-card h3 {
+  margin: 0 0 6px;
+  color: #113f63;
+  font-size: 1rem;
+}
+
+.quick-action-card p {
+  margin: 0;
+  color: #3a5972;
+  font-size: 0.86rem;
+}
+
+.quick-action-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.quick-action-links a {
+  text-decoration: none;
+  border: 1px solid #b4cfe5;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #144e79;
+}
+
+.quick-action-links a:hover {
+  background: #edf5fc;
+}
+
+.dash-shell {
+  padding: 26px 0 48px;
+}
+
+.dash-card {
+  margin-top: 14px;
+  background: #ffffff;
+  border: 1px solid #c8ddef;
+  border-radius: 14px;
+  box-shadow: 0 10px 26px rgba(8, 42, 67, 0.12);
+  padding: 16px;
+}
+
+.dash-card h2 {
+  margin: 0 0 10px;
+  color: #0e4268;
+}
+
+.dash-meta {
+  margin: 0 0 10px;
+  color: #4b667f;
+  font-size: 0.86rem;
+}
+
 .marketplace-panel {
   margin-top: 16px;
   display: flex;
@@ -1076,6 +1152,10 @@ footer {
   .hub-row.four {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .quick-action-board {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1114,5 +1194,13 @@ footer {
   .hero-cta .solid-btn,
   .hero-cta .outline-btn {
     flex: 1 1 100%;
+  }
+
+  .quick-action-strip {
+    margin-top: 0;
+  }
+
+  .quick-action-board {
+    grid-template-columns: 1fr;
   }
 }
