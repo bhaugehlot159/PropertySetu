@@ -172,6 +172,90 @@ a {
   overflow: clip;
 }
 
+.desktop-dock-shell {
+  position: sticky;
+  top: 58px;
+  z-index: 980;
+  padding-top: 8px;
+}
+
+.desktop-quick-dock {
+  border: 1px solid rgba(176, 207, 229, 0.8);
+  background: rgba(250, 253, 255, 0.92);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  box-shadow: 0 12px 26px rgba(7, 44, 73, 0.12);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.dock-heading strong {
+  display: block;
+  color: #123f62;
+  font-family: "Plus Jakarta Sans", "Manrope", sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.dock-heading p {
+  margin: 2px 0 0;
+  color: #4a6880;
+  font-size: 0.78rem;
+}
+
+.dock-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dock-links a {
+  text-decoration: none;
+  border: 1px solid #b8d2e7;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #154a72;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #ffffff;
+}
+
+.dock-links a:hover,
+.dock-links a.active {
+  background: #eaf4fe;
+  border-color: #6f9ec3;
+}
+
+.dock-command {
+  display: grid;
+  gap: 4px;
+  min-width: 260px;
+}
+
+.dock-command label {
+  color: #194b70;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.dock-command-row {
+  display: flex;
+  gap: 8px;
+}
+
+.dock-command-row input {
+  min-width: 220px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.dock-command-row .solid-btn {
+  padding: 8px 12px;
+}
+
 .hero-market {
   min-height: 640px;
   border-bottom: 1px solid #cae0f3;
@@ -1268,6 +1352,19 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .desktop-quick-dock {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .dock-command {
+    min-width: 0;
+  }
+
+  .dock-command-row input {
+    min-width: 0;
+  }
+
   .filter-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1303,6 +1400,10 @@ footer {
 @media (max-width: 760px) {
   body {
     padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .desktop-dock-shell {
+    display: none;
   }
 
   .container {

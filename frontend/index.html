@@ -45,6 +45,52 @@
     </div>
   </header>
 
+  <section class="desktop-dock-shell" aria-label="Desktop quick feature dock">
+    <div class="container">
+      <div id="desktopQuickDock" class="desktop-quick-dock">
+        <div class="dock-heading">
+          <strong>Quick Dock</strong>
+          <p>Long page scroll ki jagah direct feature open karo.</p>
+        </div>
+
+        <div class="dock-links">
+          <a href="#featureCommandCenter" data-dock-jump data-target="featureCommandCenter">Feature Finder</a>
+          <a href="#marketplace" data-dock-jump data-target="marketplace">Marketplace</a>
+          <a href="#decisionTools" data-dock-jump data-target="decisionTools">Compare + EMI</a>
+          <a href="user-dashboard.html">Visit + Chat</a>
+          <a href="add-property.html">Post Property</a>
+          <a href="seller-dashboard.html">Seller Panel</a>
+          <a href="admin-dashboard.html">Admin Panel</a>
+          <a href="subscription.html">Plans</a>
+          <a href="auction.html">Sealed Bid</a>
+        </div>
+
+        <div class="dock-command">
+          <label for="dockCommandInput">Quick Command</label>
+          <div class="dock-command-row">
+            <input id="dockCommandInput" list="dockCommandOptions" placeholder="Type: chat, emi, wishlist, admin, sealed bid..." autocomplete="off" />
+            <button id="dockCommandGo" class="solid-btn" type="button">Go</button>
+          </div>
+          <datalist id="dockCommandOptions">
+            <option value="feature finder"></option>
+            <option value="marketplace"></option>
+            <option value="smart filter"></option>
+            <option value="wishlist"></option>
+            <option value="compare"></option>
+            <option value="emi"></option>
+            <option value="visit booking"></option>
+            <option value="chat"></option>
+            <option value="post property"></option>
+            <option value="seller panel"></option>
+            <option value="admin panel"></option>
+            <option value="subscription"></option>
+            <option value="sealed bid"></option>
+          </datalist>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <main>
     <section class="hero hero-market">
       <div class="hero-gradient"></div>
@@ -915,6 +961,7 @@
   <script src="js/pro-select.js"></script>
   <script src="js/home-auth.js"></script>
   <script src="js/home-feature-command-center.js"></script>
+  <script src="js/home-desktop-quick-dock.js"></script>
   <script src="js/home-mobile-quick-bar.js"></script>
   <script src="js/app-launch-readiness.js"></script>
   <script src="js/folder-command-dock.js"></script>
