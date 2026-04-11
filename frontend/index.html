@@ -18,7 +18,7 @@
   <header class="topbar">
     <div class="container topbar-inner">
       <a class="brand" href="index.html">PropertySetu Udaipur</a>
-      <nav class="main-nav">
+      <nav class="main-nav home-top-nav">
         <a href="#marketplace">Marketplace</a>
         <a href="#categoryHub">Buy/Rent/Care</a>
         <a href="pages/structure-hub.html">Complete Model</a>
@@ -139,6 +139,187 @@
             </div>
           </article>
         </div>
+      </div>
+    </section>
+
+    <section id="featureCommandCenter" class="section feature-command-section">
+      <div class="container">
+        <div class="section-header">
+          <h2>One Tap Feature Command Center</h2>
+          <p class="section-note">OLX jaisi fast discoverability: feature search karo, role select karo, aur direct open karo.</p>
+        </div>
+
+        <div class="feature-command-toolbar">
+          <div class="feature-command-field">
+            <label for="featureFinderInput">Find Feature</label>
+            <input id="featureFinderInput" type="text" placeholder="e.g. wishlist, chat, emi, verified, boost, admin" autocomplete="off" />
+          </div>
+          <div class="feature-command-field">
+            <label for="featureRoleFilter">Role Filter</label>
+            <select id="featureRoleFilter">
+              <option value="all">All Roles</option>
+              <option value="customer">Customer</option>
+              <option value="seller">Seller</option>
+              <option value="admin">Admin</option>
+              <option value="business">Business / Revenue</option>
+              <option value="security">Security / AI</option>
+            </select>
+          </div>
+          <div class="feature-command-actions">
+            <button id="featureFinderReset" class="outline-btn dark-outline" type="button">Reset Finder</button>
+            <a class="solid-btn" href="folders/common/all-features.html">Open All Features</a>
+          </div>
+        </div>
+
+        <div class="feature-quick-rail" role="list" aria-label="Quick feature chips">
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="buy rent verified filter locality">Buy/Rent Filters</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="wishlist compare">Wishlist + Compare</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="visit booking schedule">Visit Booking</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="chat whatsapp">Direct Chat</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="emi calculator loan">EMI Calculator</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="seller analytics boost featured">Seller Boost</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="admin verified report commission">Admin Controls</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="security ai fake listing fraud">AI Security</button>
+        </div>
+
+        <p id="featureFinderMeta" class="feature-finder-meta">Showing all features</p>
+
+        <div id="featureFinderGrid" class="feature-finder-grid">
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="buy sell rent lease girvi smart filters verified locality bhk radius furnishing loan">
+            <h3>Smart Search + Filters</h3>
+            <p>Price, locality radius, BHK, furnishing, loan available, verified-only filtering with Udaipur-first matching.</p>
+            <div class="quick-action-links">
+              <a href="#marketplace">Open Marketplace Filters</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="wishlist save compare shortlisted">
+            <h3>Wishlist + Compare</h3>
+            <p>Customer properties save kar sakta hai, 2-3 listings compare kar sakta hai, and faster decision le sakta hai.</p>
+            <div class="quick-action-links">
+              <a href="#decisionTools">Open Compare Tools</a>
+              <a href="user-dashboard.html">Open User Dashboard</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="visit booking schedule owner notification">
+            <h3>Property Visit Booking</h3>
+            <p>Customer slot select karta hai, owner/seller ko visit request notification milta hai.</p>
+            <div class="quick-action-links">
+              <a href="user-dashboard.html">Book Visit</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="chat whatsapp direct message masked communication">
+            <h3>Direct Chat + WhatsApp Flow</h3>
+            <p>Buyer-seller chat workflow with safer communication controls and WhatsApp handoff support.</p>
+            <div class="quick-action-links">
+              <a href="user-dashboard.html">Open Chat Board</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="emi calculator loan tenure interest finance">
+            <h3>EMI Calculator</h3>
+            <p>Loan amount, interest rate aur tenure input karke instant monthly EMI result nikaalo.</p>
+            <div class="quick-action-links">
+              <a href="#decisionTools">Open EMI Tool</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller" data-tags="seller dashboard analytics total views saves inquiries property analytics">
+            <h3>Seller Analytics Dashboard</h3>
+            <p>Seller ko total views, saves, inquiries aur listing performance insights ek jagah milte hain.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Open Seller Dashboard</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller business" data-tags="boost paid featured listing promotion spotlight">
+            <h3>Boost Listing (Paid Featured)</h3>
+            <p>Featured boost se listing visibility aur lead conversion dono improve hote hain.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Boost Listing</a>
+              <a href="subscription.html">Pricing Plans</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller security" data-tags="upload photos video document private docs verification">
+            <h3>Photo + Video + Docs Upload</h3>
+            <p>Multiple images, video upload, and private document flow with verification-ready structure.</p>
+            <div class="quick-action-links">
+              <a href="add-property.html">Open Upload Form</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller" data-tags="expiry alert auto renew listing lifecycle">
+            <h3>Auto Expiry Alerts</h3>
+            <p>Listing expiry ke pehle seller ko alert milta hai so renewal miss na ho.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Open Expiry Alerts</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="admin security" data-tags="admin verified badge approve moderation workflow">
+            <h3>Verified Badge Approval</h3>
+            <p>Admin approval ke baad hi “Verified by PropertySetu” badge listing par show hota hai.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Verification Controls</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="admin" data-tags="category city management pricing controls admin panel">
+            <h3>Category + City + Pricing Control</h3>
+            <p>Admin panel se category, city, featured pricing, aur platform controls manage hote hain.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Admin Controls</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="admin business" data-tags="report management commission analytics dashboard">
+            <h3>Report + Commission + Analytics</h3>
+            <p>Complaints, platform commission aur analytics decision support admin dashboard par available hain.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Admin Analytics</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="business" data-tags="subscription basic pro premium razorpay payment featured care package">
+            <h3>Subscription + Payments</h3>
+            <p>Basic/Pro/Premium plans, featured listing charge aur property care package monetization flows.</p>
+            <div class="quick-action-links">
+              <a href="subscription.html">Open Subscription Plans</a>
+              <a href="property-care.html">Open Property Care</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="business" data-tags="legal agreement registry support loan assistance documentation">
+            <h3>Legal + Loan Assistance</h3>
+            <p>Agreement, registry support, legal help aur loan-assistance service stream startup revenue improve karta hai.</p>
+            <div class="quick-action-links">
+              <a href="pages/legal-help.html">Open Legal Help</a>
+              <a href="pages/ecosystem-services.html">Open Ecosystem Services</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="security admin" data-tags="sealed bid hidden bidding admin reveal winner accept reject">
+            <h3>Sealed Bid (Hidden Bidding)</h3>
+            <p>Bids hidden rehti hain; admin-only visibility, winner reveal, accept highest, reject-all controls enabled.</p>
+            <div class="quick-action-links">
+              <a href="auction.html">Open Sealed Bid Center</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="security admin" data-tags="ai fake listing detection fraud risk scoring recommendation pricing suggestion">
+            <h3>AI Fraud + Recommendation Layer</h3>
+            <p>Fake listing signal detection, risk scoring, pricing hints, and recommendation workflow platform trust increase karta hai.</p>
+            <div class="quick-action-links">
+              <a href="#marketplace">Open AI Market Tools</a>
+              <a href="admin-dashboard.html">Open AI Moderation</a>
+            </div>
+          </article>
+        </div>
+
+        <p id="featureFinderEmpty" class="tiny-note feature-finder-empty" hidden>No feature matched. Different keyword ya role try karo.</p>
       </div>
     </section>
 
@@ -605,7 +786,7 @@
       </div>
     </section>
 
-    <section class="section soft-bg">
+    <section id="decisionTools" class="section soft-bg">
       <div class="container split-grid">
         <article class="card">
           <h3>Compare Board (<span id="compareCount">0</span>/3)</h3>
@@ -641,7 +822,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="roleBoards" class="section">
       <div class="container">
         <div class="section-header">
           <h2>Role-based Feature Boards</h2>
@@ -725,6 +906,7 @@
   <script src="js/udaipur-marketplace.js"></script>
   <script src="js/pro-select.js"></script>
   <script src="js/home-auth.js"></script>
+  <script src="js/home-feature-command-center.js"></script>
   <script src="js/app-launch-readiness.js"></script>
   <script src="js/folder-command-dock.js"></script>
 </body>
