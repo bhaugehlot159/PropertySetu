@@ -241,6 +241,16 @@ const ecosystemServiceCatalog = [
   { id: "franchise", name: "Franchise Interest Program", category: "growth", baseFee: 0 },
 ];
 
+const defaultAppLaunchConfig = {
+  publicOrigin: "",
+  deepLinkScheme: "",
+  deepLinkHost: "",
+  androidPackage: "",
+  androidFingerprints: [],
+  iosBundleId: "",
+  iosTeamId: ""
+};
+
 const fallbackLocalities = ["Hiran Magri", "Pratap Nagar", "Bhuwana", "Sukher", "Fatehpura", "Ambamata", "Savina", "Bedla"];
 const ENABLE_LEGACY_SEED_DATA = String(process.env.CORE_ENABLE_LEGACY_SEED_DATA || "false")
   .trim()
@@ -280,6 +290,7 @@ const defaults = () => ({
     categories: ["House", "Flat", "Villa", "Plot", "Agriculture Land", "Commercial", "Warehouse", "Farm House", "PG / Hostel"],
     cities: ["Udaipur", "Jaipur", "Jodhpur", "Ahmedabad", "Delhi", "Mumbai"],
     featuredPricing: normalizeFeaturedPricingConfig(),
+    appLaunch: { ...defaultAppLaunchConfig },
   },
   trustedAgents: ENABLE_LEGACY_SEED_DATA
     ? [
@@ -385,17 +396,159 @@ const parseHostFromOrigin = (origin) => {
     return raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   }
 };
+const normalizeAndroidFingerprint = (value) => {
+  const raw = txt(value).toUpperCase().replace(/\s+/g, "");
+  if (!raw) return "";
+  if (/^[A-F0-9]{64}$/.test(raw)) {
+    return raw.match(/.{2}/g).join(":");
+  }
+  if (/^([A-F0-9]{2}:){31}[A-F0-9]{2}$/.test(raw)) {
+    return raw;
+  }
+  return "";
+};
+const isValidAndroidFingerprint = (value) => /^([A-F0-9]{2}:){31}[A-F0-9]{2}$/.test(txt(value).toUpperCase());
+const isValidIosTeamId = (value) => /^[A-Z0-9]{10}$/.test(txt(value).toUpperCase());
+const normalizeLegacyAppLaunchConfig = (value = {}) => {
+  const safe = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const fingerprintInput = Array.isArray(safe.androidFingerprints)
+    ? safe.androidFingerprints
+    : splitCsv(safe.androidFingerprints || safe.androidSha256Fingerprints);
+  const androidFingerprints = [...new Set(
+    fingerprintInput
+      .map((item) => normalizeAndroidFingerprint(item))
+      .filter(Boolean)
+  )].slice(0, 16);
+  return {
+    publicOrigin: txt(safe.publicOrigin).replace(/\/+$/, ""),
+    deepLinkScheme: txt(safe.deepLinkScheme || safe.customScheme).toLowerCase(),
+    deepLinkHost: txt(safe.deepLinkHost || safe.customHost).toLowerCase(),
+    androidPackage: txt(safe.androidPackage || safe.packageName),
+    androidFingerprints,
+    iosBundleId: txt(safe.iosBundleId || safe.bundleId),
+    iosTeamId: txt(safe.iosTeamId || safe.teamId).toUpperCase()
+  };
+};
+const getLegacyResolvedAppLaunchConfig = (req) => {
+  const runtime = normalizeLegacyAppLaunchConfig(db?.adminConfig?.appLaunch || {});
+  const env = normalizeLegacyAppLaunchConfig({
+    publicOrigin: process.env.PUBLIC_WEB_ORIGIN || process.env.PUBLIC_ORIGIN,
+    deepLinkScheme: process.env.APP_DEEP_LINK_SCHEME || "propertysetu",
+    deepLinkHost: process.env.APP_DEEP_LINK_HOST || "open",
+    androidPackage: process.env.APP_ANDROID_PACKAGE || "com.propertysetu.app",
+    androidFingerprints:
+      process.env.APP_ANDROID_SHA256_FINGERPRINTS ||
+      process.env.ANDROID_APP_SHA256_FINGERPRINTS,
+    iosBundleId: process.env.APP_IOS_BUNDLE_ID || "in.propertysetu.app",
+    iosTeamId: process.env.APP_IOS_TEAM_ID || ""
+  });
+  const requestDerivedOrigin = resolvePublicOrigin(req);
+  return {
+    publicOrigin: runtime.publicOrigin || env.publicOrigin || requestDerivedOrigin,
+    deepLinkScheme: runtime.deepLinkScheme || env.deepLinkScheme || "propertysetu",
+    deepLinkHost: runtime.deepLinkHost || env.deepLinkHost || "open",
+    androidPackage: runtime.androidPackage || env.androidPackage || "com.propertysetu.app",
+    androidFingerprints: runtime.androidFingerprints.length
+      ? runtime.androidFingerprints
+      : env.androidFingerprints,
+    iosBundleId: runtime.iosBundleId || env.iosBundleId || "in.propertysetu.app",
+    iosTeamId: runtime.iosTeamId || env.iosTeamId,
+    source: {
+      publicOrigin: runtime.publicOrigin ? "admin-config" : (env.publicOrigin ? "env" : "request"),
+      deepLinkScheme: runtime.deepLinkScheme ? "admin-config" : "env",
+      deepLinkHost: runtime.deepLinkHost ? "admin-config" : "env",
+      androidPackage: runtime.androidPackage ? "admin-config" : "env",
+      androidFingerprints: runtime.androidFingerprints.length ? "admin-config" : "env",
+      iosBundleId: runtime.iosBundleId ? "admin-config" : "env",
+      iosTeamId: runtime.iosTeamId ? "admin-config" : "env"
+    },
+    runtimeOverride: runtime
+  };
+};
+const sanitizeLegacyAppLaunchPatchInput = (value = {}) => {
+  const safe = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(safe, "publicOrigin")) {
+    patch.publicOrigin = txt(safe.publicOrigin).replace(/\/+$/, "");
+  }
+  if (Object.prototype.hasOwnProperty.call(safe, "deepLinkScheme")) {
+    patch.deepLinkScheme = txt(safe.deepLinkScheme).toLowerCase();
+  }
+  if (Object.prototype.hasOwnProperty.call(safe, "deepLinkHost")) {
+    patch.deepLinkHost = txt(safe.deepLinkHost).toLowerCase();
+  }
+  if (Object.prototype.hasOwnProperty.call(safe, "androidPackage")) {
+    patch.androidPackage = txt(safe.androidPackage);
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(safe, "androidFingerprints")
+    || Object.prototype.hasOwnProperty.call(safe, "androidSha256Fingerprints")
+  ) {
+    const rawFingerprints = Array.isArray(safe.androidFingerprints)
+      ? safe.androidFingerprints
+      : splitCsv(safe.androidFingerprints || safe.androidSha256Fingerprints);
+    patch.androidFingerprints = [...new Set(
+      rawFingerprints
+        .map((item) => normalizeAndroidFingerprint(item))
+        .filter(Boolean)
+    )].slice(0, 16);
+  }
+  if (Object.prototype.hasOwnProperty.call(safe, "iosBundleId")) {
+    patch.iosBundleId = txt(safe.iosBundleId);
+  }
+  if (Object.prototype.hasOwnProperty.call(safe, "iosTeamId")) {
+    patch.iosTeamId = txt(safe.iosTeamId).toUpperCase();
+  }
+  return patch;
+};
+const validateLegacyAppLaunchPatch = (patch = {}) => {
+  const errors = [];
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "publicOrigin")
+    && patch.publicOrigin
+    && !/^https?:\/\//i.test(patch.publicOrigin)
+  ) {
+    errors.push("publicOrigin must start with http:// or https://");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "deepLinkScheme")
+    && patch.deepLinkScheme
+    && !/^[a-z][a-z0-9+.-]*$/i.test(patch.deepLinkScheme)
+  ) {
+    errors.push("deepLinkScheme format is invalid.");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "deepLinkHost")
+    && patch.deepLinkHost
+    && !/^[a-z0-9.-]+$/i.test(patch.deepLinkHost)
+  ) {
+    errors.push("deepLinkHost format is invalid.");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "androidFingerprints")
+    && patch.androidFingerprints.some((item) => !isValidAndroidFingerprint(item))
+  ) {
+    errors.push("androidFingerprints must be valid SHA256 certificate fingerprints.");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "iosTeamId")
+    && patch.iosTeamId
+    && !isValidIosTeamId(patch.iosTeamId)
+  ) {
+    errors.push("iosTeamId must be 10 uppercase alphanumeric characters.");
+  }
+  return errors;
+};
 const buildAppLaunchReadinessPayload = (req) => {
-  const publicOrigin = resolvePublicOrigin(req);
+  const launchConfig = getLegacyResolvedAppLaunchConfig(req);
+  const publicOrigin = launchConfig.publicOrigin;
   const originHost = parseHostFromOrigin(publicOrigin);
-  const deepLinkScheme = txt(process.env.APP_DEEP_LINK_SCHEME || "propertysetu");
-  const deepLinkHost = txt(process.env.APP_DEEP_LINK_HOST || "open");
-  const androidPackage = txt(process.env.APP_ANDROID_PACKAGE || "com.propertysetu.app");
-  const androidFingerprints = splitCsv(
-    process.env.APP_ANDROID_SHA256_FINGERPRINTS || process.env.ANDROID_APP_SHA256_FINGERPRINTS
-  );
-  const iosBundleId = txt(process.env.APP_IOS_BUNDLE_ID || "in.propertysetu.app");
-  const iosTeamId = txt(process.env.APP_IOS_TEAM_ID || "");
+  const deepLinkScheme = launchConfig.deepLinkScheme;
+  const deepLinkHost = launchConfig.deepLinkHost;
+  const androidPackage = launchConfig.androidPackage;
+  const androidFingerprints = launchConfig.androidFingerprints;
+  const iosBundleId = launchConfig.iosBundleId;
+  const iosTeamId = launchConfig.iosTeamId;
   const manifestFile = resolveWebFile("manifest.webmanifest");
   const serviceWorkerFile = resolveWebFile("service-worker.js");
   const associationFiles = [
@@ -412,11 +565,11 @@ const buildAppLaunchReadinessPayload = (req) => {
   const webPwaReady = fs.existsSync(manifestFile) && fs.existsSync(serviceWorkerFile);
   const androidReady =
     appIdentifierConfigured(androidPackage) &&
-    androidFingerprints.length > 0 &&
+    androidFingerprints.some((item) => isValidAndroidFingerprint(item)) &&
     allAssociationFilesReady;
   const iosReady =
     appIdentifierConfigured(iosBundleId) &&
-    appIdentifierConfigured(iosTeamId) &&
+    isValidIosTeamId(iosTeamId) &&
     allAssociationFilesReady;
 
   return {
@@ -435,6 +588,7 @@ const buildAppLaunchReadinessPayload = (req) => {
         ready: iosReady
       }
     },
+    configSource: launchConfig.source,
     deepLinking: {
       customScheme: {
         scheme: deepLinkScheme,
@@ -455,6 +609,7 @@ const buildAppLaunchReadinessPayload = (req) => {
       serviceWorkerReady: fs.existsSync(serviceWorkerFile),
       ready: webPwaReady
     },
+    adminOverride: launchConfig.runtimeOverride,
     stage: webPwaReady && (androidReady || iosReady)
       ? "launch-ready"
       : "setup-in-progress"
@@ -783,6 +938,10 @@ const load = async () => {
         categories: safeArr(raw?.adminConfig?.categories).length ? safeArr(raw.adminConfig.categories) : fresh.adminConfig.categories,
         cities: safeArr(raw?.adminConfig?.cities).length ? safeArr(raw.adminConfig.cities) : fresh.adminConfig.cities,
         featuredPricing: normalizeFeaturedPricingConfig(raw?.adminConfig?.featuredPricing || fresh.adminConfig.featuredPricing),
+        appLaunch: {
+          ...defaultAppLaunchConfig,
+          ...normalizeLegacyAppLaunchConfig(raw?.adminConfig?.appLaunch || fresh.adminConfig.appLaunch),
+        },
       },
       trustedAgents: safeArr(raw.trustedAgents).length ? safeArr(raw.trustedAgents) : fresh.trustedAgents,
       counters: { ...fresh.counters, ...(raw.counters || {}) },
@@ -1419,6 +1578,8 @@ app.get("/api/system/capabilities", (_req, res) => res.json({
     privateDocCryptoControlAuditV3: "/api/v3/system/private-doc-crypto-control/audit",
     privateDocCryptoControlResetV3: "/api/v3/system/private-doc-crypto-control/reset",
     appLaunchReadiness: "/api/system/app-launch-readiness",
+    appLaunchConfigAdmin: "/api/admin/config/app-launch",
+    appLaunchConfigAdminV3: "/api/v3/system/app-launch-config",
   },
 }));
 app.get("/api/system/stack-options", (_req, res) => {
@@ -2575,6 +2736,47 @@ app.post("/api/admin/config/featured-pricing", auth, admin, async (req, res) => 
     ok: true,
     items: featuredPricingSnapshotFromPlans(),
     plans: plans.filter((item) => item.type === "featured"),
+  });
+});
+
+app.get("/api/admin/config/app-launch", auth, admin, (req, res) => {
+  const item = normalizeLegacyAppLaunchConfig(db?.adminConfig?.appLaunch || {});
+  res.json({
+    ok: true,
+    item,
+    readiness: buildAppLaunchReadinessPayload(req),
+  });
+});
+
+app.patch("/api/admin/config/app-launch", auth, admin, async (req, res) => {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const patch = sanitizeLegacyAppLaunchPatchInput(
+    body.patch && typeof body.patch === "object" && !Array.isArray(body.patch)
+      ? body.patch
+      : body
+  );
+  const errors = validateLegacyAppLaunchPatch(patch);
+  if (errors.length) {
+    return res.status(400).json({
+      ok: false,
+      message: "Invalid app launch config patch.",
+      errors,
+    });
+  }
+
+  const current = normalizeLegacyAppLaunchConfig(db?.adminConfig?.appLaunch || {});
+  db.adminConfig.appLaunch = {
+    ...defaultAppLaunchConfig,
+    ...current,
+    ...patch,
+  };
+  await save();
+  return res.json({
+    ok: true,
+    item: normalizeLegacyAppLaunchConfig(db.adminConfig.appLaunch),
+    readiness: buildAppLaunchReadinessPayload(req),
   });
 });
 

@@ -48,6 +48,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../../..");
 const APP_ASSOCIATION_WELL_KNOWN_ROOT = path.join(rootDir, "app-association", ".well-known");
+const APP_LAUNCH_CONFIG_KEY = "app-launch-config";
+const APP_LAUNCH_CONFIG_HYDRATE_COOLDOWN_MS = Math.max(
+  5_000,
+  Number(process.env.CORE_APP_LAUNCH_CONFIG_HYDRATE_COOLDOWN_MS || 45_000)
+);
 const PRIVATE_DOC_CRYPTO_CONTROL_CONFIG_KEY = "private-doc-crypto-control";
 const PRIVATE_DOC_CRYPTO_CONTROL_HYDRATE_COOLDOWN_MS = Math.max(
   5_000,
@@ -108,6 +113,17 @@ const PRIVATE_DOC_CRYPTO_CONTROL_AUDIT_ACTIONS = new Set([
   "approval-reset",
   "updated"
 ]);
+const DEFAULT_CORE_APP_LAUNCH_CONFIG = {
+  publicOrigin: "",
+  deepLinkScheme: "",
+  deepLinkHost: "",
+  androidPackage: "",
+  androidFingerprints: [],
+  iosBundleId: "",
+  iosTeamId: ""
+};
+let appLaunchConfigHydratedAtTs = 0;
+let coreAppLaunchRuntimeConfig = { ...DEFAULT_CORE_APP_LAUNCH_CONFIG };
 let privateDocCryptoControlHydratedAtTs = 0;
 let privateDocCryptoControlApprovalHydratedAtTs = 0;
 let privateDocCryptoControlApprovalRequest = {
@@ -141,7 +157,13 @@ function isConfiguredCredential(value) {
 function isConfiguredAppIdentifier(value) {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return false;
-  return !raw.includes("replace") && !raw.includes("placeholder") && !raw.startsWith("your.");
+  return (
+    !raw.includes("replace") &&
+    !raw.includes("placeholder") &&
+    !raw.startsWith("your.") &&
+    raw !== "teamid" &&
+    !raw.includes("example")
+  );
 }
 
 function splitCsv(value = "") {
@@ -180,19 +202,231 @@ function appAssociationFileExists(fileName) {
   return fs.existsSync(path.join(APP_ASSOCIATION_WELL_KNOWN_ROOT, fileName));
 }
 
+function normalizeAndroidFingerprint(value = "") {
+  const raw = text(value).toUpperCase().replace(/\s+/g, "");
+  if (!raw) return "";
+  if (/^[A-F0-9]{64}$/.test(raw)) {
+    return raw.match(/.{2}/g).join(":");
+  }
+  if (/^([A-F0-9]{2}:){31}[A-F0-9]{2}$/.test(raw)) {
+    return raw;
+  }
+  return "";
+}
+
+function isValidAndroidFingerprint(value = "") {
+  return /^([A-F0-9]{2}:){31}[A-F0-9]{2}$/.test(text(value).toUpperCase());
+}
+
+function isValidIosTeamId(value = "") {
+  return /^[A-Z0-9]{10}$/.test(text(value).toUpperCase());
+}
+
+function sanitizeCoreAppLaunchConfigPatch(value = {}) {
+  const safe = toPlainObject(value) || {};
+  const out = {};
+  if (typeof safe.publicOrigin !== "undefined") {
+    out.publicOrigin = text(safe.publicOrigin).replace(/\/+$/, "");
+  }
+  if (typeof safe.deepLinkScheme !== "undefined") {
+    out.deepLinkScheme = text(safe.deepLinkScheme).toLowerCase();
+  }
+  if (typeof safe.deepLinkHost !== "undefined") {
+    out.deepLinkHost = text(safe.deepLinkHost).toLowerCase();
+  }
+  if (typeof safe.androidPackage !== "undefined") {
+    out.androidPackage = text(safe.androidPackage);
+  }
+  if (
+    typeof safe.androidFingerprints !== "undefined" ||
+    typeof safe.androidSha256Fingerprints !== "undefined"
+  ) {
+    const source = Array.isArray(safe.androidFingerprints)
+      ? safe.androidFingerprints
+      : splitCsv(safe.androidFingerprints || safe.androidSha256Fingerprints);
+    out.androidFingerprints = [...new Set(
+      source
+        .map((item) => normalizeAndroidFingerprint(item))
+        .filter((item) => Boolean(item))
+    )].slice(0, 16);
+  }
+  if (typeof safe.iosBundleId !== "undefined") {
+    out.iosBundleId = text(safe.iosBundleId);
+  }
+  if (typeof safe.iosTeamId !== "undefined") {
+    out.iosTeamId = text(safe.iosTeamId).toUpperCase();
+  }
+  return out;
+}
+
+function getCoreAppLaunchConfigRuntimeState() {
+  return {
+    ...DEFAULT_CORE_APP_LAUNCH_CONFIG,
+    ...sanitizeCoreAppLaunchConfigPatch(coreAppLaunchRuntimeConfig)
+  };
+}
+
+function applyCoreAppLaunchConfigPatch(patch = {}) {
+  const safePatch = sanitizeCoreAppLaunchConfigPatch(patch);
+  coreAppLaunchRuntimeConfig = {
+    ...DEFAULT_CORE_APP_LAUNCH_CONFIG,
+    ...getCoreAppLaunchConfigRuntimeState(),
+    ...safePatch
+  };
+  return getCoreAppLaunchConfigRuntimeState();
+}
+
+function buildCoreAppLaunchConfigFromEnv(req) {
+  return sanitizeCoreAppLaunchConfigPatch({
+    publicOrigin: process.env.PUBLIC_WEB_ORIGIN || process.env.PUBLIC_ORIGIN || resolvePublicOrigin(req),
+    deepLinkScheme: process.env.APP_DEEP_LINK_SCHEME || "propertysetu",
+    deepLinkHost: process.env.APP_DEEP_LINK_HOST || "open",
+    androidPackage: process.env.APP_ANDROID_PACKAGE || "com.propertysetu.app",
+    androidFingerprints:
+      process.env.APP_ANDROID_SHA256_FINGERPRINTS || process.env.ANDROID_APP_SHA256_FINGERPRINTS,
+    iosBundleId: process.env.APP_IOS_BUNDLE_ID || "in.propertysetu.app",
+    iosTeamId: process.env.APP_IOS_TEAM_ID || ""
+  });
+}
+
+function getCoreAppLaunchResolvedConfig(req) {
+  const envConfig = buildCoreAppLaunchConfigFromEnv(req);
+  const runtimeConfig = getCoreAppLaunchConfigRuntimeState();
+  return {
+    publicOrigin: runtimeConfig.publicOrigin || envConfig.publicOrigin || resolvePublicOrigin(req),
+    deepLinkScheme: runtimeConfig.deepLinkScheme || envConfig.deepLinkScheme || "propertysetu",
+    deepLinkHost: runtimeConfig.deepLinkHost || envConfig.deepLinkHost || "open",
+    androidPackage: runtimeConfig.androidPackage || envConfig.androidPackage || "com.propertysetu.app",
+    androidFingerprints: runtimeConfig.androidFingerprints.length
+      ? runtimeConfig.androidFingerprints
+      : envConfig.androidFingerprints,
+    iosBundleId: runtimeConfig.iosBundleId || envConfig.iosBundleId || "in.propertysetu.app",
+    iosTeamId: runtimeConfig.iosTeamId || envConfig.iosTeamId,
+    source: {
+      publicOrigin: runtimeConfig.publicOrigin ? "runtime-config" : "env",
+      deepLinkScheme: runtimeConfig.deepLinkScheme ? "runtime-config" : "env",
+      deepLinkHost: runtimeConfig.deepLinkHost ? "runtime-config" : "env",
+      androidPackage: runtimeConfig.androidPackage ? "runtime-config" : "env",
+      androidFingerprints: runtimeConfig.androidFingerprints.length ? "runtime-config" : "env",
+      iosBundleId: runtimeConfig.iosBundleId ? "runtime-config" : "env",
+      iosTeamId: runtimeConfig.iosTeamId ? "runtime-config" : "env"
+    },
+    runtimeConfig,
+    envConfig
+  };
+}
+
+function validateCoreAppLaunchPatch(patch = {}) {
+  const errors = [];
+  if (Object.prototype.hasOwnProperty.call(patch, "publicOrigin")) {
+    if (patch.publicOrigin && !/^https?:\/\//i.test(patch.publicOrigin)) {
+      errors.push("publicOrigin must start with http:// or https://");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "deepLinkScheme")) {
+    if (patch.deepLinkScheme && !/^[a-z][a-z0-9+.-]*$/i.test(patch.deepLinkScheme)) {
+      errors.push("deepLinkScheme format is invalid.");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "deepLinkHost")) {
+    if (patch.deepLinkHost && !/^[a-z0-9.-]+$/i.test(patch.deepLinkHost)) {
+      errors.push("deepLinkHost format is invalid.");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "androidFingerprints")) {
+    const invalid = Array.isArray(patch.androidFingerprints)
+      ? patch.androidFingerprints.filter((item) => !isValidAndroidFingerprint(item))
+      : [];
+    if (invalid.length) {
+      errors.push("androidFingerprints must be valid SHA256 certificate fingerprints.");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "iosTeamId")) {
+    if (patch.iosTeamId && !isValidIosTeamId(patch.iosTeamId)) {
+      errors.push("iosTeamId must be 10 uppercase alphanumeric characters.");
+    }
+  }
+  return errors;
+}
+
+async function hydrateCoreAppLaunchConfig({ force = false } = {}) {
+  const nowTs = Date.now();
+  if (!proRuntime.dbConnected) {
+    appLaunchConfigHydratedAtTs = nowTs;
+    return getCoreAppLaunchConfigRuntimeState();
+  }
+  if (
+    !force &&
+    appLaunchConfigHydratedAtTs &&
+    appLaunchConfigHydratedAtTs + APP_LAUNCH_CONFIG_HYDRATE_COOLDOWN_MS > nowTs
+  ) {
+    return getCoreAppLaunchConfigRuntimeState();
+  }
+  try {
+    const row = await CoreRuntimeConfig.findOne({ key: APP_LAUNCH_CONFIG_KEY })
+      .select("value")
+      .lean();
+    applyCoreAppLaunchConfigPatch(row?.value || {});
+  } catch {
+    // Keep runtime state in memory if persistence read fails.
+  }
+  appLaunchConfigHydratedAtTs = nowTs;
+  return getCoreAppLaunchConfigRuntimeState();
+}
+
+async function persistCoreAppLaunchConfig({
+  actorId = "",
+  notes = ""
+} = {}) {
+  const state = getCoreAppLaunchConfigRuntimeState();
+  if (!proRuntime.dbConnected) {
+    return {
+      persisted: false,
+      source: "memory",
+      state
+    };
+  }
+  try {
+    await CoreRuntimeConfig.findOneAndUpdate(
+      { key: APP_LAUNCH_CONFIG_KEY },
+      {
+        $set: {
+          value: state,
+          updatedBy: text(actorId) || null,
+          notes: text(notes).slice(0, 220)
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    appLaunchConfigHydratedAtTs = Date.now();
+    return {
+      persisted: true,
+      source: "mongodb",
+      state
+    };
+  } catch {
+    return {
+      persisted: false,
+      source: "memory",
+      state
+    };
+  }
+}
+
 function buildCoreSystemAppLaunchReadinessPayload(req) {
-  const publicOrigin = resolvePublicOrigin(req);
+  const resolved = getCoreAppLaunchResolvedConfig(req);
+  const publicOrigin = resolved.publicOrigin;
   const originHost = parseHostFromOrigin(publicOrigin);
   const manifestFile = path.join(rootDir, "manifest.webmanifest");
   const serviceWorkerFile = path.join(rootDir, "service-worker.js");
-  const androidPackage = text(process.env.APP_ANDROID_PACKAGE || "com.propertysetu.app");
-  const androidFingerprints = splitCsv(
-    process.env.APP_ANDROID_SHA256_FINGERPRINTS || process.env.ANDROID_APP_SHA256_FINGERPRINTS
-  );
-  const iosBundleId = text(process.env.APP_IOS_BUNDLE_ID || "in.propertysetu.app");
-  const iosTeamId = text(process.env.APP_IOS_TEAM_ID || "");
-  const deepLinkScheme = text(process.env.APP_DEEP_LINK_SCHEME || "propertysetu");
-  const deepLinkHost = text(process.env.APP_DEEP_LINK_HOST || "open");
+  const androidPackage = resolved.androidPackage;
+  const androidFingerprints = Array.isArray(resolved.androidFingerprints)
+    ? resolved.androidFingerprints
+    : [];
+  const iosBundleId = resolved.iosBundleId;
+  const iosTeamId = resolved.iosTeamId;
+  const deepLinkScheme = resolved.deepLinkScheme;
+  const deepLinkHost = resolved.deepLinkHost;
   const wellKnownFiles = [
     {
       path: "/.well-known/assetlinks.json",
@@ -207,11 +441,11 @@ function buildCoreSystemAppLaunchReadinessPayload(req) {
   const webReady = fs.existsSync(manifestFile) && fs.existsSync(serviceWorkerFile);
   const androidReady =
     isConfiguredAppIdentifier(androidPackage) &&
-    androidFingerprints.length > 0 &&
+    androidFingerprints.some((item) => isValidAndroidFingerprint(item)) &&
     wellKnownReady;
   const iosReady =
     isConfiguredAppIdentifier(iosBundleId) &&
-    isConfiguredAppIdentifier(iosTeamId) &&
+    isValidIosTeamId(iosTeamId) &&
     wellKnownReady;
 
   return {
@@ -230,6 +464,7 @@ function buildCoreSystemAppLaunchReadinessPayload(req) {
         ready: iosReady
       }
     },
+    configSource: resolved.source,
     deepLinking: {
       customScheme: {
         scheme: deepLinkScheme,
@@ -250,6 +485,7 @@ function buildCoreSystemAppLaunchReadinessPayload(req) {
       serviceWorkerReady: fs.existsSync(serviceWorkerFile),
       ready: webReady
     },
+    runtimeConfig: resolved.runtimeConfig,
     stage: webReady && (androidReady || iosReady)
       ? "launch-ready"
       : "setup-in-progress"
@@ -1509,8 +1745,67 @@ export function getCoreSystemExecutionPlan(_req, res) {
   });
 }
 
-export function getCoreSystemAppLaunchReadiness(req, res) {
-  return res.json(buildCoreSystemAppLaunchReadinessPayload(req));
+export async function getCoreSystemAppLaunchReadiness(req, res, next) {
+  try {
+    await hydrateCoreAppLaunchConfig();
+    return res.json(buildCoreSystemAppLaunchReadinessPayload(req));
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getCoreSystemAppLaunchConfig(req, res, next) {
+  try {
+    await hydrateCoreAppLaunchConfig();
+    const runtimeConfig = getCoreAppLaunchConfigRuntimeState();
+    return res.json({
+      success: true,
+      requestedBy: {
+        id: String(req.coreUser?.id || ""),
+        role: String(req.coreUser?.role || "")
+      },
+      item: runtimeConfig,
+      readiness: buildCoreSystemAppLaunchReadinessPayload(req)
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateCoreSystemAppLaunchConfig(req, res, next) {
+  try {
+    await hydrateCoreAppLaunchConfig();
+    const body = toPlainObject(req.body) || {};
+    const patch = sanitizeCoreAppLaunchConfigPatch(
+      toPlainObject(body.patch) || body
+    );
+    const errors = validateCoreAppLaunchPatch(patch);
+    if (errors.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid app launch config patch.",
+        errors
+      });
+    }
+
+    applyCoreAppLaunchConfigPatch(patch);
+    const persistence = await persistCoreAppLaunchConfig({
+      actorId: String(req.coreUser?.id || ""),
+      notes: text(body.notes || "admin-app-launch-config-update")
+    });
+    return res.json({
+      success: true,
+      requestedBy: {
+        id: String(req.coreUser?.id || ""),
+        role: String(req.coreUser?.role || "")
+      },
+      item: getCoreAppLaunchConfigRuntimeState(),
+      persistence,
+      readiness: buildCoreSystemAppLaunchReadinessPayload(req)
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export function getCoreSystemSecurityAudit(req, res) {

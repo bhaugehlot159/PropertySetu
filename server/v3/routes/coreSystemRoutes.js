@@ -8,6 +8,7 @@ import {
 } from "../controllers/coreClientStateController.js";
 import {
   applyCoreSystemSecurityControlProfile,
+  getCoreSystemAppLaunchConfig,
   getCoreSystemArchitecturePlan,
   getCoreSystemAppLaunchReadiness,
   getCoreSystemStackOptions,
@@ -30,6 +31,7 @@ import {
   quarantineCoreSystemSecurityThreatProfile,
   releaseCoreSystemSecurityThreatProfile,
   updateCoreSystemPrivateDocCryptoControl,
+  updateCoreSystemAppLaunchConfig,
   updateCoreSystemRateLimiterControl,
   updateCoreSystemSecurityControl
 } from "../controllers/coreSystemController.js";
@@ -42,6 +44,8 @@ router.get("/architecture-plan", getCoreSystemArchitecturePlan);
 router.get("/stack-options", getCoreSystemStackOptions);
 router.get("/stack-readiness", getCoreSystemStackReadiness);
 router.get("/app-launch-readiness", getCoreSystemAppLaunchReadiness);
+router.get("/app-launch-config", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, getCoreSystemAppLaunchConfig);
+router.patch("/app-launch-config", coreAuthRequired, coreRoleRequired("admin"), coreSystemSecurityControlLimiter, updateCoreSystemAppLaunchConfig);
 router.get("/database-structure", getCoreSystemDatabaseStructure);
 router.get("/core-systems", getCoreSystemBlueprint);
 router.get("/execution-plan", getCoreSystemExecutionPlan);
