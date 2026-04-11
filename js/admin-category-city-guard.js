@@ -11,6 +11,7 @@
   const REGISTRY_KEY = 'propertySetu:adminCatalogRegistry';
   const BLOCK_KEY = 'propertySetu:adminBlockedUsers';
   const CACHE_KEY = 'propertySetu:adminGovernanceCache';
+  const USERS_CACHE_KEY = 'propertySetu:adminUsersCache';
 
   const DEFAULT_CATEGORIES = [
     'House',
@@ -72,6 +73,106 @@
     }
   });
 
+  const getAdminToken = () => {
+    if (typeof live.getToken === 'function') {
+      const adminToken = text(live.getToken('admin'));
+      if (adminToken) return adminToken;
+    }
+    if (typeof live.getAnyToken === 'function') return text(live.getAnyToken());
+    return '';
+  };
+
+  const hasLiveAdminApi = () => Boolean(getAdminToken() && typeof live.request === 'function');
+
+  const normalizeUser = (item = {}) => ({
+    id: text(item.id || item._id || item.userId),
+    name: text(item.name || item.fullName || 'User'),
+    email: text(item.email).toLowerCase(),
+    phone: text(item.phone).replace(/\D+/g, ''),
+    blocked: Boolean(item.blocked),
+  });
+
+  const normalizeRegistryRows = (rows = [], type = 'cat') => {
+    const out = [];
+    const seen = new Set();
+    (Array.isArray(rows) ? rows : []).forEach((item) => {
+      const name = norm(item?.name || item);
+      if (!name) return;
+      const id = text(item?.id, `${type}-${slug(name)}`);
+      const key = id.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({
+        id,
+        name,
+        active: item?.active !== false,
+        archived: Boolean(item?.archived),
+        createdAt: text(item?.createdAt, new Date().toISOString()),
+      });
+    });
+    return out;
+  };
+
+  const buildRegistryFromLiveConfig = (config = {}) => {
+    const existing = getRegistry();
+    const nowIso = new Date().toISOString();
+    const liveCategories = (Array.isArray(config?.categories) ? config.categories : [])
+      .map((value) => norm(value))
+      .filter(Boolean);
+    const liveCities = (Array.isArray(config?.cities) ? config.cities : [])
+      .map((value) => norm(value))
+      .filter(Boolean);
+    const liveCategorySet = new Set(liveCategories.map((value) => value.toLowerCase()));
+    const liveCitySet = new Set(liveCities.map((value) => value.toLowerCase()));
+
+    const categoryMap = new Map();
+    normalizeRegistryRows(existing.categories, 'cat').forEach((row) => {
+      const key = row.name.toLowerCase();
+      categoryMap.set(key, {
+        ...row,
+        active: liveCategorySet.has(key) ? true : Boolean(row.active),
+        archived: liveCategorySet.has(key) ? false : Boolean(row.archived),
+      });
+    });
+    liveCategories.forEach((name) => {
+      const key = name.toLowerCase();
+      const previous = categoryMap.get(key);
+      categoryMap.set(key, {
+        id: text(previous?.id, `cat-${slug(name)}`),
+        name,
+        active: true,
+        archived: false,
+        createdAt: text(previous?.createdAt, nowIso),
+      });
+    });
+
+    const cityMap = new Map();
+    normalizeRegistryRows(existing.cities, 'city').forEach((row) => {
+      const key = row.name.toLowerCase();
+      cityMap.set(key, {
+        ...row,
+        active: liveCitySet.has(key) ? true : Boolean(row.active),
+        archived: liveCitySet.has(key) ? false : Boolean(row.archived),
+      });
+    });
+    liveCities.forEach((name) => {
+      const key = name.toLowerCase();
+      const previous = cityMap.get(key);
+      cityMap.set(key, {
+        id: text(previous?.id, `city-${slug(name)}`),
+        name,
+        active: true,
+        archived: false,
+        createdAt: text(previous?.createdAt, nowIso),
+      });
+    });
+
+    return {
+      categories: [...categoryMap.values()],
+      cities: [...cityMap.values()],
+    };
+  };
+
   const getRegistry = () => {
     const raw = readJson(REGISTRY_KEY, {});
     const categories = Array.isArray(raw?.categories) ? raw.categories : [];
@@ -124,10 +225,72 @@
         active: item?.active !== false,
         blockedAt: text(item?.blockedAt, new Date().toISOString()),
         unblockedAt: text(item?.unblockedAt),
+        userId: text(item?.userId),
+        source: text(item?.source, 'local'),
       }))
       .filter((item) => item.key);
   };
   const setBlocked = (rows) => writeJson(BLOCK_KEY, Array.isArray(rows) ? rows : []);
+
+  const listCachedUsers = () => (
+    (Array.isArray(readJson(USERS_CACHE_KEY, [])) ? readJson(USERS_CACHE_KEY, []) : [])
+      .map((item) => normalizeUser(item))
+      .filter((item) => item.id)
+  );
+
+  let adminUsers = listCachedUsers();
+
+  const findUserByKey = (value) => {
+    const key = norm(value).toLowerCase();
+    if (!key) return null;
+    const phone = key.replace(/\D+/g, '');
+    return adminUsers.find((user) => (
+      user.id.toLowerCase() === key
+      || (user.email && user.email === key)
+      || (phone && user.phone && user.phone === phone)
+    )) || null;
+  };
+
+  const syncGovernanceFromLive = async () => {
+    if (!hasLiveAdminApi()) return { synced: false };
+    const token = getAdminToken();
+    try {
+      const [configRes, usersRes] = await Promise.all([
+        live.request('/admin/config', { token }),
+        live.request('/admin/users?limit=500', { token }),
+      ]);
+      const config = configRes?.config || {};
+      const users = (Array.isArray(usersRes?.items) ? usersRes.items : [])
+        .map((item) => normalizeUser(item))
+        .filter((item) => item.id);
+      adminUsers = users;
+      writeJson(USERS_CACHE_KEY, users);
+
+      const liveRegistry = buildRegistryFromLiveConfig(config);
+      setRegistry(liveRegistry);
+
+      const existingBlocked = getBlocked();
+      const byKey = new Map(existingBlocked.map((item) => [item.key.toLowerCase(), { ...item }]));
+      users.filter((item) => item.blocked).forEach((user) => {
+        const key = user.id.toLowerCase();
+        const previous = byKey.get(key);
+        byKey.set(key, {
+          id: text(previous?.id, `blk-${slug(user.id)}-${Date.now()}`),
+          key: user.id,
+          reason: text(previous?.reason, 'Blocked by admin policy'),
+          active: true,
+          blockedAt: text(previous?.blockedAt, new Date().toISOString()),
+          unblockedAt: '',
+          userId: user.id,
+          source: 'live',
+        });
+      });
+      setBlocked([...byKey.values()]);
+      return { synced: true, users: users.length };
+    } catch (error) {
+      return { synced: false, message: text(error?.message, 'Live governance sync failed.') };
+    }
+  };
 
   const ownerKeyOf = (item = {}) => {
     const ownerId = norm(item.ownerId || item.userId || item.owner?.id || '');
@@ -402,13 +565,19 @@
     }
   };
 
-  const refresh = (persist = false) => {
+  const refresh = async (persist = false) => {
+    const liveSync = await syncGovernanceFromLive();
     model = runAudit({ persist });
     render();
-    setStatus(`Governance ready. ${numberFrom(model.summary?.issues, 0)} issue(s) across ${numberFrom(model.summary?.listings, 0)} listing(s).`);
+    const source = liveSync?.synced ? 'live' : 'local';
+    const detail = liveSync?.synced ? 'Synced with backend.' : 'Using local governance cache.';
+    setStatus(
+      `Governance ready (${source}). ${numberFrom(model.summary?.issues, 0)} issue(s) across ${numberFrom(model.summary?.listings, 0)} listing(s). ${detail}`,
+      true
+    );
   };
 
-  const upsertRegistry = (type, value) => {
+  const upsertRegistryLocal = (type, value) => {
     const name = norm(value);
     if (!name) return false;
     const registry = getRegistry();
@@ -424,7 +593,7 @@
     return true;
   };
 
-  const updateRegistryRow = (kind, id, action) => {
+  const updateRegistryRowLocal = (kind, id, action) => {
     const registry = getRegistry();
     const list = kind === 'cat' ? registry.categories : registry.cities;
     const row = list.find((item) => item.id === id);
@@ -445,38 +614,133 @@
     return true;
   };
 
+  const syncRegistryCreateToLive = async (type, value) => {
+    if (!hasLiveAdminApi()) return { ok: false };
+    const name = norm(value);
+    if (!name) return { ok: false };
+    const token = getAdminToken();
+    const isCategory = type === 'cat';
+    try {
+      await live.request(
+        isCategory ? '/admin/config/categories' : '/admin/config/cities',
+        {
+          method: 'POST',
+          token,
+          data: isCategory ? { name } : { city: name },
+        }
+      );
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: text(error?.message, 'Live add failed.') };
+    }
+  };
+
+  const syncRegistryUpdateToLive = async (kind, row, action) => {
+    if (!hasLiveAdminApi()) return { ok: false };
+    const token = getAdminToken();
+    const isCategory = kind === 'cat';
+    const pathBase = isCategory ? '/admin/config/categories' : '/admin/config/cities';
+    const value = norm(row?.name);
+    if (!value) return { ok: false };
+    const shouldRemove = action === 'archive' || (action === 'toggle' && row.active);
+    const shouldAdd = action === 'restore' || (action === 'toggle' && !row.active);
+    if (!shouldRemove && !shouldAdd) return { ok: false };
+    try {
+      if (shouldRemove) {
+        const reason = `Governance policy update from category-city guard: disable ${value}`;
+        await live.request(`${pathBase}/${encodeURIComponent(value)}`, {
+          method: 'DELETE',
+          token,
+          data: {
+            moderationReason: reason,
+            reason,
+            ...(isCategory ? { name: value } : { city: value }),
+          },
+        });
+      } else if (shouldAdd) {
+        await live.request(pathBase, {
+          method: 'POST',
+          token,
+          data: isCategory ? { name: value } : { city: value },
+        });
+      }
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: text(error?.message, 'Live update failed.') };
+    }
+  };
+
   const blockUser = async (key) => {
     const safe = norm(key).toLowerCase();
-    if (!safe) return false;
+    if (!safe) return { ok: false, message: 'User key required.' };
+
+    const matchedUser = findUserByKey(safe);
+    const matchedKey = text(matchedUser?.id, safe).toLowerCase();
+    if (matchedUser && hasLiveAdminApi()) {
+      const reason = `Governance policy violation flagged by category-city guard for ${matchedUser.id}`;
+      try {
+        await live.request(`/admin/users/${encodeURIComponent(matchedUser.id)}/block`, {
+          method: 'POST',
+          token: getAdminToken(),
+          data: { moderationReason: reason, reason },
+        });
+      } catch (error) {
+        return { ok: false, message: text(error?.message, 'Live user block failed.') };
+      }
+    }
+
     const rows = getBlocked();
-    const existing = rows.find((item) => item.key.toLowerCase() === safe);
-    if (existing && existing.active) return false;
+    const existing = rows.find((item) => {
+      const rowKey = item.key.toLowerCase();
+      return rowKey === safe || rowKey === matchedKey;
+    });
+    if (existing && existing.active) return { ok: false, message: 'User already blocked.' };
     if (existing) {
+      existing.key = text(matchedUser?.id, existing.key);
       existing.active = true;
       existing.blockedAt = new Date().toISOString();
       existing.unblockedAt = '';
+      existing.userId = text(matchedUser?.id, existing.userId);
+      existing.source = matchedUser ? 'live' : existing.source;
     } else {
       rows.unshift({
         id: `blk-${slug(safe)}-${Date.now()}`,
-        key: safe,
-        reason: 'Policy violation',
+        key: text(matchedUser?.id, safe),
+        reason: matchedUser ? 'Blocked by admin policy' : 'Policy violation',
         active: true,
         blockedAt: new Date().toISOString(),
         unblockedAt: '',
+        userId: text(matchedUser?.id),
+        source: matchedUser ? 'live' : 'local',
       });
     }
     setBlocked(rows);
-    return true;
+    return { ok: true, message: matchedUser ? 'User blocked (live + local sync).' : 'User blocked locally.' };
   };
 
-  const unblockUser = (id) => {
+  const unblockUser = async (id) => {
     const rows = getBlocked();
     const target = rows.find((item) => item.id === id);
-    if (!target) return false;
+    if (!target) return { ok: false, message: 'Blocked user not found.' };
+
+    const liveUserId = text(target.userId || findUserByKey(target.key)?.id);
+    if (liveUserId && hasLiveAdminApi()) {
+      const reason = `Governance release approved by category-city guard for ${liveUserId}`;
+      try {
+        await live.request(`/admin/users/${encodeURIComponent(liveUserId)}/unblock`, {
+          method: 'POST',
+          token: getAdminToken(),
+          data: { moderationReason: reason, reason },
+        });
+      } catch (error) {
+        return { ok: false, message: text(error?.message, 'Live user unblock failed.') };
+      }
+    }
+
     target.active = false;
     target.unblockedAt = new Date().toISOString();
     setBlocked(rows);
-    return true;
+    return { ok: true, message: liveUserId ? 'User unblocked (live + local sync).' : 'User unblocked locally.' };
   };
 
   const exportCsv = () => {
@@ -502,38 +766,47 @@
     URL.revokeObjectURL(url);
   };
 
-  categoryForm?.addEventListener('submit', (event) => {
+  categoryForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!upsertRegistry('cat', categoryInput?.value)) {
+    const rawValue = categoryInput?.value;
+    if (!upsertRegistryLocal('cat', rawValue)) {
       setStatus('Category name required.', false);
       return;
     }
+    const liveResult = await syncRegistryCreateToLive('cat', rawValue);
     if (categoryInput) categoryInput.value = '';
-    refresh(false);
+    await refresh(false);
+    if (!liveResult.ok && hasLiveAdminApi()) {
+      setStatus(`Category saved locally. Live sync failed: ${text(liveResult.message, 'unknown error')}`, false);
+    }
   });
-  cityForm?.addEventListener('submit', (event) => {
+  cityForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!upsertRegistry('city', cityInput?.value)) {
+    const rawValue = cityInput?.value;
+    if (!upsertRegistryLocal('city', rawValue)) {
       setStatus('City name required.', false);
       return;
     }
+    const liveResult = await syncRegistryCreateToLive('city', rawValue);
     if (cityInput) cityInput.value = '';
-    refresh(false);
+    await refresh(false);
+    if (!liveResult.ok && hasLiveAdminApi()) {
+      setStatus(`City saved locally. Live sync failed: ${text(liveResult.message, 'unknown error')}`, false);
+    }
   });
-  blockForm?.addEventListener('submit', (event) => {
+  blockForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    blockUser(blockInput?.value).then((ok) => {
-      if (!ok) {
-        setStatus('User key required or already blocked.', false);
-        return;
-      }
-      if (blockInput) blockInput.value = '';
-      refresh(true);
-    });
+    const result = await blockUser(blockInput?.value);
+    if (!result.ok) {
+      setStatus(text(result.message, 'User block failed.'), false);
+      return;
+    }
+    if (blockInput) blockInput.value = '';
+    await refresh(true);
   });
 
   [categoryTableEl, cityTableEl].forEach((root) => {
-    root?.addEventListener('click', (event) => {
+    root?.addEventListener('click', async (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const btn = target.closest('button');
@@ -542,10 +815,20 @@
       const action = text(btn.getAttribute('data-act'));
       const id = text(btn.getAttribute('data-id'));
       if (!kind || !action || !id) return;
-      if (updateRegistryRow(kind, id, action)) refresh(false);
+      const registry = getRegistry();
+      const list = kind === 'cat' ? registry.categories : registry.cities;
+      const row = list.find((item) => item.id === id);
+      if (!row) return;
+      const liveResult = await syncRegistryUpdateToLive(kind, row, action);
+      if (updateRegistryRowLocal(kind, id, action)) {
+        await refresh(false);
+        if (!liveResult.ok && hasLiveAdminApi()) {
+          setStatus(`Saved locally. Live sync failed: ${text(liveResult.message, 'unknown error')}`, false);
+        }
+      }
     });
   });
-  blockTableEl?.addEventListener('click', (event) => {
+  blockTableEl?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const btn = target.closest('button');
@@ -553,12 +836,27 @@
     const action = text(btn.getAttribute('data-act'));
     const id = text(btn.getAttribute('data-id'));
     if (action !== 'unblock' || !id) return;
-    if (unblockUser(id)) refresh(true);
+    const result = await unblockUser(id);
+    if (!result.ok) {
+      setStatus(text(result.message, 'User unblock failed.'), false);
+      return;
+    }
+    await refresh(true);
   });
 
-  refreshBtn?.addEventListener('click', () => refresh(false));
-  auditBtn?.addEventListener('click', () => refresh(true));
+  refreshBtn?.addEventListener('click', () => {
+    refresh(false).catch((error) => {
+      setStatus(text(error?.message, 'Refresh failed.'), false);
+    });
+  });
+  auditBtn?.addEventListener('click', () => {
+    refresh(true).catch((error) => {
+      setStatus(text(error?.message, 'Audit failed.'), false);
+    });
+  });
   csvBtn?.addEventListener('click', exportCsv);
 
-  refresh(false);
+  refresh(false).catch((error) => {
+    setStatus(text(error?.message, 'Initial load failed.'), false);
+  });
 })();
