@@ -71,6 +71,7 @@
     }
     return '';
   };
+  const isCorePropertyId = (value) => /^[a-f0-9]{24}$/i.test(text(value));
 
   const getAdminName = () => {
     if (typeof live.getSession === 'function') {
@@ -165,6 +166,11 @@
       });
   };
 
+  const saveAllBids = (rows) => {
+    const normalized = Array.isArray(rows) ? rows : [];
+    writeJson(AUCTION_BIDS_KEY, normalized.slice(0, 5000));
+  };
+
   const getWatchSet = () => {
     const rows = readJson(AUCTION_WATCHLIST_KEY, []);
     const set = new Set();
@@ -210,6 +216,101 @@
       message: text(entry.message),
     });
     writeJson(AUDIT_KEY, rows.slice(0, 400));
+  };
+
+  const normalizeLiveBid = (item = {}, propertyId = '') => {
+    const id = text(item?.id || item?._id);
+    const resolvedPropertyId = text(item?.propertyId || propertyId);
+    if (!id || !resolvedPropertyId) return null;
+    return {
+      id,
+      propertyId: resolvedPropertyId,
+      bidderId: text(item?.bidderId),
+      bidderName: text(item?.bidderName, 'Bidder'),
+      bidderRole: text(item?.bidderRole, 'buyer'),
+      amount: Math.max(0, Math.round(numberFrom(item?.amount, 0))),
+      source: 'live',
+      createdAt: text(item?.createdAt, nowIso()),
+    };
+  };
+
+  const deriveLocalAuctionStatusFromLive = (status = '') => {
+    const raw = text(status).toLowerCase();
+    if (raw === 'accepted' || raw === 'revealed') return 'settled';
+    if (raw === 'rejected-all') return 'closed';
+    return 'live';
+  };
+
+  const syncLiveAuctionBoard = async () => {
+    const token = getAdminToken();
+    if (!token || typeof live.request !== 'function') return false;
+
+    try {
+      const response = await live.request('/sealed-bids/admin?limit=3000', { token });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      if (!items.length) return false;
+
+      const existingBids = getAllBids();
+      const bidMap = new Map();
+      existingBids.forEach((row) => {
+        if (!row?.id) return;
+        bidMap.set(row.id, row);
+      });
+
+      const listingLookup = getListingMap();
+      const existingAuctionState = getAuctionState();
+      const nextAuctionState = { ...existingAuctionState };
+
+      items.forEach((group) => {
+        const propertyId = text(group?.propertyId);
+        if (!propertyId) return;
+
+        const liveBids = Array.isArray(group?.bids) ? group.bids : [];
+        liveBids
+          .map((row) => normalizeLiveBid(row, propertyId))
+          .filter(Boolean)
+          .forEach((row) => {
+            bidMap.set(row.id, row);
+          });
+
+        const listing = listingLookup.get(propertyId) || {};
+        const current = nextAuctionState[propertyId] && typeof nextAuctionState[propertyId] === 'object'
+          ? { ...nextAuctionState[propertyId] }
+          : {};
+        const winnerBid = group?.winnerBid && typeof group.winnerBid === 'object'
+          ? group.winnerBid
+          : null;
+
+        nextAuctionState[propertyId] = {
+          propertyId,
+          reservePrice: Math.max(
+            1000,
+            Math.round(numberFrom(current.reservePrice, numberFrom(listing?.price, 0) * 0.9))
+          ),
+          closesAt: text(
+            current.closesAt,
+            new Date(Date.now() + 72 * 3600000).toISOString()
+          ),
+          status: deriveLocalAuctionStatusFromLive(group?.status),
+          updatedAt: nowIso(),
+          ...(winnerBid
+            ? {
+                winnerBidId: text(winnerBid.id || winnerBid._id),
+                winnerBidAmount: Math.max(0, Math.round(numberFrom(winnerBid.amount, 0))),
+                winnerBidderId: text(winnerBid.bidderId),
+                winnerBidderName: text(winnerBid.bidderName),
+                winnerAcceptedAt: text(winnerBid.decisionAt || winnerBid.updatedAt || winnerBid.createdAt || nowIso()),
+              }
+            : {}),
+        };
+      });
+
+      setAuctionState(nextAuctionState);
+      saveAllBids([...bidMap.values()]);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const statusLabel = (value) => {
@@ -733,7 +834,58 @@
     return { ok: true, message };
   };
 
-  const refresh = () => {
+  const applyLiveAction = async (propertyId, action, note = '') => {
+    const id = text(propertyId);
+    const lowerAction = text(action).toLowerCase();
+    const token = getAdminToken();
+    if (!id) return { ok: false, message: 'Property ID required.' };
+    if (!token || typeof live.request !== 'function') return { ok: false, message: 'Admin live token required.' };
+    if (!isCorePropertyId(id)) return { ok: false, message: 'Live action requires real property id.' };
+
+    if (lowerAction !== 'settle') {
+      return { ok: false, message: 'Selected action is not supported on live sealed-bid API.' };
+    }
+
+    const decisionReason = text(
+      note,
+      'Admin settlement from auction control center after sealed bid review.'
+    );
+
+    const response = await live.request('/sealed-bids/decision', {
+      method: 'POST',
+      token,
+      data: {
+        propertyId: id,
+        action: 'accept',
+        decisionReason,
+        decisionConfirm: true,
+      },
+    });
+
+    const apiAction = text(response?.action).toLowerCase();
+    const requiresSecondAdmin = Boolean(response?.requiresSecondAdmin);
+    const message = requiresSecondAdmin || apiAction.endsWith('-requested')
+      ? 'Settlement request recorded. Second admin confirmation required.'
+      : text(response?.message, 'Live settlement applied.');
+
+    pushAudit({
+      type: requiresSecondAdmin ? 'settle-requested-live' : 'settle-live',
+      propertyId: id,
+      propertyTitle: text(response?.propertyTitle, id),
+      message: `${message}${decisionReason ? ` Note: ${decisionReason}` : ''}`,
+    });
+    pushNotification(
+      'Auction Admin Action',
+      `${text(response?.propertyTitle, id)}: ${message}`,
+      ['admin', 'seller', 'customer'],
+      requiresSecondAdmin ? 'warn' : 'success'
+    );
+
+    return { ok: true, message };
+  };
+
+  const refresh = async () => {
+    await syncLiveAuctionBoard();
     state.rows = buildRows();
     const filtered = filterRows(state.rows);
     renderKpis(filtered);
@@ -751,18 +903,20 @@
     const sec = Math.max(0, Math.round(numberFrom(seconds, 0)));
     if (sec > 0) {
       state.autoTimer = setInterval(() => {
-        refresh();
+        refresh().catch(() => {});
       }, sec * 1000);
     }
   };
 
-  ui.refreshBtn?.addEventListener('click', refresh);
+  ui.refreshBtn?.addEventListener('click', () => {
+    refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
+  });
 
   ui.saveFilterBtn?.addEventListener('click', () => {
     const pref = readControls();
     setPrefs(pref);
     setAutoRefresh(pref.autoSec);
-    refresh();
+    refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
     setStatus('Filters saved.');
   });
 
@@ -779,21 +933,40 @@
     setStatus('Auction audit cleared.');
   });
 
-  ui.applyBtn?.addEventListener('click', () => {
+  ui.applyBtn?.addEventListener('click', async () => {
     const propertyId = text(ui.propertyId?.value);
     const action = text(ui.action?.value).toLowerCase();
     const note = text(ui.note?.value);
-    const result = applyLocalAction(propertyId, action, note);
-    if (!result.ok) {
-      setStatus(result.message, false);
-      return;
+    if (action === 'settle') {
+      try {
+        const liveResult = await applyLiveAction(propertyId, action, note);
+        if (!liveResult.ok) {
+          const fallback = applyLocalAction(propertyId, action, note);
+          if (!fallback.ok) {
+            setStatus(liveResult.message, false);
+            return;
+          }
+          setStatus(fallback.message);
+        } else {
+          setStatus(liveResult.message);
+        }
+      } catch (error) {
+        setStatus(text(error?.message, 'Live settle failed.'), false);
+        return;
+      }
+    } else {
+      const result = applyLocalAction(propertyId, action, note);
+      if (!result.ok) {
+        setStatus(result.message, false);
+        return;
+      }
+      setStatus(result.message);
     }
-    setStatus(result.message);
     state.selectedPropertyId = propertyId;
-    refresh();
+    refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
   });
 
-  ui.board?.addEventListener('click', (event) => {
+  ui.board?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const action = text(target.getAttribute('data-action')).toLowerCase();
@@ -808,18 +981,41 @@
       return;
     }
 
-    const result = applyLocalAction(propertyId, action, text(ui.note?.value));
-    if (!result.ok) {
-      setStatus(result.message, false);
-      return;
+    if (action === 'settle') {
+      try {
+        const liveResult = await applyLiveAction(propertyId, action, text(ui.note?.value));
+        if (!liveResult.ok) {
+          const fallback = applyLocalAction(propertyId, action, text(ui.note?.value));
+          if (!fallback.ok) {
+            setStatus(liveResult.message, false);
+            return;
+          }
+          setStatus(fallback.message);
+        } else {
+          setStatus(liveResult.message);
+        }
+      } catch (error) {
+        setStatus(text(error?.message, 'Live settle failed.'), false);
+        return;
+      }
+    } else {
+      const result = applyLocalAction(propertyId, action, text(ui.note?.value));
+      if (!result.ok) {
+        setStatus(result.message, false);
+        return;
+      }
+      setStatus(result.message);
     }
-    setStatus(result.message);
-    refresh();
+    refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
   });
 
   [ui.query, ui.statusFilter, ui.minBids, ui.riskOnly].forEach((element) => {
-    element?.addEventListener('input', refresh);
-    element?.addEventListener('change', refresh);
+    element?.addEventListener('input', () => {
+      refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
+    });
+    element?.addEventListener('change', () => {
+      refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
+    });
   });
 
   ui.autoSec?.addEventListener('change', () => {
@@ -831,7 +1027,7 @@
   applyPrefsToControls();
   const pref = getPrefs();
   setAutoRefresh(pref.autoSec);
-  refresh();
+  refresh().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
 
   window.addEventListener('beforeunload', () => {
     if (state.autoTimer) clearInterval(state.autoTimer);
