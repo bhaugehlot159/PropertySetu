@@ -6,11 +6,13 @@
   const mostUsedGrid = document.getElementById("mostUsedFeatureGrid");
   const mostUsedHint = document.getElementById("mostUsedFeatureHint");
   const mostUsedRoleTabs = Array.from(document.querySelectorAll("[data-most-role]"));
+  const mostUsedWindowTabs = Array.from(document.querySelectorAll("[data-most-window]"));
   const STORAGE_KEY = "propertysetu:home-recent-features";
   const USAGE_STORAGE_KEY = "propertysetu:home-feature-usage";
   const LIMIT = 6;
   const SAME_PAGE = `${window.location.pathname.split("/").pop() || "index.html"}`;
   let currentMostRole = "all";
+  let currentMostWindow = "today";
 
   const defaults = [
     {
@@ -96,6 +98,7 @@
 
   const makeItemKey = (item = {}) => `${String(item.href || "").trim()}|${String(item.label || "").trim()}`;
   const validRoles = new Set(["all", "customer", "seller", "admin"]);
+  const validWindows = new Set(["today", "7d", "30d"]);
   const formatCount = (count = 0) => {
     const safe = Math.max(0, Number(count) || 0);
     return `${safe} ${safe === 1 ? "use" : "uses"}`;
@@ -110,6 +113,16 @@
     if (role === "seller") return "Seller";
     if (role === "admin") return "Admin";
     return "All";
+  };
+  const normalizeWindow = (value = "today") => {
+    const windowKey = String(value || "today").trim().toLowerCase();
+    return validWindows.has(windowKey) ? windowKey : "today";
+  };
+  const windowLabel = (value = "today") => {
+    const windowKey = normalizeWindow(value);
+    if (windowKey === "7d") return "7 Days";
+    if (windowKey === "30d") return "30 Days";
+    return "Today";
   };
   const roleFromText = (value = "") => {
     const text = String(value || "").toLowerCase();
@@ -131,6 +144,31 @@
       const value = normalizeRole(btn.getAttribute("data-most-role") || "all");
       btn.classList.toggle("active", value === currentMostRole);
     });
+  };
+  const setMostWindowTab = (windowKey = "today") => {
+    currentMostWindow = normalizeWindow(windowKey);
+    mostUsedWindowTabs.forEach((btn) => {
+      const value = normalizeWindow(btn.getAttribute("data-most-window") || "today");
+      btn.classList.toggle("active", value === currentMostWindow);
+    });
+  };
+  const toMs = (iso = "") => new Date(iso || 0).getTime();
+  const isWithinWindow = (iso = "", windowKey = "today") => {
+    const stamp = toMs(iso);
+    if (!Number.isFinite(stamp) || stamp <= 0) return false;
+    const now = Date.now();
+    const key = normalizeWindow(windowKey);
+    if (key === "today") {
+      const nowDate = new Date(now);
+      const stampDate = new Date(stamp);
+      return (
+        nowDate.getFullYear() === stampDate.getFullYear() &&
+        nowDate.getMonth() === stampDate.getMonth() &&
+        nowDate.getDate() === stampDate.getDate()
+      );
+    }
+    const days = key === "7d" ? 7 : 30;
+    return now - stamp <= days * 24 * 60 * 60 * 1000;
   };
 
   const sourceFromElement = (el) => {
@@ -257,7 +295,9 @@
     const scoped = currentMostRole === "all"
       ? list
       : list.filter((item) => normalizeRole(item.role || inferRole(item)) === currentMostRole);
-    const workingList = scoped.length ? scoped : list;
+    const roleScoped = scoped.length ? scoped : list;
+    const windowScoped = roleScoped.filter((item) => isWithinWindow(item.at, currentMostWindow));
+    const workingList = windowScoped;
     const sorted = [...workingList]
       .sort((a, b) => {
         const countDiff = (Number(b.count) || 0) - (Number(a.count) || 0);
@@ -265,8 +305,19 @@
         return new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime();
       })
       .slice(0, LIMIT);
-    const maxCount = Math.max(1, ...sorted.map((item) => Number(item.count) || 0));
+    const maxCount = Math.max(1, ...sorted.map((item) => Number(item.count) || 0), 1);
     mostUsedGrid.innerHTML = "";
+
+    if (!sorted.length) {
+      const empty = document.createElement("p");
+      empty.className = "most-used-empty";
+      empty.textContent = `No usage found for ${roleLabel(currentMostRole)} role in ${windowLabel(currentMostWindow)} window.`;
+      mostUsedGrid.appendChild(empty);
+      if (mostUsedHint) {
+        mostUsedHint.textContent = `Selected filter: ${roleLabel(currentMostRole)} • ${windowLabel(currentMostWindow)}. New usage aate hi ranking update hogi.`;
+      }
+      return;
+    }
 
     sorted.forEach((item, index) => {
       const card = document.createElement("article");
@@ -313,8 +364,8 @@
 
     if (mostUsedHint) {
       mostUsedHint.textContent = usage.length
-        ? `Top used features ${roleLabel(currentMostRole)} role filter ke saath update ho rahe hain.`
-        : `Usage data build hone tak ${roleLabel(currentMostRole)} role ke liye starter ranking dikhayi ja rahi hai.`;
+        ? `Top used features ${roleLabel(currentMostRole)} role + ${windowLabel(currentMostWindow)} window ke saath update ho rahe hain.`
+        : `Usage data build hone tak ${roleLabel(currentMostRole)} role + ${windowLabel(currentMostWindow)} window ke liye starter ranking dikhayi ja rahi hai.`;
     }
   };
 
@@ -371,6 +422,14 @@
     });
   });
 
+  mostUsedWindowTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      setMostWindowTab(button.getAttribute("data-most-window") || "today");
+      renderMostUsed();
+    });
+  });
+
   setMostRoleTab("all");
+  setMostWindowTab("today");
   render();
 })();

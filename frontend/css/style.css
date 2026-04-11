@@ -1261,6 +1261,10 @@ footer {
   gap: 8px;
 }
 
+.most-used-tabs.time-tabs {
+  margin-top: 8px;
+}
+
 .most-used-tab {
   border: 1px solid #a9c7df;
   background: #ffffff;
@@ -1328,6 +1332,15 @@ footer {
   width: 0;
   background: linear-gradient(90deg, #0f466f, #1d79b2);
   border-radius: 999px;
+}
+
+.most-used-empty {
+  border: 1px dashed #b8d2e7;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 12px;
+  color: #3c5e78;
+  font-size: 0.84rem;
 }
 
 .feature-command-toolbar {
