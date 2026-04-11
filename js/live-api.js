@@ -928,20 +928,34 @@
       }
 
       if (rawPath === '/payments/order' && method === 'POST') {
-        return requestJson(PRO_API_BASE, '/payments/order', {
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, '/subscriptions/payment/order', {
           method: 'POST',
           token: options.token,
           timeoutMs: options.timeoutMs,
-          data: options.data || {},
+          data: {
+            amountInRupees: numberFrom(
+              payload.amountInRupees,
+              numberFrom(payload.amount, 0),
+            ),
+            planId: text(payload.planId),
+            planName: text(payload.planName),
+            propertyId: text(payload.propertyId),
+          },
         });
       }
 
       if (rawPath === '/payments/verify' && method === 'POST') {
-        return requestJson(PRO_API_BASE, '/payments/verify', {
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, '/subscriptions/payment/verify', {
           method: 'POST',
           token: options.token,
           timeoutMs: options.timeoutMs,
-          data: options.data || {},
+          data: {
+            razorpay_order_id: text(payload.razorpay_order_id || payload.orderId),
+            razorpay_payment_id: text(payload.razorpay_payment_id || payload.paymentId),
+            razorpay_signature: text(payload.razorpay_signature || payload.signature),
+          },
         });
       }
 
@@ -1000,8 +1014,46 @@
         };
       }
 
-      if (rawPath === '/subscriptions/plans') {
-        return null;
+      if (rawPath === '/subscriptions/plans' && method === 'GET') {
+        const response = await requestJson(CORE_API_BASE, '/subscriptions/plans', {
+          method: 'GET',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+        const items = Array.isArray(response?.items) ? response.items : [];
+        return {
+          ok: true,
+          success: true,
+          total: numberFrom(response?.total, items.length),
+          items: items.map((item) => ({
+            id: text(item.id),
+            name: text(item.name || item.planName || item.id),
+            amount: Math.max(0, numberFrom(item.amount, 0)),
+            cycleDays: Math.max(1, numberFrom(item.cycleDays, 30)),
+            type: text(item.type || item.planType || inferPlanType(item.name || item.planName || item.id, 'subscription')),
+            planType: text(item.planType || item.type || inferPlanType(item.name || item.planName || item.id, 'subscription')),
+            requiresProperty: Boolean(item.requiresProperty),
+          })),
+        };
+      }
+
+      if (rawPath === '/insights/locality' && method === 'GET') {
+        const locality = text(query.get('name') || query.get('locality'), 'Udaipur');
+        const response = await requestJson(
+          CORE_API_BASE,
+          `/ai/market-trend?locality=${encodeURIComponent(locality)}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+        return {
+          ok: true,
+          success: true,
+          stats: toObject(response?.stats),
+          trend: Array.isArray(response?.trend) ? response.trend : [],
+        };
       }
 
       if (rawPath === '/admin/report' && method === 'GET') {
@@ -1091,6 +1143,79 @@
             timeoutMs: options.timeoutMs,
           }
         );
+      }
+
+      if (rawPath === '/wishlist' && method === 'GET') {
+        return requestJson(CORE_API_BASE, '/wishlist', {
+          method: 'GET',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+      }
+
+      if (rawPath === '/wishlist/compare' && method === 'GET') {
+        const propertyIds = text(query.get('propertyIds'));
+        return requestJson(
+          CORE_API_BASE,
+          `/wishlist/compare${propertyIds ? `?propertyIds=${encodeURIComponent(propertyIds)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      const wishlistByPropertyMatch = rawPath.match(/^\/wishlist\/([^/]+)$/);
+      if (wishlistByPropertyMatch && method === 'POST') {
+        const propertyId = wishlistByPropertyMatch[1];
+        return requestJson(CORE_API_BASE, `/wishlist/${propertyId}`, {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+      }
+
+      if (wishlistByPropertyMatch && method === 'DELETE') {
+        const propertyId = wishlistByPropertyMatch[1];
+        return requestJson(CORE_API_BASE, `/wishlist/${propertyId}`, {
+          method: 'DELETE',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+        });
+      }
+
+      if (rawPath === '/notifications/mine' && method === 'GET') {
+        const limit = text(query.get('limit'));
+        return requestJson(
+          CORE_API_BASE,
+          `/notifications/mine${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
+      if (rawPath === '/notifications/read-all' && method === 'POST') {
+        return requestJson(CORE_API_BASE, '/notifications/read-all', {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: options.data || {},
+        });
+      }
+
+      const notificationReadMatch = rawPath.match(/^\/notifications\/([^/]+)\/read$/);
+      if (notificationReadMatch && method === 'POST') {
+        const notificationId = notificationReadMatch[1];
+        return requestJson(CORE_API_BASE, `/notifications/${notificationId}/read`, {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: options.data || {},
+        });
       }
 
       if (rawPath === '/recommendations' && method === 'GET') {
@@ -1673,6 +1798,41 @@
     }),
   };
 
+  const wishlist = {
+    list: async () => request('/wishlist'),
+    add: async (propertyId) => request(`/wishlist/${encodeURIComponent(text(propertyId))}`, { method: 'POST' }),
+    remove: async (propertyId) => request(`/wishlist/${encodeURIComponent(text(propertyId))}`, { method: 'DELETE' }),
+    compare: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/wishlist/compare${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+  };
+
+  const notifications = {
+    mine: async (query = {}) => {
+      const params = new URLSearchParams();
+      Object.entries(query || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
+      return request(`/notifications/mine${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+    read: async (notificationId) => request(`/notifications/${encodeURIComponent(text(notificationId))}/read`, {
+      method: 'POST',
+    }),
+    readAll: async () => request('/notifications/read-all', { method: 'POST' }),
+  };
+
+  const subscriptions = {
+    plans: async () => request('/subscriptions/plans'),
+    mine: async () => request('/subscriptions/me'),
+    activate: async (payload = {}) => request('/subscriptions/activate', { method: 'POST', data: payload }),
+  };
+
   const ai = {
     pricingSuggestion: async (payload = {}) => request('/ai/pricing-suggestion', { method: 'POST', data: payload }),
     descriptionGenerate: async (payload = {}) => request('/ai/description-generate', { method: 'POST', data: payload }),
@@ -1813,6 +1973,9 @@
     },
     properties,
     visits,
+    wishlist,
+    notifications,
+    subscriptions,
     ai,
     sealedBids,
     documentation,

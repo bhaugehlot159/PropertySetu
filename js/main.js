@@ -15,6 +15,15 @@
   let properties = [];
   let didBoot = false;
 
+  const isCorePropertyId = (value) => /^[a-f0-9]{24}$/i.test(text(value));
+  const getLiveToken = () => {
+    if (typeof live.getAnyToken === 'function') return text(live.getAnyToken());
+    if (typeof live.getToken === 'function') {
+      return text(live.getToken('customer') || live.getToken('seller') || live.getToken('admin'));
+    }
+    return '';
+  };
+
   const readJson = live.readJson || ((key, fallback) => {
     try {
       const raw = localStorage.getItem(key);
@@ -76,6 +85,44 @@
     writeJson(FAVORITES_KEY, Array.from(favoriteSet));
   };
 
+  const syncFavoritesFromLive = async (visiblePropertyIds = []) => {
+    const token = getLiveToken();
+    if (!token || typeof live.request !== 'function') return;
+    const localSet = getFavoriteSet();
+    const visibleSet = new Set((visiblePropertyIds || []).map((id) => text(id)).filter(Boolean));
+
+    try {
+      const response = await live.request('/wishlist', { token });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      const serverIds = new Set(
+        items
+          .map((item) => text(item?.propertyId || item?.property?.id || item?.property?._id))
+          .filter(Boolean)
+      );
+
+      for (const id of localSet) {
+        const candidate = text(id);
+        if (!candidate || !isCorePropertyId(candidate)) continue;
+        if (visibleSet.size && !visibleSet.has(candidate)) continue;
+        if (serverIds.has(candidate)) continue;
+        try {
+          await live.request(`/wishlist/${encodeURIComponent(candidate)}`, {
+            method: 'POST',
+            token,
+          });
+          serverIds.add(candidate);
+        } catch {
+          // keep local favorite as safe fallback
+        }
+      }
+
+      const merged = new Set([...localSet, ...serverIds]);
+      saveFavoriteSet(merged);
+    } catch {
+      // keep local favorites when live API is unavailable
+    }
+  };
+
   const renderProperties = () => {
     const searchVal = text(searchInput.value).toLowerCase();
     const locVal = text(locationFilter.value, 'all').toLowerCase();
@@ -120,10 +167,13 @@
     noResult.style.display = visibleCount === 0 ? 'block' : 'none';
   };
 
-  const toggleFavorite = (propertyId, button) => {
+  const toggleFavorite = async (propertyId, button) => {
     const normalizedId = text(propertyId);
     if (!normalizedId) return;
+    const token = getLiveToken();
+    const canLiveSync = Boolean(token && typeof live.request === 'function' && isCorePropertyId(normalizedId));
     const favorites = getFavoriteSet();
+    const shouldSave = !favorites.has(normalizedId);
     if (favorites.has(normalizedId)) {
       favorites.delete(normalizedId);
       if (button) button.textContent = '❤️ Save';
@@ -132,6 +182,23 @@
       if (button) button.textContent = '✅ Saved';
     }
     saveFavoriteSet(favorites);
+
+    if (!canLiveSync) return;
+    try {
+      await live.request(`/wishlist/${encodeURIComponent(normalizedId)}`, {
+        method: shouldSave ? 'POST' : 'DELETE',
+        token,
+      });
+    } catch (error) {
+      if (live.strictRealMode) {
+        const next = getFavoriteSet();
+        if (shouldSave) next.delete(normalizedId);
+        else next.add(normalizedId);
+        saveFavoriteSet(next);
+        if (button) button.textContent = shouldSave ? '❤️ Save' : '✅ Saved';
+        window.alert(`Wishlist sync failed: ${text(error?.message, 'Unknown error')}`);
+      }
+    }
   };
 
   const loadProperties = async () => {
@@ -155,6 +222,7 @@
 
     properties = liveItems.length ? liveItems : loadLocalProperties();
     writeJson(LIST_KEY, properties);
+    await syncFavoritesFromLive(properties.map((item) => item.id));
     renderProperties();
   };
 
@@ -164,7 +232,7 @@
     const button = target.closest('button[data-favorite-id]');
     if (!button) return;
     const propertyId = button.getAttribute('data-favorite-id');
-    toggleFavorite(propertyId, button);
+    void toggleFavorite(propertyId, button);
   });
 
   searchInput.addEventListener('input', renderProperties);
