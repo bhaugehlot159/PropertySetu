@@ -53,7 +53,18 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const toTs = (value) => {
+    const date = new Date(value || '');
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  };
+
   const inr = (value) => `₹${toNumber(value, 0).toLocaleString('en-IN')}`;
+
+  const shortTime = (value) => {
+    const ts = toTs(value);
+    if (!ts) return '-';
+    return new Date(ts).toLocaleString('en-IN');
+  };
 
   const escapeHtml = (value) => text(value)
     .replace(/&/g, '&amp;')
@@ -80,12 +91,33 @@
     return text(adminSession?.token);
   };
 
+  const uniqueBy = (rows = [], selector = (row) => row?.id) => {
+    const out = [];
+    const seen = new Set();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = text(selector(row));
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(row);
+    });
+    return out;
+  };
+
   async function coreRequest(path, { method = 'GET', data = null, token = '' } = {}) {
+    const normalizedPath = String(path || '').startsWith('/') ? String(path) : `/${String(path || '')}`;
     const authToken = text(token || getAdminToken());
+    if (typeof live.request === 'function') {
+      return live.request(normalizedPath, {
+        method,
+        token: authToken,
+        ...(data ? { data } : {}),
+      });
+    }
+
     const headers = { 'Content-Type': 'application/json' };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-    const response = await fetch(`${CORE_BASE}${path}`, {
+    const response = await fetch(`${CORE_BASE}${normalizedPath}`, {
       method,
       headers,
       ...(data ? { body: JSON.stringify(data) } : {}),
@@ -105,24 +137,48 @@
       location: text(item.location || item.locality, 'Udaipur'),
       city: text(item.city, 'Udaipur'),
       price: toNumber(item.price, 0),
+      status: text(item.status, 'pending'),
+      featured: Boolean(item.featured),
+      verified: Boolean(item.verified || item.verifiedByPropertySetu || item?.verifiedBadge?.show),
+      createdAt: text(item.createdAt || item.updatedAt),
     };
   }
 
   async function loadPropertyOptions() {
+    const token = getAdminToken();
+    const merged = [];
     try {
-      const response = await coreRequest('/properties?city=Udaipur&limit=100', {
+      if (token) {
+        const adminResponse = await coreRequest('/admin/properties?limit=800', {
+          method: 'GET',
+          token,
+        });
+        const adminItems = Array.isArray(adminResponse?.items) ? adminResponse.items : [];
+        merged.push(...adminItems.map(normalizeProperty).filter((row) => row.id));
+      }
+    } catch {
+      // no-op, fallback chain below
+    }
+    try {
+      const response = await coreRequest('/properties?limit=300', {
         method: 'GET',
+        token,
       });
       const items = Array.isArray(response?.items) ? response.items : [];
-      return items.map(normalizeProperty).filter((row) => row.id);
+      merged.push(...items.map(normalizeProperty).filter((row) => row.id));
     } catch {
-      const local = readJson(LISTINGS_KEY, []);
-      if (!Array.isArray(local)) return [];
-      return local
-        .filter((item) => item && typeof item === 'object')
-        .map(normalizeProperty)
-        .filter((row) => row.id);
+      // no-op, fallback chain below
     }
+    const uniqueRows = uniqueBy(merged, (row) => row.id)
+      .sort((a, b) => toTs(b.createdAt) - toTs(a.createdAt));
+    if (uniqueRows.length) return uniqueRows;
+
+    const local = readJson(LISTINGS_KEY, []);
+    if (!Array.isArray(local)) return [];
+    return local
+      .filter((item) => item && typeof item === 'object')
+      .map(normalizeProperty)
+      .filter((row) => row.id);
   }
 
   const panel = document.createElement('div');
@@ -138,6 +194,7 @@
       <button id="adminV3LoadBtn" type="button">Load</button>
       <button id="adminV3VerifyBtn" type="button">Mark Verified Badge</button>
     </div>
+    <input id="adminV3VerifyReason" type="text" placeholder="Verification reason (auditable)" style="margin-top:8px;width:100%;padding:8px;border:1px solid #ccd6e7;border-radius:4px;" />
 
     <div style="margin-top:12px;border:1px solid #d6e1f5;border-radius:8px;padding:10px;background:#f8fbff;">
       <h3 style="margin:0 0 8px;">Verified + Map</h3>
@@ -149,6 +206,19 @@
         <a id="adminV3MapDir" target="_blank" style="padding:6px 10px;background:#0b3d91;color:#fff;border-radius:6px;text-decoration:none;">Directions</a>
       </div>
       <iframe id="adminV3MapFrame" title="Admin Property Map" style="margin-top:8px;width:100%;height:260px;border:1px solid #cfdcf2;border-radius:8px;background:#fff;"></iframe>
+    </div>
+
+    <div style="margin-top:12px;border:1px solid #d6e1f5;border-radius:8px;padding:10px;background:#fff;">
+      <h3 style="margin:0 0 8px;">Moderation Audit Trail</h3>
+      <div class="actions-row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button id="adminV3AuditRefreshBtn" type="button">Refresh Audit</button>
+        <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:#38597f;">
+          <input id="adminV3AuditCrypto" type="checkbox" />
+          Include cryptographic details
+        </label>
+      </div>
+      <p id="adminV3AuditStatus" style="margin:8px 0 0;color:#1d4068;">Audit not loaded.</p>
+      <div id="adminV3AuditWrap" style="margin-top:8px;max-height:220px;overflow:auto;border:1px solid #dae6fb;border-radius:8px;padding:8px;background:#f8fbff;"></div>
     </div>
 
     <div style="margin-top:12px;border:1px solid #d6e1f5;border-radius:8px;padding:10px;background:#fff;">
@@ -196,12 +266,17 @@
     propertySelect: document.getElementById('adminV3PropertySelect'),
     loadBtn: document.getElementById('adminV3LoadBtn'),
     verifyBtn: document.getElementById('adminV3VerifyBtn'),
+    verifyReason: document.getElementById('adminV3VerifyReason'),
     badgeChip: document.getElementById('adminV3BadgeChip'),
     badgeMeta: document.getElementById('adminV3BadgeMeta'),
     mapQuery: document.getElementById('adminV3MapQuery'),
     mapOpen: document.getElementById('adminV3MapOpen'),
     mapDir: document.getElementById('adminV3MapDir'),
     mapFrame: document.getElementById('adminV3MapFrame'),
+    auditRefreshBtn: document.getElementById('adminV3AuditRefreshBtn'),
+    auditCrypto: document.getElementById('adminV3AuditCrypto'),
+    auditStatus: document.getElementById('adminV3AuditStatus'),
+    auditWrap: document.getElementById('adminV3AuditWrap'),
     chatThread: document.getElementById('adminV3ChatThread'),
     chatMessage: document.getElementById('adminV3ChatMessage'),
     chatReceiverId: document.getElementById('adminV3ReceiverId'),
@@ -285,6 +360,93 @@
     ui.chatStatus.textContent = message;
   }
 
+  function setAuditStatus(message, isError = false) {
+    if (!ui.auditStatus) return;
+    ui.auditStatus.style.color = isError ? '#8d1e1e' : '#1d4068';
+    ui.auditStatus.textContent = message;
+  }
+
+  function renderAuditRows(items = [], verification = {}) {
+    if (!ui.auditWrap) return;
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) {
+      ui.auditWrap.innerHTML = '<p style="margin:0;color:#607da8;">No moderation audit entries found.</p>';
+      return;
+    }
+
+    const chain = verification?.chain && typeof verification.chain === 'object' ? verification.chain : {};
+    const chainSummary = `
+      <div style="margin:0 0 8px;padding:8px;border:1px solid #d6e5f8;border-radius:8px;background:#fff;">
+        <b>Chain:</b>
+        valid <b>${verification?.valid ? 'yes' : 'no'}</b> |
+        total <b>${toNumber(verification?.total, rows.length)}</b> |
+        range <b>${toNumber(chain?.minChainIndex, 0)}-${toNumber(chain?.maxChainIndex, 0)}</b> |
+        partial <b>${verification?.partial ? 'yes' : 'no'}</b>
+      </div>
+    `;
+
+    const tableRows = rows.slice(0, 40).map((item) => {
+      const action = text(item.action, '-');
+      const fromStatus = text(item.statusBefore, '-');
+      const toStatus = text(item.statusAfter, '-');
+      const reason = text(item.reasonPreview, '-');
+      const score = toNumber(item.fraudRiskScore, 0);
+      const chainIndex = toNumber(item?.chain?.chainIndex, 0);
+      const source = text(item.source, '-');
+      return `
+        <tr>
+          <td style="border:1px solid #d6e1f5;padding:7px;">#${chainIndex || '-'}</td>
+          <td style="border:1px solid #d6e1f5;padding:7px;"><b>${escapeHtml(action)}</b><br><small>${escapeHtml(source)}</small></td>
+          <td style="border:1px solid #d6e1f5;padding:7px;">${escapeHtml(fromStatus)} → ${escapeHtml(toStatus)}</td>
+          <td style="border:1px solid #d6e1f5;padding:7px;">${score}${item.fakeListingSignal ? ' | fake-signal' : ''}</td>
+          <td style="border:1px solid #d6e1f5;padding:7px;">${escapeHtml(reason)}</td>
+          <td style="border:1px solid #d6e1f5;padding:7px;">${escapeHtml(shortTime(item.occurredAt || item.createdAt))}</td>
+        </tr>
+      `;
+    }).join('');
+
+    ui.auditWrap.innerHTML = `
+      ${chainSummary}
+      <div style="overflow:auto;">
+        <table style="border-collapse:collapse;min-width:760px;width:100%;">
+          <thead>
+            <tr>
+              <th style="border:1px solid #d6e1f5;padding:7px;background:#f4f8ff;">Chain</th>
+              <th style="border:1px solid #d6e1f5;padding:7px;background:#f4f8ff;">Action</th>
+              <th style="border:1px solid #d6e1f5;padding:7px;background:#f4f8ff;">Status</th>
+              <th style="border:1px solid #d6e1f5;padding:7px;background:#f4f8ff;">Risk</th>
+              <th style="border:1px solid #d6e1f5;padding:7px;background:#f4f8ff;">Reason</th>
+              <th style="border:1px solid #d6e1f5;padding:7px;background:#f4f8ff;">Time</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function loadModerationAudit(propertyId) {
+    if (!propertyId) return;
+    const includeCryptographic = Boolean(ui.auditCrypto?.checked);
+    const query = new URLSearchParams({ limit: '80' });
+    if (includeCryptographic) query.set('includeCryptographic', 'true');
+    try {
+      const response = await coreRequest(
+        `/properties/${encodeURIComponent(propertyId)}/moderation/audit?${query.toString()}`,
+        { method: 'GET' }
+      );
+      const items = Array.isArray(response?.items) ? response.items : [];
+      const verification = response?.verification || {};
+      renderAuditRows(items, verification);
+      const valid = Boolean(verification?.valid);
+      const issues = Array.isArray(verification?.issues) ? verification.issues.length : 0;
+      setAuditStatus(`Audit synced. ${items.length} entries. Chain ${valid ? 'valid' : 'needs review'}${issues ? ` (${issues} issue)` : ''}.`, !issues);
+    } catch (error) {
+      renderAuditRows([], {});
+      setAuditStatus(`Audit load failed: ${error.message || 'Unknown error'}`, true);
+    }
+  }
+
   async function loadMetaAndChat(propertyId) {
     if (!propertyId) return;
 
@@ -300,6 +462,8 @@
       if (ui.badgeMeta) ui.badgeMeta.textContent = `Meta load failed: ${error.message || 'Unknown error'}`;
     }
 
+    await loadModerationAudit(propertyId);
+
     try {
       const chat = await coreRequest(`/chat/${encodeURIComponent(propertyId)}`, {
         method: 'GET',
@@ -314,10 +478,14 @@
 
   async function markVerified(propertyId) {
     if (!propertyId) return;
+    const reason = text(
+      ui.verifyReason?.value,
+      'Admin verification approved via V3 controls after map, media, and moderation checks.'
+    );
     try {
       await coreRequest(`/properties/${encodeURIComponent(propertyId)}/verify`, {
         method: 'POST',
-        data: { verified: true },
+        data: { verified: true, reason, moderationReason: reason },
       });
       await loadMetaAndChat(propertyId);
       setChatStatus('Verified badge updated by admin.');
@@ -447,7 +615,11 @@
   function populatePropertySelect(items = [], selectedId = '') {
     if (!ui.propertySelect) return;
     ui.propertySelect.innerHTML = '<option value="">Select property</option>' + items
-      .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`${item.title} (${item.location})`)}</option>`)
+      .map((item) => {
+        const badge = `${item.featured ? 'Featured' : (item.verified ? 'Verified' : item.status)}`;
+        const label = `${item.title} (${item.location}) [${badge}]`;
+        return `<option value="${escapeHtml(item.id)}">${escapeHtml(label)}</option>`;
+      })
       .join('');
 
     if (selectedId && items.some((item) => item.id === selectedId)) {
@@ -480,6 +652,18 @@
     await markVerified(propertyId);
   });
 
+  ui.auditRefreshBtn?.addEventListener('click', async () => {
+    const propertyId = getActivePropertyId();
+    if (!propertyId) return;
+    await loadModerationAudit(propertyId);
+  });
+
+  ui.auditCrypto?.addEventListener('change', async () => {
+    const propertyId = getActivePropertyId();
+    if (!propertyId) return;
+    await loadModerationAudit(propertyId);
+  });
+
   ui.refreshChatBtn?.addEventListener('click', async () => {
     const propertyId = getActivePropertyId();
     if (!propertyId) return;
@@ -509,6 +693,9 @@
     const initialId = getInitialIdFromPage() || text(options[0]?.id);
     populatePropertySelect(options, initialId);
     if (ui.propertyIdInput) ui.propertyIdInput.value = initialId;
+    if (ui.verifyReason && !text(ui.verifyReason.value)) {
+      ui.verifyReason.value = 'Admin verification approved via V3 controls after moderation review.';
+    }
     if (ui.compareIds && initialId) ui.compareIds.value = initialId;
 
     if (initialId) {
