@@ -58,6 +58,45 @@
     if (typeof live.getAnyToken === 'function') return text(live.getAnyToken());
     return '';
   };
+  const isCorePropertyId = (value) => /^[a-f0-9]{24}$/i.test(text(value));
+  const uniqueBy = (rows = [], keyFn = (item) => item) => {
+    const map = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = text(keyFn(row));
+      if (!key) return;
+      if (map.has(key)) return;
+      map.set(key, row);
+    });
+    return [...map.values()];
+  };
+
+  const applyLiveModerationDecision = async ({
+    listingId,
+    action,
+    reason,
+    force = false,
+    approveConfirm = false,
+  } = {}) => {
+    const token = getAdminToken();
+    const propertyId = text(listingId);
+    if (!token || typeof live.request !== 'function') return false;
+    if (!propertyId || !isCorePropertyId(propertyId)) return false;
+    try {
+      await live.request(`/properties/${encodeURIComponent(propertyId)}/moderation/decision`, {
+        method: 'POST',
+        token,
+        data: {
+          action: text(action),
+          reason: text(reason),
+          force: Boolean(force),
+          approveConfirm: Boolean(approveConfirm),
+        },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   const normalizeListing = (item = {}) => {
     const id = text(item.id || item._id);
@@ -369,10 +408,21 @@
       setStatus('No high-risk rows for auto triage.');
       return;
     }
-    candidates.slice(0, 15).forEach((row) => {
-      mergeTrack(row.id, { decision: 'manual-review', reviewedAt: new Date().toISOString() });
-    });
-    setStatus(`Auto triage flagged ${Math.min(15, candidates.length)} listing(s).`);
+    const selected = candidates.slice(0, 15);
+    const reason = 'Auto triage: high-risk score triggered moderation review queue.';
+    for (const row of selected) {
+      // eslint-disable-next-line no-await-in-loop
+      const liveDone = await applyLiveModerationDecision({
+        listingId: row.id,
+        action: 'pending-review',
+        reason,
+      });
+      mergeTrack(row.id, {
+        decision: liveDone ? 'pending-review-live' : 'manual-review',
+        reviewedAt: new Date().toISOString(),
+      });
+    }
+    setStatus(`Auto triage flagged ${selected.length} listing(s).`);
     refresh().catch(() => null);
   };
 
@@ -408,23 +458,24 @@
 
     if (action === 'manual') {
       mergeTrack(id, { decision: 'manual-review', reviewedAt: new Date().toISOString(), snoozedUntil: '' });
-      const token = getAdminToken();
-      if (token && typeof live.request === 'function') {
-        live.request(`/properties/${encodeURIComponent(id)}`, {
-          method: 'PATCH',
-          token,
-          data: {
-            verified: false,
-            aiReview: {
-              ...(row.aiReview || {}),
-              fakeListingSignal: true,
-              recommendation: 'Manual admin verification required',
-            },
-          },
-        }).catch(() => null);
-      }
-      setStatus('Marked for manual review.');
-      refresh().catch(() => null);
+      applyLiveModerationDecision({
+        listingId: id,
+        action: 'pending-review',
+        reason: 'Manual fraud review initiated from AI Fraud Risk Center.',
+      })
+        .then((liveDone) => {
+          if (liveDone) {
+            mergeTrack(id, { decision: 'pending-review-live', reviewedAt: new Date().toISOString() });
+            setStatus('Marked for manual review (live moderation synced).');
+          } else {
+            setStatus('Marked for manual review.');
+          }
+          refresh().catch(() => null);
+        })
+        .catch(() => {
+          setStatus('Marked for manual review.');
+          refresh().catch(() => null);
+        });
       return;
     }
     if (action === 'safe') {

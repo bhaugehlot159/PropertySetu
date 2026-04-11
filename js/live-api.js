@@ -1411,6 +1411,58 @@
         };
       }
 
+      if (rawPath === '/properties/moderation/queue' && method === 'GET') {
+        const response = await requestJson(
+          CORE_API_BASE,
+          `/properties/moderation/queue${rawQuery ? `?${rawQuery}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+        return {
+          ok: true,
+          success: true,
+          total: numberFrom(response?.total, 0),
+          summary: toObject(response?.summary),
+          items: Array.isArray(response?.items)
+            ? response.items.map(mapCorePropertyToLegacy).filter(Boolean)
+            : [],
+        };
+      }
+
+      const propertyModerationDecisionMatch = rawPath.match(/^\/properties\/([^/]+)\/moderation\/decision$/);
+      if (propertyModerationDecisionMatch && method === 'POST') {
+        const propertyId = propertyModerationDecisionMatch[1];
+        const payload = options.data || {};
+        return requestJson(CORE_API_BASE, `/properties/${propertyId}/moderation/decision`, {
+          method: 'POST',
+          token: options.token,
+          timeoutMs: options.timeoutMs,
+          data: {
+            action: text(payload.action),
+            reason: text(payload.reason || payload.note || payload.moderationReason),
+            force: Boolean(payload.force),
+            approveConfirm: Boolean(payload.approveConfirm),
+          },
+        });
+      }
+
+      const propertyModerationAuditMatch = rawPath.match(/^\/properties\/([^/]+)\/moderation\/audit$/);
+      if (propertyModerationAuditMatch && method === 'GET') {
+        const propertyId = propertyModerationAuditMatch[1];
+        return requestJson(
+          CORE_API_BASE,
+          `/properties/${propertyId}/moderation/audit${rawQuery ? `?${rawQuery}` : ''}`,
+          {
+            method: 'GET',
+            token: options.token,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      }
+
       const propertyByIdMatch = rawPath.match(/^\/properties\/([^/]+)$/);
       if (propertyByIdMatch && method === 'GET') {
         const propertyId = propertyByIdMatch[1];

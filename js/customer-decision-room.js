@@ -64,7 +64,6 @@
     if (typeof live.getToken === 'function') return text(live.getToken('customer') || live.getToken('seller') || live.getToken('admin'));
     return '';
   };
-
   const getSessionId = () => {
     if (typeof live.getAnySession === 'function') return text(live.getAnySession()?.id);
     return '';
@@ -129,7 +128,7 @@
     return map;
   };
 
-  const collectShortlistIds = (listingMap) => {
+  const collectShortlistIds = (listingMap, liveWishlistIds = []) => {
     const market = readJson(MARKET_STATE_KEY, { wishlist: [], compare: [] });
     const ids = [];
     const add = (id) => {
@@ -137,6 +136,7 @@
       if (!normalized || ids.includes(normalized)) return;
       ids.push(normalized);
     };
+    (Array.isArray(liveWishlistIds) ? liveWishlistIds : []).forEach(add);
     (Array.isArray(market?.wishlist) ? market.wishlist : []).forEach(add);
     (Array.isArray(market?.compare) ? market.compare : []).forEach(add);
     const visits = readJson(VISIT_KEY, []);
@@ -162,6 +162,50 @@
     (Array.isArray(visits) ? visits : []).forEach((item) => bump(item?.propertyId));
     (Array.isArray(videoVisits) ? videoVisits : []).forEach((item) => bump(item?.propertyId || item?.listingId));
     return map;
+  };
+
+  const collectLiveWishlistIds = async (token) => {
+    if (!token || typeof live.request !== 'function') return [];
+    try {
+      const response = await live.request('/wishlist', { token });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      return items
+        .map((item) => text(item?.propertyId || item?.property?.id || item?.property?._id))
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+
+  const collectLiveVisitMap = async (token) => {
+    if (!token || typeof live.request !== 'function') return {};
+    try {
+      const response = await live.request('/visits/mine?limit=500', { token });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      const map = {};
+      items.forEach((item) => {
+        const id = text(item?.propertyId || item?.property?.id || item?.property?._id);
+        if (!id) return;
+        map[id] = numberFrom(map[id], 0) + 1;
+      });
+      return map;
+    } catch {
+      return {};
+    }
+  };
+
+  const mergeCountMap = (left = {}, right = {}) => {
+    const out = {};
+    const merge = (src) => {
+      Object.entries(src || {}).forEach(([key, value]) => {
+        const id = text(key);
+        if (!id) return;
+        out[id] = numberFrom(out[id], 0) + numberFrom(value, 0);
+      });
+    };
+    merge(left);
+    merge(right);
+    return out;
   };
 
   const collectLocalChatStats = () => {
@@ -575,6 +619,7 @@
       note: 'Request from customer decision room',
     };
     const token = getToken();
+    let liveDone = false;
     if (token && typeof live.request === 'function') {
       try {
         await live.request('/loan/assistance', {
@@ -582,6 +627,7 @@
           token,
           data: payload,
         });
+        liveDone = true;
         setStatus(`Loan assistance request submitted for ${row.title}.`);
       } catch (error) {
         if (!live.shouldFallbackToLocal || !live.shouldFallbackToLocal(error)) {
@@ -590,6 +636,7 @@
         }
       }
     }
+    if (liveDone) return true;
     const queue = readJson(LOAN_QUEUE_KEY, []);
     queue.unshift({
       id: `loan-local-${Date.now()}`,
@@ -671,10 +718,14 @@
     const settings = getSettings();
     writeSettingsToControls(settings);
     const listingMap = collectListingMap();
-    const shortlistIds = collectShortlistIds(listingMap);
-    const visitMap = collectVisitMap();
+    const token = getToken();
+    const liveWishlistIds = await collectLiveWishlistIds(token);
+    const shortlistIds = collectShortlistIds(listingMap, liveWishlistIds);
+    const localVisitMap = collectVisitMap();
+    const liveVisitMap = await collectLiveVisitMap(token);
+    const visitMap = mergeCountMap(localVisitMap, liveVisitMap);
     const localChat = collectLocalChatStats();
-    const liveChat = await collectLiveChatStats(getToken(), getSessionId());
+    const liveChat = await collectLiveChatStats(token, getSessionId());
     const chatStats = mergeChatStats(localChat, liveChat);
     const notes = getNotes();
     model = buildModel({
