@@ -5,10 +5,12 @@
   const hint = document.getElementById("recentFeatureHint");
   const mostUsedGrid = document.getElementById("mostUsedFeatureGrid");
   const mostUsedHint = document.getElementById("mostUsedFeatureHint");
+  const mostUsedRoleTabs = Array.from(document.querySelectorAll("[data-most-role]"));
   const STORAGE_KEY = "propertysetu:home-recent-features";
   const USAGE_STORAGE_KEY = "propertysetu:home-feature-usage";
   const LIMIT = 6;
   const SAME_PAGE = `${window.location.pathname.split("/").pop() || "index.html"}`;
+  let currentMostRole = "all";
 
   const defaults = [
     {
@@ -16,6 +18,7 @@
       href: "#marketplace",
       note: "Fast property search with smart filters.",
       source: "Smart Search",
+      role: "customer",
       at: new Date().toISOString(),
     },
     {
@@ -23,6 +26,7 @@
       href: "#featureCommandCenter",
       note: "Role-wise all features ek jagah.",
       source: "Feature Command",
+      role: "all",
       at: new Date().toISOString(),
     },
     {
@@ -30,6 +34,7 @@
       href: "#decisionTools",
       note: "Compare listings and calculate EMI quickly.",
       source: "Decision Tools",
+      role: "customer",
       at: new Date().toISOString(),
     },
   ];
@@ -90,9 +95,42 @@
   };
 
   const makeItemKey = (item = {}) => `${String(item.href || "").trim()}|${String(item.label || "").trim()}`;
+  const validRoles = new Set(["all", "customer", "seller", "admin"]);
   const formatCount = (count = 0) => {
     const safe = Math.max(0, Number(count) || 0);
     return `${safe} ${safe === 1 ? "use" : "uses"}`;
+  };
+  const normalizeRole = (value = "all") => {
+    const role = String(value || "all").trim().toLowerCase();
+    return validRoles.has(role) ? role : "all";
+  };
+  const roleLabel = (value = "all") => {
+    const role = normalizeRole(value);
+    if (role === "customer") return "Customer";
+    if (role === "seller") return "Seller";
+    if (role === "admin") return "Admin";
+    return "All";
+  };
+  const roleFromText = (value = "") => {
+    const text = String(value || "").toLowerCase();
+    if (!text) return "all";
+    if (/(admin|moderation|verification|report|commission|control|dashboard admin)/.test(text)) return "admin";
+    if (/(seller|listing|post property|boost|renewal|upload|analytics)/.test(text)) return "seller";
+    if (/(customer|wishlist|compare|visit|chat|emi|marketplace|search|filter|buy|rent)/.test(text)) return "customer";
+    return "all";
+  };
+  const inferRole = (item = {}) => {
+    const explicit = normalizeRole(item.role);
+    if (explicit !== "all") return explicit;
+    const composed = `${item.label || ""} ${item.source || ""} ${item.note || ""} ${item.href || ""}`;
+    return roleFromText(composed);
+  };
+  const setMostRoleTab = (role = "all") => {
+    currentMostRole = normalizeRole(role);
+    mostUsedRoleTabs.forEach((btn) => {
+      const value = normalizeRole(btn.getAttribute("data-most-role") || "all");
+      btn.classList.toggle("active", value === currentMostRole);
+    });
   };
 
   const sourceFromElement = (el) => {
@@ -135,10 +173,12 @@
           at: now,
           source: item.source || existing.source,
           note: item.note || existing.note,
+          role: normalizeRole(item.role || existing.role || inferRole(item)),
         }
       : {
           ...item,
           count: 1,
+          role: normalizeRole(item.role || inferRole(item)),
           at: now,
         };
     const filtered = current.filter((row) => makeItemKey(row) !== key);
@@ -211,9 +251,14 @@
     const fallbackUsage = defaults.map((item, index) => ({
       ...item,
       count: Math.max(1, 3 - index),
+      role: normalizeRole(item.role || inferRole(item)),
     }));
     const list = usage.length ? usage : fallbackUsage;
-    const sorted = [...list]
+    const scoped = currentMostRole === "all"
+      ? list
+      : list.filter((item) => normalizeRole(item.role || inferRole(item)) === currentMostRole);
+    const workingList = scoped.length ? scoped : list;
+    const sorted = [...workingList]
       .sort((a, b) => {
         const countDiff = (Number(b.count) || 0) - (Number(a.count) || 0);
         if (countDiff !== 0) return countDiff;
@@ -236,7 +281,7 @@
 
       const usageMeta = document.createElement("p");
       usageMeta.className = "usage-meta";
-      usageMeta.textContent = `${formatCount(item.count)} • ${shortText(item.source || "Homepage", 24)}`;
+      usageMeta.textContent = `${formatCount(item.count)} • ${roleLabel(item.role || inferRole(item))} • ${shortText(item.source || "Homepage", 24)}`;
 
       const meter = document.createElement("div");
       meter.className = "usage-meter";
@@ -256,6 +301,7 @@
           href: item.href,
           source: "Most Used Features",
           note: item.note || "Opened from most-used ranking.",
+          role: normalizeRole(item.role || inferRole(item)),
           at: new Date().toISOString(),
         });
         openHref(item.href);
@@ -267,8 +313,8 @@
 
     if (mostUsedHint) {
       mostUsedHint.textContent = usage.length
-        ? "Top used features real usage count ke saath update ho rahe hain."
-        : "Usage data build hone tak starter ranking dikhayi ja rahi hai.";
+        ? `Top used features ${roleLabel(currentMostRole)} role filter ke saath update ho rahe hain.`
+        : `Usage data build hone tak ${roleLabel(currentMostRole)} role ke liye starter ranking dikhayi ja rahi hai.`;
     }
   };
 
@@ -304,6 +350,12 @@
         href,
         source: sourceFromElement(interactive),
         note: noteFromElement(interactive),
+        role: inferRole({
+          label,
+          href,
+          source: sourceFromElement(interactive),
+          note: noteFromElement(interactive),
+        }),
         at: new Date().toISOString(),
       };
       trackFeatureUsage(item);
@@ -312,5 +364,13 @@
     true
   );
 
+  mostUsedRoleTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      setMostRoleTab(button.getAttribute("data-most-role") || "all");
+      renderMostUsed();
+    });
+  });
+
+  setMostRoleTab("all");
   render();
 })();
