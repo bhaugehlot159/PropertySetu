@@ -51,7 +51,7 @@
       return false;
     }
   };
-  const allowDemoFallback = (
+  const explicitDemoFallback = (
     String(window.__PROPERTYSETU_ENABLE_DEMO_FALLBACK__ || '').trim().toLowerCase() === 'true'
     || readStorageFlag(DEMO_FALLBACK_KEY)
   );
@@ -59,7 +59,8 @@
     isGitHubPagesHost
     && configuredApiRoot === window.location.origin
   );
-  const runtimeFallbackEnabled = allowDemoFallback || allowStaticQueueFallback;
+  const allowDemoFallback = explicitDemoFallback || allowStaticQueueFallback;
+  const runtimeFallbackEnabled = allowDemoFallback;
   const strictRealMode = !runtimeFallbackEnabled;
 
   const readJson = (key, fallback) => {
