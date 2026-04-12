@@ -837,23 +837,42 @@ body.ps-pro-surface .footer-links a:hover {
 }
 
 /* Readability hardening across all pages/cards (non-destructive override) */
-body.ps-pro-surface .section > .container,
-body.ps-pro-surface main > .container,
-body.ps-pro-surface main .shell .container {
+body.ps-pro-surface:not(.ps-olx-mode) .section > .container,
+body.ps-pro-surface:not(.ps-olx-mode) main > .container,
+body.ps-pro-surface:not(.ps-olx-mode) main .shell .container {
   color: #d4e8f8;
 }
 
-body.ps-pro-surface .section-header h2,
-body.ps-pro-surface .section-header h3 {
+body.ps-pro-surface.ps-olx-mode .section > .container,
+body.ps-pro-surface.ps-olx-mode main > .container,
+body.ps-pro-surface.ps-olx-mode main .shell .container {
+  color: #2f4f69;
+}
+
+body.ps-pro-surface:not(.ps-olx-mode) .section-header h2,
+body.ps-pro-surface:not(.ps-olx-mode) .section-header h3 {
   color: #f2f9ff !important;
 }
 
-body.ps-pro-surface .section-header p,
-body.ps-pro-surface .section-note,
-body.ps-pro-surface .section-intro,
-body.ps-pro-surface .tiny-note,
-body.ps-pro-surface .results-meta {
+body.ps-pro-surface.ps-olx-mode .section-header h2,
+body.ps-pro-surface.ps-olx-mode .section-header h3 {
+  color: #143f58 !important;
+}
+
+body.ps-pro-surface:not(.ps-olx-mode) .section-header p,
+body.ps-pro-surface:not(.ps-olx-mode) .section-note,
+body.ps-pro-surface:not(.ps-olx-mode) .section-intro,
+body.ps-pro-surface:not(.ps-olx-mode) .tiny-note,
+body.ps-pro-surface:not(.ps-olx-mode) .results-meta {
   color: #cfe3f5 !important;
+}
+
+body.ps-pro-surface.ps-olx-mode .section-header p,
+body.ps-pro-surface.ps-olx-mode .section-note,
+body.ps-pro-surface.ps-olx-mode .section-intro,
+body.ps-pro-surface.ps-olx-mode .tiny-note,
+body.ps-pro-surface.ps-olx-mode .results-meta {
+  color: #476880 !important;
 }
 
 body.ps-pro-surface :is(
