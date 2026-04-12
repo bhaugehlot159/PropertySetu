@@ -6,6 +6,7 @@
   if (!sections.length || !tabs.length) return;
 
   const STORAGE_KEY = "propertysetu:home-active-folder";
+  const GLOBAL_SEARCH_KEY = "propertysetu:global-search";
   const defaultFolder = "discovery";
   const compactByDefault = true;
 
@@ -229,4 +230,25 @@
     openTarget: (target, options = {}) => openTarget(target, options),
     compactHome: (options = {}) => showCompactHome(options),
   };
+
+  const consumeGlobalSearch = () => {
+    let query = "";
+    try {
+      query = String(localStorage.getItem(GLOBAL_SEARCH_KEY) || "").trim();
+      if (query) localStorage.removeItem(GLOBAL_SEARCH_KEY);
+    } catch {
+      query = "";
+    }
+    if (!query) return;
+
+    const marketInput = document.getElementById("marketQuery");
+    if (marketInput) {
+      marketInput.value = query;
+      marketInput.dispatchEvent(new Event("input", { bubbles: true }));
+      marketInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    openTarget("#marketplace", { behavior: "smooth" });
+  };
+
+  consumeGlobalSearch();
 })();
