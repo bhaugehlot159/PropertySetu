@@ -1,7 +1,28 @@
 (function () {
-  const API_BASE = `${window.location.origin}/api`;
-  const PRO_API_BASE = `${window.location.origin}/api/v2`;
-  const CORE_API_BASE = `${window.location.origin}/api/v3`;
+  const APP_HOSTNAME = String(window.location.hostname || '').toLowerCase();
+  const isGitHubPagesHost = APP_HOSTNAME.endsWith('github.io');
+  const readRawStorage = (key) => {
+    try {
+      return String(localStorage.getItem(key) || '').trim();
+    } catch {
+      return '';
+    }
+  };
+  const normalizeApiBaseInput = (raw, fallback) => {
+    const value = String(raw || '').trim();
+    if (!value) return String(fallback || '').trim().replace(/\/+$/, '');
+    return value.replace(/\/+$/, '');
+  };
+  const configuredApiRoot = normalizeApiBaseInput(
+    window.__PROPERTYSETU_API_ROOT__
+      || window.__PROPERTYSETU_API_BASE__
+      || readRawStorage('propertySetu:apiRoot')
+      || readRawStorage('propertySetu:apiBase'),
+    window.location.origin,
+  );
+  const API_BASE = `${configuredApiRoot}/api`;
+  const PRO_API_BASE = `${configuredApiRoot}/api/v2`;
+  const CORE_API_BASE = `${configuredApiRoot}/api/v3`;
   const LISTINGS_KEY = 'propertySetu:listings';
   const SESSION_KEYS = {
     customer: 'propertysetu-customer-session',
@@ -34,7 +55,12 @@
     String(window.__PROPERTYSETU_ENABLE_DEMO_FALLBACK__ || '').trim().toLowerCase() === 'true'
     || readStorageFlag(DEMO_FALLBACK_KEY)
   );
-  const strictRealMode = !allowDemoFallback;
+  const allowStaticQueueFallback = (
+    isGitHubPagesHost
+    && configuredApiRoot === window.location.origin
+  );
+  const runtimeFallbackEnabled = allowDemoFallback || allowStaticQueueFallback;
+  const strictRealMode = !runtimeFallbackEnabled;
 
   const readJson = (key, fallback) => {
     try {
@@ -102,7 +128,7 @@
   });
 
   const shouldFallbackToLocal = (error) => {
-    if (!allowDemoFallback) return false;
+    if (!runtimeFallbackEnabled) return false;
     const msg = String(error?.message || '').toLowerCase();
     return (
       msg.includes('failed to fetch')
@@ -1148,9 +1174,17 @@
   };
 
   const request = async (path, options = {}) => {
+    const method = String(options?.method || 'GET').toUpperCase();
     const coreResponse = await tryCoreFlow(path, options);
     if (coreResponse !== null) return coreResponse;
-    return requestJson(API_BASE, path, options);
+    try {
+      return await requestJson(API_BASE, path, options);
+    } catch (error) {
+      if (method === 'GET' && shouldFallbackToLocal(error)) {
+        return null;
+      }
+      throw error;
+    }
   };
 
   const normalizeApiListing = (entry) => {
@@ -1308,6 +1342,7 @@
   };
 
   window.PropertySetuLive = {
+    configuredApiRoot,
     API_BASE,
     PRO_API_BASE,
     CORE_API_BASE,
@@ -1326,6 +1361,7 @@
     request,
     shouldFallbackToLocal,
     allowDemoFallback,
+    allowStaticQueueFallback,
     strictRealMode,
     normalizeApiListing,
     mergeById,

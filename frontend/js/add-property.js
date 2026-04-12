@@ -1,6 +1,12 @@
 (() => {
   const live = window.PropertySetuLive || {};
   const allowDemoFallback = Boolean(live.allowDemoFallback);
+  const canUseLocalQueueFallback = (error) => {
+    if (typeof live.shouldFallbackToLocal === 'function') {
+      return Boolean(live.shouldFallbackToLocal(error));
+    }
+    return allowDemoFallback;
+  };
   const form = document.getElementById('addPropertyForm');
   const photosInput = document.getElementById('photos');
   const videoInput = document.getElementById('video');
@@ -576,45 +582,46 @@
     trustModelPreview.textContent = `Verification pending: ${misses.join(', ')} required for "Verified by PropertySetu" badge.`;
   };
 
-  const setOwnerVerificationLiveStatus = (message, ok = true) => {
+  const setOwnerVerificationLiveStatus = (message, tone = 'ok') => {
     if (!ownerVerificationLiveStatus) return;
-    ownerVerificationLiveStatus.className = `status-box ${ok ? 'ok' : 'err'}`;
+    const normalizedTone = ['ok', 'err', 'info'].includes(String(tone)) ? String(tone) : 'ok';
+    ownerVerificationLiveStatus.className = `status-box ${normalizedTone}`;
     ownerVerificationLiveStatus.textContent = message;
   };
 
   const loadOwnerVerificationStatus = async () => {
     const token = live.getAnyToken ? live.getAnyToken() : '';
     if (!token || !live.request) {
-      setOwnerVerificationLiveStatus('Owner verification status dekhne ke liye login required hai.', false);
+      setOwnerVerificationLiveStatus('Owner verification status dekhne ke liye login required hai.', 'info');
       return;
     }
     try {
       const response = await live.request('/owner-verification/me', { token });
       const latest = Array.isArray(response?.items) ? response.items[0] : null;
       if (!latest) {
-        setOwnerVerificationLiveStatus('Abhi tak koi owner verification request submit nahi hui.', false);
+        setOwnerVerificationLiveStatus('Abhi tak koi owner verification request submit nahi hui.', 'info');
         return;
       }
       setOwnerVerificationLiveStatus(
         `Latest owner verification: ${latest.status || 'Pending Review'} (${new Date(latest.updatedAt || latest.createdAt || Date.now()).toLocaleString()})`,
-        String(latest.status || '').toLowerCase() === 'verified'
+        String(latest.status || '').toLowerCase() === 'verified' ? 'ok' : 'info'
       );
     } catch (error) {
-      setOwnerVerificationLiveStatus(`Owner verification status load failed: ${error.message || 'Unknown error'}`, false);
+      setOwnerVerificationLiveStatus(`Owner verification status load failed: ${error.message || 'Unknown error'}`, 'err');
     }
   };
 
   const submitOwnerVerificationRequest = async (context = {}) => {
     const token = live.getAnyToken ? live.getAnyToken() : '';
     if (!token || !live.request) {
-      setOwnerVerificationLiveStatus('Owner verification submit karne ke liye login required hai.', false);
+      setOwnerVerificationLiveStatus('Owner verification submit karne ke liye login required hai.', 'info');
       return null;
     }
 
     const values = getFormValues();
     const trustModel = getTrustModel(values);
     if (!text(values.ownerKycRef) || !text(values.propertyAddressRef)) {
-      setOwnerVerificationLiveStatus('Owner Aadhaar/PAN Ref aur Address Verification Ref required hai.', false);
+      setOwnerVerificationLiveStatus('Owner Aadhaar/PAN Ref aur Address Verification Ref required hai.', 'err');
       return null;
     }
 
@@ -633,7 +640,7 @@
         },
       });
       const reqStatus = response?.request?.status || 'Pending Review';
-      setOwnerVerificationLiveStatus(`Owner verification request submitted successfully. Status: ${reqStatus}.`, true);
+      setOwnerVerificationLiveStatus(`Owner verification request submitted successfully. Status: ${reqStatus}.`, 'ok');
       pushNotification(
         `Owner verification request submitted (${reqStatus}).`,
         ['customer', 'seller', 'admin'],
@@ -642,7 +649,7 @@
       );
       return response?.request || null;
     } catch (error) {
-      setOwnerVerificationLiveStatus(`Owner verification submit failed: ${error.message || 'Unknown error'}`, false);
+      setOwnerVerificationLiveStatus(`Owner verification submit failed: ${error.message || 'Unknown error'}`, 'err');
       return null;
     }
   };
@@ -1532,12 +1539,11 @@
       }
     } catch (error) {
       const normalized = normalizeLocalListing(payload);
-      const canFallbackByError = live.shouldFallbackToLocal ? live.shouldFallbackToLocal(error) : true;
-      const canFallback = allowDemoFallback && canFallbackByError;
+      const canFallback = canUseLocalQueueFallback(error);
       if (canFallback) {
         upsertLocalListing(normalized);
         saveMediaFingerprints(normalized.id || payload.id);
-        showStatus(`Live submit unavailable. Local backup me save kar diya: ${error.message}`, false);
+        showStatus(`Live server abhi reachable nahi hai, listing secure local queue me save ho gayi. Message: ${error.message}`, true);
         pushNotification(
           `Listing "${payload.title}" backup queue me save hui. Live sync pending.`,
           ['customer', 'seller', 'admin'],
@@ -1581,7 +1587,7 @@
 
   if (live.syncLocalListingsFromApi) {
     live.syncLocalListingsFromApi().catch((error) => {
-      if (!allowDemoFallback) {
+      if (!canUseLocalQueueFallback(error)) {
         showStatus(`Live listing sync failed: ${String(error?.message || 'Unknown error')}`, false);
       }
     });
