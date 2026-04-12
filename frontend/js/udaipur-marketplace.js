@@ -104,6 +104,15 @@
   });
 
   const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`;
+  const formatListedDate = (iso) => {
+    const stamp = new Date(iso || '').getTime();
+    if (!Number.isFinite(stamp)) return 'Today';
+    const diffMs = Date.now() - stamp;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (diffMs < dayMs) return 'Today';
+    if (diffMs < dayMs * 2) return 'Yesterday';
+    return new Date(stamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  };
   const DEFAULT_WHATSAPP_NUMBER = '919876543210';
   const UDAIPUR_CENTER = { lat: 24.5854, lng: 73.7125 };
   const LOCALITY_COORDINATES = {
@@ -624,6 +633,14 @@
     marketplaceRoot.innerHTML = filtered.map((item) => {
       const inWishlist = state.wishlist.includes(item.id);
       const inCompare = state.compare.includes(item.id);
+      const headlineFacts = [
+        item.category || 'Property',
+        item.areaSqft ? `${item.areaSqft} sq.ft.` : '',
+        item.beds ? `${item.beds} BHK` : '',
+      ].filter(Boolean).join(' • ');
+      const trustLabel = item.fakeListingSignal
+        ? 'AI Risk Alert'
+        : (item.verifiedByPropertySetu ? 'Verified by PropertySetu' : `Trust ${Math.round(item.trustScore)}%`);
       return `
         <article class="listing-card">
           <div class="listing-media">
@@ -634,26 +651,34 @@
               ${item.verified ? '<span class="listing-badge verified">Verified</span>' : ''}
               ${item.premium ? '<span class="listing-badge premium">Elite</span>' : ''}
             </div>
+            <button class="listing-heart-btn ${inWishlist ? 'active' : ''}" data-action="wishlist" data-id="${item.id}" type="button" aria-label="${inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}">${inWishlist ? '♥' : '♡'}</button>
           </div>
           <div class="listing-body">
-            <h3 class="listing-title">${item.title}</h3>
-            <p class="listing-locality">${item.locality}, Udaipur</p>
-            <div class="listing-meta">
+            <div class="listing-price-row">
               <div class="listing-price">${formatPrice(item.price)}</div>
               <span class="listing-purpose">${item.purpose}</span>
             </div>
-            <ul class="listing-facts">
-              <li>${item.category}</li>
-              <li>${item.areaSqft ? `${item.areaSqft} sq.ft.` : 'Area N/A'}</li>
-              <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
-              <li>${item.furnishing || 'Furnishing N/A'}</li>
-              <li>${item.constructionStatus || 'Construction N/A'}</li>
-              <li>${item.loanAvailable ? 'Loan Available' : 'Loan Info N/A'}</li>
-              <li>Trust ${Math.round(item.trustScore)}%</li>
-              <li>${item.videoTourReady ? `Video ${Math.round(item.videoDurationSec || 30)} sec` : 'Video Tour Pending'}</li>
-              <li>${item.fakeListingSignal ? 'Fraud Signal: Review Needed' : 'AI Fraud: Clear'}</li>
-            </ul>
-            <div class="listing-actions">
+            <h3 class="listing-title">${item.title}</h3>
+            <p class="listing-locality">${item.locality}, Udaipur</p>
+            <p class="listing-sub-meta">${headlineFacts || 'Property details available on open'}</p>
+            <p class="listing-date-meta">${formatListedDate(item.listedAt)} • ${trustLabel}</p>
+            <div class="listing-primary-actions">
+              <button class="action-btn primary" data-action="details" data-id="${item.id}" type="button">View Details</button>
+              <button class="action-btn" data-action="chat" data-id="${item.id}" type="button">Chat</button>
+            </div>
+            <details class="listing-more-menu">
+              <summary>More actions</summary>
+              <div class="listing-more-grid">
+                <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
+                <button class="action-btn" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
+                <button class="action-btn" data-action="virtualTour" data-id="${item.id}" type="button">Virtual Tour</button>
+                <button class="action-btn" data-action="videoVisit" data-id="${item.id}" type="button">Live Video Visit</button>
+                <button class="action-btn" data-action="whatsapp" data-id="${item.id}" type="button">WhatsApp</button>
+                <button class="action-btn" data-action="map" data-id="${item.id}" type="button">Map</button>
+                <button class="action-btn" data-action="report" data-id="${item.id}" type="button">Report</button>
+              </div>
+            </details>
+            <div class="listing-actions sr-only-actions">
               <button class="action-btn" data-action="wishlist" data-id="${item.id}" type="button">${inWishlist ? 'Wishlisted' : 'Wishlist'}</button>
               <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
               <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
@@ -1140,8 +1165,10 @@
   marketplaceRoot.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const action = target.getAttribute('data-action');
-    const listingId = target.getAttribute('data-id');
+    const trigger = target.closest('[data-action][data-id]');
+    if (!(trigger instanceof HTMLElement)) return;
+    const action = trigger.getAttribute('data-action');
+    const listingId = trigger.getAttribute('data-id');
     if (!action || !listingId) return;
 
     if (action === 'wishlist') {
