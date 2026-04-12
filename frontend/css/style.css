@@ -1147,7 +1147,7 @@ footer {
 
 .quick-action-board {
   display: grid;
-  grid-template-columns: 1.15fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1157,10 +1157,23 @@ footer {
   background: #ffffff;
   box-shadow: 0 10px 24px rgba(6, 45, 74, 0.12);
   padding: 12px 13px;
+  display: grid;
+  gap: 8px;
+}
+
+.action-tag {
+  justify-self: flex-start;
+  border: 1px solid #b7d1e7;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #f2f9ff;
+  color: #18527a;
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .quick-action-card h3 {
-  margin: 0 0 6px;
+  margin: 0;
   color: #113f63;
   font-size: 1rem;
 }
@@ -1175,7 +1188,7 @@ footer {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 2px;
 }
 
 .quick-action-links a {
@@ -1190,6 +1203,13 @@ footer {
 
 .quick-action-links a:hover {
   background: #edf5fc;
+}
+
+.home-shortcut-note {
+  margin-top: 10px;
+  color: #2f5c7e;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .quick-action-links button.outline-btn.dark-outline {
