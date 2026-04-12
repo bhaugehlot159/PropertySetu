@@ -890,6 +890,18 @@ textarea:focus {
   display: none !important;
 }
 
+.sr-only-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .action-btn {
   border: 1px solid #acc7de;
   border-radius: 8px;
