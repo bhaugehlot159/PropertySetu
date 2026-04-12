@@ -1,12 +1,15 @@
-const CACHE_KEY = "propertysetu-shell-v1";
+const BUILD_TAG = "20260413b";
+const CACHE_KEY = `propertysetu-shell-${BUILD_TAG}`;
 const SHELL_FILES = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/assets/icons/propertysetu-app-icon.svg",
-  "/css/style.css",
-  "/css/professional-folder.css",
-  "/js/live-api.js"
+  `/css/style.css?v=${BUILD_TAG}`,
+  `/css/professional-folder.css?v=${BUILD_TAG}`,
+  `/js/live-api.js?v=${BUILD_TAG}`,
+  `/js/folder-command-dock.js?v=${BUILD_TAG}`,
+  `/js/app-launch-readiness.js?v=${BUILD_TAG}`
 ];
 
 self.addEventListener("install", (event) => {
