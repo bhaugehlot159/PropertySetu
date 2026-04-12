@@ -1192,6 +1192,100 @@ footer {
   background: #edf5fc;
 }
 
+.quick-action-links button.outline-btn.dark-outline {
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+.home-folder-shell {
+  padding-top: 10px;
+}
+
+.home-folder-tabs {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-folder-tab {
+  border: 1px solid #a8c7df;
+  background: #ffffff;
+  color: #13496f;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.home-folder-tab:hover,
+.home-folder-tab.active {
+  background: #eaf5ff;
+  border-color: #6c9ac0;
+}
+
+.home-folder-grid {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.home-folder-card {
+  border: 1px solid #c8ddef;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(7, 47, 76, 0.1);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.home-folder-card h3 {
+  margin: 0;
+  color: #11466d;
+  font-size: 0.95rem;
+}
+
+.home-folder-card p {
+  margin: 0;
+  color: #3b5a73;
+  font-size: 0.84rem;
+}
+
+.home-folder-card .quick-action-links {
+  margin-top: 2px;
+}
+
+.home-folder-status {
+  margin-top: 12px;
+  color: #2f5b7e;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+section[data-home-folder][hidden] {
+  display: none !important;
+}
+
+.home-folder-active {
+  animation: homeFolderReveal 0.34s ease;
+}
+
+@keyframes homeFolderReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .feature-command-section {
   padding-top: 28px;
 }
@@ -1724,6 +1818,10 @@ footer {
     grid-template-columns: 1fr 1fr;
   }
 
+  .home-folder-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .feature-command-toolbar {
     grid-template-columns: 1fr 1fr;
   }
@@ -1813,6 +1911,20 @@ footer {
   }
 
   .quick-action-board {
+    grid-template-columns: 1fr;
+  }
+
+  .home-folder-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .home-folder-tab {
+    white-space: nowrap;
+  }
+
+  .home-folder-grid {
     grid-template-columns: 1fr;
   }
 

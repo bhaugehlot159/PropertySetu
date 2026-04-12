@@ -50,7 +50,9 @@
           <div class="nav-group-menu">
             <a href="folders/common/all-features.html">All Features</a>
             <a href="folders/customer/customer-features.html">Customer Folder</a>
+            <a href="folders/seller/seller-features.html">Seller Folder</a>
             <a href="folders/admin/admin-features.html">Admin Folder</a>
+            <a href="folders/services/services-features.html">Services Folder</a>
           </div>
         </details>
       </nav>
@@ -205,7 +207,68 @@
       </div>
     </section>
 
-    <section id="recentlyUsedFeatures" class="section recent-features-section">
+    <section id="homeFolderNavigator" class="section home-folder-shell">
+      <div class="container">
+        <div class="section-header">
+          <h2>Folder-wise Feature Navigator</h2>
+          <p class="section-note">Homepage short rakho, aur jo module chahiye wahi kholkar kaam karo.</p>
+        </div>
+        <div id="homeFolderTabs" class="home-folder-tabs" role="tablist" aria-label="Home feature folders">
+          <button type="button" class="home-folder-tab active" data-home-folder-tab="discovery">Discovery</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="marketplace">Marketplace</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="tools">Tools</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="roleboards">Role Boards</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="insights">Insights</button>
+        </div>
+        <div class="home-folder-grid">
+          <article class="home-folder-card">
+            <h3>Discovery Folder</h3>
+            <p>Feature Finder, categories, recent and most-used actions yahi se run karo.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="discovery">Open Discovery</button>
+              <a href="folders/common/all-features.html">All Features</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Marketplace Folder</h3>
+            <p>Smart filters, AI recommendation, locality pulse aur listing grid direct open karo.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="marketplace">Open Marketplace</button>
+              <a href="#marketplace">Go Listing Search</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Decision Tools Folder</h3>
+            <p>Compare board, saved searches, recently viewed aur EMI tools ek focused panel me.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="tools">Open Tools</button>
+              <a href="#decisionTools">Go EMI + Compare</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Role Dashboards Folder</h3>
+            <p>Customer, seller, admin workflows role-wise organized panel se open karo.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="roleboards">Open Role Boards</button>
+              <a href="folders/customer/customer-features.html">Customer Folder</a>
+              <a href="folders/seller/seller-features.html">Seller Folder</a>
+              <a href="folders/admin/admin-features.html">Admin Folder</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Insights & Services Folder</h3>
+            <p>Trust layer, premium modules, video visits, snapshot aur revenue flows separate folder me.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="insights">Open Insights</button>
+              <a href="folders/services/services-features.html">Services Folder</a>
+            </div>
+          </article>
+        </div>
+        <p id="homeFolderStatus" class="tiny-note home-folder-status">Discovery folder active hai. Upar tabs se module switch kar sakte ho.</p>
+      </div>
+    </section>
+
+    <section id="recentlyUsedFeatures" class="section recent-features-section" data-home-folder="discovery">
       <div class="container">
         <div class="section-header">
           <h2>Recently Used Features</h2>
@@ -216,7 +279,7 @@
       </div>
     </section>
 
-    <section id="mostUsedFeatures" class="section most-used-section soft-bg">
+    <section id="mostUsedFeatures" class="section most-used-section soft-bg" data-home-folder="discovery">
       <div class="container">
         <div class="section-header">
           <h2>Most Used Features</h2>
@@ -243,7 +306,7 @@
       </div>
     </section>
 
-    <section id="featureCommandCenter" class="section feature-command-section">
+    <section id="featureCommandCenter" class="section feature-command-section" data-home-folder="discovery">
       <div class="container">
         <div class="section-header">
           <h2>One Tap Feature Command Center</h2>
@@ -424,7 +487,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="visualHighlights" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Udaipur Visual Highlights</h2>
@@ -447,7 +510,7 @@
       </div>
     </section>
 
-    <section id="categoryHub" class="section">
+    <section id="categoryHub" class="section" data-home-folder="discovery">
       <div class="container">
         <div class="section-header">
           <h2>Main Categories (Professional Model)</h2>
@@ -491,7 +554,7 @@
       </div>
     </section>
 
-    <section id="premiumIdeasLive" class="section">
+    <section id="premiumIdeasLive" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Premium Feature Ideas (OLX Se Better) - Live</h2>
@@ -541,7 +604,7 @@
       </div>
     </section>
 
-    <section class="section soft-bg">
+    <section id="trustRevenueExpansion" class="section soft-bg" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Trust, Legal, Revenue, Expansion</h2>
@@ -606,7 +669,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="trustElements" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Trust Building Elements (Live)</h2>
@@ -654,7 +717,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="marketSnapshot" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Live Udaipur Market Snapshot</h2>
@@ -681,7 +744,7 @@
       </div>
     </section>
 
-    <section class="section soft-bg">
+    <section id="videoVisitLive" class="section soft-bg" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Video Visit Feature (Live)</h2>
@@ -708,7 +771,7 @@
       </div>
     </section>
 
-    <section id="localityPulse" class="section soft-bg">
+    <section id="localityPulse" class="section soft-bg" data-home-folder="marketplace">
       <div class="container">
         <div class="section-header">
           <h2>Udaipur Locality Pulse</h2>
@@ -718,7 +781,7 @@
       </div>
     </section>
 
-    <section id="marketplace" class="section">
+    <section id="marketplace" class="section" data-home-folder="marketplace">
       <div class="container">
         <div class="section-header">
           <h2>Udaipur Marketplace</h2>
@@ -887,7 +950,7 @@
       </div>
     </section>
 
-    <section id="decisionTools" class="section soft-bg">
+    <section id="decisionTools" class="section soft-bg" data-home-folder="tools">
       <div class="container split-grid">
         <article class="card">
           <h3>Compare Board (<span id="compareCount">0</span>/3)</h3>
@@ -923,7 +986,7 @@
       </div>
     </section>
 
-    <section id="roleBoards" class="section">
+    <section id="roleBoards" class="section" data-home-folder="roleboards">
       <div class="container">
         <div class="section-header">
           <h2>Role-based Feature Boards</h2>
@@ -1016,6 +1079,7 @@
   <script src="js/pro-select.js"></script>
   <script src="js/home-auth.js"></script>
   <script src="js/home-top-nav-groups.js"></script>
+  <script src="js/home-folder-layout.js"></script>
   <script src="js/home-recent-features.js"></script>
   <script src="js/home-feature-command-center.js"></script>
   <script src="js/home-desktop-quick-dock.js"></script>

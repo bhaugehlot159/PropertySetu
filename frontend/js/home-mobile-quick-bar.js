@@ -19,8 +19,9 @@
   let ticking = false;
   const evaluateActiveSection = () => {
     const focusY = window.scrollY + window.innerHeight * 0.28;
-    let activeId = String(jumpLinks[0].getAttribute("data-target") || "");
-    sections.forEach((section) => {
+    const visibleSections = sections.filter((section) => !section.hidden);
+    let activeId = String((visibleSections[0] || sections[0] || jumpLinks[0]).id || jumpLinks[0].getAttribute("data-target") || "");
+    visibleSections.forEach((section) => {
       if (section.offsetTop <= focusY) activeId = section.id;
     });
     setActive(activeId);

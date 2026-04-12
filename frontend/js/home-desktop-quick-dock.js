@@ -25,6 +25,10 @@
   const goTo = (href = "") => {
     if (!href) return;
     if (href.startsWith("#")) {
+      const folderApi = window.PropertySetuHomeFolders;
+      if (folderApi && typeof folderApi.openTarget === "function" && folderApi.openTarget(href, { behavior: "smooth" })) {
+        return;
+      }
       const target = document.querySelector(href);
       if (target) {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -57,8 +61,9 @@
   let ticking = false;
   const evaluateActive = () => {
     const focusY = window.scrollY + window.innerHeight * 0.24;
-    let activeId = String(jumpLinks[0]?.getAttribute("data-target") || "");
-    sections.forEach((section) => {
+    const visibleSections = sections.filter((section) => !section.hidden);
+    let activeId = String((visibleSections[0] || sections[0])?.id || jumpLinks[0]?.getAttribute("data-target") || "");
+    visibleSections.forEach((section) => {
       if (section.offsetTop <= focusY) activeId = section.id;
     });
     setActiveJump(activeId);

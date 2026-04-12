@@ -256,6 +256,10 @@
   const openHref = (href = "") => {
     if (!href) return;
     if (href.startsWith("#")) {
+      const folderApi = window.PropertySetuHomeFolders;
+      if (folderApi && typeof folderApi.openTarget === "function" && folderApi.openTarget(href, { behavior: "smooth" })) {
+        return;
+      }
       const target = document.querySelector(href);
       if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
