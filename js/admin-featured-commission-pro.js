@@ -11,7 +11,6 @@
   const POLICY_KEY = 'propertySetu:adminRevenuePolicy';
   const CACHE_KEY = 'propertySetu:adminRevenueControlCache';
   const LOG_KEY = 'propertySetu:adminRevenueControlLog';
-  const AUDIT_REMOTE_CACHE_KEY = 'propertySetu:adminRevenueControlRemoteAudit';
 
   const DEFAULT_POLICY = {
     featuredMarkupPct: 12,
@@ -109,23 +108,6 @@
     };
   };
 
-  const normalizeProperty = (item = {}) => ({
-    id: text(item.id || item._id),
-    title: text(item.title, 'Property'),
-    featured: Boolean(item.featured),
-    city: text(item.city, 'Udaipur'),
-    location: text(item.location || item.locality, 'Udaipur'),
-    status: text(item.status, 'pending'),
-  });
-
-  const normalizeRemoteAuditLog = (item = {}) => ({
-    id: text(item.id || item._id),
-    at: text(item.createdAt || item.at || new Date().toISOString()),
-    action: text(item.action, 'admin-audit'),
-    details: text(item.reason || item.message || item.status || ''),
-    source: 'server',
-  });
-
   const getPolicy = () => {
     const current = readJson(POLICY_KEY, {});
     return {
@@ -222,59 +204,6 @@
     }
   };
 
-  const readLiveFeaturedListings = async (token) => {
-    if (!token || typeof live.request !== 'function') return [];
-    try {
-      const response = await live.request('/admin/properties?limit=1200', { token });
-      const items = Array.isArray(response?.items) ? response.items : [];
-      return items
-        .map((item) => normalizeProperty(item))
-        .filter((item) => item.id && item.featured);
-    } catch {
-      return [];
-    }
-  };
-
-  const readLiveAdminRevenueSnapshot = async (token) => {
-    if (!token || typeof live.request !== 'function') {
-      return { overview: {}, commissionAnalytics: {}, actionAudit: [], synced: false };
-    }
-    try {
-      const [overviewRes, commissionRes, auditRes] = await Promise.allSettled([
-        live.request('/admin/overview', { token }),
-        live.request('/admin/commission-analytics', { token }),
-        live.request('/admin/action-audit?limit=180', { token }),
-      ]);
-      const actionAudit = (
-        auditRes.status === 'fulfilled'
-          ? (Array.isArray(auditRes.value?.items) ? auditRes.value.items : [])
-          : []
-      )
-        .map((item) => normalizeRemoteAuditLog(item))
-        .filter((item) => item.id);
-      if (actionAudit.length) writeJson(AUDIT_REMOTE_CACHE_KEY, actionAudit);
-      return {
-        overview: overviewRes.status === 'fulfilled' ? (overviewRes.value?.overview || {}) : {},
-        commissionAnalytics: commissionRes.status === 'fulfilled' ? (commissionRes.value?.analytics || {}) : {},
-        actionAudit: actionAudit.length
-          ? actionAudit
-          : ((Array.isArray(readJson(AUDIT_REMOTE_CACHE_KEY, [])) ? readJson(AUDIT_REMOTE_CACHE_KEY, []) : [])
-            .map((item) => normalizeRemoteAuditLog(item))
-            .filter((item) => item.id)),
-        synced: true,
-      };
-    } catch {
-      return {
-        overview: {},
-        commissionAnalytics: {},
-        actionAudit: (Array.isArray(readJson(AUDIT_REMOTE_CACHE_KEY, [])) ? readJson(AUDIT_REMOTE_CACHE_KEY, []) : [])
-          .map((item) => normalizeRemoteAuditLog(item))
-          .filter((item) => item.id),
-        synced: false,
-      };
-    }
-  };
-
   const recommendedAmount = (lead, policy) => {
     const base = numberFrom(lead?.amountBase, 0);
     const rate = numberFrom(policy?.loanCommissionPct, DEFAULT_POLICY.loanCommissionPct);
@@ -288,7 +217,6 @@
     loanLeads,
     featuredListings,
     policy,
-    revenueSnapshot,
   }) => {
     const planMap = new Map();
     Object.values(DEFAULT_FEATURED_PLANS).forEach((plan) => {
@@ -336,13 +264,6 @@
     }, 0);
 
     const propertyCareProjection = Math.round((monthlyFeaturedProjection * numberFrom(policy.propertyCareCommissionPct, 0)) / 100);
-    const liveOverview = revenueSnapshot?.overview || {};
-    const liveCommission = revenueSnapshot?.commissionAnalytics || {};
-    const liveMonetized = Math.max(0, numberFrom(liveCommission.totalMonetized, 0));
-    const liveEstimated = Math.max(0, numberFrom(liveCommission.estimatedCommission, 0));
-    const blockedUsers = Math.max(0, numberFrom(liveOverview.blockedUsers, 0));
-    const reports = Math.max(0, numberFrom(liveOverview.reports, 0));
-    const users = Math.max(0, numberFrom(liveOverview.users, 0));
 
     return {
       featuredPlans,
@@ -357,11 +278,6 @@
         loanLeadCount: safeLeads.length,
         totalLoanVolume,
         propertyCareProjection,
-        liveMonetized,
-        liveEstimated,
-        blockedUsers,
-        reports,
-        users,
       },
     };
   };
@@ -462,8 +378,6 @@
   let state = {
     plans: [],
     loanLeads: [],
-    featuredListings: [],
-    revenueSnapshot: { overview: {}, commissionAnalytics: {}, actionAudit: [], synced: false },
     model: {
       featuredPlans: [],
       suggestedPlans: [],
@@ -486,20 +400,7 @@
   };
 
   const renderLog = () => {
-    const localRows = getLog().map((row) => ({
-      ...row,
-      source: 'local',
-      at: text(row?.at, new Date().toISOString()),
-    }));
-    const remoteRows = (Array.isArray(state?.revenueSnapshot?.actionAudit) ? state.revenueSnapshot.actionAudit : [])
-      .map((row) => ({
-        ...row,
-        source: 'server',
-        at: text(row?.at, new Date().toISOString()),
-      }));
-    const rows = [...remoteRows, ...localRows]
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-      .slice(0, 20);
+    const rows = getLog();
     if (!rows.length) {
       logEl.innerHTML = '<p style="margin:0;color:#607da8;">No actions logged yet.</p>';
       return;
@@ -507,7 +408,6 @@
     logEl.innerHTML = rows.slice(0, 12).map((row) => `
       <div style="border-bottom:1px solid #e4edf9;padding:6px 0;">
         <b>${escapeHtml(text(row.action, '-'))}</b>
-        <small style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:${row.source === 'server' ? '#e9f3ff' : '#edf9f1'};color:${row.source === 'server' ? '#0b4b87' : '#156840'};">${escapeHtml(text(row.source, 'local'))}</small>
         <small style="display:block;color:#5c6f88;">${escapeHtml(new Date(row.at || Date.now()).toLocaleString('en-IN'))}</small>
         <small style="display:block;color:#3f5876;">${escapeHtml(text(row.details, '-'))}</small>
       </div>
@@ -519,15 +419,10 @@
     const summary = model.summary || {};
     kpiEl.innerHTML = `
       <div class="arcp-kpi-item"><small>Featured Listings</small><b>${numberFrom(summary.featuredCount, 0)}</b></div>
-      <div class="arcp-kpi-item"><small>Users</small><b>${numberFrom(summary.users, 0)}</b></div>
-      <div class="arcp-kpi-item"><small>Blocked Users</small><b>${numberFrom(summary.blockedUsers, 0)}</b></div>
-      <div class="arcp-kpi-item"><small>Reports</small><b>${numberFrom(summary.reports, 0)}</b></div>
       <div class="arcp-kpi-item"><small>Monthly Featured Projection</small><b>${inr(summary.monthlyFeaturedProjection)}</b></div>
       <div class="arcp-kpi-item"><small>Projected Commission</small><b>${inr(summary.projectedCommission)}</b></div>
       <div class="arcp-kpi-item"><small>Booked Commission</small><b>${inr(summary.bookedCommission)}</b></div>
       <div class="arcp-kpi-item"><small>Commission Gap</small><b>${inr(summary.commissionGap)}</b></div>
-      <div class="arcp-kpi-item"><small>Live Estimated</small><b>${inr(summary.liveEstimated)}</b></div>
-      <div class="arcp-kpi-item"><small>Live Monetized</small><b>${inr(summary.liveMonetized)}</b></div>
       <div class="arcp-kpi-item"><small>Loan Lead Volume</small><b>${inr(summary.totalLoanVolume)}</b></div>
       <div class="arcp-kpi-item"><small>Property Care Projection</small><b>${inr(summary.propertyCareProjection)}</b></div>
       <div class="arcp-kpi-item"><small>Gap Leads</small><b>${numberFrom(model.gapLeads?.length, 0)}</b></div>
@@ -621,7 +516,6 @@
     }
     let success = 0;
     for (const plan of plans) {
-      const reason = 'Featured pricing updated via revenue control policy and admin-approved margin strategy.';
       try {
         await live.request('/admin/config/featured-pricing', {
           method: 'POST',
@@ -630,8 +524,6 @@
             planId: plan.id,
             amount: numberFrom(plan.suggestedAmount, 0),
             cycleDays: numberFrom(plan.cycleDays, 30),
-            moderationReason: reason,
-            reason,
           },
         });
         success += 1;
@@ -653,7 +545,6 @@
     }
     const policy = getPolicy();
     const recommended = recommendedAmount(lead, policy);
-    const reason = 'Commission updated from revenue control panel after policy and loan-status validation.';
     try {
       await live.request(`/admin/loan/assistance/${encodeURIComponent(lead.id)}/status`, {
         method: 'POST',
@@ -661,9 +552,6 @@
         data: {
           status: lead.status,
           finalCommissionAmount: recommended,
-          moderationReason: reason,
-          reason,
-          adminNote: reason,
         },
       });
       pushLog('Commission Applied', `${lead.id} -> ${recommended}`);
@@ -730,42 +618,29 @@
     syncPolicyInputs();
 
     const token = getAdminToken();
-    const [livePlans, liveLeads, liveFeaturedListings, liveRevenueSnapshot] = await Promise.all([
+    const [livePlans, liveLeads] = await Promise.all([
       readLiveFeaturedPlans(token),
       readLiveLoanLeads(token),
-      readLiveFeaturedListings(token),
-      readLiveAdminRevenueSnapshot(token),
     ]);
 
     const cache = getCache();
     const plans = livePlans.length ? livePlans : (Array.isArray(cache.plans) ? cache.plans : Object.values(DEFAULT_FEATURED_PLANS));
     const loanLeads = liveLeads.length ? liveLeads : (Array.isArray(cache.loanLeads) ? cache.loanLeads : []);
-    const featuredListings = liveFeaturedListings.length
-      ? liveFeaturedListings
-      : (Array.isArray(cache.featuredListings) ? cache.featuredListings : getFeaturedListings());
-    const revenueSnapshot = liveRevenueSnapshot?.synced
-      ? liveRevenueSnapshot
-      : (cache.revenueSnapshot && typeof cache.revenueSnapshot === 'object'
-        ? cache.revenueSnapshot
-        : liveRevenueSnapshot);
+    const featuredListings = getFeaturedListings();
 
     state.model = buildModel({
       plans,
       loanLeads,
       featuredListings,
       policy,
-      revenueSnapshot,
     });
     state.plans = plans;
     state.loanLeads = loanLeads;
-    state.featuredListings = featuredListings;
-    state.revenueSnapshot = revenueSnapshot;
-    setCache({ plans, loanLeads, featuredListings, revenueSnapshot, at: new Date().toISOString() });
+    setCache({ plans, loanLeads, at: new Date().toISOString() });
 
     render();
     renderLog();
-    const syncLabel = liveRevenueSnapshot?.synced ? 'live' : ((token && typeof live.request === 'function') ? 'local-fallback' : 'local');
-    setStatus(`Revenue control ready (${syncLabel}). ${numberFrom(state.model.gapLeads?.length, 0)} commission gap lead(s).`);
+    setStatus(`Revenue control ready. ${numberFrom(state.model.gapLeads?.length, 0)} commission gap lead(s).`);
   };
 
   savePolicyBtn?.addEventListener('click', () => {

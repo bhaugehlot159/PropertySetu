@@ -18,24 +18,47 @@
   <header class="topbar">
     <div class="container topbar-inner">
       <a class="brand" href="index.html">PropertySetu Udaipur</a>
-      <nav class="main-nav">
+      <nav class="main-nav home-top-nav">
         <a href="#marketplace">Marketplace</a>
         <a href="#categoryHub">Buy/Rent/Care</a>
-        <a href="pages/structure-hub.html">Complete Model</a>
-        <a href="pages/production-deploy-checklist.html">Deploy Checklist</a>
-        <a href="pages/live-platform-app.html">Live App Stack</a>
-        <a href="pages/city-expansion.html">City Structure</a>
-        <a href="pages/premium-services.html">Premium Services</a>
-        <a href="pages/ecosystem-services.html">Ecosystem Services</a>
-        <a href="pages/startup-revenue-engine.html">Startup Revenue Engine</a>
-        <a href="pages/legal-help.html">Legal Help</a>
-        <a href="pages/trusted-agents.html">Trusted Agents</a>
-        <a href="pages/insurance-security.html">Insurance Slot</a>
+        <a href="#featureCommandCenter">Feature Finder</a>
+        <a href="#decisionTools">Tools</a>
         <a href="#localityPulse">Locality Pulse</a>
-        <a href="folders/common/all-features.html">All Features</a>
-        <a href="folders/customer/customer-features.html">Customer Folder</a>
-        <a href="folders/admin/admin-features.html">Admin Folder</a>
-        <a href="pages/folder-architecture.html">Folder Architecture</a>
+        <details class="nav-group">
+          <summary>Platform</summary>
+          <div class="nav-group-menu">
+            <a href="pages/structure-hub.html">Complete Model</a>
+            <a href="pages/production-deploy-checklist.html">Deploy Checklist</a>
+            <a href="pages/live-platform-app.html">Live App Stack</a>
+            <a href="pages/city-expansion.html">City Structure</a>
+            <a href="pages/folder-architecture.html">Folder Architecture</a>
+          </div>
+        </details>
+        <details class="nav-group">
+          <summary>Business</summary>
+          <div class="nav-group-menu">
+            <a href="pages/premium-services.html">Premium Services</a>
+            <a href="pages/ecosystem-services.html">Ecosystem Services</a>
+            <a href="pages/startup-revenue-engine.html">Startup Revenue Engine</a>
+            <a href="pages/legal-help.html">Legal Help</a>
+            <a href="pages/trusted-agents.html">Trusted Agents</a>
+            <a href="pages/insurance-security.html">Insurance Slot</a>
+          </div>
+        </details>
+        <details class="nav-group">
+          <summary>Feature Folders</summary>
+          <div class="nav-group-menu">
+            <a href="folders/common/all-features.html">All Features</a>
+            <a href="folders/discovery/discovery-features.html">Discovery Folder</a>
+            <a href="folders/marketplace/marketplace-features.html">Marketplace Folder</a>
+            <a href="folders/tools/tools-features.html">Tools Folder</a>
+            <a href="folders/insights/insights-features.html">Insights Folder</a>
+            <a href="folders/customer/customer-features.html">Customer Folder</a>
+            <a href="folders/seller/seller-features.html">Seller Folder</a>
+            <a href="folders/admin/admin-features.html">Admin Folder</a>
+            <a href="folders/services/services-features.html">Services Folder</a>
+          </div>
+        </details>
       </nav>
       <div class="auth-actions">
         <button id="customerAuthButton" class="outline-btn" type="button">Customer Login</button>
@@ -44,6 +67,52 @@
       </div>
     </div>
   </header>
+
+  <section class="desktop-dock-shell" aria-label="Desktop quick feature dock">
+    <div class="container">
+      <div id="desktopQuickDock" class="desktop-quick-dock">
+        <div class="dock-heading">
+          <strong>Quick Dock</strong>
+          <p>Long page scroll ki jagah direct feature open karo.</p>
+        </div>
+
+        <div class="dock-links">
+          <a href="#featureCommandCenter" data-dock-jump data-target="featureCommandCenter">Feature Finder</a>
+          <a href="#marketplace" data-dock-jump data-target="marketplace">Marketplace</a>
+          <a href="#decisionTools" data-dock-jump data-target="decisionTools">Compare + EMI</a>
+          <a href="user-dashboard.html">Visit + Chat</a>
+          <a href="add-property.html">Post Property</a>
+          <a href="seller-dashboard.html">Seller Panel</a>
+          <a href="admin-dashboard.html">Admin Panel</a>
+          <a href="subscription.html">Plans</a>
+          <a href="auction.html">Sealed Bid</a>
+        </div>
+
+        <div class="dock-command">
+          <label for="dockCommandInput">Quick Command</label>
+          <div class="dock-command-row">
+            <input id="dockCommandInput" list="dockCommandOptions" placeholder="Type: chat, emi, wishlist, admin, sealed bid..." autocomplete="off" />
+            <button id="dockCommandGo" class="solid-btn" type="button">Go</button>
+          </div>
+          <datalist id="dockCommandOptions">
+            <option value="feature finder"></option>
+            <option value="marketplace"></option>
+            <option value="smart filter"></option>
+            <option value="wishlist"></option>
+            <option value="compare"></option>
+            <option value="emi"></option>
+            <option value="visit booking"></option>
+            <option value="chat"></option>
+            <option value="post property"></option>
+            <option value="seller panel"></option>
+            <option value="admin panel"></option>
+            <option value="subscription"></option>
+            <option value="sealed bid"></option>
+          </datalist>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <main>
     <section class="hero hero-market">
@@ -110,7 +179,351 @@
       </div>
     </section>
 
-    <section class="section">
+    <section class="section quick-action-strip">
+      <div class="container">
+        <div class="section-header">
+          <h2>Top 6 Quick Actions</h2>
+          <p class="section-note">Customer ko sabse useful actions first screen par direct mil jaayein, isi liye fast-action grid set kiya gaya hai.</p>
+        </div>
+        <div class="quick-action-board">
+          <article class="quick-action-card">
+            <span class="action-tag">#1 Search</span>
+            <h3>Find Property Fast</h3>
+            <p>Buy, rent, lease, verified filters aur locality chips ke saath listing search start karo.</p>
+            <div class="quick-action-links">
+              <a href="#marketplace">Open Marketplace</a>
+            </div>
+          </article>
+          <article class="quick-action-card">
+            <span class="action-tag">#2 Post</span>
+            <h3>Post Property</h3>
+            <p>Photo + video upload, verification-ready form aur listing publish flow one click me kholo.</p>
+            <div class="quick-action-links">
+              <a href="add-property.html">Post Listing</a>
+            </div>
+          </article>
+          <article class="quick-action-card">
+            <span class="action-tag">#3 Visit + Chat</span>
+            <h3>Customer Actions</h3>
+            <p>Visit booking, chat, wishlist aur follow-up workflow user dashboard se manage karo.</p>
+            <div class="quick-action-links">
+              <a href="user-dashboard.html">Open User Panel</a>
+            </div>
+          </article>
+          <article class="quick-action-card">
+            <span class="action-tag">#4 Compare</span>
+            <h3>Compare + EMI Tools</h3>
+            <p>2-3 properties compare karo aur EMI calculate karke decision fast finalize karo.</p>
+            <div class="quick-action-links">
+              <a href="#decisionTools">Open Decision Tools</a>
+            </div>
+          </article>
+          <article class="quick-action-card">
+            <span class="action-tag">#5 Seller</span>
+            <h3>Seller Dashboard</h3>
+            <p>Views, inquiries, boost listing, analytics aur expiry alerts seller panel me ready hain.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Open Seller Panel</a>
+            </div>
+          </article>
+          <article class="quick-action-card">
+            <span class="action-tag">#6 Admin</span>
+            <h3>Admin Control Center</h3>
+            <p>Verification, moderation, reports, fraud checks aur sealed-bid monitoring direct open karo.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Admin Panel</a>
+            </div>
+          </article>
+        </div>
+        <p class="tiny-note home-shortcut-note">More workflows ke liye niche `Folder-wise Feature Navigator` use karein.</p>
+      </div>
+    </section>
+
+    <section id="homeFolderNavigator" class="section home-folder-shell">
+      <div class="container">
+        <div class="section-header">
+          <h2>Folder-wise Feature Navigator</h2>
+          <p class="section-note">Homepage short rakho, aur jo module chahiye wahi kholkar kaam karo.</p>
+        </div>
+        <div id="homeFolderTabs" class="home-folder-tabs" role="tablist" aria-label="Home feature folders">
+          <button type="button" class="home-folder-tab" data-home-folder-tab="discovery">Discovery</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="marketplace">Marketplace</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="tools">Tools</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="roleboards">Role Boards</button>
+          <button type="button" class="home-folder-tab" data-home-folder-tab="insights">Insights</button>
+        </div>
+        <div class="home-folder-grid">
+          <article class="home-folder-card">
+            <h3>Discovery Folder</h3>
+            <p>Feature Finder, categories, recent and most-used actions yahi se run karo.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="discovery">Open Discovery</button>
+              <a href="folders/discovery/discovery-features.html">Go Discovery Folder</a>
+              <a href="folders/common/all-features.html">All Features</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Marketplace Folder</h3>
+            <p>Smart filters, AI recommendation, locality pulse aur listing grid direct open karo.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="marketplace">Open Marketplace</button>
+              <a href="folders/marketplace/marketplace-features.html">Go Marketplace Folder</a>
+              <a href="#marketplace">Go Listing Search</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Decision Tools Folder</h3>
+            <p>Compare board, saved searches, recently viewed aur EMI tools ek focused panel me.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="tools">Open Tools</button>
+              <a href="folders/tools/tools-features.html">Go Tools Folder</a>
+              <a href="#decisionTools">Go EMI + Compare</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Role Dashboards Folder</h3>
+            <p>Customer, seller, admin workflows role-wise organized panel se open karo.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="roleboards">Open Role Boards</button>
+              <a href="folders/customer/customer-features.html">Customer Folder</a>
+              <a href="folders/seller/seller-features.html">Seller Folder</a>
+              <a href="folders/admin/admin-features.html">Admin Folder</a>
+            </div>
+          </article>
+          <article class="home-folder-card">
+            <h3>Insights & Services Folder</h3>
+            <p>Trust layer, premium modules, video visits, snapshot aur revenue flows separate folder me.</p>
+            <div class="quick-action-links">
+              <button type="button" class="outline-btn dark-outline" data-home-folder-open="insights">Open Insights</button>
+              <a href="folders/insights/insights-features.html">Go Insights Folder</a>
+              <a href="folders/services/services-features.html">Services Folder</a>
+            </div>
+          </article>
+        </div>
+        <p id="homeFolderStatus" class="tiny-note home-folder-status">Compact home active hai. Jo feature chahiye us folder tab par click karke open karo.</p>
+      </div>
+    </section>
+
+    <section id="recentlyUsedFeatures" class="section recent-features-section" data-home-folder="discovery">
+      <div class="container">
+        <div class="section-header">
+          <h2>Recently Used Features</h2>
+          <p class="section-note">Customer ke last used actions yahan auto show honge, taaki repeat task one-click me ho jaye.</p>
+        </div>
+        <div id="recentFeatureGrid" class="recent-feature-grid"></div>
+        <p id="recentFeatureHint" class="tiny-note recent-feature-hint">Aap jaise-jaise features open karoge, yeh panel smart history banata jayega.</p>
+      </div>
+    </section>
+
+    <section id="mostUsedFeatures" class="section most-used-section soft-bg" data-home-folder="discovery">
+      <div class="container">
+        <div class="section-header">
+          <h2>Most Used Features</h2>
+          <p class="section-note">Frequency ranking ke basis par top used features dikhte hain, taaki high-demand actions instant mil sakein.</p>
+        </div>
+        <div id="mostUsedRoleTabs" class="most-used-tabs" role="tablist" aria-label="Most used feature roles">
+          <button type="button" class="most-used-tab active" data-most-role="all">All</button>
+          <button type="button" class="most-used-tab" data-most-role="customer">Customer</button>
+          <button type="button" class="most-used-tab" data-most-role="seller">Seller</button>
+          <button type="button" class="most-used-tab" data-most-role="admin">Admin</button>
+        </div>
+        <div id="mostUsedTimeTabs" class="most-used-tabs time-tabs" role="tablist" aria-label="Most used feature time window">
+          <button type="button" class="most-used-tab active" data-most-window="today">Today</button>
+          <button type="button" class="most-used-tab" data-most-window="7d">7 Days</button>
+          <button type="button" class="most-used-tab" data-most-window="30d">30 Days</button>
+        </div>
+        <div class="most-used-tools">
+          <button type="button" class="most-used-tab" id="mostUsedExportBtn">Export Usage CSV</button>
+          <button type="button" class="most-used-tab" id="mostUsedResetBtn">Reset Usage Data</button>
+        </div>
+        <p id="mostUsedStatus" class="tiny-note most-used-status"></p>
+        <div id="mostUsedFeatureGrid" class="most-used-grid"></div>
+        <p id="mostUsedFeatureHint" class="tiny-note">Use data build hote hi yahan top actions with usage score show honge.</p>
+      </div>
+    </section>
+
+    <section id="featureCommandCenter" class="section feature-command-section" data-home-folder="discovery">
+      <div class="container">
+        <div class="section-header">
+          <h2>One Tap Feature Command Center</h2>
+          <p class="section-note">OLX jaisi fast discoverability: feature search karo, role select karo, aur direct open karo.</p>
+        </div>
+
+        <div class="feature-command-toolbar">
+          <div class="feature-command-field">
+            <label for="featureFinderInput">Find Feature</label>
+            <input id="featureFinderInput" type="text" placeholder="e.g. wishlist, chat, emi, verified, boost, admin" autocomplete="off" />
+          </div>
+          <div class="feature-command-field">
+            <label for="featureRoleFilter">Role Filter</label>
+            <select id="featureRoleFilter">
+              <option value="all">All Roles</option>
+              <option value="customer">Customer</option>
+              <option value="seller">Seller</option>
+              <option value="admin">Admin</option>
+              <option value="business">Business / Revenue</option>
+              <option value="security">Security / AI</option>
+            </select>
+          </div>
+          <div class="feature-command-actions">
+            <button id="featureFinderReset" class="outline-btn dark-outline" type="button">Reset Finder</button>
+            <a class="solid-btn" href="folders/common/all-features.html">Open All Features</a>
+          </div>
+        </div>
+
+        <div class="feature-quick-rail" role="list" aria-label="Quick feature chips">
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="buy rent verified filter locality">Buy/Rent Filters</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="wishlist compare">Wishlist + Compare</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="visit booking schedule">Visit Booking</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="chat whatsapp">Direct Chat</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="emi calculator loan">EMI Calculator</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="seller analytics boost featured">Seller Boost</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="admin verified report commission">Admin Controls</button>
+          <button type="button" class="feature-chip" data-feature-chip data-chip-query="security ai fake listing fraud">AI Security</button>
+        </div>
+
+        <p id="featureFinderMeta" class="feature-finder-meta">Showing all features</p>
+
+        <div id="featureFinderGrid" class="feature-finder-grid">
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="buy sell rent lease girvi smart filters verified locality bhk radius furnishing loan">
+            <h3>Smart Search + Filters</h3>
+            <p>Price, locality radius, BHK, furnishing, loan available, verified-only filtering with Udaipur-first matching.</p>
+            <div class="quick-action-links">
+              <a href="#marketplace">Open Marketplace Filters</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="wishlist save compare shortlisted">
+            <h3>Wishlist + Compare</h3>
+            <p>Customer properties save kar sakta hai, 2-3 listings compare kar sakta hai, and faster decision le sakta hai.</p>
+            <div class="quick-action-links">
+              <a href="#decisionTools">Open Compare Tools</a>
+              <a href="user-dashboard.html">Open User Dashboard</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="visit booking schedule owner notification">
+            <h3>Property Visit Booking</h3>
+            <p>Customer slot select karta hai, owner/seller ko visit request notification milta hai.</p>
+            <div class="quick-action-links">
+              <a href="user-dashboard.html">Book Visit</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="chat whatsapp direct message masked communication">
+            <h3>Direct Chat + WhatsApp Flow</h3>
+            <p>Buyer-seller chat workflow with safer communication controls and WhatsApp handoff support.</p>
+            <div class="quick-action-links">
+              <a href="user-dashboard.html">Open Chat Board</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="customer" data-tags="emi calculator loan tenure interest finance">
+            <h3>EMI Calculator</h3>
+            <p>Loan amount, interest rate aur tenure input karke instant monthly EMI result nikaalo.</p>
+            <div class="quick-action-links">
+              <a href="#decisionTools">Open EMI Tool</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller" data-tags="seller dashboard analytics total views saves inquiries property analytics">
+            <h3>Seller Analytics Dashboard</h3>
+            <p>Seller ko total views, saves, inquiries aur listing performance insights ek jagah milte hain.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Open Seller Dashboard</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller business" data-tags="boost paid featured listing promotion spotlight">
+            <h3>Boost Listing (Paid Featured)</h3>
+            <p>Featured boost se listing visibility aur lead conversion dono improve hote hain.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Boost Listing</a>
+              <a href="subscription.html">Pricing Plans</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller security" data-tags="upload photos video document private docs verification">
+            <h3>Photo + Video + Docs Upload</h3>
+            <p>Multiple images, video upload, and private document flow with verification-ready structure.</p>
+            <div class="quick-action-links">
+              <a href="add-property.html">Open Upload Form</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="seller" data-tags="expiry alert auto renew listing lifecycle">
+            <h3>Auto Expiry Alerts</h3>
+            <p>Listing expiry ke pehle seller ko alert milta hai so renewal miss na ho.</p>
+            <div class="quick-action-links">
+              <a href="seller-dashboard.html">Open Expiry Alerts</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="admin security" data-tags="admin verified badge approve moderation workflow">
+            <h3>Verified Badge Approval</h3>
+            <p>Admin approval ke baad hi “Verified by PropertySetu” badge listing par show hota hai.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Verification Controls</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="admin" data-tags="category city management pricing controls admin panel">
+            <h3>Category + City + Pricing Control</h3>
+            <p>Admin panel se category, city, featured pricing, aur platform controls manage hote hain.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Admin Controls</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="admin business" data-tags="report management commission analytics dashboard">
+            <h3>Report + Commission + Analytics</h3>
+            <p>Complaints, platform commission aur analytics decision support admin dashboard par available hain.</p>
+            <div class="quick-action-links">
+              <a href="admin-dashboard.html">Open Admin Analytics</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="business" data-tags="subscription basic pro premium razorpay payment featured care package">
+            <h3>Subscription + Payments</h3>
+            <p>Basic/Pro/Premium plans, featured listing charge aur property care package monetization flows.</p>
+            <div class="quick-action-links">
+              <a href="subscription.html">Open Subscription Plans</a>
+              <a href="property-care.html">Open Property Care</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="business" data-tags="legal agreement registry support loan assistance documentation">
+            <h3>Legal + Loan Assistance</h3>
+            <p>Agreement, registry support, legal help aur loan-assistance service stream startup revenue improve karta hai.</p>
+            <div class="quick-action-links">
+              <a href="pages/legal-help.html">Open Legal Help</a>
+              <a href="pages/ecosystem-services.html">Open Ecosystem Services</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="security admin" data-tags="sealed bid hidden bidding admin reveal winner accept reject">
+            <h3>Sealed Bid (Hidden Bidding)</h3>
+            <p>Bids hidden rehti hain; admin-only visibility, winner reveal, accept highest, reject-all controls enabled.</p>
+            <div class="quick-action-links">
+              <a href="auction.html">Open Sealed Bid Center</a>
+            </div>
+          </article>
+
+          <article class="feature-finder-card" data-feature-card data-role="security admin" data-tags="ai fake listing detection fraud risk scoring recommendation pricing suggestion">
+            <h3>AI Fraud + Recommendation Layer</h3>
+            <p>Fake listing signal detection, risk scoring, pricing hints, and recommendation workflow platform trust increase karta hai.</p>
+            <div class="quick-action-links">
+              <a href="#marketplace">Open AI Market Tools</a>
+              <a href="admin-dashboard.html">Open AI Moderation</a>
+            </div>
+          </article>
+        </div>
+
+        <p id="featureFinderEmpty" class="tiny-note feature-finder-empty" hidden>No feature matched. Different keyword ya role try karo.</p>
+      </div>
+    </section>
+
+    <section id="visualHighlights" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Udaipur Visual Highlights</h2>
@@ -133,7 +546,7 @@
       </div>
     </section>
 
-    <section id="categoryHub" class="section">
+    <section id="categoryHub" class="section" data-home-folder="discovery">
       <div class="container">
         <div class="section-header">
           <h2>Main Categories (Professional Model)</h2>
@@ -177,7 +590,7 @@
       </div>
     </section>
 
-    <section id="premiumIdeasLive" class="section">
+    <section id="premiumIdeasLive" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Premium Feature Ideas (OLX Se Better) - Live</h2>
@@ -227,7 +640,7 @@
       </div>
     </section>
 
-    <section class="section soft-bg">
+    <section id="trustRevenueExpansion" class="section soft-bg" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Trust, Legal, Revenue, Expansion</h2>
@@ -292,7 +705,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="trustElements" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Trust Building Elements (Live)</h2>
@@ -340,7 +753,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="marketSnapshot" class="section" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Live Udaipur Market Snapshot</h2>
@@ -367,7 +780,7 @@
       </div>
     </section>
 
-    <section class="section soft-bg">
+    <section id="videoVisitLive" class="section soft-bg" data-home-folder="insights">
       <div class="container">
         <div class="section-header">
           <h2>Video Visit Feature (Live)</h2>
@@ -394,7 +807,7 @@
       </div>
     </section>
 
-    <section id="localityPulse" class="section soft-bg">
+    <section id="localityPulse" class="section soft-bg" data-home-folder="marketplace">
       <div class="container">
         <div class="section-header">
           <h2>Udaipur Locality Pulse</h2>
@@ -404,7 +817,7 @@
       </div>
     </section>
 
-    <section id="marketplace" class="section">
+    <section id="marketplace" class="section" data-home-folder="marketplace">
       <div class="container">
         <div class="section-header">
           <h2>Udaipur Marketplace</h2>
@@ -573,7 +986,7 @@
       </div>
     </section>
 
-    <section class="section soft-bg">
+    <section id="decisionTools" class="section soft-bg" data-home-folder="tools">
       <div class="container split-grid">
         <article class="card">
           <h3>Compare Board (<span id="compareCount">0</span>/3)</h3>
@@ -609,7 +1022,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section id="roleBoards" class="section" data-home-folder="roleboards">
       <div class="container">
         <div class="section-header">
           <h2>Role-based Feature Boards</h2>
@@ -621,7 +1034,7 @@
             <ul class="feature-list">
               <li><a class="feature-link locked" data-lock-role="customer" href="add-property.html">Add Property</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="dashboard.html">Customer Dashboard</a></li>
-              <li><a class="feature-link locked" data-lock-role="customer" href="client/pages/customer-portal.html">Customer Portal</a></li>
+              <li><a class="feature-link locked" data-lock-role="customer" href="/client/pages/customer-portal.html">Customer Portal</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="user-dashboard.html">Chat</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="property-care.html">Property Care</a></li>
               <li><a class="feature-link locked" data-lock-role="customer" href="area-insights.html">Area Insights</a></li>
@@ -633,7 +1046,7 @@
             <h3>Admin Features (Login Required)</h3>
             <ul class="feature-list">
               <li><a class="feature-link locked" data-lock-role="admin" href="admin-dashboard.html">Admin Dashboard</a></li>
-              <li><a class="feature-link locked" data-lock-role="admin" href="client/pages/admin-portal.html">Admin Portal</a></li>
+              <li><a class="feature-link locked" data-lock-role="admin" href="/client/pages/admin-portal.html">Admin Portal</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="seller-dashboard.html">Seller Listings Monitor</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="dashboard.html">Marketplace Snapshot</a></li>
               <li><a class="feature-link locked" data-lock-role="admin" href="user-dashboard.html">Chat Oversight</a></li>
@@ -646,6 +1059,14 @@
       </div>
     </section>
   </main>
+
+  <nav id="mobileQuickBar" class="mobile-quick-bar" aria-label="Customer quick actions">
+    <a href="#featureCommandCenter" data-mobile-jump data-target="featureCommandCenter">Features</a>
+    <a href="#marketplace" data-mobile-jump data-target="marketplace">Search</a>
+    <a href="#decisionTools" data-mobile-jump data-target="decisionTools">Tools</a>
+    <a href="user-dashboard.html">Chat</a>
+    <a href="add-property.html">Post</a>
+  </nav>
 
   <footer>
     <div class="container footer-row">
@@ -693,6 +1114,12 @@
   <script src="js/udaipur-marketplace.js"></script>
   <script src="js/pro-select.js"></script>
   <script src="js/home-auth.js"></script>
+  <script src="js/home-top-nav-groups.js"></script>
+  <script src="js/home-folder-layout.js"></script>
+  <script src="js/home-recent-features.js"></script>
+  <script src="js/home-feature-command-center.js"></script>
+  <script src="js/home-desktop-quick-dock.js"></script>
+  <script src="js/home-mobile-quick-bar.js"></script>
   <script src="js/app-launch-readiness.js"></script>
   <script src="js/folder-command-dock.js"></script>
 </body>

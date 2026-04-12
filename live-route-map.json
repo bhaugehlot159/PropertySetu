@@ -1,0 +1,29 @@
+{
+  "site": "PropertySetu",
+  "frontendRoot": "/frontend",
+  "cityPattern": "PropertySetu.in/{city-slug}",
+  "activeCity": "Udaipur",
+  "routes": [
+    { "path": "/", "file": "index.html", "feature": "Homepage", "status": "live" },
+    { "path": "/udaipur", "file": "index.html", "feature": "City Home", "status": "live" },
+    { "path": "/buy-sell", "file": "pages/buy-sell.html", "feature": "Buy/Sell Hub", "status": "live" },
+    { "path": "/rent", "file": "pages/rent.html", "feature": "Rent Hub", "status": "live" },
+    { "path": "/property-care", "file": "pages/property-care-plans.html", "feature": "Property Care", "status": "live" },
+    { "path": "/city-structure", "file": "pages/city-expansion.html", "feature": "Expansion Structure", "status": "live" },
+    { "path": "/trusted-agents", "file": "pages/trusted-agents.html", "feature": "Trusted Agents", "status": "live" },
+    { "path": "/legal-help", "file": "pages/legal-help.html", "feature": "Legal Help", "status": "live" },
+    { "path": "/insurance-security", "file": "pages/insurance-security.html", "feature": "Insurance & Security", "status": "live" },
+    { "path": "/premium-services", "file": "pages/premium-services.html", "feature": "Premium Services", "status": "live" },
+    { "path": "/ecosystem-services", "file": "pages/ecosystem-services.html", "feature": "Advanced Ecosystem", "status": "live" },
+    { "path": "/startup-revenue-engine", "file": "pages/startup-revenue-engine.html", "feature": "Startup Revenue Engine", "status": "live" },
+    { "path": "/add-property", "file": "add-property.html", "feature": "Listing Upload", "status": "live" },
+    { "path": "/property-details", "file": "property-details.html", "feature": "Property Detail", "status": "live" },
+    { "path": "/customer-dashboard", "file": "user-dashboard.html", "feature": "Customer Dashboard", "status": "live" },
+    { "path": "/admin-dashboard", "file": "admin-dashboard.html", "feature": "Admin Dashboard", "status": "live" },
+    { "path": "/seller-dashboard", "file": "seller-dashboard.html", "feature": "Seller Dashboard", "status": "live" },
+    { "path": "/jaipur", "file": "pages/city-expansion.html", "feature": "Future City Route", "status": "future-ready" },
+    { "path": "/jodhpur", "file": "pages/city-expansion.html", "feature": "Future City Route", "status": "future-ready" },
+    { "path": "/ahmedabad", "file": "pages/city-expansion.html", "feature": "Future City Route", "status": "future-ready" },
+    { "path": "/delhi", "file": "pages/city-expansion.html", "feature": "Future City Route", "status": "future-ready" }
+  ]
+}

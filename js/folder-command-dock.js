@@ -3,17 +3,25 @@
 
   var path = (window.location && window.location.pathname) || '';
   document.body.classList.add('ps-pro-surface');
+  document.body.classList.add('ps-olx-mode');
   var prefix = '';
   if (path.indexOf('/client/pages/') !== -1) prefix = '../../';
   else if (path.indexOf('/folders/') !== -1) prefix = '../../';
   else if (path.indexOf('/pages/') !== -1 || path.indexOf('/legal/') !== -1) prefix = '../';
+  var GLOBAL_SEARCH_KEY = 'propertysetu:global-search';
 
   var links = [
     { href: prefix + 'index.html', label: 'Home' },
     { href: prefix + 'pages/folder-architecture.html', label: 'Folder Architecture' },
     { href: prefix + 'folders/common/all-features.html', label: 'All Features' },
+    { href: prefix + 'folders/discovery/discovery-features.html', label: 'Discovery Folder' },
+    { href: prefix + 'folders/marketplace/marketplace-features.html', label: 'Marketplace Folder' },
+    { href: prefix + 'folders/tools/tools-features.html', label: 'Tools Folder' },
+    { href: prefix + 'folders/insights/insights-features.html', label: 'Insights Folder' },
     { href: prefix + 'folders/customer/customer-features.html', label: 'Customer Folder' },
+    { href: prefix + 'folders/seller/seller-features.html', label: 'Seller Folder' },
     { href: prefix + 'folders/admin/admin-features.html', label: 'Admin Folder' },
+    { href: prefix + 'folders/services/services-features.html', label: 'Services Folder' },
     { href: prefix + 'pages/buy-sell.html', label: 'Buy/Sell' },
     { href: prefix + 'pages/rent.html', label: 'Rent' },
     { href: prefix + 'pages/property-care-plans.html', label: 'Property Care' },
@@ -84,6 +92,124 @@
       cap: 'Urban + Rural Growth Corridor'
     }
   ];
+
+  function isHomeLikePath(currentPath) {
+    if (!currentPath || currentPath === '/') return true;
+    return /(?:^|\/)index\.html$/i.test(currentPath);
+  }
+
+  function injectOlxShell() {
+    if (document.querySelector('.ps-olx-shell')) return;
+    var hostHeader = document.querySelector('.topbar') || document.querySelector('header');
+    if (!hostHeader || !hostHeader.parentNode) return;
+
+    var shell = document.createElement('section');
+    shell.className = 'ps-olx-shell';
+    shell.setAttribute('aria-label', 'PropertySetu quick search and categories');
+    shell.innerHTML =
+      '<div class="ps-olx-shell-inner">' +
+      '<div class="ps-olx-row">' +
+      '<a class="ps-olx-location" href="' + prefix + 'pages/city-expansion.html">Udaipur</a>' +
+      '<form class="ps-olx-search" id="psOlxSearchForm" action="' + prefix + 'index.html#marketplace" method="get">' +
+      '<input id="psOlxSearchInput" type="search" placeholder="Search properties, localities, categories..." autocomplete="off" />' +
+      '<button id="psOlxSearchBtn" type="submit">Search</button>' +
+      '</form>' +
+      '<div class="ps-olx-actions">' +
+      '<a href="' + prefix + 'user-dashboard.html">Wishlist</a>' +
+      '<a href="' + prefix + 'dashboard.html">Login</a>' +
+      '<a class="ps-olx-sell" href="' + prefix + 'add-property.html">+ SELL</a>' +
+      '</div>' +
+      '</div>' +
+      '<div class="ps-olx-chip-row">' +
+      '<a class="ps-olx-chip ps-olx-chip-primary" href="' + prefix + 'folders/common/all-features.html">All Categories</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'index.html#marketplace">Properties</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'pages/buy-sell.html">Buy</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'pages/rent.html">Rent</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'pages/property-care-plans.html">Property Care</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'folders/tools/tools-features.html">Tools</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'folders/services/services-features.html">Services</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'seller-dashboard.html">Seller</a>' +
+      '<a class="ps-olx-chip" href="' + prefix + 'admin-dashboard.html">Admin</a>' +
+      '</div>' +
+      '</div>';
+
+    if (hostHeader.nextSibling) hostHeader.parentNode.insertBefore(shell, hostHeader.nextSibling);
+    else hostHeader.parentNode.appendChild(shell);
+
+    var form = shell.querySelector('#psOlxSearchForm');
+    var input = shell.querySelector('#psOlxSearchInput');
+    var submitBtn = shell.querySelector('#psOlxSearchBtn');
+
+    function runGlobalSearch() {
+      var query = String(input && input.value ? input.value : '').trim();
+      try {
+        if (query) localStorage.setItem(GLOBAL_SEARCH_KEY, query);
+        else localStorage.removeItem(GLOBAL_SEARCH_KEY);
+      } catch (_error) {
+        // ignore storage restrictions
+      }
+
+      var homeTarget = (prefix ? prefix : '') + 'index.html#marketplace';
+      if (isHomeLikePath(path)) {
+        var marketInput = document.getElementById('marketQuery');
+        if (marketInput) {
+          marketInput.value = query;
+          marketInput.dispatchEvent(new Event('input', { bubbles: true }));
+          marketInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (window.PropertySetuHomeFolders && typeof window.PropertySetuHomeFolders.openTarget === 'function') {
+          window.PropertySetuHomeFolders.openTarget('#marketplace', { behavior: 'smooth' });
+          return;
+        }
+        var marketplace = document.getElementById('marketplace');
+        if (marketplace) {
+          marketplace.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+      }
+      window.location.href = homeTarget;
+    }
+
+    if (form) {
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        runGlobalSearch();
+      });
+    }
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function (event) {
+        event.preventDefault();
+        runGlobalSearch();
+      });
+    }
+    if (input) {
+      input.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        runGlobalSearch();
+      });
+    }
+  }
+
+  function injectBackToTopButton() {
+    if (document.getElementById('psBackToTopBtn')) return;
+    var button = document.createElement('button');
+    button.id = 'psBackToTopBtn';
+    button.type = 'button';
+    button.className = 'ps-back-top-btn';
+    button.textContent = 'Back to top';
+
+    button.addEventListener('click', function () {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    window.addEventListener('scroll', function () {
+      var visible = window.scrollY > 520;
+      button.classList.toggle('visible', visible);
+    }, { passive: true });
+
+    document.body.appendChild(button);
+  }
 
   var NOTIFICATION_KEY = 'propertySetu:notifications';
   var NOTIFICATION_PREF_KEY = 'propertySetu:notificationPrefs';
@@ -276,6 +402,52 @@
     '.ps-photo{position:relative;border-radius:12px;overflow:hidden;border:1px solid #bdd8eb;box-shadow:0 10px 24px rgba(8,45,73,.14);min-height:150px;}',
     '.ps-photo img{width:100%;height:100%;object-fit:cover;display:block;}',
     '.ps-photo span{position:absolute;left:0;right:0;bottom:0;padding:8px 9px;font-size:.78rem;font-weight:700;color:#eef8ff;background:linear-gradient(to top,rgba(5,25,42,.86),rgba(5,25,42,.08));}',
+    'body.ps-olx-mode{background:#f2f4f5;color:#002f34;}',
+    'body.ps-olx-mode .topbar{position:sticky;top:0;z-index:1300;background:#f7f8f9 !important;border-bottom:1px solid #d6dde0;backdrop-filter:none;}',
+    'body.ps-olx-mode .topbar .brand{color:#0a5ddb !important;font-weight:900;}',
+    'body.ps-olx-mode .topbar .main-nav{display:none !important;}',
+    'body.ps-olx-mode .auth-actions{display:flex;gap:8px;align-items:center;}',
+    'body.ps-olx-mode .auth-actions .outline-btn{background:#fff !important;color:#18435d !important;border:1px solid #c7d2d8 !important;}',
+    'body.ps-olx-mode .auth-actions .solid-btn{background:#0a5ddb !important;color:#fff !important;border:1px solid #0a5ddb !important;box-shadow:none !important;}',
+    'body.ps-olx-mode .session-badge{background:#eff3f5 !important;color:#2d4e61 !important;border:1px solid #d1dde2 !important;}',
+    '.ps-olx-shell{position:sticky;top:64px;z-index:1250;background:#f7f8f9;border-bottom:1px solid #d7e0e4;}',
+    '.ps-olx-shell-inner{width:min(1280px,96vw);margin:0 auto;padding:10px 0 8px;}',
+    '.ps-olx-row{display:grid;grid-template-columns:230px 1fr auto;gap:10px;align-items:center;}',
+    '.ps-olx-location{display:flex;align-items:center;justify-content:center;border:1px solid #cfd9de;background:#fff;border-radius:999px;padding:11px 12px;font-weight:800;color:#18435d;text-decoration:none;}',
+    '.ps-olx-search{display:grid;grid-template-columns:1fr auto;gap:8px;}',
+    '.ps-olx-search input{height:46px;border:1px solid #cfd9de;border-radius:999px;padding:0 16px;font-size:1rem;background:#fff;color:#12384d;}',
+    '.ps-olx-search button{height:46px;border:1px solid #0a5ddb;border-radius:999px;padding:0 18px;background:#0a5ddb;color:#fff;font-weight:800;cursor:pointer;}',
+    '.ps-olx-search button:hover{background:#084fb8;}',
+    '.ps-olx-actions{display:flex;gap:12px;align-items:center;}',
+    '.ps-olx-actions a{text-decoration:none;color:#1d3f57;font-weight:800;font-size:.88rem;}',
+    '.ps-olx-actions .ps-olx-sell{padding:10px 18px;border:2px solid #f5c244;border-radius:999px;background:#0a5ddb;color:#fff;box-shadow:inset 0 0 0 2px #36c5cf;}',
+    '.ps-olx-chip-row{display:flex;gap:8px;overflow-x:auto;padding:10px 2px 2px;}',
+    '.ps-olx-chip{flex:0 0 auto;text-decoration:none;border:1px solid #d2dbe0;border-radius:999px;background:#fff;color:#163f58;padding:8px 14px;font-weight:700;font-size:.86rem;}',
+    '.ps-olx-chip:hover{background:#f2f6f8;}',
+    '.ps-olx-chip.ps-olx-chip-primary{background:#0a5ddb;color:#fff;border-color:#0a5ddb;}',
+    '.ps-back-top-btn{position:fixed;right:22px;bottom:92px;z-index:1450;border:1px solid #b9c8cf;border-radius:999px;background:#fff;color:#173f57;padding:10px 14px;font-weight:800;box-shadow:0 8px 18px rgba(0,0,0,.18);opacity:0;pointer-events:none;transform:translateY(10px);transition:all .2s ease;}',
+    '.ps-back-top-btn.visible{opacity:1;pointer-events:auto;transform:translateY(0);}',
+    'body.ps-olx-mode .section{background:transparent !important;border-top:0 !important;padding:24px 0;}',
+    'body.ps-olx-mode .desktop-dock-shell{display:none !important;}',
+    'body.ps-olx-mode .hero-market{background:transparent !important;padding-bottom:8px;}',
+    'body.ps-olx-mode .hero-gradient,body.ps-olx-mode .hero-pattern{display:none !important;}',
+    'body.ps-olx-mode .hero-layout{grid-template-columns:1fr !important;padding-top:16px !important;}',
+    'body.ps-olx-mode .hero-copy{background:#fff;border:1px solid #d7dfe4;border-radius:12px;padding:14px 16px;box-shadow:none;}',
+    'body.ps-olx-mode .hero-copy .eyebrow,body.ps-olx-mode .hero-copy .hero-subline,body.ps-olx-mode .hero-copy .hero-badges{display:none !important;}',
+    'body.ps-olx-mode .hero-copy h1{color:#0e3a52 !important;text-shadow:none !important;font-size:1.45rem;}',
+    'body.ps-olx-mode .hero-copy .hero-tagline{color:#32617f !important;}',
+    'body.ps-olx-mode .hero-widget{display:none !important;}',
+    'body.ps-olx-mode .quick-action-strip .section-header{margin-bottom:8px;}',
+    'body.ps-olx-mode .quick-action-card,.ps-olx-mode .home-folder-card,.ps-olx-mode .feature-finder-card,.ps-olx-mode .hub-box,.ps-olx-mode .role-board,.ps-olx-mode .dash-card{border-radius:10px !important;box-shadow:none !important;border:1px solid #d4dde1 !important;background:#fff !important;}',
+    'body.ps-olx-mode .quick-action-links a{background:#fff !important;border-color:#cad6dc !important;color:#1f4560 !important;}',
+    'body.ps-olx-mode .home-folder-tab{background:#fff;border-color:#cbd7dc;color:#1b4862;}',
+    'body.ps-olx-mode .home-folder-tab.active{background:#e9f1ff;border-color:#0a5ddb;color:#0a5ddb;}',
+    'body.ps-olx-mode .recent-feature-card,body.ps-olx-mode .most-used-card{border:1px solid #d4dde1;box-shadow:none;background:#fff;}',
+    'body.ps-olx-mode .listing-card,body.ps-olx-mode .property-card,body.ps-olx-mode .card{box-shadow:none !important;border:1px solid #d4dde1 !important;border-radius:10px !important;background:#fff !important;}',
+    'body.ps-olx-mode footer{background:#002f6c !important;border-top:0 !important;}',
+    'body.ps-olx-mode .ps-global-footer{background:#002f6c !important;border-top:0 !important;}',
+    '@media (max-width:980px){.ps-olx-shell{top:58px;}.ps-olx-row{grid-template-columns:1fr;}.ps-olx-actions{justify-content:flex-start;}.ps-olx-search input,.ps-olx-search button,.ps-olx-location{height:42px;}}',
+    '@media (max-width:760px){.ps-olx-shell-inner{width:min(98vw,1280px);padding:8px 0;}.ps-olx-chip-row{padding-top:8px;}.ps-back-top-btn{right:12px;bottom:88px;padding:8px 12px;}body.ps-olx-mode .hero-copy{padding:12px;}body.ps-olx-mode .quick-action-board,body.ps-olx-mode .home-folder-grid{grid-template-columns:1fr !important;}}',
     '@media (max-width:900px){.ps-photo-strip-grid{grid-template-columns:1fr 1fr;}}',
     '@media (max-width:640px){.ps-photo-strip-grid{grid-template-columns:1fr;}}'
   ].join('');
@@ -394,6 +566,9 @@
     return created;
   };
   window.PropertySetuNotify = service;
+
+  injectOlxShell();
+  injectBackToTopButton();
 
   var hasProfessionalHero = !!document.querySelector('.pro-hero');
   var hasLegacyHero = !!document.querySelector('.hero');

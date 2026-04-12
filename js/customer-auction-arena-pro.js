@@ -1,7 +1,6 @@
 (() => {
   if (document.getElementById('customerAuctionArenaProCard')) return;
   const live = window.PropertySetuLive || {};
-  const allowDemoFallback = Boolean(live.allowDemoFallback);
   const propertySelect = document.getElementById('propertySelect');
   if (!propertySelect) return;
 
@@ -101,51 +100,9 @@
     if (typeof live.getAnySession === 'function') return live.getAnySession() || {};
     return read('propertysetu-user-session', {}) || {};
   };
-  const getToken = () => {
-    if (typeof live.getAnyToken === 'function') return text(live.getAnyToken());
-    if (typeof live.getToken === 'function') {
-      return text(live.getToken('customer') || live.getToken('seller') || live.getToken('admin'));
-    }
-    return '';
-  };
-  const isCorePropertyId = (value) => /^[a-f0-9]{24}$/i.test(text(value));
   const actor = () => {
     const s = session();
     return { name: text(s?.name, 'Guest Bidder'), role: text(s?.role, 'buyer').toLowerCase() };
-  };
-
-  const syncMyLiveBids = async (propertyId = '') => {
-    const token = getToken();
-    if (!token || typeof live.request !== 'function') return false;
-    try {
-      const response = await live.request('/sealed-bids/mine?limit=500', { token });
-      const items = Array.isArray(response?.items) ? response.items : [];
-      const actorInfo = actor();
-      const mapped = items
-        .map((item) => ({
-          id: text(item?.id || item?._id),
-          propertyId: text(item?.propertyId),
-          bidderName: actorInfo.name,
-          bidderRole: actorInfo.role || 'buyer',
-          amount: Math.max(0, Math.round(num(item?.amount, 0))),
-          createdAt: text(item?.createdAt, nowIso()),
-          source: 'live',
-        }))
-        .filter((row) => row.id && row.propertyId)
-        .filter((row) => !propertyId || row.propertyId === text(propertyId));
-
-      if (!mapped.length) return true;
-      const merged = new Map();
-      allBids().forEach((row) => {
-        if (!row?.id) return;
-        merged.set(row.id, row);
-      });
-      mapped.forEach((row) => merged.set(row.id, row));
-      saveAllBids([...merged.values()]);
-      return true;
-    } catch {
-      return false;
-    }
   };
 
   const statusOf = (auc) => {
@@ -320,7 +277,7 @@
     setStatus(`Auction refreshed for ${text(listing.title, state.selected)}.`);
   };
 
-  const placeBid = async () => {
+  const placeBid = () => {
     const id = text(ui.property.value || state.selected);
     if (!id) { setStatus('Property ID required.', false); return; }
     const map = listingMap();
@@ -333,47 +290,11 @@
     const amount = Math.max(0, Math.round(num(ui.bid.value, 0)));
     if (amount < minBid) { setStatus(`Bid must be at least ${inr(minBid)}.`, false); return; }
     const a = actor();
-    const token = getToken();
-    const canLive = Boolean(token && typeof live.request === 'function' && isCorePropertyId(id));
-
-    if (canLive) {
-      try {
-        await live.request('/sealed-bids', {
-          method: 'POST',
-          token,
-          data: {
-            propertyId: id,
-            amount,
-          },
-        });
-        await syncMyLiveBids(id);
-        pushAudit({ propertyId: id, type: 'bid-place-live', message: `${a.name} placed live sealed bid ${inr(amount)}.` });
-        setStatus(`Live sealed bid placed at ${inr(amount)}.`);
-        render();
-        return;
-      } catch (error) {
-        if (!allowDemoFallback) {
-          setStatus(text(error?.message, 'Live bid failed.'), false);
-          return;
-        }
-      }
-    } else if (!allowDemoFallback) {
-      setStatus('Live bid requires login and real property id.', false);
-      return;
-    }
-
     const rows = allBids();
-    rows.push({
-      id: `auc-b-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      propertyId: id,
-      bidderName: a.name,
-      bidderRole: a.role || 'buyer',
-      amount,
-      createdAt: nowIso(),
-    });
+    rows.push({ id: `auc-b-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, propertyId: id, bidderName: a.name, bidderRole: a.role || 'buyer', amount, createdAt: nowIso() });
     saveAllBids(rows);
-    pushAudit({ propertyId: id, type: 'bid-place-local', message: `${a.name} placed local bid ${inr(amount)}.` });
-    setStatus(`Local fallback bid placed at ${inr(amount)}.`);
+    pushAudit({ propertyId: id, type: 'bid-place', message: `${a.name} placed ${inr(amount)}.` });
+    setStatus(`Bid placed at ${inr(amount)}.`);
     render();
   };
 
@@ -455,52 +376,29 @@
     const p = prefs();
     ui.minInc.value = String(p.minIncPct); ui.quickPct.value = String(p.quickPct); ui.auto.value = String(p.autoSec); ui.hours.value = String(p.hours);
     if (state.timer) clearInterval(state.timer);
-    if (p.autoSec > 0) {
-      state.timer = setInterval(() => {
-        refreshLiveAndRender().catch(() => {});
-      }, p.autoSec * 1000);
-    }
+    if (p.autoSec > 0) state.timer = setInterval(render, p.autoSec * 1000);
   };
 
-  const refreshLiveAndRender = async () => {
-    render();
-    const selectedPropertyId = text(ui.property.value || state.selected);
-    if (!selectedPropertyId) return;
-    const synced = await syncMyLiveBids(selectedPropertyId);
-    if (synced) render();
-  };
-
-  ui.refresh.addEventListener('click', () => {
-    refreshLiveAndRender().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
-  });
+  ui.refresh.addEventListener('click', render);
   ui.saveAuc.addEventListener('click', saveAuction);
   ui.closeNow.addEventListener('click', closeNow);
-  ui.bidBtn.addEventListener('click', () => {
-    placeBid().catch((error) => setStatus(text(error?.message, 'Bid failed.'), false));
-  });
+  ui.bidBtn.addEventListener('click', placeBid);
   ui.quick.addEventListener('click', quickBid);
   ui.watch.addEventListener('click', toggleWatch);
   ui.savePrefsBtn.addEventListener('click', () => {
     savePrefs({ minIncPct: num(ui.minInc.value, 1), quickPct: num(ui.quickPct.value, 2), autoSec: num(ui.auto.value, 20), hours: num(ui.hours.value, 72) });
     applyPrefs();
     setStatus('Settings saved.');
-    refreshLiveAndRender().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
+    render();
   });
   ui.csv.addEventListener('click', exportCsv);
 
-  ui.property.addEventListener('change', () => {
-    state.selected = text(ui.property.value);
-    refreshLiveAndRender().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
-  });
-  propertySelect.addEventListener('change', () => {
-    state.selected = text(propertySelect.value);
-    ui.property.value = state.selected;
-    refreshLiveAndRender().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
-  });
+  ui.property.addEventListener('change', () => { state.selected = text(ui.property.value); render(); });
+  propertySelect.addEventListener('change', () => { state.selected = text(propertySelect.value); ui.property.value = state.selected; render(); });
 
   state.selected = text(propertySelect.value);
   ui.property.value = state.selected;
   applyPrefs();
-  refreshLiveAndRender().catch((error) => setStatus(text(error?.message, 'Refresh failed.'), false));
+  render();
   window.addEventListener('beforeunload', () => { if (state.timer) clearInterval(state.timer); });
 })();

@@ -102,21 +102,17 @@
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   });
-  const isCorePropertyId = (value) => /^[a-f0-9]{24}$/i.test(String(value || '').trim());
-  const getLiveToken = () => {
-    if (typeof live.getAnyToken === 'function') return String(live.getAnyToken() || '').trim();
-    if (typeof live.getToken === 'function') {
-      return String(
-        live.getToken('customer')
-        || live.getToken('seller')
-        || live.getToken('admin')
-        || ''
-      ).trim();
-    }
-    return '';
-  };
 
   const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`;
+  const formatListedDate = (iso) => {
+    const stamp = new Date(iso || '').getTime();
+    if (!Number.isFinite(stamp)) return 'Today';
+    const diffMs = Date.now() - stamp;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (diffMs < dayMs) return 'Today';
+    if (diffMs < dayMs * 2) return 'Yesterday';
+    return new Date(stamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  };
   const DEFAULT_WHATSAPP_NUMBER = '919876543210';
   const UDAIPUR_CENTER = { lat: 24.5854, lng: 73.7125 };
   const LOCALITY_COORDINATES = {
@@ -322,7 +318,6 @@
   const rememberedFilters = readJson(FILTER_STATE_KEY, null);
   let aiRefreshTimer = null;
   let aiLastKey = '';
-  let compareRenderSequence = 0;
 
   const readSellerEngagement = () => {
     const store = readJson(SELLER_ENGAGEMENT_KEY, {});
@@ -450,59 +445,6 @@
     renderRecentlyViewed(filtered);
   };
 
-  const normalizeWishlistPropertyId = (item = {}) => String(
-    item?.propertyId
-    || item?.property?.id
-    || item?.property?._id
-    || ''
-  ).trim();
-
-  const syncWishlistStateFromLive = async () => {
-    const token = getLiveToken();
-    if (!token || typeof live.request !== 'function') return false;
-    try {
-      const response = await live.request('/wishlist', { token });
-      const items = Array.isArray(response?.items) ? response.items : [];
-      const serverIds = new Set(
-        items
-          .map((item) => normalizeWishlistPropertyId(item))
-          .filter(Boolean)
-      );
-
-      const localIds = Array.isArray(state.wishlist) ? state.wishlist.map((id) => String(id || '').trim()).filter(Boolean) : [];
-      for (const listingId of localIds) {
-        if (!isCorePropertyId(listingId)) continue;
-        if (serverIds.has(listingId)) continue;
-        try {
-          await live.request(`/wishlist/${encodeURIComponent(listingId)}`, {
-            method: 'POST',
-            token,
-          });
-          serverIds.add(listingId);
-        } catch {
-          // keep local wishlist even if live sync fails
-        }
-      }
-
-      state.wishlist = [...new Set([...localIds, ...serverIds])];
-      writeJson(MARKET_STATE_KEY, state);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const syncWishlistItemToLive = async (listingId, shouldAdd) => {
-    const token = getLiveToken();
-    if (!token || typeof live.request !== 'function') return false;
-    if (!isCorePropertyId(listingId)) return false;
-    await live.request(`/wishlist/${encodeURIComponent(listingId)}`, {
-      method: shouldAdd ? 'POST' : 'DELETE',
-      token,
-    });
-    return true;
-  };
-
   const toggleCompare = (listingId) => {
     const existingIndex = state.compare.indexOf(listingId);
     if (existingIndex >= 0) {
@@ -518,9 +460,8 @@
     renderListings(applyFilters(getFilters()));
   };
 
-  const toggleWishlist = async (listingId) => {
+  const toggleWishlist = (listingId) => {
     const index = state.wishlist.indexOf(listingId);
-    const shouldAdd = index < 0;
     if (index >= 0) state.wishlist.splice(index, 1);
     else state.wishlist.push(listingId);
     writeJson(MARKET_STATE_KEY, state);
@@ -532,20 +473,10 @@
       index >= 0 ? 'Wishlist Updated' : 'Wishlist Added',
       'info',
     );
-
-    try {
-      await syncWishlistItemToLive(listingId, shouldAdd);
-    } catch (error) {
-      if (!allowDemoFallback && getLiveToken()) {
-        window.alert(`Wishlist sync failed: ${String(error?.message || 'Unknown error')}`);
-      }
-    }
     renderListings(applyFilters(getFilters()));
   };
 
   const renderCompare = () => {
-    compareRenderSequence += 1;
-    const renderId = compareRenderSequence;
     if (compareCount) compareCount.textContent = `${state.compare.length}`;
     const compareItems = state.compare
       .map((id) => listings.find((item) => item.id === id))
@@ -589,47 +520,6 @@
         </table>
       </div>
     `;
-
-    const token = getLiveToken();
-    const compareIds = compareItems
-      .map((item) => String(item?.id || '').trim())
-      .filter((id) => isCorePropertyId(id))
-      .slice(0, 3);
-    if (!token || typeof live.request !== 'function' || compareIds.length < 2) return;
-
-    live.request(`/wishlist/compare?propertyIds=${encodeURIComponent(compareIds.join(','))}`, { token })
-      .then((response) => {
-        if (renderId !== compareRenderSequence) return;
-        const rows = Array.isArray(response?.compareTable) ? response.compareTable : [];
-        const liveItems = Array.isArray(response?.items) ? response.items : [];
-        if (!rows.length || liveItems.length < 2 || !compareTableWrap) return;
-        const headers = liveItems
-          .map((item) => `<th style="padding:8px;border:1px solid #d9e6f4;background:#f5faff;">${item?.title || item?.id || 'Property'}</th>`)
-          .join('');
-        compareTableWrap.innerHTML = `
-          <div style="overflow:auto;margin:10px 0 12px;">
-            <table style="width:100%;min-width:720px;border-collapse:collapse;font-size:0.92rem;">
-              <thead>
-                <tr>
-                  <th style="padding:8px;border:1px solid #d9e6f4;background:#ecf5ff;text-align:left;">Feature</th>
-                  ${headers}
-                </tr>
-              </thead>
-              <tbody>
-                ${rows.map((row) => `
-                  <tr>
-                    <th style="padding:8px;border:1px solid #d9e6f4;background:#f7fbff;text-align:left;white-space:nowrap;">${row?.label || row?.key || 'Feature'}</th>
-                    ${(Array.isArray(row?.values) ? row.values : []).map((value) => `<td style="padding:8px;border:1px solid #d9e6f4;">${String(value ?? 'N/A')}</td>`).join('')}
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `;
-      })
-      .catch(() => {
-        // keep local compare table when live compare is unavailable
-      });
   };
 
   const renderSavedSearches = () => {
@@ -743,6 +633,14 @@
     marketplaceRoot.innerHTML = filtered.map((item) => {
       const inWishlist = state.wishlist.includes(item.id);
       const inCompare = state.compare.includes(item.id);
+      const headlineFacts = [
+        item.category || 'Property',
+        item.areaSqft ? `${item.areaSqft} sq.ft.` : '',
+        item.beds ? `${item.beds} BHK` : '',
+      ].filter(Boolean).join(' • ');
+      const trustLabel = item.fakeListingSignal
+        ? 'AI Risk Alert'
+        : (item.verifiedByPropertySetu ? 'Verified by PropertySetu' : `Trust ${Math.round(item.trustScore)}%`);
       return `
         <article class="listing-card">
           <div class="listing-media">
@@ -753,26 +651,34 @@
               ${item.verified ? '<span class="listing-badge verified">Verified</span>' : ''}
               ${item.premium ? '<span class="listing-badge premium">Elite</span>' : ''}
             </div>
+            <button class="listing-heart-btn ${inWishlist ? 'active' : ''}" data-action="wishlist" data-id="${item.id}" type="button" aria-label="${inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}">${inWishlist ? '♥' : '♡'}</button>
           </div>
           <div class="listing-body">
-            <h3 class="listing-title">${item.title}</h3>
-            <p class="listing-locality">${item.locality}, Udaipur</p>
-            <div class="listing-meta">
+            <div class="listing-price-row">
               <div class="listing-price">${formatPrice(item.price)}</div>
               <span class="listing-purpose">${item.purpose}</span>
             </div>
-            <ul class="listing-facts">
-              <li>${item.category}</li>
-              <li>${item.areaSqft ? `${item.areaSqft} sq.ft.` : 'Area N/A'}</li>
-              <li>${item.beds ? `${item.beds} BHK` : 'Flexible'}</li>
-              <li>${item.furnishing || 'Furnishing N/A'}</li>
-              <li>${item.constructionStatus || 'Construction N/A'}</li>
-              <li>${item.loanAvailable ? 'Loan Available' : 'Loan Info N/A'}</li>
-              <li>Trust ${Math.round(item.trustScore)}%</li>
-              <li>${item.videoTourReady ? `Video ${Math.round(item.videoDurationSec || 30)} sec` : 'Video Tour Pending'}</li>
-              <li>${item.fakeListingSignal ? 'Fraud Signal: Review Needed' : 'AI Fraud: Clear'}</li>
-            </ul>
-            <div class="listing-actions">
+            <h3 class="listing-title">${item.title}</h3>
+            <p class="listing-locality">${item.locality}, Udaipur</p>
+            <p class="listing-sub-meta">${headlineFacts || 'Property details available on open'}</p>
+            <p class="listing-date-meta">${formatListedDate(item.listedAt)} • ${trustLabel}</p>
+            <div class="listing-primary-actions">
+              <button class="action-btn primary" data-action="details" data-id="${item.id}" type="button">View Details</button>
+              <button class="action-btn" data-action="chat" data-id="${item.id}" type="button">Chat</button>
+            </div>
+            <details class="listing-more-menu">
+              <summary>More actions</summary>
+              <div class="listing-more-grid">
+                <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
+                <button class="action-btn" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
+                <button class="action-btn" data-action="virtualTour" data-id="${item.id}" type="button">Virtual Tour</button>
+                <button class="action-btn" data-action="videoVisit" data-id="${item.id}" type="button">Live Video Visit</button>
+                <button class="action-btn" data-action="whatsapp" data-id="${item.id}" type="button">WhatsApp</button>
+                <button class="action-btn" data-action="map" data-id="${item.id}" type="button">Map</button>
+                <button class="action-btn" data-action="report" data-id="${item.id}" type="button">Report</button>
+              </div>
+            </details>
+            <div class="listing-actions sr-only-actions">
               <button class="action-btn" data-action="wishlist" data-id="${item.id}" type="button">${inWishlist ? 'Wishlisted' : 'Wishlist'}</button>
               <button class="action-btn" data-action="compare" data-id="${item.id}" type="button">${inCompare ? 'Compared' : 'Compare'}</button>
               <button class="action-btn primary" data-action="visit" data-id="${item.id}" type="button">Book Visit</button>
@@ -1132,10 +1038,8 @@
     try {
       await live.syncLocalListingsFromApi();
       listings = buildListings();
-      await syncWishlistStateFromLive();
       renderStats();
       renderLocalityChips();
-      renderCompare();
       runPipeline();
     } catch (error) {
       if (!allowDemoFallback) {
@@ -1153,13 +1057,6 @@
   renderRecentlyViewed(recentlyViewed);
   if (rememberedFilters) setFilters(rememberedFilters);
   runPipeline();
-  syncWishlistStateFromLive()
-    .then((synced) => {
-      if (!synced) return;
-      renderCompare();
-      runPipeline();
-    })
-    .catch(() => {});
 
   const applyLocalityChip = (locality) => {
     if (marketLocality) marketLocality.value = locality;
@@ -1268,12 +1165,14 @@
   marketplaceRoot.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const action = target.getAttribute('data-action');
-    const listingId = target.getAttribute('data-id');
+    const trigger = target.closest('[data-action][data-id]');
+    if (!(trigger instanceof HTMLElement)) return;
+    const action = trigger.getAttribute('data-action');
+    const listingId = trigger.getAttribute('data-id');
     if (!action || !listingId) return;
 
     if (action === 'wishlist') {
-      await toggleWishlist(listingId);
+      toggleWishlist(listingId);
       return;
     }
 

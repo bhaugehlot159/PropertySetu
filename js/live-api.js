@@ -24,7 +24,7 @@
   const DEMO_FALLBACK_KEY = 'propertySetu:enableDemoFallback';
   const readStorageFlag = (key) => {
     try {
-      const raw = String(storageGetItemRaw(key) || '').trim().toLowerCase();
+      const raw = String(localStorage.getItem(key) || '').trim().toLowerCase();
       return ['1', 'true', 'yes', 'on'].includes(raw);
     } catch {
       return false;
@@ -35,92 +35,22 @@
     || readStorageFlag(DEMO_FALLBACK_KEY)
   );
   const strictRealMode = !allowDemoFallback;
-  const REMOTE_STATE_PREFIX = 'propertysetu:';
-  const REMOTE_STATE_MAX_BATCH = 24;
-  const REMOTE_STATE_LIST_LIMIT = 180;
-  const REMOTE_STATE_SCAN_INTERVAL_MS = 12000;
-  const REMOTE_STATE_EXCLUDED_KEYS = new Set([
-    LISTINGS_KEY.toLowerCase(),
-    DEMO_FALLBACK_KEY.toLowerCase(),
-    'propertysetu:notifications:ping',
-    'propertysetu:notified',
-  ]);
-  const remoteStateHydratedKeys = new Set();
-  const remoteStateHydrationInFlight = new Set();
-  const remoteStateSyncedHash = new Map();
-  const remoteStateWriteQueue = new Map();
-  let remoteStateFlushTimer = null;
-  let remoteStateScanTimer = null;
-  let remoteStateBootstrapped = false;
-  let storageSyncHookInstalled = false;
 
-  const storageProto = (() => {
+  const readJson = (key, fallback) => {
     try {
-      return Object.getPrototypeOf(localStorage);
-    } catch {
-      return null;
-    }
-  })();
-  const storageGetItemRaw = (() => {
-    if (storageProto && typeof storageProto.getItem === 'function') {
-      return storageProto.getItem.bind(localStorage);
-    }
-    return localStorage.getItem.bind(localStorage);
-  })();
-  const storageSetItemRaw = (() => {
-    if (storageProto && typeof storageProto.setItem === 'function') {
-      return storageProto.setItem.bind(localStorage);
-    }
-    return localStorage.setItem.bind(localStorage);
-  })();
-
-  const readLocalJson = (key, fallback) => {
-    try {
-      const raw = storageGetItemRaw(key);
+      const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
     } catch {
       return fallback;
     }
   };
 
-  const writeLocalJson = (key, value) => {
+  const writeJson = (key, value) => {
     try {
-      const safeValue = typeof value === 'undefined' ? null : value;
-      storageSetItemRaw(key, JSON.stringify(safeValue));
+      localStorage.setItem(key, JSON.stringify(value));
     } catch {
       // no-op
     }
-  };
-
-  const readSessionTokenRaw = (storageKey) => {
-    try {
-      const raw = storageGetItemRaw(storageKey);
-      if (!raw) return '';
-      const parsed = JSON.parse(raw);
-      return String(parsed?.token || '').trim();
-    } catch {
-      return '';
-    }
-  };
-
-  const getAnyTokenFromStorage = () => (
-    readSessionTokenRaw(SESSION_KEYS.customer)
-    || readSessionTokenRaw(SESSION_KEYS.admin)
-    || readSessionTokenRaw(SESSION_KEYS.seller)
-    || ''
-  );
-
-  const readJson = (key, fallback) => {
-    const normalizedKey = String(key || '');
-    const value = readLocalJson(normalizedKey, fallback);
-    maybeHydrateRemoteStateForKey(normalizedKey);
-    return value;
-  };
-
-  const writeJson = (key, value) => {
-    const normalizedKey = String(key || '');
-    writeLocalJson(normalizedKey, value);
-    queueRemoteStateWrite(normalizedKey, value);
   };
 
   const text = (value, fallback = '') => {
@@ -216,278 +146,6 @@
       clearTimeout(timer);
     }
   };
-
-  const shouldRemoteSyncKey = (key) => {
-    const normalized = String(key || '').trim().toLowerCase();
-    if (!normalized || !normalized.startsWith(REMOTE_STATE_PREFIX)) return false;
-    if (REMOTE_STATE_EXCLUDED_KEYS.has(normalized)) return false;
-    return true;
-  };
-
-  const parseStorageValue = (rawValue) => {
-    if (typeof rawValue !== 'string') return null;
-    try {
-      return JSON.parse(rawValue);
-    } catch {
-      return rawValue;
-    }
-  };
-
-  const serializeStateValue = (value) => {
-    try {
-      return JSON.stringify(typeof value === 'undefined' ? null : value);
-    } catch {
-      return null;
-    }
-  };
-
-  const rememberRemoteSyncedValue = (key, value) => {
-    const normalizedKey = String(key || '').trim();
-    if (!normalizedKey) return;
-    const serialized = serializeStateValue(value);
-    if (serialized === null) return;
-    remoteStateSyncedHash.set(normalizedKey, serialized);
-  };
-
-  const collectLocalStorageStateItems = (limit = REMOTE_STATE_MAX_BATCH) => {
-    const rows = [];
-    const maxRows = Math.max(1, Number(limit || REMOTE_STATE_MAX_BATCH));
-    let totalKeys = 0;
-    try {
-      totalKeys = Number(localStorage.length || 0);
-    } catch {
-      return rows;
-    }
-    for (let index = 0; index < totalKeys; index += 1) {
-      let key = '';
-      try {
-        key = String(localStorage.key(index) || '').trim();
-      } catch {
-        key = '';
-      }
-      if (!shouldRemoteSyncKey(key)) continue;
-      let rawValue = null;
-      try {
-        rawValue = localStorage.getItem(key);
-      } catch {
-        rawValue = null;
-      }
-      rows.push({
-        key,
-        scope: resolveRemoteStateScope(key),
-        value: parseStorageValue(rawValue),
-      });
-      if (rows.length >= maxRows) break;
-    }
-    return rows;
-  };
-
-  const resolveRemoteStateScope = (key) => {
-    const normalized = String(key || '').trim().toLowerCase();
-    if (normalized.startsWith('propertysetu:auction')) return 'global';
-    return 'user';
-  };
-
-  const markRemoteStateHydrated = (key) => {
-    const normalized = String(key || '').trim();
-    if (!normalized) return;
-    remoteStateHydratedKeys.add(normalized);
-  };
-
-  async function listRemoteState(scope, prefix = 'propertySetu:', limit = REMOTE_STATE_LIST_LIMIT) {
-    const token = getAnyTokenFromStorage();
-    if (!token) return [];
-    const params = new URLSearchParams({
-      scope: String(scope || 'user'),
-      prefix: String(prefix || 'propertySetu:'),
-      limit: String(Math.max(1, Number(limit || REMOTE_STATE_LIST_LIMIT))),
-    });
-    const response = await requestJson(CORE_API_BASE, `/system/client-state/list?${params.toString()}`, {
-      method: 'GET',
-      token,
-      timeoutMs: 12000,
-    });
-    return Array.isArray(response?.items) ? response.items : [];
-  }
-
-  async function hydrateRemoteStateForKey(key) {
-    const normalizedKey = String(key || '').trim();
-    if (!shouldRemoteSyncKey(normalizedKey)) return;
-    const token = getAnyTokenFromStorage();
-    if (!token) return;
-    if (remoteStateHydratedKeys.has(normalizedKey)) return;
-    if (remoteStateHydrationInFlight.has(normalizedKey)) return;
-
-    remoteStateHydrationInFlight.add(normalizedKey);
-    try {
-      const scope = resolveRemoteStateScope(normalizedKey);
-      const response = await requestJson(
-        CORE_API_BASE,
-        `/system/client-state?key=${encodeURIComponent(normalizedKey)}&scope=${encodeURIComponent(scope)}`,
-        {
-          method: 'GET',
-          token,
-          timeoutMs: 9000,
-        }
-      );
-      if (response?.success && response?.exists) {
-        writeLocalJson(normalizedKey, response.value);
-        rememberRemoteSyncedValue(normalizedKey, response.value);
-      }
-      markRemoteStateHydrated(normalizedKey);
-    } catch {
-      // Keep local behavior if remote state API is temporarily unavailable.
-    } finally {
-      remoteStateHydrationInFlight.delete(normalizedKey);
-    }
-  }
-
-  async function hydrateRemoteStateBatch() {
-    if (remoteStateBootstrapped) return;
-    const token = getAnyTokenFromStorage();
-    if (!token) return;
-    remoteStateBootstrapped = true;
-    try {
-      const [globalItems, userItems] = await Promise.all([
-        listRemoteState('global', 'propertySetu:', REMOTE_STATE_LIST_LIMIT),
-        listRemoteState('user', 'propertySetu:', REMOTE_STATE_LIST_LIMIT),
-      ]);
-      const items = [...globalItems, ...userItems];
-      items.forEach((item) => {
-        const key = String(item?.key || '').trim();
-        if (!key) return;
-        writeLocalJson(key, item.value);
-        rememberRemoteSyncedValue(key, item.value);
-        markRemoteStateHydrated(key);
-      });
-
-      const localSeedItems = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
-      localSeedItems.forEach((item) => queueRemoteStateWrite(item.key, item.value));
-    } catch {
-      // non-blocking
-    }
-  }
-
-  function maybeHydrateRemoteStateForKey(key) {
-    if (!shouldRemoteSyncKey(key)) return;
-    hydrateRemoteStateBatch().catch(() => {});
-    hydrateRemoteStateForKey(key).catch(() => {});
-  }
-
-  function scheduleRemoteStateScan() {
-    if (remoteStateScanTimer) return;
-    remoteStateScanTimer = window.setInterval(() => {
-      if (!getAnyTokenFromStorage()) return;
-      const items = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
-      items.forEach((item) => queueRemoteStateWrite(item.key, item.value));
-    }, REMOTE_STATE_SCAN_INTERVAL_MS);
-  }
-
-  async function flushRemoteStateWrites() {
-    if (!remoteStateWriteQueue.size) return;
-    const token = getAnyTokenFromStorage();
-    if (!token) return;
-
-    const batch = [...remoteStateWriteQueue.values()].slice(0, REMOTE_STATE_MAX_BATCH);
-    batch.forEach((item) => remoteStateWriteQueue.delete(item.key));
-    if (!batch.length) return;
-
-    try {
-      await requestJson(CORE_API_BASE, '/system/client-state/batch-write', {
-        method: 'PATCH',
-        token,
-        timeoutMs: 12000,
-        data: {
-          items: batch.map((item) => ({
-            key: item.key,
-            scope: item.scope,
-            value: item.value,
-          })),
-        },
-      });
-      batch.forEach((item) => {
-        markRemoteStateHydrated(item.key);
-        const serialized = String(item.serialized || serializeStateValue(item.value) || '');
-        if (serialized) {
-          remoteStateSyncedHash.set(item.key, serialized);
-        }
-      });
-    } catch {
-      batch.forEach((item) => {
-        if (!remoteStateWriteQueue.has(item.key)) {
-          remoteStateWriteQueue.set(item.key, item);
-        }
-      });
-    } finally {
-      if (remoteStateWriteQueue.size) {
-        scheduleRemoteStateFlush();
-      }
-    }
-  }
-
-  function scheduleRemoteStateFlush() {
-    if (remoteStateFlushTimer) return;
-    remoteStateFlushTimer = window.setTimeout(() => {
-      remoteStateFlushTimer = null;
-      flushRemoteStateWrites().catch(() => {});
-    }, 600);
-  }
-
-  function queueRemoteStateWrite(key, value) {
-    const normalizedKey = String(key || '').trim();
-    if (!shouldRemoteSyncKey(normalizedKey)) return;
-    const token = getAnyTokenFromStorage();
-    if (!token) return;
-    const safeValue = typeof value === 'undefined' ? null : value;
-    const serialized = serializeStateValue(safeValue);
-    if (serialized === null) return;
-    const lastSynced = remoteStateSyncedHash.get(normalizedKey);
-    if (lastSynced === serialized) return;
-
-    remoteStateWriteQueue.set(normalizedKey, {
-      key: normalizedKey,
-      scope: resolveRemoteStateScope(normalizedKey),
-      value: safeValue,
-      serialized,
-    });
-    scheduleRemoteStateFlush();
-  }
-
-  function installStorageSyncHooks() {
-    if (storageSyncHookInstalled) return;
-    if (!storageProto) return;
-    const protoSetItem = storageProto.setItem;
-    const protoRemoveItem = storageProto.removeItem;
-    if (typeof protoSetItem !== 'function' || typeof protoRemoveItem !== 'function') return;
-
-    storageProto.setItem = function patchedStorageSetItem(key, value) {
-      const result = protoSetItem.apply(this, [key, value]);
-      try {
-        if (this !== localStorage) return result;
-        const normalizedKey = String(key || '').trim();
-        if (!shouldRemoteSyncKey(normalizedKey)) return result;
-        queueRemoteStateWrite(normalizedKey, parseStorageValue(String(value)));
-      } catch {
-        // no-op
-      }
-      return result;
-    };
-
-    storageProto.removeItem = function patchedStorageRemoveItem(key) {
-      const result = protoRemoveItem.apply(this, [key]);
-      try {
-        if (this !== localStorage) return result;
-        const normalizedKey = String(key || '').trim();
-        if (!shouldRemoteSyncKey(normalizedKey)) return result;
-        queueRemoteStateWrite(normalizedKey, null);
-      } catch {
-        // no-op
-      }
-      return result;
-    };
-
-    storageSyncHookInstalled = true;
-  }
 
   const toCoreRole = (role) => {
     const raw = text(role).toLowerCase();
@@ -928,34 +586,20 @@
       }
 
       if (rawPath === '/payments/order' && method === 'POST') {
-        const payload = options.data || {};
-        return requestJson(CORE_API_BASE, '/subscriptions/payment/order', {
+        return requestJson(PRO_API_BASE, '/payments/order', {
           method: 'POST',
           token: options.token,
           timeoutMs: options.timeoutMs,
-          data: {
-            amountInRupees: numberFrom(
-              payload.amountInRupees,
-              numberFrom(payload.amount, 0),
-            ),
-            planId: text(payload.planId),
-            planName: text(payload.planName),
-            propertyId: text(payload.propertyId),
-          },
+          data: options.data || {},
         });
       }
 
       if (rawPath === '/payments/verify' && method === 'POST') {
-        const payload = options.data || {};
-        return requestJson(CORE_API_BASE, '/subscriptions/payment/verify', {
+        return requestJson(PRO_API_BASE, '/payments/verify', {
           method: 'POST',
           token: options.token,
           timeoutMs: options.timeoutMs,
-          data: {
-            razorpay_order_id: text(payload.razorpay_order_id || payload.orderId),
-            razorpay_payment_id: text(payload.razorpay_payment_id || payload.paymentId),
-            razorpay_signature: text(payload.razorpay_signature || payload.signature),
-          },
+          data: options.data || {},
         });
       }
 
@@ -1014,230 +658,8 @@
         };
       }
 
-      if (rawPath === '/subscriptions/plans' && method === 'GET') {
-        const response = await requestJson(CORE_API_BASE, '/subscriptions/plans', {
-          method: 'GET',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-        });
-        const items = Array.isArray(response?.items) ? response.items : [];
-        return {
-          ok: true,
-          success: true,
-          total: numberFrom(response?.total, items.length),
-          items: items.map((item) => ({
-            id: text(item.id),
-            name: text(item.name || item.planName || item.id),
-            amount: Math.max(0, numberFrom(item.amount, 0)),
-            cycleDays: Math.max(1, numberFrom(item.cycleDays, 30)),
-            type: text(item.type || item.planType || inferPlanType(item.name || item.planName || item.id, 'subscription')),
-            planType: text(item.planType || item.type || inferPlanType(item.name || item.planName || item.id, 'subscription')),
-            requiresProperty: Boolean(item.requiresProperty),
-          })),
-        };
-      }
-
-      if (rawPath === '/insights/locality' && method === 'GET') {
-        const locality = text(query.get('name') || query.get('locality'), 'Udaipur');
-        const response = await requestJson(
-          CORE_API_BASE,
-          `/ai/market-trend?locality=${encodeURIComponent(locality)}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
-        return {
-          ok: true,
-          success: true,
-          stats: toObject(response?.stats),
-          trend: Array.isArray(response?.trend) ? response.trend : [],
-        };
-      }
-
-      if (rawPath === '/admin/report' && method === 'GET') {
-        const days = Math.max(1, Math.min(180, numberFrom(query.get('days'), 30)));
-        const [overviewResult, commissionResult] = await Promise.allSettled([
-          requestJson(CORE_API_BASE, '/admin/overview', {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }),
-          requestJson(CORE_API_BASE, '/admin/commission-analytics', {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }),
-        ]);
-
-        const overview = overviewResult.status === 'fulfilled'
-          ? toObject(overviewResult.value?.overview)
-          : {};
-        const commission = commissionResult.status === 'fulfilled'
-          ? toObject(commissionResult.value?.analytics)
-          : {};
-
-        return {
-          ok: true,
-          success: true,
-          days,
-          generatedAt: new Date().toISOString(),
-          overview,
-          commission,
-        };
-      }
-
-      if (rawPath.startsWith('/uploads/')) {
-        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
-        return requestJson(CORE_API_BASE, forwardPath, {
-          method,
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
-        });
-      }
-
-      if (rawPath.startsWith('/owner-verification')) {
-        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
-        return requestJson(CORE_API_BASE, forwardPath, {
-          method,
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
-        });
-      }
-
-      if (rawPath.startsWith('/property-care')) {
-        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
-        return requestJson(CORE_API_BASE, forwardPath, {
-          method,
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
-        });
-      }
-
-      if (rawPath === '/reports' && method === 'POST') {
-        const payload = options.data || {};
-        return requestJson(CORE_API_BASE, '/reports', {
-          method: 'POST',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          data: {
-            propertyId: text(payload.propertyId),
-            propertyTitle: text(payload.propertyTitle),
-            reason: text(payload.reason),
-          },
-        });
-      }
-
-      if (rawPath === '/reports/mine' && method === 'GET') {
-        const limit = text(query.get('limit'));
-        return requestJson(
-          CORE_API_BASE,
-          `/reports/mine${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
-      }
-
-      if (rawPath === '/wishlist' && method === 'GET') {
-        return requestJson(CORE_API_BASE, '/wishlist', {
-          method: 'GET',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-        });
-      }
-
-      if (rawPath === '/wishlist/compare' && method === 'GET') {
-        const propertyIds = text(query.get('propertyIds'));
-        return requestJson(
-          CORE_API_BASE,
-          `/wishlist/compare${propertyIds ? `?propertyIds=${encodeURIComponent(propertyIds)}` : ''}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
-      }
-
-      const wishlistByPropertyMatch = rawPath.match(/^\/wishlist\/([^/]+)$/);
-      if (wishlistByPropertyMatch && method === 'POST') {
-        const propertyId = wishlistByPropertyMatch[1];
-        return requestJson(CORE_API_BASE, `/wishlist/${propertyId}`, {
-          method: 'POST',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-        });
-      }
-
-      if (wishlistByPropertyMatch && method === 'DELETE') {
-        const propertyId = wishlistByPropertyMatch[1];
-        return requestJson(CORE_API_BASE, `/wishlist/${propertyId}`, {
-          method: 'DELETE',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-        });
-      }
-
-      if (rawPath === '/notifications/mine' && method === 'GET') {
-        const limit = text(query.get('limit'));
-        return requestJson(
-          CORE_API_BASE,
-          `/notifications/mine${limit ? `?limit=${encodeURIComponent(limit)}` : ''}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
-      }
-
-      if (rawPath === '/notifications/read-all' && method === 'POST') {
-        return requestJson(CORE_API_BASE, '/notifications/read-all', {
-          method: 'POST',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          data: options.data || {},
-        });
-      }
-
-      const notificationReadMatch = rawPath.match(/^\/notifications\/([^/]+)\/read$/);
-      if (notificationReadMatch && method === 'POST') {
-        const notificationId = notificationReadMatch[1];
-        return requestJson(CORE_API_BASE, `/notifications/${notificationId}/read`, {
-          method: 'POST',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          data: options.data || {},
-        });
-      }
-
-      if (rawPath === '/recommendations' && method === 'GET') {
-        return requestJson(
-          CORE_API_BASE,
-          `/ai/recommendations${rawQuery ? `?${rawQuery}` : ''}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
-      }
-
-      if (rawPath.startsWith('/ai/')) {
-        const forwardPath = `${rawPath}${rawQuery ? `?${rawQuery}` : ''}`;
-        return requestJson(CORE_API_BASE, forwardPath, {
-          method,
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          ...(method === 'GET' || method === 'HEAD' ? {} : { data: options.data || {} }),
-        });
+      if (rawPath === '/subscriptions/plans') {
+        return null;
       }
 
       if (
@@ -1409,58 +831,6 @@
           item: visit,
           ownerNotification: toObject(response?.ownerNotification),
         };
-      }
-
-      if (rawPath === '/properties/moderation/queue' && method === 'GET') {
-        const response = await requestJson(
-          CORE_API_BASE,
-          `/properties/moderation/queue${rawQuery ? `?${rawQuery}` : ''}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
-        return {
-          ok: true,
-          success: true,
-          total: numberFrom(response?.total, 0),
-          summary: toObject(response?.summary),
-          items: Array.isArray(response?.items)
-            ? response.items.map(mapCorePropertyToLegacy).filter(Boolean)
-            : [],
-        };
-      }
-
-      const propertyModerationDecisionMatch = rawPath.match(/^\/properties\/([^/]+)\/moderation\/decision$/);
-      if (propertyModerationDecisionMatch && method === 'POST') {
-        const propertyId = propertyModerationDecisionMatch[1];
-        const payload = options.data || {};
-        return requestJson(CORE_API_BASE, `/properties/${propertyId}/moderation/decision`, {
-          method: 'POST',
-          token: options.token,
-          timeoutMs: options.timeoutMs,
-          data: {
-            action: text(payload.action),
-            reason: text(payload.reason || payload.note || payload.moderationReason),
-            force: Boolean(payload.force),
-            approveConfirm: Boolean(payload.approveConfirm),
-          },
-        });
-      }
-
-      const propertyModerationAuditMatch = rawPath.match(/^\/properties\/([^/]+)\/moderation\/audit$/);
-      if (propertyModerationAuditMatch && method === 'GET') {
-        const propertyId = propertyModerationAuditMatch[1];
-        return requestJson(
-          CORE_API_BASE,
-          `/properties/${propertyId}/moderation/audit${rawQuery ? `?${rawQuery}` : ''}`,
-          {
-            method: 'GET',
-            token: options.token,
-            timeoutMs: options.timeoutMs,
-          }
-        );
       }
 
       const propertyByIdMatch = rawPath.match(/^\/properties\/([^/]+)$/);
@@ -1850,41 +1220,6 @@
     }),
   };
 
-  const wishlist = {
-    list: async () => request('/wishlist'),
-    add: async (propertyId) => request(`/wishlist/${encodeURIComponent(text(propertyId))}`, { method: 'POST' }),
-    remove: async (propertyId) => request(`/wishlist/${encodeURIComponent(text(propertyId))}`, { method: 'DELETE' }),
-    compare: async (query = {}) => {
-      const params = new URLSearchParams();
-      Object.entries(query || {}).forEach(([key, value]) => {
-        if (value === undefined || value === null || value === '') return;
-        params.set(key, String(value));
-      });
-      return request(`/wishlist/compare${params.toString() ? `?${params.toString()}` : ''}`);
-    },
-  };
-
-  const notifications = {
-    mine: async (query = {}) => {
-      const params = new URLSearchParams();
-      Object.entries(query || {}).forEach(([key, value]) => {
-        if (value === undefined || value === null || value === '') return;
-        params.set(key, String(value));
-      });
-      return request(`/notifications/mine${params.toString() ? `?${params.toString()}` : ''}`);
-    },
-    read: async (notificationId) => request(`/notifications/${encodeURIComponent(text(notificationId))}/read`, {
-      method: 'POST',
-    }),
-    readAll: async () => request('/notifications/read-all', { method: 'POST' }),
-  };
-
-  const subscriptions = {
-    plans: async () => request('/subscriptions/plans'),
-    mine: async () => request('/subscriptions/me'),
-    activate: async (payload = {}) => request('/subscriptions/activate', { method: 'POST', data: payload }),
-  };
-
   const ai = {
     pricingSuggestion: async (payload = {}) => request('/ai/pricing-suggestion', { method: 'POST', data: payload }),
     descriptionGenerate: async (payload = {}) => request('/ai/description-generate', { method: 'POST', data: payload }),
@@ -1972,28 +1307,6 @@
     myRequests: async () => request('/franchise/requests'),
   };
 
-  installStorageSyncHooks();
-  scheduleRemoteStateScan();
-
-  if (getAnyTokenFromStorage()) {
-    hydrateRemoteStateBatch().catch(() => {});
-  }
-
-  window.addEventListener('storage', (event) => {
-    const key = String(event?.key || '').trim();
-    if (!shouldRemoteSyncKey(key)) return;
-    const value = parseStorageValue(event?.newValue);
-    queueRemoteStateWrite(key, value);
-  });
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      hydrateRemoteStateBatch().catch(() => {});
-      const items = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
-      items.forEach((item) => queueRemoteStateWrite(item.key, item.value));
-    }
-  });
-
   window.PropertySetuLive = {
     API_BASE,
     PRO_API_BASE,
@@ -2017,17 +1330,8 @@
     normalizeApiListing,
     mergeById,
     syncLocalListingsFromApi,
-    syncClientStateNow: async () => {
-      const items = collectLocalStorageStateItems(REMOTE_STATE_MAX_BATCH);
-      items.forEach((item) => queueRemoteStateWrite(item.key, item.value));
-      await flushRemoteStateWrites();
-      return { success: true, queued: items.length };
-    },
     properties,
     visits,
-    wishlist,
-    notifications,
-    subscriptions,
     ai,
     sealedBids,
     documentation,

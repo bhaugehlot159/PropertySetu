@@ -486,16 +486,8 @@
       setStatus('Admin login required for resolving report.', false);
       return false;
     }
-    const reasonBase = source === 'auto-triage'
-      ? 'Auto-triage resolved high-risk or stale report after admin policy checks.'
-      : 'Manual admin review completed and report resolved with verified action.';
-    const reason = text(reasonBase);
     try {
-      await api(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, {
-        method: 'POST',
-        token,
-        data: { moderationReason: reason, reason },
-      });
+      await api(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, { method: 'POST', token });
       pushLog({
         action: 'report-resolve',
         target: reportId,
@@ -522,21 +514,11 @@
       setStatus('Admin login required for commission apply.', false);
       return false;
     }
-    const reasonBase = source === 'auto-fill'
-      ? 'Auto-fill commission applied after policy validation and lead sanity checks.'
-      : 'Manual commission update after admin validation and compliance review.';
-    const reason = text(reasonBase);
     try {
       await api(`/admin/loan/assistance/${encodeURIComponent(leadId)}/status`, {
         method: 'POST',
         token,
-        data: {
-          status: 'sanctioned',
-          finalCommissionAmount: numberFrom(amount, 0),
-          moderationReason: reason,
-          reason,
-          adminNote: reason,
-        },
+        data: { status: 'sanctioned', finalCommissionAmount: numberFrom(amount, 0) },
       });
       pushLog({
         action: 'loan-commission-apply',

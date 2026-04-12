@@ -6,13 +6,18 @@
 <title>PropertySetu – Admin Dashboard</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
-body { font-family: "Manrope", "Plus Jakarta Sans", sans-serif; margin:0; padding:0; background:#f4f6f9; }
-header { background:#0b3d91; color:white; padding:15px; text-align:center; font-size:24px; }
-.container { max-width: 1000px; margin:20px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2); }
-h2 { color:#0b3d91; }
-button { background:#0b3d91; color:white; padding:6px 10px; border:none; border-radius:4px; cursor:pointer; margin-right:5px; }
-button:hover { background:#092f6d; }
-.property-card { border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:6px; background:#fdfdfd; }
+.dash-shell button {
+  border-radius: 999px;
+  border: 1px solid #aac8df;
+  background: #eff6ff;
+  color: #113f63;
+  padding: 6px 10px;
+  cursor: pointer;
+  margin-right: 5px;
+  font-weight: 700;
+}
+.dash-shell button:hover { background:#dfeefe; }
+.dash-shell .property-card { border:1px solid #cddff0; padding:10px; margin:10px 0; border-radius:10px; background:#fbfdff; }
 .badge { background:#eaf1ff; color:#123d83; border-radius:6px; padding:2px 8px; font-size:12px; }
 .backup-panel { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 #backupStatus { font-size:14px; color:#123d83; }
@@ -54,24 +59,33 @@ button:hover { background:#092f6d; }
 </style>
   <link rel="stylesheet" href="css/professional-folder.css" />
 </head>
-<body>
+<body class="ps-pro-surface">
 
-<header>PropertySetu Admin Dashboard</header>
-<div style="text-align:center;padding:10px;background:#eaf1ff;">
-  <a href="index.html">Home</a> | <a href="add-property.html">Add Property</a> | <a href="dashboard.html">User Dashboard</a> | <a href="seller-dashboard.html">Seller Dashboard</a>
-</div>
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a class="brand" href="index.html">PropertySetu</a>
+    <nav class="main-nav">
+      <a href="index.html">Home</a>
+      <a href="add-property.html">Add Property</a>
+      <a href="dashboard.html">User Dashboard</a>
+      <a href="seller-dashboard.html">Seller Dashboard</a>
+    </nav>
+  </div>
+</header>
 
-<div class="container">
+<main class="dash-shell">
+
+<div class="container dash-card">
   <h2>Pending Property Approvals</h2>
   <div id="pendingProperties"></div>
 </div>
 
-<div class="container">
+<div class="container dash-card">
   <h2>Approved / Featured Listings</h2>
   <div id="approvedProperties"></div>
 </div>
 
-<div class="container">
+<div class="container dash-card">
   <h2>Admin Controls: Category / City / Pricing / User Block / Reports / Commission</h2>
   <div id="adminOverview" class="kpi-grid"></div>
   <div id="adminAnalytics" class="backup-panel"></div>
@@ -254,13 +268,15 @@ button:hover { background:#092f6d; }
   </div>
 </div>
 
-<div class="container">
+<div class="container dash-card">
   <h2>Secure Local Data Export</h2>
   <div class="backup-panel">
     <button id="downloadLocalDataBtn">Download Secure Export (.json)</button>
     <span id="backupStatus">Admin-auth verified export me sensitive fields auto-redacted rahenge.</span>
   </div>
 </div>
+
+</main>
 
 <script src="js/live-api.js"></script>
 <script>
@@ -2009,7 +2025,9 @@ button:hover { background:#092f6d; }
 <script src="js/auction-settlement-war-room.js"></script>
 <script src="js/auction-payout-reconciliation-center.js"></script>
 <script src="js/sealed-bid-v3-tools.js"></script>
+<script src="js/dashboard-usage-sync.js"></script>
 <script src="js/folder-command-dock.js"></script>
 </body>
 </html>
+
 
