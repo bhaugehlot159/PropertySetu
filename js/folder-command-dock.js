@@ -98,6 +98,81 @@
     return /(?:^|\/)index\.html$/i.test(currentPath);
   }
 
+  function ensureResponsiveTopbarMenu() {
+    var topbar = document.querySelector('.topbar');
+    if (!topbar) return;
+    var inner = topbar.querySelector('.topbar-inner') || topbar;
+    var actions = topbar.querySelector('.auth-actions');
+    if (!actions) return;
+    var nav = topbar.querySelector('.main-nav') || topbar.querySelector('nav');
+    var hideLegacyNav = document.body.classList.contains('ps-olx-mode');
+
+    topbar.classList.add('has-mobile-toggle');
+
+    var toggle = topbar.querySelector('.topbar-menu-toggle');
+    if (!toggle) {
+      toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'topbar-menu-toggle';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-label', 'Open top navigation menu');
+      toggle.textContent = 'Menu';
+      if (actions && actions.parentNode === inner) inner.insertBefore(toggle, actions);
+      else inner.appendChild(toggle);
+    }
+
+    var targets = [];
+    if (nav && !hideLegacyNav) targets.push(nav);
+    if (actions) targets.push(actions);
+    var controls = [];
+    for (var idx = 0; idx < targets.length; idx += 1) {
+      var panel = targets[idx];
+      if (!panel.id) panel.id = 'psTopbarPanel' + (idx + 1);
+      controls.push(panel.id);
+    }
+    if (controls.length) toggle.setAttribute('aria-controls', controls.join(' '));
+
+    function isCompactViewport() {
+      return window.matchMedia('(max-width: 980px)').matches;
+    }
+
+    function setOpen(nextOpen) {
+      var isOpen = Boolean(nextOpen) && isCompactViewport();
+      topbar.classList.toggle('topbar-mobile-open', isOpen);
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      toggle.textContent = isOpen ? 'Close' : 'Menu';
+    }
+
+    toggle.addEventListener('click', function () {
+      setOpen(!topbar.classList.contains('topbar-mobile-open'));
+    });
+
+    topbar.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!(target instanceof Element)) return;
+      var clickedLink = target.closest('a[href]');
+      if (!clickedLink || !isCompactViewport()) return;
+      setOpen(false);
+    });
+
+    document.addEventListener('click', function (event) {
+      if (!isCompactViewport()) return;
+      var target = event.target;
+      if (!(target instanceof Node)) return;
+      if (topbar.contains(target)) return;
+      setOpen(false);
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+    });
+
+    window.addEventListener('resize', function () {
+      if (!isCompactViewport()) setOpen(false);
+    });
+  }
+
   function injectOlxShell() {
     if (document.querySelector('.ps-olx-shell')) return;
     var hostHeader = document.querySelector('.topbar') || document.querySelector('header');
@@ -114,13 +189,14 @@
       '<input id="psOlxSearchInput" type="search" placeholder="Search properties, localities, categories..." autocomplete="off" />' +
       '<button id="psOlxSearchBtn" type="submit">Search</button>' +
       '</form>' +
-      '<div class="ps-olx-actions">' +
+      '<div class="ps-olx-actions" id="psOlxActions">' +
+      '<button type="button" class="ps-olx-menu-toggle" id="psOlxMenuToggle" aria-expanded="false" aria-controls="psOlxChipRow">Menu</button>' +
       '<a href="' + prefix + 'user-dashboard.html">Wishlist</a>' +
       '<a href="' + prefix + 'dashboard.html">Login</a>' +
       '<a class="ps-olx-sell" href="' + prefix + 'add-property.html">+ SELL</a>' +
       '</div>' +
       '</div>' +
-      '<div class="ps-olx-chip-row">' +
+      '<div class="ps-olx-chip-row" id="psOlxChipRow">' +
       '<a class="ps-olx-chip ps-olx-chip-primary" href="' + prefix + 'folders/common/all-features.html">All Categories</a>' +
       '<a class="ps-olx-chip" href="' + prefix + 'index.html#marketplace">Properties</a>' +
       '<a class="ps-olx-chip" href="' + prefix + 'pages/buy-sell.html">Buy</a>' +
@@ -139,6 +215,7 @@
     var form = shell.querySelector('#psOlxSearchForm');
     var input = shell.querySelector('#psOlxSearchInput');
     var submitBtn = shell.querySelector('#psOlxSearchBtn');
+    var menuToggle = shell.querySelector('#psOlxMenuToggle');
 
     function runGlobalSearch() {
       var query = String(input && input.value ? input.value : '').trim();
@@ -187,6 +264,38 @@
         if (event.key !== 'Enter') return;
         event.preventDefault();
         runGlobalSearch();
+      });
+    }
+
+    function inCompactMode() {
+      return window.matchMedia('(max-width: 980px)').matches;
+    }
+
+    function setShellMenuOpen(nextOpen) {
+      if (!menuToggle) return;
+      var isOpen = Boolean(nextOpen) && inCompactMode();
+      shell.classList.toggle('ps-olx-open', isOpen);
+      menuToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      menuToggle.textContent = isOpen ? 'Close' : 'Menu';
+    }
+
+    if (menuToggle) {
+      menuToggle.addEventListener('click', function () {
+        setShellMenuOpen(!shell.classList.contains('ps-olx-open'));
+      });
+      shell.addEventListener('click', function (event) {
+        var target = event.target;
+        if (!(target instanceof Element)) return;
+        var interactive = target.closest('.ps-olx-chip, .ps-olx-actions a');
+        if (!interactive || !inCompactMode()) return;
+        setShellMenuOpen(false);
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key !== 'Escape') return;
+        setShellMenuOpen(false);
+      });
+      window.addEventListener('resize', function () {
+        if (!inCompactMode()) setShellMenuOpen(false);
       });
     }
   }
@@ -418,7 +527,9 @@
     '.ps-olx-search input{height:46px;border:1px solid #cfd9de;border-radius:999px;padding:0 16px;font-size:1rem;background:#fff;color:#12384d;}',
     '.ps-olx-search button{height:46px;border:1px solid #0a5ddb;border-radius:999px;padding:0 18px;background:#0a5ddb;color:#fff;font-weight:800;cursor:pointer;}',
     '.ps-olx-search button:hover{background:#084fb8;}',
-    '.ps-olx-actions{display:flex;gap:12px;align-items:center;}',
+    '.ps-olx-actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}',
+    '.ps-olx-menu-toggle{display:none;border:1px solid #c7d3d9;background:#ffffff;border-radius:999px;padding:8px 12px;color:#18435d;font-size:.82rem;font-weight:800;cursor:pointer;}',
+    '.ps-olx-menu-toggle:hover{background:#edf4f8;}',
     '.ps-olx-actions a{text-decoration:none;color:#1d3f57;font-weight:800;font-size:.88rem;}',
     '.ps-olx-actions .ps-olx-sell{padding:10px 18px;border:2px solid #f5c244;border-radius:999px;background:#0a5ddb;color:#fff;box-shadow:inset 0 0 0 2px #36c5cf;}',
     '.ps-olx-chip-row{display:flex;gap:8px;overflow-x:auto;padding:10px 2px 2px;}',
@@ -446,8 +557,8 @@
     'body.ps-olx-mode .listing-card,body.ps-olx-mode .property-card,body.ps-olx-mode .card{box-shadow:none !important;border:1px solid #d4dde1 !important;border-radius:10px !important;background:#fff !important;}',
     'body.ps-olx-mode footer{background:#002f6c !important;border-top:0 !important;}',
     'body.ps-olx-mode .ps-global-footer{background:#002f6c !important;border-top:0 !important;}',
-    '@media (max-width:980px){.ps-olx-shell{top:58px;}.ps-olx-row{grid-template-columns:1fr;}.ps-olx-actions{justify-content:flex-start;}.ps-olx-search input,.ps-olx-search button,.ps-olx-location{height:42px;}}',
-    '@media (max-width:760px){.ps-olx-shell-inner{width:min(98vw,1280px);padding:8px 0;}.ps-olx-chip-row{padding-top:8px;}.ps-back-top-btn{right:12px;bottom:88px;padding:8px 12px;}body.ps-olx-mode .hero-copy{padding:12px;}body.ps-olx-mode .quick-action-board,body.ps-olx-mode .home-folder-grid{grid-template-columns:1fr !important;}}',
+    '@media (max-width:980px){.ps-olx-shell{top:58px;}.ps-olx-row{grid-template-columns:1fr;gap:8px;}.ps-olx-actions{justify-content:flex-start;}.ps-olx-menu-toggle{display:inline-flex;align-items:center;justify-content:center;}.ps-olx-shell:not(.ps-olx-open) .ps-olx-actions a{display:none;}.ps-olx-shell:not(.ps-olx-open) .ps-olx-chip-row{display:none;}.ps-olx-search input,.ps-olx-search button,.ps-olx-location{height:42px;}}',
+    '@media (max-width:760px){.ps-olx-shell-inner{width:min(98vw,1280px);padding:8px 0;}.ps-olx-search{grid-template-columns:1fr;}.ps-olx-search button{width:100%;}.ps-olx-chip-row{padding-top:8px;}.ps-back-top-btn{right:12px;bottom:88px;padding:8px 12px;}.ps-dock{right:10px;bottom:calc(96px + env(safe-area-inset-bottom,0px));}.ps-dock-panel{width:min(92vw,360px);}.ps-dock-grid{grid-template-columns:1fr;}body.ps-olx-mode .hero-copy{padding:12px;}body.ps-olx-mode .quick-action-board,body.ps-olx-mode .home-folder-grid{grid-template-columns:1fr !important;}}',
     '@media (max-width:900px){.ps-photo-strip-grid{grid-template-columns:1fr 1fr;}}',
     '@media (max-width:640px){.ps-photo-strip-grid{grid-template-columns:1fr;}}'
   ].join('');
@@ -567,6 +678,7 @@
   };
   window.PropertySetuNotify = service;
 
+  ensureResponsiveTopbarMenu();
   injectOlxShell();
   injectBackToTopButton();
 
