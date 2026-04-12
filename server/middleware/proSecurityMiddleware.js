@@ -700,7 +700,7 @@ const THREAT_DETECTION_RULES = [
   }
 ];
 const SENSITIVE_PUBLIC_PATH_RULES = [
-  /^\/(?:server|backend|database|deploy|docs|scripts|models|legal)(?:\/|$)/i,
+  /^\/(?:server|backend|database|deploy|docs|scripts|models)(?:\/|$)/i,
   /^\/(?:\.git|\.github|\.vscode|node_modules)(?:\/|$)/i,
   /^\/(?:.*\/)?\.env(?:\..*)?$/i,
   /^\/(?:.*\/)?package-lock\.json$/i,

@@ -1,0 +1,1999 @@
+{
+  "startedAt": "2026-04-12T19:25:43.168Z",
+  "localBase": "http://localhost:5000",
+  "liveBase": "https://bhaugehlot159.github.io/PropertySetu",
+  "totals": {
+    "pageChecks": 90,
+    "apiChecks": 68,
+    "linkChecks": 799,
+    "issues": 33
+  },
+  "pages": {
+    "local": [
+      {
+        "page": "add-property.html",
+        "url": "http://localhost:5000/add-property.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "admin-dashboard.html",
+        "url": "http://localhost:5000/admin-dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "admin-simple.html",
+        "url": "http://localhost:5000/admin-simple.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "area-insights.html",
+        "url": "http://localhost:5000/area-insights.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "auction.html",
+        "url": "http://localhost:5000/auction.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/dist/index.html",
+        "url": "http://localhost:5000/client/dist/index.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/index.html",
+        "url": "http://localhost:5000/client/index.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/pages/admin-portal.html",
+        "url": "http://localhost:5000/client/pages/admin-portal.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/pages/customer-portal.html",
+        "url": "http://localhost:5000/client/pages/customer-portal.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "dashboard.html",
+        "url": "http://localhost:5000/dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/admin/admin-features.html",
+        "url": "http://localhost:5000/folders/admin/admin-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/common/all-features.html",
+        "url": "http://localhost:5000/folders/common/all-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/customer/customer-features.html",
+        "url": "http://localhost:5000/folders/customer/customer-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/discovery/discovery-features.html",
+        "url": "http://localhost:5000/folders/discovery/discovery-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/insights/insights-features.html",
+        "url": "http://localhost:5000/folders/insights/insights-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/marketplace/marketplace-features.html",
+        "url": "http://localhost:5000/folders/marketplace/marketplace-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/seller/seller-features.html",
+        "url": "http://localhost:5000/folders/seller/seller-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/services/services-features.html",
+        "url": "http://localhost:5000/folders/services/services-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/tools/tools-features.html",
+        "url": "http://localhost:5000/folders/tools/tools-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "index.html",
+        "url": "http://localhost:5000/index.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "legal/disclaimer.html",
+        "url": "http://localhost:5000/legal/disclaimer.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      },
+      {
+        "page": "legal/privacy.html",
+        "url": "http://localhost:5000/legal/privacy.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      },
+      {
+        "page": "legal/refund.html",
+        "url": "http://localhost:5000/legal/refund.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      },
+      {
+        "page": "legal/service-agreement.html",
+        "url": "http://localhost:5000/legal/service-agreement.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      },
+      {
+        "page": "legal/terms.html",
+        "url": "http://localhost:5000/legal/terms.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      },
+      {
+        "page": "list-property.html",
+        "url": "http://localhost:5000/list-property.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/buy-sell.html",
+        "url": "http://localhost:5000/pages/buy-sell.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/city-expansion.html",
+        "url": "http://localhost:5000/pages/city-expansion.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/ecosystem-services.html",
+        "url": "http://localhost:5000/pages/ecosystem-services.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/folder-architecture.html",
+        "url": "http://localhost:5000/pages/folder-architecture.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/insurance-security.html",
+        "url": "http://localhost:5000/pages/insurance-security.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/legal-help.html",
+        "url": "http://localhost:5000/pages/legal-help.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/live-platform-app.html",
+        "url": "http://localhost:5000/pages/live-platform-app.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/premium-services.html",
+        "url": "http://localhost:5000/pages/premium-services.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/production-deploy-checklist.html",
+        "url": "http://localhost:5000/pages/production-deploy-checklist.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/property-care-plans.html",
+        "url": "http://localhost:5000/pages/property-care-plans.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/rent.html",
+        "url": "http://localhost:5000/pages/rent.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/startup-revenue-engine.html",
+        "url": "http://localhost:5000/pages/startup-revenue-engine.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/structure-hub.html",
+        "url": "http://localhost:5000/pages/structure-hub.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/trusted-agents.html",
+        "url": "http://localhost:5000/pages/trusted-agents.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "property-care.html",
+        "url": "http://localhost:5000/property-care.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "property-details.html",
+        "url": "http://localhost:5000/property-details.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "seller-dashboard.html",
+        "url": "http://localhost:5000/seller-dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "subscription.html",
+        "url": "http://localhost:5000/subscription.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "user-dashboard.html",
+        "url": "http://localhost:5000/user-dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      }
+    ],
+    "live": [
+      {
+        "page": "add-property.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/add-property.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "admin-dashboard.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/admin-dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "admin-simple.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/admin-simple.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "area-insights.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/area-insights.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "auction.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/auction.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/dist/index.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/client/dist/index.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      },
+      {
+        "page": "client/index.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/client/index.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/pages/admin-portal.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/client/pages/admin-portal.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "client/pages/customer-portal.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/client/pages/customer-portal.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "dashboard.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/admin/admin-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/admin/admin-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/common/all-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/common/all-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/customer/customer-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/customer/customer-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/discovery/discovery-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/discovery/discovery-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/insights/insights-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/insights/insights-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/marketplace/marketplace-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/marketplace/marketplace-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/seller/seller-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/seller/seller-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/services/services-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/services/services-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "folders/tools/tools-features.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/folders/tools/tools-features.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "index.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/index.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "legal/disclaimer.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/legal/disclaimer.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "legal/privacy.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/legal/privacy.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "legal/refund.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/legal/refund.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "legal/service-agreement.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/legal/service-agreement.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "legal/terms.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/legal/terms.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "list-property.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/list-property.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/buy-sell.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/buy-sell.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/city-expansion.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/city-expansion.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/ecosystem-services.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/ecosystem-services.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/folder-architecture.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/folder-architecture.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/insurance-security.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/insurance-security.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/legal-help.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/legal-help.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/live-platform-app.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/live-platform-app.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/premium-services.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/premium-services.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/production-deploy-checklist.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/production-deploy-checklist.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/property-care-plans.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/property-care-plans.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/rent.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/rent.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/startup-revenue-engine.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/startup-revenue-engine.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/structure-hub.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/structure-hub.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "pages/trusted-agents.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/pages/trusted-agents.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "property-care.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/property-care.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "property-details.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/property-details.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "seller-dashboard.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/seller-dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "subscription.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/subscription.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      },
+      {
+        "page": "user-dashboard.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/user-dashboard.html",
+        "ok": true,
+        "status": 200,
+        "error": ""
+      }
+    ]
+  },
+  "links": {
+    "missingAssets": [
+      {
+        "page": "client/dist/index.html",
+        "ref": "/assets/index-kE58TjvR.js",
+        "resolvedPath": "assets/index-kE58TjvR.js",
+        "resolveMode": "absolute"
+      },
+      {
+        "page": "client/dist/index.html",
+        "ref": "/assets/index-CNABVOx5.css",
+        "resolvedPath": "assets/index-CNABVOx5.css",
+        "resolveMode": "absolute"
+      },
+      {
+        "page": "client/index.html",
+        "ref": "/main.jsx",
+        "resolvedPath": "main.jsx",
+        "resolveMode": "absolute"
+      }
+    ],
+    "missingAnchors": []
+  },
+  "api": {
+    "checks": [
+      {
+        "name": "health",
+        "method": "GET",
+        "url": "/api/health",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "system-capabilities",
+        "method": "GET",
+        "url": "/api/system/capabilities",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "system-core-systems",
+        "method": "GET",
+        "url": "/api/system/core-systems",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": "MongoDB structure and core systems blueprint for professional live build."
+      },
+      {
+        "name": "bootstrap",
+        "method": "GET",
+        "url": "/api/bootstrap",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "properties-public",
+        "method": "GET",
+        "url": "/api/properties?city=Udaipur",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "insights-locality",
+        "method": "GET",
+        "url": "/api/insights/locality?name=Bhuwana",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "ai-market-trend",
+        "method": "GET",
+        "url": "/api/ai/market-trend?locality=Bhuwana",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "ai-recommendations",
+        "method": "GET",
+        "url": "/api/ai/recommendations?locality=Bhuwana",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "recommendations",
+        "method": "GET",
+        "url": "/api/recommendations?locality=Bhuwana",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "subscriptions-plans",
+        "method": "GET",
+        "url": "/api/subscriptions/plans",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "documentation-services",
+        "method": "GET",
+        "url": "/api/documentation/services",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "loan-banks",
+        "method": "GET",
+        "url": "/api/loan/banks",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "ecosystem-services",
+        "method": "GET",
+        "url": "/api/ecosystem/services",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "franchise-regions-public",
+        "method": "GET",
+        "url": "/api/franchise/regions",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "agents-public",
+        "method": "GET",
+        "url": "/api/agents",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "otp-request-admin",
+        "method": "POST",
+        "url": "/api/auth/request-otp",
+        "expected": [
+          200,
+          429
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": "OTP sent successfully."
+      },
+      {
+        "name": "otp-login-admin",
+        "method": "POST",
+        "url": "/api/auth/login",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "otp-request-customer",
+        "method": "POST",
+        "url": "/api/auth/request-otp",
+        "expected": [
+          200,
+          429
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": "OTP sent successfully."
+      },
+      {
+        "name": "otp-login-customer",
+        "method": "POST",
+        "url": "/api/auth/login",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "otp-request-seller",
+        "method": "POST",
+        "url": "/api/auth/request-otp",
+        "expected": [
+          200,
+          429
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": "OTP sent successfully."
+      },
+      {
+        "name": "otp-login-seller",
+        "method": "POST",
+        "url": "/api/auth/login",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "auth-me-admin",
+        "method": "GET",
+        "url": "/api/auth/me",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "auth-me-customer",
+        "method": "GET",
+        "url": "/api/auth/me",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "auth-me-seller",
+        "method": "GET",
+        "url": "/api/auth/me",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "properties-for-customer",
+        "method": "GET",
+        "url": "/api/properties?city=Udaipur",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "visit-booking",
+        "method": "POST",
+        "url": "/api/properties/prop-seed-1/visit",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "visits-list",
+        "method": "GET",
+        "url": "/api/visits",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "chat-send",
+        "method": "POST",
+        "url": "/api/chat/send",
+        "expected": [
+          201
+        ],
+        "ok": false,
+        "status": 404,
+        "error": "",
+        "message": "Receiver not found."
+      },
+      {
+        "name": "chat-list",
+        "method": "GET",
+        "url": "/api/chat/prop-seed-1",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "review-submit",
+        "method": "POST",
+        "url": "/api/reviews",
+        "expected": [
+          201,
+          409
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "review-list",
+        "method": "GET",
+        "url": "/api/reviews/prop-seed-1",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "subscription-activate",
+        "method": "POST",
+        "url": "/api/subscriptions/activate",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "subscription-my",
+        "method": "GET",
+        "url": "/api/subscriptions/me",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "property-care-request",
+        "method": "POST",
+        "url": "/api/property-care/requests",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "property-care-list",
+        "method": "GET",
+        "url": "/api/property-care/requests",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "legal-request",
+        "method": "POST",
+        "url": "/api/legal/requests",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "legal-request-list",
+        "method": "GET",
+        "url": "/api/legal/requests",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "documentation-request",
+        "method": "POST",
+        "url": "/api/documentation/requests",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "documentation-request-list",
+        "method": "GET",
+        "url": "/api/documentation/requests",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "loan-assistance-request",
+        "method": "POST",
+        "url": "/api/loan/assistance",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "loan-assistance-list",
+        "method": "GET",
+        "url": "/api/loan/assistance",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "ecosystem-booking",
+        "method": "POST",
+        "url": "/api/ecosystem/bookings",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "ecosystem-booking-list",
+        "method": "GET",
+        "url": "/api/ecosystem/bookings",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "valuation-estimate",
+        "method": "POST",
+        "url": "/api/valuation/estimate",
+        "expected": [
+          200
+        ],
+        "ok": true,
+        "status": 200,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "rent-agreement-generate",
+        "method": "POST",
+        "url": "/api/rent-agreement/generate",
+        "expected": [
+          201
+        ],
+        "ok": true,
+        "status": 201,
+        "error": "",
+        "message": ""
+      },
+      {
+        "name": "rent-agreement-list",
+        "method": "GET",
+        "url": "/api/rent-agreement/drafts",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated AI threat detection."
+      },
+      {
+        "name": "franchise-request",
+        "method": "POST",
+        "url": "/api/franchise/requests",
+        "expected": [
+          201
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "franchise-request-list",
+        "method": "GET",
+        "url": "/api/franchise/requests",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "ai-pricing-suggestion",
+        "method": "POST",
+        "url": "/api/ai/pricing-suggestion",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "ai-description-generate",
+        "method": "POST",
+        "url": "/api/ai/description-generate",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "ai-fraud-scan",
+        "method": "POST",
+        "url": "/api/ai/fraud-scan",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "seller-create-property",
+        "method": "POST",
+        "url": "/api/properties",
+        "expected": [
+          201
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "seller-properties-mine",
+        "method": "GET",
+        "url": "/api/properties?mine=1",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-owner-verification-list",
+        "method": "GET",
+        "url": "/api/admin/owner-verification",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-overview",
+        "method": "GET",
+        "url": "/api/admin/overview",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-config-categories",
+        "method": "GET",
+        "url": "/api/admin/config/categories",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-config-cities",
+        "method": "GET",
+        "url": "/api/admin/config/cities",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-featured-pricing",
+        "method": "GET",
+        "url": "/api/admin/config/featured-pricing",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-users-list",
+        "method": "GET",
+        "url": "/api/admin/users",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "sealed-bid-submit",
+        "method": "POST",
+        "url": "/api/sealed-bids",
+        "expected": [
+          201,
+          409,
+          429
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "sealed-bid-mine",
+        "method": "GET",
+        "url": "/api/sealed-bids/mine",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "sealed-bid-summary",
+        "method": "GET",
+        "url": "/api/sealed-bids/summary",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "sealed-bid-admin-view",
+        "method": "GET",
+        "url": "/api/sealed-bids/admin",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-documentation-status-update",
+        "method": "POST",
+        "url": "/api/admin/documentation/requests/documentation-3/status",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-loan-status-update",
+        "method": "POST",
+        "url": "/api/admin/loan/assistance/loan-3/status",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "admin-ecosystem-status-update",
+        "method": "POST",
+        "url": "/api/admin/ecosystem/bookings/partnerBooking-3/status",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "notifications-customer",
+        "method": "GET",
+        "url": "/api/notifications",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      },
+      {
+        "name": "notifications-admin",
+        "method": "GET",
+        "url": "/api/notifications",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    ]
+  },
+  "notes": [
+    {
+      "kind": "inventory",
+      "message": "HTML inventory complete",
+      "details": {
+        "pages": 45
+      }
+    },
+    {
+      "kind": "page",
+      "message": "LIVE page check failed",
+      "details": {
+        "page": "client/dist/index.html",
+        "url": "https://bhaugehlot159.github.io/PropertySetu/client/dist/index.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      }
+    },
+    {
+      "kind": "page",
+      "message": "LOCAL page check failed",
+      "details": {
+        "page": "legal/disclaimer.html",
+        "url": "http://localhost:5000/legal/disclaimer.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      }
+    },
+    {
+      "kind": "page",
+      "message": "LOCAL page check failed",
+      "details": {
+        "page": "legal/privacy.html",
+        "url": "http://localhost:5000/legal/privacy.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      }
+    },
+    {
+      "kind": "page",
+      "message": "LOCAL page check failed",
+      "details": {
+        "page": "legal/refund.html",
+        "url": "http://localhost:5000/legal/refund.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      }
+    },
+    {
+      "kind": "page",
+      "message": "LOCAL page check failed",
+      "details": {
+        "page": "legal/service-agreement.html",
+        "url": "http://localhost:5000/legal/service-agreement.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      }
+    },
+    {
+      "kind": "page",
+      "message": "LOCAL page check failed",
+      "details": {
+        "page": "legal/terms.html",
+        "url": "http://localhost:5000/legal/terms.html",
+        "ok": false,
+        "status": 404,
+        "error": ""
+      }
+    },
+    {
+      "kind": "link",
+      "message": "missingAssets detected",
+      "details": {
+        "page": "client/dist/index.html",
+        "ref": "/assets/index-kE58TjvR.js",
+        "resolvedPath": "assets/index-kE58TjvR.js",
+        "resolveMode": "absolute"
+      }
+    },
+    {
+      "kind": "link",
+      "message": "missingAssets detected",
+      "details": {
+        "page": "client/dist/index.html",
+        "ref": "/assets/index-CNABVOx5.css",
+        "resolvedPath": "assets/index-CNABVOx5.css",
+        "resolveMode": "absolute"
+      }
+    },
+    {
+      "kind": "link",
+      "message": "missingAssets detected",
+      "details": {
+        "page": "client/index.html",
+        "ref": "/main.jsx",
+        "resolvedPath": "main.jsx",
+        "resolveMode": "absolute"
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: chat-send",
+      "details": {
+        "name": "chat-send",
+        "method": "POST",
+        "url": "/api/chat/send",
+        "expected": [
+          201
+        ],
+        "ok": false,
+        "status": 404,
+        "error": "",
+        "message": "Receiver not found."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: rent-agreement-list",
+      "details": {
+        "name": "rent-agreement-list",
+        "method": "GET",
+        "url": "/api/rent-agreement/drafts",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated AI threat detection."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: franchise-request",
+      "details": {
+        "name": "franchise-request",
+        "method": "POST",
+        "url": "/api/franchise/requests",
+        "expected": [
+          201
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: franchise-request-list",
+      "details": {
+        "name": "franchise-request-list",
+        "method": "GET",
+        "url": "/api/franchise/requests",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: ai-pricing-suggestion",
+      "details": {
+        "name": "ai-pricing-suggestion",
+        "method": "POST",
+        "url": "/api/ai/pricing-suggestion",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: ai-description-generate",
+      "details": {
+        "name": "ai-description-generate",
+        "method": "POST",
+        "url": "/api/ai/description-generate",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: ai-fraud-scan",
+      "details": {
+        "name": "ai-fraud-scan",
+        "method": "POST",
+        "url": "/api/ai/fraud-scan",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: seller-create-property",
+      "details": {
+        "name": "seller-create-property",
+        "method": "POST",
+        "url": "/api/properties",
+        "expected": [
+          201
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: seller-properties-mine",
+      "details": {
+        "name": "seller-properties-mine",
+        "method": "GET",
+        "url": "/api/properties?mine=1",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-owner-verification-list",
+      "details": {
+        "name": "admin-owner-verification-list",
+        "method": "GET",
+        "url": "/api/admin/owner-verification",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-overview",
+      "details": {
+        "name": "admin-overview",
+        "method": "GET",
+        "url": "/api/admin/overview",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-config-categories",
+      "details": {
+        "name": "admin-config-categories",
+        "method": "GET",
+        "url": "/api/admin/config/categories",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-config-cities",
+      "details": {
+        "name": "admin-config-cities",
+        "method": "GET",
+        "url": "/api/admin/config/cities",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-featured-pricing",
+      "details": {
+        "name": "admin-featured-pricing",
+        "method": "GET",
+        "url": "/api/admin/config/featured-pricing",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-users-list",
+      "details": {
+        "name": "admin-users-list",
+        "method": "GET",
+        "url": "/api/admin/users",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: sealed-bid-submit",
+      "details": {
+        "name": "sealed-bid-submit",
+        "method": "POST",
+        "url": "/api/sealed-bids",
+        "expected": [
+          201,
+          409,
+          429
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: sealed-bid-mine",
+      "details": {
+        "name": "sealed-bid-mine",
+        "method": "GET",
+        "url": "/api/sealed-bids/mine",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: sealed-bid-summary",
+      "details": {
+        "name": "sealed-bid-summary",
+        "method": "GET",
+        "url": "/api/sealed-bids/summary",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: sealed-bid-admin-view",
+      "details": {
+        "name": "sealed-bid-admin-view",
+        "method": "GET",
+        "url": "/api/sealed-bids/admin",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-documentation-status-update",
+      "details": {
+        "name": "admin-documentation-status-update",
+        "method": "POST",
+        "url": "/api/admin/documentation/requests/documentation-3/status",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-loan-status-update",
+      "details": {
+        "name": "admin-loan-status-update",
+        "method": "POST",
+        "url": "/api/admin/loan/assistance/loan-3/status",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: admin-ecosystem-status-update",
+      "details": {
+        "name": "admin-ecosystem-status-update",
+        "method": "POST",
+        "url": "/api/admin/ecosystem/bookings/partnerBooking-3/status",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: notifications-customer",
+      "details": {
+        "name": "notifications-customer",
+        "method": "GET",
+        "url": "/api/notifications",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    },
+    {
+      "kind": "api",
+      "message": "API check failed: notifications-admin",
+      "details": {
+        "name": "notifications-admin",
+        "method": "GET",
+        "url": "/api/notifications",
+        "expected": [
+          200
+        ],
+        "ok": false,
+        "status": 403,
+        "error": "",
+        "message": "Request blocked by automated security quarantine."
+      }
+    }
+  ],
+  "finishedAt": "2026-04-12T19:26:02.954Z",
+  "summary": {
+    "pageLocalOk": 40,
+    "pageLocalFail": 5,
+    "pageLiveOk": 44,
+    "pageLiveFail": 1,
+    "apiOk": 44,
+    "apiFail": 24,
+    "missingAssets": 3,
+    "missingAnchors": 0,
+    "totalIssues": 33
+  }
+}

@@ -9,6 +9,7 @@
     "option1:start": "npm --prefix backend run pro:start",
     "option1:dev": "npm --prefix backend run pro:dev",
     "site:smoke": "powershell -ExecutionPolicy Bypass -File ./scripts/live-website-smoke-check.ps1",
+    "site:audit": "node ./scripts/full-site-audit.mjs",
     "pro:preflight": "npm --prefix backend run pro:preflight",
     "pro:db:contract": "npm --prefix backend run pro:db:contract",
     "pro:steps:check": "npm --prefix backend run pro:steps:check",
