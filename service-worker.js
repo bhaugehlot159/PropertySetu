@@ -1,4 +1,4 @@
-const BUILD_TAG = "20260413g";
+﻿const BUILD_TAG = "20260413h";
 const CACHE_KEY = `propertysetu-shell-${BUILD_TAG}`;
 const SCOPE_PATH = (() => {
   try {
@@ -83,3 +83,4 @@ self.addEventListener("fetch", (event) => {
     }
   })());
 });
+

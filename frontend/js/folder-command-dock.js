@@ -282,6 +282,10 @@
 
     if (menuToggle) {
       menuToggle.addEventListener('click', function () {
+        if (window.PropertySetuAccountPanel && typeof window.PropertySetuAccountPanel.open === 'function') {
+          window.PropertySetuAccountPanel.open();
+          return;
+        }
         setShellMenuOpen(!shell.classList.contains('ps-olx-open'));
       });
       shell.addEventListener('click', function (event) {
@@ -346,6 +350,218 @@
     if (readJsonLocal('propertysetu-seller-session', null)) return 'seller';
     if (readJsonLocal('propertysetu-customer-session', null)) return 'customer';
     return 'guest';
+  }
+
+  function getRoleSession(role) {
+    return readJsonLocal('propertysetu-' + role + '-session', null);
+  }
+
+  function ensureAccountPanel() {
+    var existing = window.PropertySetuAccountPanel;
+    if (existing && typeof existing.attachTriggers === 'function') {
+      existing.attachTriggers();
+      return existing;
+    }
+
+    var overlay = document.createElement('div');
+    overlay.id = 'psAccountOverlay';
+    overlay.className = 'ps-account-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+
+    var drawer = document.createElement('aside');
+    drawer.id = 'psAccountDrawer';
+    drawer.className = 'ps-account-drawer';
+    drawer.setAttribute('aria-hidden', 'true');
+    drawer.setAttribute('aria-label', 'PropertySetu quick account and feature menu');
+    drawer.innerHTML =
+      '<div class="ps-account-head">' +
+      '<strong>PropertySetu Menu</strong>' +
+      '<button id="psAccountCloseBtn" type="button" aria-label="Close menu">x</button>' +
+      '</div>' +
+      '<section class="ps-account-welcome">' +
+      '<p id="psAccountRoleChip" class="ps-account-role-chip">Guest Mode</p>' +
+      '<h3 id="psAccountWelcomeTitle">Welcome to PropertySetu</h3>' +
+      '<p id="psAccountWelcomeHint">Login karke selling, wishlist, chat aur admin controls access karo.</p>' +
+      '<button id="psAccountLoginBtn" type="button">Login / Dashboard</button>' +
+      '</section>' +
+      '<nav id="psAccountMenuList" class="ps-account-menu" aria-label="Quick feature links"></nav>' +
+      '<p class="ps-account-foot">All critical actions: sell, ads, wishlist, chat, help, admin.</p>';
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(drawer);
+
+    var roleChip = drawer.querySelector('#psAccountRoleChip');
+    var titleEl = drawer.querySelector('#psAccountWelcomeTitle');
+    var hintEl = drawer.querySelector('#psAccountWelcomeHint');
+    var loginBtn = drawer.querySelector('#psAccountLoginBtn');
+    var closeBtn = drawer.querySelector('#psAccountCloseBtn');
+    var menuList = drawer.querySelector('#psAccountMenuList');
+
+    var quickItems = [
+      {
+        href: prefix + 'add-property.html',
+        label: 'Start selling',
+        meta: 'Photo, video, docs upload with verification checks.'
+      },
+      {
+        href: prefix + 'seller-dashboard.html',
+        label: 'My Ads',
+        meta: 'Views, saves, inquiries, boost and expiry alerts.'
+      },
+      {
+        href: prefix + 'user-dashboard.html#wishlist',
+        label: 'Wishlist',
+        meta: 'Saved properties + compare shortlist.'
+      },
+      {
+        href: prefix + 'subscription.html',
+        label: 'Become Elite Buyer',
+        meta: 'Priority support and premium workflows.'
+      },
+      {
+        href: prefix + 'subscription.html',
+        label: 'Become Elite Seller',
+        meta: 'Featured paid boost and seller growth tools.'
+      },
+      {
+        href: prefix + 'user-dashboard.html#chatBox',
+        label: 'Chat',
+        meta: 'Secure buyer-seller conversations.'
+      },
+      {
+        href: prefix + 'pages/legal-help.html',
+        label: 'Help',
+        meta: 'Legal, support and policy assistance.'
+      },
+      {
+        href: prefix + 'admin-dashboard.html',
+        label: 'Admin Control',
+        meta: 'Approvals, reports, fraud signals, commissions.'
+      }
+    ];
+
+    if (menuList) {
+      for (var i = 0; i < quickItems.length; i += 1) {
+        var item = quickItems[i];
+        var link = document.createElement('a');
+        link.className = 'ps-account-item';
+        link.href = item.href;
+        link.innerHTML = '<span>' + item.label + '</span><small>' + item.meta + '</small>';
+        menuList.appendChild(link);
+      }
+    }
+
+    function getRoleSnapshot() {
+      var admin = getRoleSession('admin');
+      if (admin) return { role: 'admin', name: String(admin.name || admin.fullName || 'Admin') };
+      var seller = getRoleSession('seller');
+      if (seller) return { role: 'seller', name: String(seller.name || seller.fullName || 'Seller') };
+      var customer = getRoleSession('customer');
+      if (customer) return { role: 'customer', name: String(customer.name || customer.fullName || 'Customer') };
+      return { role: 'guest', name: 'Guest' };
+    }
+
+    function syncHeader() {
+      var snapshot = getRoleSnapshot();
+      var role = snapshot.role;
+      var capRole = role.charAt(0).toUpperCase() + role.slice(1);
+      if (roleChip) roleChip.textContent = role === 'guest' ? 'Guest Mode' : capRole + ' Mode';
+      if (titleEl) titleEl.textContent = role === 'guest' ? 'Welcome to PropertySetu' : 'Welcome, ' + snapshot.name;
+      if (hintEl) {
+        hintEl.textContent = role === 'guest'
+          ? 'Login karke selling, wishlist, chat aur admin controls access karo.'
+          : 'Quick links se direct feature open karo. Session active hai.';
+      }
+      if (loginBtn) loginBtn.textContent = role === 'guest' ? 'Login' : 'Open Dashboard';
+    }
+
+    function open() {
+      syncHeader();
+      overlay.classList.add('show');
+      drawer.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      drawer.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('ps-account-open');
+    }
+
+    function close() {
+      overlay.classList.remove('show');
+      drawer.classList.remove('open');
+      overlay.setAttribute('aria-hidden', 'true');
+      drawer.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('ps-account-open');
+    }
+
+    function attachTriggers() {
+      var toggles = document.querySelectorAll('.olx-menu-btn, #psOlxMenuToggle');
+      for (var i = 0; i < toggles.length; i += 1) {
+        var toggle = toggles[i];
+        if (!toggle || toggle.getAttribute('data-account-bound') === '1') continue;
+        toggle.setAttribute('data-account-bound', '1');
+        toggle.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          open();
+        });
+      }
+    }
+
+    if (loginBtn) {
+      loginBtn.addEventListener('click', function () {
+        var snapshot = getRoleSnapshot();
+        if (snapshot.role === 'admin') {
+          window.location.href = prefix + 'admin-dashboard.html';
+          return;
+        }
+        if (snapshot.role === 'seller') {
+          window.location.href = prefix + 'seller-dashboard.html';
+          return;
+        }
+        if (snapshot.role === 'customer') {
+          window.location.href = prefix + 'dashboard.html';
+          return;
+        }
+        var customerAuth = document.getElementById('customerAuthButton');
+        if (customerAuth) {
+          customerAuth.click();
+        } else {
+          window.location.href = prefix + 'dashboard.html';
+        }
+        close();
+      });
+    }
+
+    if (menuList) {
+      menuList.addEventListener('click', function (event) {
+        var target = event.target;
+        if (!(target instanceof Element)) return;
+        var link = target.closest('a[href]');
+        if (!link) return;
+        close();
+      });
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', close);
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') close();
+    });
+    window.addEventListener('storage', function (event) {
+      if (!event || !event.key) return;
+      if (
+        event.key === 'propertysetu-customer-session'
+        || event.key === 'propertysetu-seller-session'
+        || event.key === 'propertysetu-admin-session'
+      ) {
+        syncHeader();
+      }
+    });
+
+    var api = { open: open, close: close, attachTriggers: attachTriggers };
+    window.PropertySetuAccountPanel = api;
+    attachTriggers();
+    syncHeader();
+    return api;
   }
 
   function normalizeAudience(input) {
@@ -534,6 +750,8 @@
     '.ps-olx-actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}',
     '.ps-olx-menu-toggle{display:none;border:1px solid #c7d3d9;background:#ffffff;border-radius:999px;padding:8px 12px;color:#18435d;font-size:.82rem;font-weight:800;cursor:pointer;}',
     '.ps-olx-menu-toggle:hover{background:#edf4f8;}',
+    '.olx-menu-btn{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border:1px solid #c8d4da;background:#fff;color:#173f57;border-radius:10px;font-size:1.15rem;font-weight:800;cursor:pointer;}',
+    '.olx-menu-btn:hover{background:#eef5f9;}',
     '.ps-olx-actions a{text-decoration:none;color:#1d3f57;font-weight:800;font-size:.88rem;}',
     '.ps-olx-actions .ps-olx-sell{padding:10px 18px;border:2px solid #f5c244;border-radius:999px;background:#0a5ddb;color:#fff;box-shadow:inset 0 0 0 2px #36c5cf;}',
     '.ps-olx-chip-row{display:flex;gap:8px;overflow-x:auto;padding:10px 2px 2px;}',
@@ -563,6 +781,26 @@
     'body.ps-olx-mode .home-folder-tab.active{background:#e9f1ff;border-color:#0a5ddb;color:#0a5ddb;}',
     'body.ps-olx-mode .recent-feature-card,body.ps-olx-mode .most-used-card{border:1px solid #d4dde1;box-shadow:none;background:#fff;}',
     'body.ps-olx-mode .listing-card,body.ps-olx-mode .property-card,body.ps-olx-mode .card{box-shadow:none !important;border:1px solid #d4dde1 !important;border-radius:10px !important;background:#fff !important;}',
+    '.ps-account-overlay{position:fixed;inset:0;z-index:1700;background:rgba(8,24,36,.42);backdrop-filter:blur(1px);opacity:0;pointer-events:none;transition:opacity .2s ease;}',
+    '.ps-account-overlay.show{opacity:1;pointer-events:auto;}',
+    '.ps-account-drawer{position:fixed;left:0;top:0;height:100dvh;width:min(420px,92vw);z-index:1710;background:#ffffff;box-shadow:20px 0 36px rgba(2,24,40,.26);transform:translateX(-106%);transition:transform .22s ease;display:flex;flex-direction:column;}',
+    '.ps-account-drawer.open{transform:translateX(0);}',
+    '.ps-account-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:16px 18px;border-bottom:1px solid #d8e2e8;background:#f7fbff;}',
+    '.ps-account-head strong{font-size:1.03rem;color:#124467;}',
+    '#psAccountCloseBtn{border:1px solid #c9d7e0;background:#fff;border-radius:8px;padding:6px 10px;color:#194361;font-weight:800;cursor:pointer;}',
+    '.ps-account-welcome{padding:14px 18px;border-bottom:1px solid #e0e7ec;}',
+    '.ps-account-role-chip{display:inline-flex;padding:3px 10px;border:1px solid #cddceb;border-radius:999px;background:#edf6ff;color:#1b4a6b;font-size:.78rem;font-weight:800;margin:0 0 10px;}',
+    '.ps-account-welcome h3{margin:0 0 8px;color:#153f5a;font-size:1.22rem;}',
+    '.ps-account-welcome p{margin:0;color:#4a697f;font-size:.92rem;line-height:1.35;}',
+    '#psAccountLoginBtn{margin-top:12px;border:0;border-radius:10px;background:#0a5ddb;color:#fff;font-weight:800;padding:10px 14px;cursor:pointer;}',
+    '#psAccountLoginBtn:hover{background:#094fb8;}',
+    '.ps-account-menu{padding:6px 10px 14px;overflow:auto;display:grid;gap:8px;}',
+    '.ps-account-item{display:block;text-decoration:none;padding:10px 11px;border:1px solid #d5e1ea;border-radius:10px;background:#fbfdff;}',
+    '.ps-account-item span{display:block;color:#164463;font-weight:800;font-size:.95rem;}',
+    '.ps-account-item small{display:block;color:#5d788d;font-size:.8rem;margin-top:3px;line-height:1.3;}',
+    '.ps-account-item:hover{background:#edf6ff;border-color:#b8d2e6;}',
+    '.ps-account-foot{margin:0;padding:10px 16px 14px;border-top:1px solid #e1e8ed;color:#608095;font-size:.78rem;}',
+    'body.ps-account-open{overflow:hidden;}',
     'body.ps-olx-mode footer{background:#002f6c !important;border-top:0 !important;}',
     'body.ps-olx-mode .ps-global-footer{background:#002f6c !important;border-top:0 !important;}',
     '@media (max-width:980px){.ps-olx-shell{top:58px;}.ps-olx-row{grid-template-columns:1fr;gap:8px;}.ps-olx-actions{justify-content:flex-start;}.ps-olx-menu-toggle{display:inline-flex;align-items:center;justify-content:center;}.ps-olx-shell:not(.ps-olx-open) .ps-olx-actions a{display:none;}.ps-olx-shell:not(.ps-olx-open) .ps-olx-chip-row{display:none;}.ps-olx-search input,.ps-olx-search button,.ps-olx-location{height:42px;}}',
@@ -688,6 +926,7 @@
 
   ensureResponsiveTopbarMenu();
   injectOlxShell();
+  ensureAccountPanel();
   injectBackToTopButton();
 
   function deriveBannerPageTitle() {
