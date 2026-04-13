@@ -1,5 +1,6 @@
 (function () {
-  const API_ROOT = "/api/v3";
+  const live = window.PropertySetuLive || null;
+  const API_ROOT = String(live?.CORE_API_BASE || `${window.location.origin}/api/v3`).replace(/\/+$/, "");
   const storageKey = "propertysetu.admin.simple.token";
   const state = {
     token: localStorage.getItem(storageKey) || "",
@@ -79,8 +80,22 @@
       if (!state.token) throw new Error("Please login first.");
       headers.Authorization = `Bearer ${state.token}`;
     }
-    const path = String(url || "").startsWith("/") ? `${API_ROOT}${url}` : `${API_ROOT}/${url}`;
-    const res = await fetch(path, {
+    const normalizedPath = String(url || "").startsWith("/") ? String(url) : `/${String(url || "")}`;
+
+    if (live && typeof live.request === "function") {
+      const payload = opts.body || null;
+      const response = await live.request(normalizedPath, {
+        method: opts.method || "GET",
+        token: state.token || "",
+        ...(payload ? { data: payload } : {}),
+      });
+      if (response && response.ok === false) {
+        throw new Error(response.message || "Request failed.");
+      }
+      return response;
+    }
+
+    const res = await fetch(`${API_ROOT}${normalizedPath}`, {
       method: opts.method || "GET",
       headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,

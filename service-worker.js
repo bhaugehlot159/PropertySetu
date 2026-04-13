@@ -1,15 +1,29 @@
-const BUILD_TAG = "20260413b";
+const BUILD_TAG = "20260413d";
 const CACHE_KEY = `propertysetu-shell-${BUILD_TAG}`;
+const SCOPE_PATH = (() => {
+  try {
+    const parsed = new URL(self.registration.scope);
+    return parsed.pathname.replace(/\/+$/, "") || "";
+  } catch {
+    return "";
+  }
+})();
+const withScope = (resourcePath) => {
+  const raw = String(resourcePath || "").trim() || "/";
+  const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+  if (!SCOPE_PATH || SCOPE_PATH === "/") return normalized;
+  return `${SCOPE_PATH}${normalized}`;
+};
 const SHELL_FILES = [
-  "/",
-  "/index.html",
-  "/manifest.webmanifest",
-  "/assets/icons/propertysetu-app-icon.svg",
-  `/css/style.css?v=${BUILD_TAG}`,
-  `/css/professional-folder.css?v=${BUILD_TAG}`,
-  `/js/live-api.js?v=${BUILD_TAG}`,
-  `/js/folder-command-dock.js?v=${BUILD_TAG}`,
-  `/js/app-launch-readiness.js?v=${BUILD_TAG}`
+  withScope("/"),
+  withScope("/index.html"),
+  withScope("/manifest.webmanifest"),
+  withScope("/assets/icons/propertysetu-app-icon.svg"),
+  withScope(`/css/style.css?v=${BUILD_TAG}`),
+  withScope(`/css/professional-folder.css?v=${BUILD_TAG}`),
+  withScope(`/js/live-api.js?v=${BUILD_TAG}`),
+  withScope(`/js/folder-command-dock.js?v=${BUILD_TAG}`),
+  withScope(`/js/app-launch-readiness.js?v=${BUILD_TAG}`)
 ];
 
 self.addEventListener("install", (event) => {
@@ -62,7 +76,7 @@ self.addEventListener("fetch", (event) => {
       const cached = await cache.match(request);
       if (cached) return cached;
       if (isNavigation) {
-        const fallback = await cache.match("/index.html");
+        const fallback = await cache.match(withScope("/index.html"));
         if (fallback) return fallback;
       }
       return Response.error();

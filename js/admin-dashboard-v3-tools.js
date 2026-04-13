@@ -4,7 +4,7 @@
   const approvedRoot = document.getElementById('approvedProperties');
   if (!pendingRoot || !approvedRoot) return;
 
-  const CORE_BASE = `${window.location.origin}/api/v3`;
+  const CORE_BASE = String(live.CORE_API_BASE || `${window.location.origin}/api/v3`);
   const LISTINGS_KEY = 'propertySetu:listings';
   const STYLE_ID = 'admin-v3-tools-style';
 

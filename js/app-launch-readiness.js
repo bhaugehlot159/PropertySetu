@@ -9,6 +9,49 @@
   const forceReadinessBar = searchParams.get("showReadiness") === "1";
   const isStaticPublicHost = /\.github\.io$/i.test(hostName);
   const isReadinessPage = /(admin|deploy|production|checklist|live-platform-app)/i.test(pathName);
+  const resolveAppBasePath = () => {
+    const fromLiveRoot = String(window.PropertySetuLive?.configuredApiRoot || "").trim();
+    if (fromLiveRoot && /^https?:\/\//i.test(fromLiveRoot)) {
+      try {
+        const parsed = new URL(fromLiveRoot);
+        if (parsed.origin === window.location.origin) {
+          const normalized = parsed.pathname.replace(/\/+$/, "");
+          return normalized || "";
+        }
+      } catch {
+        // Ignore malformed runtime root and continue with fallback detection.
+      }
+    }
+
+    const scriptSrc = String(document.currentScript?.src || "").trim();
+    if (scriptSrc) {
+      try {
+        const parsed = new URL(scriptSrc, window.location.href);
+        const idx = parsed.pathname.lastIndexOf("/js/");
+        if (idx >= 0) {
+          const candidate = parsed.pathname.slice(0, idx).replace(/\/+$/, "");
+          return candidate || "";
+        }
+      } catch {
+        // no-op
+      }
+    }
+
+    if (isStaticPublicHost) {
+      const match = pathName.match(/^\/[^/]+/);
+      if (match?.[0] && match[0].toLowerCase() !== "/pages" && match[0].toLowerCase() !== "/folders") {
+        return match[0].replace(/\/+$/, "");
+      }
+    }
+    return "";
+  };
+  const APP_BASE_PATH = resolveAppBasePath();
+  const withAppBase = (resourcePath) => {
+    const raw = String(resourcePath || "").trim() || "/";
+    const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+    if (!APP_BASE_PATH || APP_BASE_PATH === "/") return normalized;
+    return `${APP_BASE_PATH}${normalized}`;
+  };
 
   const getHidePreference = () => {
     try {
@@ -171,13 +214,19 @@
     if (!("serviceWorker" in navigator)) {
       return Promise.resolve(false);
     }
-    return navigator.serviceWorker.register("service-worker.js")
+    return navigator.serviceWorker.register(withAppBase("/service-worker.js"), { scope: withAppBase("/") })
       .then(() => true)
       .catch(() => false);
   };
 
   const loadReadiness = async () => {
-    const probes = ["/api/system/app-launch-readiness", "/api/v3/system/app-launch-readiness"];
+    const live = window.PropertySetuLive || {};
+    const configuredApiRoot = String(live.configuredApiRoot || window.location.origin).trim().replace(/\/+$/, "");
+    const apiRoot = configuredApiRoot || window.location.origin;
+    const probes = [
+      `${apiRoot}/api/system/app-launch-readiness`,
+      `${apiRoot}/api/v3/system/app-launch-readiness`,
+    ];
     for (const endpoint of probes) {
       try {
         const response = await fetch(endpoint, { headers: { Accept: "application/json" } });

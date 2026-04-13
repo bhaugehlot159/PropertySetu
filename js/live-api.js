@@ -55,10 +55,7 @@
     String(window.__PROPERTYSETU_ENABLE_DEMO_FALLBACK__ || '').trim().toLowerCase() === 'true'
     || readStorageFlag(DEMO_FALLBACK_KEY)
   );
-  const allowStaticQueueFallback = (
-    isGitHubPagesHost
-    && configuredApiRoot === window.location.origin
-  );
+  const allowStaticQueueFallback = isGitHubPagesHost;
   const allowDemoFallback = explicitDemoFallback || allowStaticQueueFallback;
   const runtimeFallbackEnabled = allowDemoFallback;
   const strictRealMode = !runtimeFallbackEnabled;

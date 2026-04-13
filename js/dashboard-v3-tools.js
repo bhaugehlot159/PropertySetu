@@ -7,6 +7,7 @@
 
   const LISTINGS_KEY = 'propertySetu:listings';
   const STYLE_ID = 'dashboard-v3-tools-style';
+  const CORE_API_BASE = String(live.CORE_API_BASE || `${window.location.origin}/api/v3`);
 
   if (!document.getElementById(STYLE_ID)) {
     const styleEl = document.createElement('style');
@@ -88,7 +89,7 @@
     }
 
     const normalizedPath = String(path || '').startsWith('/') ? String(path) : `/${String(path || '')}`;
-    const response = await fetch(`${window.location.origin}/api/v3${normalizedPath}`, {
+    const response = await fetch(`${CORE_API_BASE}${normalizedPath}`, {
       method,
       headers: {
         'Content-Type': 'application/json',

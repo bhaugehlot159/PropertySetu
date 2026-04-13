@@ -840,7 +840,7 @@ body.ps-pro-surface .footer-links a:hover {
 body.ps-pro-surface:not(.ps-olx-mode) .section > .container,
 body.ps-pro-surface:not(.ps-olx-mode) main > .container,
 body.ps-pro-surface:not(.ps-olx-mode) main .shell .container {
-  color: #d4e8f8;
+  color: #365774;
 }
 
 body.ps-pro-surface.ps-olx-mode .section > .container,
@@ -864,7 +864,7 @@ body.ps-pro-surface:not(.ps-olx-mode) .section-note,
 body.ps-pro-surface:not(.ps-olx-mode) .section-intro,
 body.ps-pro-surface:not(.ps-olx-mode) .tiny-note,
 body.ps-pro-surface:not(.ps-olx-mode) .results-meta {
-  color: #cfe3f5 !important;
+  color: #4b6b86 !important;
 }
 
 body.ps-pro-surface.ps-olx-mode .section-header p,
