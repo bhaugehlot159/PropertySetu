@@ -1,6 +1,7 @@
 (() => {
   const API_BASE = `${window.location.origin}/api`;
   const live = window.PropertySetuLive || null;
+  const allowDemoFallback = Boolean(live?.allowDemoFallback);
   const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
   const customerAuthButton = document.getElementById('customerAuthButton');
@@ -192,11 +193,18 @@
   };
 
   const shouldFallbackToLocal = (error) => {
+    if (!allowDemoFallback) return false;
     const msg = String(error?.message || '').toLowerCase();
     return (
       msg.includes('failed to fetch')
       || msg.includes('network')
       || msg.includes('abort')
+      || msg.includes('login required')
+      || msg.includes('token required')
+      || msg.includes('unauthorized')
+      || msg.includes('forbidden')
+      || msg.includes('request failed (401)')
+      || msg.includes('request failed (403)')
       || msg.includes('request failed (404)')
       || msg.includes('request failed (405)')
       || msg.includes('request failed (500)')
@@ -250,6 +258,11 @@
       if (authOtpInput) authOtpInput.value = '';
       setAuthError(response?.message || 'OTP sent successfully. Registered email/mobile check karein.');
     } catch (error) {
+      if (shouldFallbackToLocal(error)) {
+        if (authOtpInput) authOtpInput.value = '123456';
+        setAuthError('Live OTP service unavailable. Local mode active: OTP `123456` use karein.');
+        return;
+      }
       setAuthError(error.message || 'OTP request failed.');
     }
   };
@@ -365,8 +378,24 @@
         loggedInAt: new Date().toISOString(),
       });
     } catch (error) {
-      setAuthError(error.message || 'Authentication failed.');
-      return;
+      if (!shouldFallbackToLocal(error)) {
+        setAuthError(error.message || 'Authentication failed.');
+        return;
+      }
+      try {
+        const localResponse = authAction === 'signup'
+          ? localRegister(authMode, payload)
+          : localLogin(authMode, payload);
+        setState(authMode, {
+          ...shapeUser(localResponse.user || {}, authMode),
+          token: localResponse.token || '',
+          provider: 'local',
+          loggedInAt: new Date().toISOString(),
+        });
+      } catch (localError) {
+        setAuthError(localError.message || 'Authentication failed.');
+        return;
+      }
     }
 
     pushNotification(

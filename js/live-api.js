@@ -59,6 +59,37 @@
   const allowDemoFallback = explicitDemoFallback || allowStaticQueueFallback;
   const runtimeFallbackEnabled = allowDemoFallback;
   const strictRealMode = !runtimeFallbackEnabled;
+  const appBasePath = (() => {
+    try {
+      const pathName = String(window.location.pathname || "").toLowerCase();
+      const idx = pathName.indexOf("/propertysetu");
+      if (idx >= 0) return "/PropertySetu";
+      return "";
+    } catch {
+      return "";
+    }
+  })();
+
+  const cleanupStaleServiceWorkers = () => {
+    if (!isGitHubPagesHost) return;
+    if (!("serviceWorker" in navigator) || typeof navigator.serviceWorker.getRegistrations !== "function") return;
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((registration) => {
+          try {
+            const scopeUrl = new URL(String(registration.scope || ""), window.location.origin);
+            const normalizedScope = scopeUrl.pathname.replace(/\/+$/, "");
+            if (appBasePath && normalizedScope && !normalizedScope.toLowerCase().includes(appBasePath.toLowerCase())) {
+              registration.unregister().catch(() => {});
+            }
+          } catch {
+            // ignore malformed scope data
+          }
+        });
+      })
+      .catch(() => {});
+  };
+  cleanupStaleServiceWorkers();
 
   const readJson = (key, fallback) => {
     try {
@@ -132,6 +163,12 @@
       msg.includes('failed to fetch')
       || msg.includes('network')
       || msg.includes('abort')
+      || msg.includes('login required')
+      || msg.includes('token required')
+      || msg.includes('unauthorized')
+      || msg.includes('forbidden')
+      || msg.includes('401')
+      || msg.includes('403')
       || msg.includes('404')
       || msg.includes('405')
       || msg.includes('500')
