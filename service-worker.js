@@ -1,4 +1,4 @@
-const BUILD_TAG = "20260413e";
+const BUILD_TAG = "20260413f";
 const CACHE_KEY = `propertysetu-shell-${BUILD_TAG}`;
 const SCOPE_PATH = (() => {
   try {

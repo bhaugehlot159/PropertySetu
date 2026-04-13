@@ -150,6 +150,39 @@ body.ps-pro-surface .results-meta {
   color: #d1e7f8;
 }
 
+body.ps-pro-surface.ps-olx-mode {
+  background:
+    radial-gradient(900px 300px at 100% -18%, rgba(151, 189, 216, 0.14), rgba(151, 189, 216, 0)),
+    #f2f4f6;
+}
+
+body.ps-pro-surface.ps-olx-mode .topbar,
+body.ps-pro-surface.ps-olx-mode > header {
+  border-bottom: 1px solid #d2dfe9;
+  background: #f8fafc;
+  color: #1c4766;
+}
+
+body.ps-pro-surface.ps-olx-mode .topbar .brand {
+  color: #12456d;
+  text-shadow: none;
+}
+
+body.ps-pro-surface.ps-olx-mode .main-nav a,
+body.ps-pro-surface.ps-olx-mode .topbar nav a,
+body.ps-pro-surface.ps-olx-mode .auth-actions a {
+  color: #2b5575;
+}
+
+body.ps-pro-surface.ps-olx-mode .section {
+  background: linear-gradient(180deg, rgba(242, 246, 250, 0.92), rgba(242, 246, 250, 0.92));
+  border-top: 1px solid #dae6f0;
+}
+
+body.ps-pro-surface.ps-olx-mode .soft-bg {
+  background: linear-gradient(180deg, rgba(233, 240, 247, 0.88), rgba(233, 240, 247, 0.88));
+}
+
 /* Keep white-card/form text dark so it remains readable */
 body.ps-pro-surface .card h1,
 body.ps-pro-surface .card h2,

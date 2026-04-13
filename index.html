@@ -12,10 +12,10 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="assets/icons/propertysetu-app-icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="assets/icons/propertysetu-app-icon.svg" />
-  <link rel="stylesheet" href="css/style.css?v=20260413e" />
-  <link rel="stylesheet" href="css/professional-folder.css?v=20260413e" />
+  <link rel="stylesheet" href="css/style.css?v=20260413f" />
+  <link rel="stylesheet" href="css/professional-folder.css?v=20260413f" />
 </head>
-<body class="ps-pro-surface">
+<body class="ps-pro-surface ps-olx-mode">
   <header class="topbar">
     <div class="container topbar-inner">
       <a class="brand" href="index.html">PropertySetu Udaipur</a>
@@ -68,6 +68,45 @@
       </div>
     </div>
   </header>
+
+  <section id="olxQuickHome" class="olx-quick-shell" aria-label="OLX inspired quick home">
+    <div class="container olx-quick-inner">
+      <div class="olx-quick-top">
+        <button type="button" class="olx-menu-btn" aria-label="Open quick menu">☰</button>
+        <strong class="olx-mini-brand">PropertySetu</strong>
+        <span class="olx-location-chip">Udaipur</span>
+      </div>
+
+      <div class="olx-search-wrap">
+        <input id="olxQuickSearchInput" type="text" placeholder="Search locality, category, purpose..." />
+        <button id="olxQuickSearchBtn" class="solid-btn" type="button">Search</button>
+        <a class="olx-mini-link" href="user-dashboard.html">Wishlist</a>
+        <a class="sell-pill" href="add-property.html">+ SELL</a>
+      </div>
+
+      <div class="olx-category-strip" role="navigation" aria-label="Quick categories">
+        <a href="#marketplace">All Categories</a>
+        <a href="#marketplace">Properties</a>
+        <a href="pages/buy-sell.html">Buy</a>
+        <a href="pages/rent.html">Rent</a>
+        <a href="property-care.html">Property Care</a>
+        <a href="#decisionTools">Tools</a>
+        <a href="seller-dashboard.html">Seller</a>
+        <a href="admin-dashboard.html">Admin</a>
+      </div>
+
+      <div class="olx-icon-grid">
+        <a class="olx-icon-card" href="pages/buy-sell.html"><span>🏠</span><small>Buy</small></a>
+        <a class="olx-icon-card" href="pages/rent.html"><span>🔑</span><small>Rent</small></a>
+        <a class="olx-icon-card" href="add-property.html"><span>📤</span><small>Post</small></a>
+        <a class="olx-icon-card" href="user-dashboard.html"><span>💬</span><small>Chat</small></a>
+        <a class="olx-icon-card" href="seller-dashboard.html"><span>📈</span><small>Seller</small></a>
+        <a class="olx-icon-card" href="admin-dashboard.html"><span>🛡</span><small>Admin</small></a>
+        <a class="olx-icon-card" href="subscription.html"><span>⭐</span><small>Boost</small></a>
+        <a class="olx-icon-card" href="auction.html"><span>🔒</span><small>Sealed Bid</small></a>
+      </div>
+    </div>
+  </section>
 
   <section class="desktop-dock-shell" aria-label="Desktop quick feature dock">
     <div class="container">
@@ -1116,13 +1155,14 @@
   <script src="js/pro-select.js"></script>
   <script src="js/home-auth.js"></script>
   <script src="js/home-top-nav-groups.js"></script>
+  <script src="js/home-olx-lite.js?v=20260413f"></script>
   <script src="js/home-folder-layout.js"></script>
   <script src="js/home-recent-features.js"></script>
   <script src="js/home-feature-command-center.js"></script>
   <script src="js/home-desktop-quick-dock.js"></script>
   <script src="js/home-mobile-quick-bar.js"></script>
-  <script src="js/app-launch-readiness.js?v=20260413e"></script>
-  <script src="js/folder-command-dock.js?v=20260413e"></script>
+  <script src="js/app-launch-readiness.js?v=20260413f"></script>
+  <script src="js/folder-command-dock.js?v=20260413f"></script>
 </body>
 </html>
 
