@@ -174,6 +174,7 @@
   }
 
   function injectOlxShell() {
+    if (document.getElementById('olxQuickHome')) return;
     if (document.querySelector('.ps-olx-shell')) return;
     var hostHeader = document.querySelector('.topbar') || document.querySelector('header');
     if (!hostHeader || !hostHeader.parentNode) return;
